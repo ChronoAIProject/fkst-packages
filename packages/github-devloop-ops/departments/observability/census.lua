@@ -259,9 +259,25 @@ function core.observe_entity_log_line(proposal_id, fields)
 end
 
 function core.collect_observability_entities(event, repo, limits, deadline)
-  local labels = { devloop_base._enabled_label, devloop_base._hold_label }
+  -- One paginated `gh issue list` runs per entry of this list, so a repeated label
+  -- costs a full redundant sweep every cycle. Several states share one label
+  -- (dependency_wait and ready both map to fkst-dev:ready; closed-unmerged and
+  -- blocked both map to fkst-dev:blocked), so dedupe before sweeping. The entity
+  -- set is unchanged: observability_sorted_numbers already collapses repeats by
+  -- issue number downstream.
+  local labels = {}
+  local label_seen = {}
+  local function add_label(label)
+    if label == nil or label_seen[label] then
+      return
+    end
+    label_seen[label] = true
+    table.insert(labels, label)
+  end
+  add_label(devloop_base._enabled_label)
+  add_label(devloop_base._hold_label)
   for _, state in ipairs(devloop_state.issue_state_order()) do
-    table.insert(labels, devloop_state.state_label(state))
+    add_label(devloop_state.state_label(state))
   end
   local rotation_seed = core.observability_rotation_seed(event)
   local issue_items, deferred_issue_pages, issue_list_deferred_reason = core.observability_list_issue_candidates(repo, labels, limits, deadline, rotation_seed)
