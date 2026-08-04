@@ -745,7 +745,7 @@ local function install_legacy_command_renderers(core)
     return gh_pr_view_command(repo, number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author")
   end
   core.gh_pr_list_freshness_cmd = core.gh_pr_list_freshness_cmd or function(repo)
-    return gh_api_paginate("repos/" .. tostring(repo) .. "/pulls?state=open&per_page=100")
+    return gh_api_paginate("repos/" .. tostring(repo) .. "/issues?state=open&per_page=100")
   end
   core.gh_pr_list_recent_merged_cmd = core.gh_pr_list_recent_merged_cmd or function(repo, limit)
     return "gh pr list --repo " .. shell_single_quote(repo)
