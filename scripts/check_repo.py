@@ -5,10 +5,34 @@ from __future__ import annotations
 
 import re
 import sys
-import os, base64, binascii, subprocess
+import os
+import base64
+import binascii
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-import check_repo_config, check_repo_content_truncation, check_repo_cross_package, check_repo_dedup, check_repo_dependency_cycle, check_repo_error_class, check_repo_gh_git_adapter as gh_git_adapter, check_repo_github_content_ingress, check_repo_ingress, check_repo_integration_coverage, check_repo_library_layering, check_repo_namespaced_queue, check_repo_ownership_gate, check_repo_perm, check_repo_producer_liveness, check_repo_saga_handler, check_repo_saga_head, check_repo_shell_out_to_self, check_repo_std_dependency_model, check_repo_version_suffix, ratchet_base
+import check_repo_config
+import check_repo_content_truncation
+import check_repo_cross_package
+import check_repo_dedup
+import check_repo_dependency_cycle
+import check_repo_error_class
+import check_repo_gh_git_adapter as gh_git_adapter
+import check_repo_github_content_ingress
+import check_repo_ingress
+import check_repo_integration_coverage
+import check_repo_library_layering
+import check_repo_namespaced_queue
+import check_repo_ownership_gate
+import check_repo_pagination
+import check_repo_perm
+import check_repo_producer_liveness
+import check_repo_saga_handler
+import check_repo_saga_head
+import check_repo_shell_out_to_self
+import check_repo_std_dependency_model
+import check_repo_version_suffix
+import ratchet_base
 LINE_LIMIT = 1000
 # Warn before the hard limit so files split by stable responsibility, not last-minute churn.
 LINE_WARNING_MARGIN = 100
@@ -33,11 +57,6 @@ TEST_REQUIRE_RE = re.compile(
     r"(?:(?P<quote>[\"'])tests\.(?P<quoted>[A-Za-z0-9_.-]+)(?P=quote)"
     r"|(?P<long_literal>\[(?P<long_eq>=*)\[tests\.(?P<long>[A-Za-z0-9_.-]+)\](?P=long_eq)\]))"
     r"\s*(?P<close_parens>\)*)"
-)
-GRAPHQL_FIRST_CONNECTION_RE = re.compile(
-    r"\b[A-Za-z_][A-Za-z0-9_]*\s*"
-    r"\([^(){}]*\bfirst\s*:\s*\d+\b[^(){}]*\)\s*\{",
-    re.DOTALL,
 )
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
@@ -83,47 +102,24 @@ def rel(root: Path, path: Path) -> str:
             pass
     return path.relative_to(root).as_posix()
 
-def read_text(path: Path) -> str: return path.read_text(encoding="utf-8")
-def package_roots(root: Path) -> list[Path]: return check_repo_config.package_roots(root)
-def packages_root(root: Path) -> Path: return check_repo_config.package_root(root)
-def line_count(path: Path) -> int: return len(read_text(path).splitlines())
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+def package_roots(root: Path) -> list[Path]:
+    return check_repo_config.package_roots(root)
+def packages_root(root: Path) -> Path:
+    return check_repo_config.package_root(root)
+def line_count(path: Path) -> int:
+    return len(read_text(path).splitlines())
 def add(violations: list[str], rule: str, message: str) -> None: violations.append(f"{rule}: {message}")
-
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
 
 def mask_span(chars: list[str], start: int, end: int) -> None:
     for index in range(start, end):
         if chars[index] != "\n":
             chars[index] = " "
 
-def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-def end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
 def bracket_test_assignment_key_string_end(text: str, quote_start: int) -> int | None:
     quote = text[quote_start]
-    string_end = end_of_quoted_string(text, quote_start)
+    string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
     if string_end > len(text) or text[string_end - 1] != quote:
         return None
     if not TEST_NAME_RE.fullmatch(text[quote_start + 1 : string_end - 1]):
@@ -153,10 +149,10 @@ def strip_lua_comments_and_strings(text: str) -> str:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
@@ -166,17 +162,17 @@ def strip_lua_comments_and_strings(text: str) -> str:
 
         char = text[cursor]
         if char in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             if bracket_test_assignment_key_string_end(text, cursor) is None:
                 mask_span(chars, cursor, end)
             cursor = end
             continue
 
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
                 mask_span(chars, cursor, end)
                 cursor = end
                 continue
@@ -190,10 +186,10 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 cursor = len(text) if newline == -1 else newline
@@ -201,7 +197,7 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
 
         char = text[cursor]
         if char in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             content_end = end - 1 if end <= len(text) and text[end - 1] == char else end
             literals.append(
                 LuaStringLiteral(
@@ -213,7 +209,7 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
             continue
 
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
                 body_start = cursor + opener_len
@@ -232,83 +228,18 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
     return literals
 
 
-def matching_graphql_brace(text: str, open_index: int) -> int | None:
-    depth = 0
-    for index in range(open_index, len(text)):
-        char = text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
-
-
-def graphql_top_level_text(text: str) -> str:
-    chars: list[str] = []
-    depth = 0
-    for char in text:
-        if char == "{":
-            depth += 1
-            chars.append(" ")
-        elif char == "}":
-            depth = max(0, depth - 1)
-            chars.append(" ")
-        elif depth == 0:
-            chars.append(char)
-        elif char == "\n":
-            chars.append("\n")
-        else:
-            chars.append(" ")
-    return "".join(chars)
-
-
-def graphql_depth_at(text: str, index: int) -> int:
-    depth = 0
-    for char in text[:index]:
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth = max(0, depth - 1)
-    return depth
-
-
-def graphql_top_level_field_body(text: str, field_name: str) -> str | None:
-    field_re = re.compile(r"\b" + re.escape(field_name) + r"\b\s*\{")
-    for match in field_re.finditer(text):
-        if graphql_depth_at(text, match.start()) != 0:
-            continue
-        open_index = match.end() - 1
-        close_index = matching_graphql_brace(text, open_index)
-        if close_index is not None:
-            return text[open_index + 1 : close_index]
-    return None
-
-
-def graphql_connection_has_truncation_guard(selection_body: str) -> bool:
-    top_level = graphql_top_level_text(selection_body)
-    if re.search(r"\btotalCount\b", top_level):
-        return True
-
-    page_info_body = graphql_top_level_field_body(selection_body, "pageInfo")
-    if page_info_body is None:
-        return False
-    return re.search(r"\bhasNextPage\b", graphql_top_level_text(page_info_body)) is not None
-
-
 def unguarded_graphql_first_connection_lines(text: str) -> list[int]:
     lines: list[int] = []
     for literal in lua_string_literals(text):
         if "first" not in literal.content or "{" not in literal.content:
             continue
-        for match in GRAPHQL_FIRST_CONNECTION_RE.finditer(literal.content):
+        for match in check_repo_pagination.GRAPHQL_FIRST_CONNECTION_RE.finditer(literal.content):
             open_index = match.end() - 1
-            close_index = matching_graphql_brace(literal.content, open_index)
+            close_index = check_repo_pagination.matching_graphql_brace(literal.content, open_index)
             if close_index is None:
                 continue
             selection_body = literal.content[match.end() : close_index]
-            if not graphql_connection_has_truncation_guard(selection_body):
+            if not check_repo_pagination.graphql_connection_has_truncation_guard(selection_body):
                 lines.append(literal.line + literal.content.count("\n", 0, match.start()))
     return lines
 
@@ -412,7 +343,7 @@ def hidden_text_encoded_literal_lines(text: str) -> list[int]:
         quote_start = match.start("quote")
         if not is_unmasked_range(text, stripped, match.start(), quote_start):
             continue
-        string_end = end_of_quoted_string(text, quote_start)
+        string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
         if string_end > len(text) or text[string_end - 1] != match.group("quote"):
             continue
         if not looks_like_decode_helper(match.group("func")):
@@ -882,13 +813,13 @@ def check_no_permission_control(root: Path, violations: list[str]) -> None: chec
 
 def is_saga_handler_source(source: str) -> bool: return check_repo_saga_handler.is_saga_handler_source(source, strip_lua_comments_and_strings)
 def saga_handler_ratchet_violations(sources: dict[str, str], allowlist: set[str], base_allowlist: set[str] | None = None) -> list[str]: return check_repo_saga_handler.ratchet_violations(sources, allowlist, strip_lua_comments_and_strings, base_allowlist)
-def saga_allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]: return check_repo_saga_handler.allowlist_at_dev_base(root)
 
 def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
     allow_path = allowlist_path(root, check_repo_saga_handler.ALLOWLIST, allowlist_dir)
     allowlist = set() if not allow_path.exists() else {line.strip() for line in read_text(allow_path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
     sources = {rel(root, path): read_text(path) for packages in package_roots(root) for path in sorted(packages.glob("*/departments/*/main.lua")) if path.is_file()}
-    base_status, base_allowlist = saga_allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(root, allowlist=check_repo_saga_handler.ALLOWLIST,
+        parse_allowlist_lines=check_repo_saga_handler.parse_dev_allowlist_lines) if enforce_base else ("absent", None)
     if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     violations.extend(saga_handler_ratchet_violations(sources, allowlist, base_allowlist))
 

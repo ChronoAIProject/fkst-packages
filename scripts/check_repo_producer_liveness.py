@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 ALLOWLIST = "migration/producer-liveness.allowlist"
@@ -65,45 +65,15 @@ def mask_span(chars: list[str], start: int, end: int) -> None:
             chars[index] = " "
 
 
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
 def strip_lua_comments(text: str) -> str:
     chars = list(text)
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
@@ -112,13 +82,13 @@ def strip_lua_comments(text: str) -> str:
             continue
         char = text[cursor]
         if char in ("'", '"'):
-            cursor = end_of_quoted_string(text, cursor)
+            cursor = check_repo_config.lua_quoted_string_end(text, cursor)
             continue
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(text, cursor + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
                 continue
         cursor += 1
     return "".join(chars)
@@ -129,10 +99,10 @@ def mask_lua_comments_and_strings(text: str) -> str:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
@@ -141,15 +111,15 @@ def mask_lua_comments_and_strings(text: str) -> str:
             continue
         char = text[cursor]
         if char in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             mask_span(chars, cursor, end)
             cursor = end
             continue
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
                 mask_span(chars, cursor, end)
                 cursor = end
                 continue
@@ -287,20 +257,20 @@ def embedded_fire_raiser_child_sources(source: str) -> list[str]:
     cursor = 0
     while cursor < len(source):
         if source.startswith("--", cursor):
-            bracket = long_bracket_at(source, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(source, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(source, cursor + 2 + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(source, cursor + 2 + opener_len, closer)
             else:
                 newline = source.find("\n", cursor)
                 cursor = len(source) if newline == -1 else newline
             continue
         char = source[cursor]
         if char in ("'", '"'):
-            cursor = end_of_quoted_string(source, cursor)
+            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
             continue
         if char == "[":
-            bracket = long_bracket_at(source, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
                 body_start = cursor + opener_len
@@ -378,13 +348,13 @@ def bracket_body(source: str, start: int) -> str | None:
     while cursor < len(source):
         char = source[cursor]
         if char in ("'", '"'):
-            cursor = end_of_quoted_string(source, cursor)
+            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
             continue
         if char == "[":
-            bracket = long_bracket_at(source, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(source, cursor + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(source, cursor + opener_len, closer)
                 continue
         if char == "{":
             depth += 1
@@ -402,13 +372,13 @@ def top_level_table_bodies(source: str) -> list[str]:
     while cursor < len(source):
         char = source[cursor]
         if char in ("'", '"'):
-            cursor = end_of_quoted_string(source, cursor)
+            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
             continue
         if char == "[":
-            bracket = long_bracket_at(source, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(source, cursor + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(source, cursor + opener_len, closer)
                 continue
         if char != "{":
             cursor += 1
@@ -491,6 +461,7 @@ def declared_raisers(root: Path, package_root: Path | None = None) -> set[Produc
     }
 
 
+# Local variants validate current entries but preserve unvalidated dev parsing.
 def load_allowlist(path: Path) -> set[str]:
     if not path.exists():
         return set()
@@ -505,19 +476,12 @@ def load_allowlist(path: Path) -> set[str]:
     return entries
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            line.strip()
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
+def parse_dev_allowlist_lines(lines: list[str]) -> set[str]:
+    return {
+        line.strip()
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def ratchet_messages(
@@ -585,7 +549,11 @@ def repository_messages(root: Path, package_root: Path | None = None) -> list[st
         for package, by_fixture in fixture_coverage.items()
     }
     allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+        root,
+        allowlist=ALLOWLIST,
+        parse_allowlist_lines=parse_dev_allowlist_lines,
+    )
     messages: list[str] = []
     if base_status == "unresolved":
         messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")

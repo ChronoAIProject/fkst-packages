@@ -48,13 +48,6 @@ local function review_unresolved(extra)
   return value
 end
 
-local function meta_answer(action, reason, gap)
-  local text = action_label .. " " .. action .. "\n" .. reason_label .. " " .. reason
-  if gap ~= nil then
-    text = text .. "\nBlocking gap: " .. gap
-  end
-  return text
-end
 
 local function copy_table(value, extra)
   local copied = {}
@@ -481,13 +474,6 @@ return {
     t.eq(core.git_worktree_clean_cmd(worktree_path), "git -C '" .. worktree_path .. "' clean -fd")
     t.eq(core.git_worktree_list_cmd(), "git worktree list --porcelain")
     t.is_true(core.git_worktree_add_remote_branch_cmd(worktree_path, "origin", deterministic_branch, true):find("git worktree add --force -B", 1, true) ~= nil)
-    -- #677: idempotent clear of the target worktree path before `git worktree add`,
-    -- robust to an orphan dir (present on disk but unregistered) as well as a
-    -- registered worktree; must remove --force, rm -rf, and prune, and exit 0.
-    local force_clean = core.git_worktree_force_clean_cmd(worktree_path)
-    t.is_true(force_clean:find("git worktree remove --force '" .. worktree_path .. "'", 1, true) ~= nil)
-    t.is_true(force_clean:find("rm -rf '" .. worktree_path .. "'", 1, true) ~= nil)
-    t.is_true(force_clean:find("git worktree prune", 1, true) ~= nil)
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
     t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
@@ -683,31 +669,6 @@ return {
     t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
     t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
     t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-  end,
-
-  test_issue_fix_prompt_template_uses_local_iteration_command = function()
-    local M = {}
-    for key, value in pairs(core) do
-      M[key] = value
-    end
-    prompt_installers.install(M, {
-      prompts = {
-        fix = require("prompts.fix"),
-      },
-    }, { fix = true })
-    local fix = {
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "version", "abcdef123456"),
-      reviewed_head_sha = "abcdef123456",
-      blocking_gap = "missing rollback guard",
-    }
-    local prompt = M.build_fix_prompt(fix, { title = "Fix parser" }, "Review says tests are red.", "Approved framing.")
-    t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
-    t.is_true(prompt:find("configured command is this deployment's local verification gate", 1, true) ~= nil)
-    t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
-    t.is_true(prompt:find("comprehensive gate", 1, true) ~= nil)
-    t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-    t.is_nil(prompt:find("rerun `scripts/run.sh test` until it exits 0", 1, true))
   end,
 
   test_implement_prompt_handles_nil_framing = function()

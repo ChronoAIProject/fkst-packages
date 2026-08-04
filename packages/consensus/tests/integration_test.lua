@@ -123,11 +123,6 @@ local function assert_judgment_dir_created_without_permission_control(count)
   t.eq(seen, count)
 end
 
-local function assert_no_judgment_dir_created()
-  for _, call in ipairs(t.command_calls()) do
-    t.is_nil(call.rendered:find("mkdir -p", 1, true))
-  end
-end
 
 local function mock_judgment_runtime()
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -335,7 +330,7 @@ return {
     t.is_nil(teleology_call.stdin:find("runtime-cache:consensus-test/context", 1, true))
   end,
 
-  test_runtime_cache_context_manifest_missing_file_ack_drops_without_judgment = function()
+  test_runtime_cache_context_manifest_missing_file_fails_typed_without_judgment = function()
     mock_judgment_runtime()
     local run_opts = opts("stdin-runtime-cache-missing-file")
     seed_cache("consensus-test/missing-context", "Issue JSON: /tmp/fkst-packages-test/consensus/missing-file.json", run_opts)
@@ -344,24 +339,26 @@ return {
       content_fetch = "runtime-cache:consensus-test/missing-context",
     }), run_opts)
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
-  test_runtime_cache_context_cache_miss_is_terminal_ack_drop = function()
+  test_runtime_cache_context_cache_miss_fails_typed = function()
     mock_judgment_runtime()
 
     local result = run_decide(proposal({
       content_fetch = "runtime-cache:consensus-test/stale-missing-context",
     }), opts("stdin-runtime-cache-stale-miss"))
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
-  test_runtime_cache_context_unreadable_manifest_file_is_terminal_ack_drop = function()
+  test_runtime_cache_context_unreadable_manifest_file_fails_typed = function()
     mock_judgment_runtime()
     local run_opts = opts("stdin-runtime-cache-stale-file")
     local root = run_opts.env.FKST_RUNTIME_ROOT
@@ -379,8 +376,9 @@ return {
       content_fetch = "runtime-cache:consensus-test/stale-file",
     }), run_opts)
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 

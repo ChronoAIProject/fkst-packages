@@ -2,7 +2,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local parsers_misc = require("devloop.parsers.misc")
 local common = require("departments.observability.common")
-local dashboard_commands = require("devloop.commands.dashboard")
+local dashboard_commands = require("core.dashboard_commands")
 local strings = require("contract.strings")
 local devloop_state = require("devloop.state")
 local decimal_checksum = strings.decimal_checksum
@@ -317,7 +317,7 @@ function core.render_observability_dashboard(args)
   local generated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now_seconds)
   local instance = devloop_base.read_env("FKST_GITHUB_BOT_LOGIN") or "unknown"
   local by_state = { unmanaged = {} }
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     by_state[state] = {}
   end
   for _, entity in ipairs(list) do
@@ -359,7 +359,7 @@ function core.render_observability_dashboard(args)
   lines = {}
   table.insert(lines, "## Board by state")
   table.insert(lines, "Total: " .. tostring(#list))
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     table.insert(lines, "- " .. tostring(state) .. ": " .. tostring(counts[state] or 0))
   end
   if counts.unmanaged ~= nil then

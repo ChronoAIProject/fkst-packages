@@ -55,22 +55,10 @@ local function fetch_pr_head_oid_argv(remote, pr_number)
   return {
     "git",
     "fetch",
-    "--porcelain",
-    "--verbose",
     "--no-write-fetch-head",
     tostring(remote),
     "+refs/pull/" .. tostring(pr_number) .. "/head:" .. local_ref,
   }
-end
-
-local function fetched_oid_from_porcelain(stdout, local_ref)
-  for line in (tostring(stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
-    local _, new_oid, updated_ref = line:match("^.?%s+([0-9a-fA-F]+)%s+([0-9a-fA-F]+)%s+(%S+)%s*$")
-    if updated_ref == local_ref and new_oid ~= nil then
-      return new_oid
-    end
-  end
-  return nil
 end
 
 local function ls_remote_ref_argv(remote, ref)
@@ -420,14 +408,12 @@ function M.install(handle)
     if result.exit_code ~= 0 then
       return result
     end
-    local fetched_oid = fetched_oid_from_porcelain(result.stdout, local_ref)
-    if fetched_oid == nil then
-      result.exit_code = 1
-      result.stderr = "forge.git: git fetch PR head OID returned malformed porcelain output"
-      return result
-    end
-    result.stdout = fetched_oid .. "\n"
-    return result
+    return exec_result(
+      handle,
+      rev_parse_ref_commit_argv(local_ref),
+      timeout,
+      "git rev-parse PR head OID"
+    )
   end
 
   function handle.ls_remote_ref(remote, ref, timeout)

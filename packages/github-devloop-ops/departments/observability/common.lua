@@ -4,6 +4,8 @@ local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local strings = require("contract.strings")
 local config = require("devloop.config")
+local issue_commands = require("devloop.commands.issue_reads")
+local pr_commands = require("devloop.commands.prs")
 
 local M = {}
 
@@ -23,6 +25,10 @@ M.stall_suspect_threshold_minutes = {
   reviewing = 60,
   fixing = 90,
   merging = 30,
+}
+-- Declined issues remain reopenable for one full day before observability retires them.
+M.terminal_retirement_dwell_minutes = {
+  declined = 24 * 60,
 }
 
 function M.install_common(_core)
@@ -83,7 +89,7 @@ function M.fetch_issue(core, repo, issue_number, limits, deadline, read_cmd)
   local run_read = read_cmd or core.observability_run_cmd
   local view = run_read({
     run = function(timeout)
-      return core.gh_issue_view_observe(repo, issue_number, timeout)
+      return issue_commands.gh_issue_view_observe(repo, issue_number, timeout)
     end,
   }, limits, deadline, "observability issue view")
   if core.observability_result_deferred(view) then
@@ -96,7 +102,7 @@ function M.fetch_pr(core, repo, pr_number, limits, deadline, read_cmd)
   local run_read = read_cmd or core.observability_run_cmd
   local view = run_read({
     run = function(timeout)
-      return core.gh_pr_view_observe(repo, pr_number, timeout)
+      return pr_commands.gh_pr_view_observe(repo, pr_number, timeout)
     end,
   }, limits, deadline, "observability PR view")
   if core.observability_result_deferred(view) then

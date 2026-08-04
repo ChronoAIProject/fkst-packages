@@ -46,7 +46,8 @@ local function implementation_outcome(ready, worktree, branch, head_sha, base_br
   }
 end
 
-local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail)
+local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+  local checkpoint_reason = reason or "codex-failed"
   return {
     kind = "implement-checkpoint",
     ready = ready,
@@ -60,7 +61,8 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
     exec_ref = exec_ref,
     finished_at = now(),
     detail = detail,
-    outcome = "checkpointed: codex-failed",
+    reason = checkpoint_reason,
+    outcome = "checkpointed: " .. tostring(checkpoint_reason),
   }
 end
 
@@ -389,6 +391,13 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
   return head_sha
 end
 
+local function verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
+    base_head, worktree, attempt, started_at, exec_ref, head_sha, detail)
+  local checkpoint_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+  return checkpoint_outcome(ready, worktree, branch, checkpoint_head, integration_branch, base_head,
+    attempt, started_at, exec_ref, detail, "verification-indeterminate")
+end
+
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
   local unavailable = M.worktree_unavailable_outcome(
     ready, worktree, branch, attempt, started_at, exec_ref, base_head)
@@ -407,14 +416,14 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       return impl_failed_outcome(ready, typed_failure_reason, verify_detail,
         attempt, started_at, exec_ref, base_head)
     end
-    if candidate_result.kind ~= "SEMANTIC_FAIL" then
-      return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
+    if candidate_result.kind == "UNKNOWN" then
+      return verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
+        base_head, worktree, attempt, started_at, exec_ref, head_sha,
         "candidate_result=" .. tostring(candidate_result.kind)
           .. "\ncandidate_result_reason=" .. tostring(candidate_result.reason)
           .. "\ncandidate_verification_attempt=" .. tostring(candidate_verification_attempt)
           .. "/" .. tostring(MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS)
-          .. "\n" .. tostring(verify_detail),
-        attempt, started_at, exec_ref, base_head)
+          .. "\n" .. tostring(verify_detail))
     end
 
     local base_probe = nil
@@ -449,7 +458,12 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       return impl_failed_outcome(ready, typed_base_failure_reason, base_probe_detail(base_probe),
         attempt, started_at, exec_ref, base_head)
     end
-    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+    if verdict == "INDETERMINATE" then
+      return verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
+        base_head, worktree, attempt, started_at, exec_ref, head_sha, base_probe_detail(base_probe))
+    end
+    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
+      base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end
   local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
   return implementation_outcome(ready, worktree, branch, verified_head, integration_branch, base_head, attempt, started_at, exec_ref)

@@ -36,7 +36,7 @@ local IMPLEMENTING_VERSION = "ready/github-devloop/issue/owner/repo/42/2026-06-0
 
 local FIXTURES = json_array({
   { name = "route-thinking", state = "thinking", version_kind = "proposal", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "devloop_consensus_request", expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }), expected_dispatched = true },
-  { name = "route-dependency-wait", state = "dependency_wait", version = CONSENSUS_VERSION, dependency_wait = true, expected_status = "routed", expected_decision = "release-dependency-hold", expected_target = "ready", expected_effect_ids = json_array({ "comment:issue:row-replay", "comment:issue:row-replay", "label:issue:row-replay" }), expected_dispatched = true },
+  { name = "route-dependency-wait", state = "dependency_wait", version = CONSENSUS_VERSION, dependency_wait = true, expected_status = "routed", expected_decision = "release-dependency-hold", expected_target = "ready", expected_effect_ids = json_array({ "comment:issue:row-replay", "comment:issue:row-replay" }), expected_dispatched = true },
   { name = "route-ready", state = "ready", version = CONSENSUS_VERSION, ready_handoff = true, expected_status = "routed", expected_decision = "applied(replay)", expected_target = "implementing", expected_effect_ids = json_array({ "queue:devloop_ready" }), expected_dispatched = true },
   { name = "route-implementing", state = "implementing", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-pending(no-implementing-fact)", expected_target = "devloop_ready", expected_effect_ids = json_array(), expected_dispatched = true },
   { name = "route-awaiting-pr", state = "awaiting-pr", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-foreign(pr-delegation-missing)", expected_target = "awaiting-pr", expected_effect_ids = json_array(), expected_dispatched = true },
@@ -254,7 +254,11 @@ local function build_record(fixture)
   local event, captured, dispatch = capture_runtime(fixture)
   local emitted_effects, observable_writes = effect_observations(dispatch.raises)
   t.eq(canonical_json(effect_id_list(emitted_effects)), canonical_json(fixture.expected_effect_ids), fixture.name)
-  local target_version = dispatch.raises[1] and dispatch.raises[1].payload.dedup_key or nil
+  local target_payload = dispatch.raises[1] and dispatch.raises[1].payload or nil
+  local target_version = target_payload and target_payload.dedup_key or nil
+  if fixture.expected_target == "devloop_consensus_request" then
+    target_version = target_payload and target_payload.effect_version or nil
+  end
   return {
     schema = "restart-old-behavior-observation.v2",
     observation_id = OBSERVATION_PREFIX .. fixture.name,

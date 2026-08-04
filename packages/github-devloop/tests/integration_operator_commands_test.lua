@@ -23,28 +23,7 @@ local merge_comments = h.merge_comments
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local function pr_event(updated_at)
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    dedup_key = "owner/repo#pr#7@" .. tostring(updated_at or "2026-06-04T03:00:00Z"),
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#pr/7",
-    },
-  }
-end
 
-local function trusted_command(id)
-  return {
-    id = id or "IC_rereview_1",
-    body = "fkst: rereview\n\nCI was rerun.",
-    author_login = "fkst-test-bot",
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
 
 local function trusted_issue_command(command, id)
   return {
@@ -227,11 +206,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(command_response.payload.body:find('outcome="applied"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    local ready_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return type(payload.handoff) == "table"
         and payload.handoff.kind == "github-devloop.ready"
-    end) ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_label_request") ~= nil)
+    end)
+    t.is_true(ready_comment ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.is_true(type(ready_comment.payload.handoff.label_request) == "table")
   end,
 
   test_issue_reready_command_invalid_state_refuses = function()
@@ -342,7 +323,10 @@ return {
     t.is_true(command_response.payload.body:find('command="reimplement"', 1, true) ~= nil)
     t.is_true(ready_raise ~= nil)
     t.eq(ready_raise.payload.proposal_id, event.proposal_id)
-    t.eq(ready_raise.payload.dedup_key, ready_version)
+    t.eq(ready_raise.payload.implementation_version, ready_version)
+    t.eq(ready_raise.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_issue_reimplement")
+    t.is_true(ready_raise.payload.dedup_key ~= ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
   end,
 
@@ -377,9 +361,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(ready_raise ~= nil)
     t.eq(ready_raise.payload.proposal_id, proposal_id)
-    t.eq(ready_raise.payload.dedup_key, ready_version)
+    t.eq(ready_raise.payload.implementation_version, ready_version)
+    t.eq(ready_raise.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_issue_reimplement_timeout_without_pr")
+    t.is_true(ready_raise.payload.dedup_key ~= ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
-    t.eq(core.implementation_attempt_version(ready_raise.payload.dedup_key, ready_raise.payload.impl_retry_attempt), ready_version .. "/reimplement/2")
+    t.eq(core.implementation_attempt_version(ready_raise.payload.implementation_version,
+      ready_raise.payload.impl_retry_attempt), ready_version .. "/reimplement/2")
     t.eq(ready_raise.payload.operator_reentry.command, "reimplement")
     t.eq(ready_raise.payload.operator_reentry.from_state, "blocked")
     t.eq(ready_raise.payload.operator_reentry.terminal_reason, "implementing-timeout-without-pr")

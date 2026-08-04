@@ -11,7 +11,7 @@ local valid_round = shared.valid_round
 local strings = shared.strings
 local safe_marker_attr = shared.safe_marker_attr
 
-function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason)
+function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason, feedback)
   local fields = ""
   if action ~= nil then
     if not devloop_base._is_review_meta_action(action) then
@@ -27,7 +27,11 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
       error("github-devloop: invalid review-meta gap")
     end
+    feedback = shared.parse_fix_feedback_fact(feedback)
     fields = fields .. '" gap="' .. gap
+      .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
+      .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
+      .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
   elseif action == "spec-amendment" then
     fields = fields .. '" reason="blocked-pending-spec'
   end
@@ -129,7 +133,7 @@ function C.implementing_marker(proposal_id, dedup_key, branch, head_sha, base_br
     .. '" -->'
 end
 
-function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt)
+function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid checkpoint branch")
   end
@@ -146,6 +150,7 @@ function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha,
   if n == nil or n < 1 or n ~= math.floor(n) then
     error("github-devloop: invalid checkpoint attempt")
   end
+  local safe_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
   return '<!-- fkst:github-devloop:implement-checkpoint:v1 proposal="' .. tostring(proposal_id)
     .. '" dedup="' .. tostring(dedup_key)
     .. '" branch="' .. tostring(branch)
@@ -154,6 +159,7 @@ function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha,
     .. '" base_sha="' .. tostring(base_sha)
     .. '" attempt="' .. tostring(n)
     .. '" outcome="wip'
+    .. '" reason="' .. tostring(safe_reason)
     .. '" -->'
 end
 

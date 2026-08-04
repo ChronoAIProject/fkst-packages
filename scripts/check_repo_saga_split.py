@@ -15,18 +15,24 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 MANIFEST = "migration/github-devloop-saga-split.inventory"
 ALLOWLIST = "migration/github-devloop-saga-split-authority.allowlist"
 SPEC_REF = "docs/superpowers/specs/2026-06-20-issue-pr-saga-split-design.md"
 CONTRACT = "libraries/devloop/restart/issue/pr_partition_contract.lua"
+ISSUE_PACKAGE_CORE = "packages/github-devloop/core.lua"
 OWNERS = {"issue", "pr", "shared", "integration", "cross-cutting", "intake"}
 CALL_SCAN_MAX_CHARS = 12000
 CALL_SCAN_MAX_LINES = 120
 
+ISSUE_STATES_BLOCK_RE = re.compile(r"\blocal\s+ISSUE_STATES\s*=\s*\{(?P<body>.*?)\}", re.DOTALL)
 PR_PHASE_BLOCK_RE = re.compile(r"\blocal\s+PR_PHASE_STATES\s*=\s*\{(?P<body>.*?)\}", re.DOTALL)
+ISSUE_LIFECYCLE_BLOCK_RE = re.compile(
+    r"\bM\.restart_lifecycle_states\s*=\s*\{(?P<body>.*?)\}",
+    re.DOTALL,
+)
 LUA_STRING_RE = re.compile(r"(?P<quote>[\"'])(?P<value>[^\"']+)(?P=quote)")
 STATE_WRITE_HELPERS = {
     "state_marker": ("state-marker", 2),
@@ -203,6 +209,53 @@ def load_pr_phase_states(root: Path) -> set[str]:
     if not states:
         raise ValueError(f"contract-malformed: empty PR_PHASE_STATES literal in {CONTRACT}")
     return states
+
+
+def load_issue_contract_states(root: Path) -> set[str]:
+    contract_path = root / CONTRACT
+    try:
+        text = contract_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ValueError(f"contract-missing: {CONTRACT}") from exc
+    match = ISSUE_STATES_BLOCK_RE.search(text)
+    if match is None:
+        raise ValueError(f"contract-malformed: missing ISSUE_STATES literal in {CONTRACT}")
+    states = {m.group("value") for m in LUA_STRING_RE.finditer(_strip_lua_comments(match.group("body")))}
+    if not states:
+        raise ValueError(f"contract-malformed: empty ISSUE_STATES literal in {CONTRACT}")
+    return states
+
+
+def load_issue_lifecycle_states(root: Path) -> set[str]:
+    package_core_path = root / ISSUE_PACKAGE_CORE
+    try:
+        text = package_core_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ValueError(f"issue-package-core-missing: {ISSUE_PACKAGE_CORE}") from exc
+    match = ISSUE_LIFECYCLE_BLOCK_RE.search(text)
+    if match is None:
+        raise ValueError(
+            f"issue-lifecycle-malformed: missing M.restart_lifecycle_states literal in {ISSUE_PACKAGE_CORE}"
+        )
+    states = {m.group("value") for m in LUA_STRING_RE.finditer(_strip_lua_comments(match.group("body")))}
+    if not states:
+        raise ValueError(
+            f"issue-lifecycle-malformed: empty M.restart_lifecycle_states literal in {ISSUE_PACKAGE_CORE}"
+        )
+    return states
+
+
+def issue_state_contract_messages(root: Path) -> list[str]:
+    contract_states = load_issue_contract_states(root)
+    package_states = load_issue_lifecycle_states(root)
+    contract_only = sorted(contract_states - package_states)
+    package_only = sorted(package_states - contract_states)
+    if not contract_only and not package_only:
+        return []
+    return [
+        "issue-state-contract-mismatch: "
+        f"contract-only=[{','.join(contract_only)}] package-only=[{','.join(package_only)}]"
+    ]
 
 
 def _strip_lua_line_comment(line: str) -> str:
@@ -391,6 +444,7 @@ def current_leaks(root: Path, entries: list[InventoryEntry], pr_phase_states: se
     return leaks
 
 
+# Local variants parse typed LeakSite entries for current and dev data.
 def load_allowlist(path: Path) -> set[LeakSite]:
     if not path.exists():
         return set()
@@ -401,6 +455,14 @@ def load_allowlist(path: Path) -> set[LeakSite]:
             continue
         entries.add(LeakSite.parse(stripped))
     return entries
+
+
+def parse_dev_allowlist_lines(lines: list[str]) -> set[LeakSite]:
+    return {
+        LeakSite.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def covered_by_allowlist(site: LeakSite, allowlist: set[LeakSite]) -> bool:
@@ -426,24 +488,13 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[LeakSite] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            LeakSite.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(root: Path) -> list[str]:
     entries, messages = load_manifest(root / MANIFEST)
     messages.extend(manifest_messages(root, entries))
+    try:
+        messages.extend(issue_state_contract_messages(root))
+    except ValueError as exc:
+        messages.append(str(exc))
     try:
         pr_phase_states = load_pr_phase_states(root)
     except ValueError as exc:
@@ -451,7 +502,11 @@ def repository_messages(root: Path) -> list[str]:
         pr_phase_states = set()
     leaks = current_leaks(root, entries, pr_phase_states)
     allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+        root,
+        allowlist=ALLOWLIST,
+        parse_allowlist_lines=parse_dev_allowlist_lines,
+    )
     if base_status == "unresolved":
         messages.append("allowlist-base-unresolved: cannot resolve dev base allowlist to enforce shrink-only ratchet")
     messages.extend(ratchet_messages(leaks, allowlist, base_allowlist))

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
@@ -134,6 +135,102 @@ local function mock_no_implemented_branch_ahead(branch)
     exit_code = 0,
   })
 end
+=======
+local fixture = require("tests.integration_implement_meta_helpers")
+local entity_lib = fixture.entity_lib
+local h = fixture.h
+local forks = fixture.forks
+local payloads_builders = fixture.payloads_builders
+local m_facts = fixture.m_facts
+local t = fixture.t
+local core = fixture.core
+local gh_argv = fixture.gh_argv
+local action_label = fixture.action_label
+local reason_label = fixture.reason_label
+local has_value = fixture.has_value
+local opts = fixture.opts
+local source_ref = fixture.source_ref
+local issue = fixture.issue
+local reached = fixture.reached
+local unresolved = fixture.unresolved
+local ready = fixture.ready
+local reviewing = fixture.reviewing
+local review_reached = fixture.review_reached
+local review_unresolved = fixture.review_unresolved
+local fixing = fixture.fixing
+local pr_link_marker_for_fix = fixture.pr_link_marker_for_fix
+local review_meta_event = fixture.review_meta_event
+local merge_ready = fixture.merge_ready
+local run_observe = fixture.run_observe
+local run_result = fixture.run_result
+local run_loop = fixture.run_loop
+local run_implement = fixture.run_implement
+local run_observe_pr = fixture.run_observe_pr
+local run_review_pr = fixture.run_review_pr
+local run_review_result = fixture.run_review_result
+local run_fix = fixture.run_fix
+local run_review_loop = fixture.run_review_loop
+local run_review_meta = fixture.run_review_meta
+local run_merge = fixture.run_merge
+local json_string = fixture.json_string
+local render_comment = fixture.render_comment
+local default_marker_version = fixture.default_marker_version
+local mock_issue_state = fixture.mock_issue_state
+local state_from_labels = fixture.state_from_labels
+local with_default_state_marker = fixture.with_default_state_marker
+local mock_issue_body = fixture.mock_issue_body
+local mock_issue_result = fixture.mock_issue_result
+local mock_issue_loop = fixture.mock_issue_loop
+local mock_issue_implement = fixture.mock_issue_implement
+local mock_issue_implement_raw = fixture.mock_issue_implement_raw
+local mock_issue_reviewing = fixture.mock_issue_reviewing
+local mock_issue_review = fixture.mock_issue_review
+local mock_issue_fix = fixture.mock_issue_fix
+local mock_issue_fix_for_event = fixture.mock_issue_fix_for_event
+local mock_issue_review_meta = fixture.mock_issue_review_meta
+local mock_issue_merge = fixture.mock_issue_merge
+local merge_comments = fixture.merge_comments
+local mock_pr_origin = fixture.mock_pr_origin
+local mock_pr_merge = fixture.mock_pr_merge
+local mock_pr_merge_rollup = fixture.mock_pr_merge_rollup
+local mock_merging_comment = fixture.mock_merging_comment
+local mock_pr_merge_command = fixture.mock_pr_merge_command
+local has_call = fixture.has_call
+local mock_issue_close = fixture.mock_issue_close
+local merge_comments_with_merging = fixture.merge_comments_with_merging
+local mock_pr_fix = fixture.mock_pr_fix
+local mock_pr_origin_sequence = fixture.mock_pr_origin_sequence
+local mock_pr_head = fixture.mock_pr_head
+local mock_pr_diff = fixture.mock_pr_diff
+local mock_setup_worktree = fixture.mock_setup_worktree
+local deterministic_branch_for = fixture.deterministic_branch_for
+local mock_fresh_implement_worktree = fixture.mock_fresh_implement_worktree
+local mock_existing_empty_implement_worktree = fixture.mock_existing_empty_implement_worktree
+local mock_existing_empty_implement_worktree_reuse = fixture.mock_existing_empty_implement_worktree_reuse
+local mock_existing_dirty_implement_worktree_reuse = fixture.mock_existing_dirty_implement_worktree_reuse
+local mock_outside_runtime_implement_worktree_rebuild = fixture.mock_outside_runtime_implement_worktree_rebuild
+local mock_multiple_outside_runtime_implement_worktrees_rebuild = fixture.mock_multiple_outside_runtime_implement_worktrees_rebuild
+local mock_existing_implement_branch = fixture.mock_existing_implement_branch
+local mock_git_commit = fixture.mock_git_commit
+local mock_git_push = fixture.mock_git_push
+local mock_existing_devloop_worktree = fixture.mock_existing_devloop_worktree
+local mock_implement_codex = fixture.mock_implement_codex
+local mock_git_status = fixture.mock_git_status
+local mock_branch_diff_paths = fixture.mock_branch_diff_paths
+local mock_write_env = fixture.mock_write_env
+local mock_bot_env = fixture.mock_bot_env
+local mock_issue_view_failure = fixture.mock_issue_view_failure
+local count_calls = fixture.count_calls
+local find_raise = fixture.find_raise
+local codex_status = fixture.codex_status
+local m_builders = fixture.m_builders
+local find_comment_with = fixture.find_comment_with
+local assert_implement_attempt = fixture.assert_implement_attempt
+local count_issue_comment_raises = fixture.count_issue_comment_raises
+local find_label_with_added = fixture.find_label_with_added
+local assert_worktree_ready_state = fixture.assert_worktree_ready_state
+local mock_no_implemented_branch_ahead = fixture.mock_no_implemented_branch_ahead
+>>>>>>> cdc5e9dbe8517e76b2ddfacff110ed48945c3bde
 
 return {
   test_implement_ready_label_only_empty_comments_does_not_synthesize_marker = function()
@@ -280,6 +377,7 @@ return {
     t.eq(count_calls("git -C"), 0)
   end,
 
+<<<<<<< HEAD
   test_implement_crash_before_marker_reuses_existing_branch_commit = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
@@ -504,6 +602,8 @@ return {
     t.eq(reset_before_merge, true)
   end,
 
+=======
+>>>>>>> cdc5e9dbe8517e76b2ddfacff110ed48945c3bde
   test_implement_marker_present_skips_idempotently = function()
     local event = ready()
     local branch = deterministic_branch_for(event)

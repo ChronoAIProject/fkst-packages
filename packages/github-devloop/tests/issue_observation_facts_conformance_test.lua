@@ -1,5 +1,5 @@
 local h = require("tests.devloop_core_helpers")
-local conformance = require("devloop.restart.issue_observation_conformance")
+local conformance = require("core.restart.issue_observation_conformance")
 local facts = require("devloop.restart.issue_observation_facts")
 local core = h.core
 local t = h.t

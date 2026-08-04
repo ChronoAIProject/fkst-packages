@@ -17,6 +17,7 @@ local find_raise = h.find_raise
 local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 
 local function stale_started_at()
   return tostring(now() - 7201)
@@ -98,16 +99,7 @@ local function mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_h
     stderr = "",
     exit_code = 1,
   })
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  h.mock_force_clean("remote-checkpoint-worktree")
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
@@ -188,16 +180,7 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  h.mock_force_clean(worktree)
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
@@ -264,6 +247,36 @@ local function last_command_call_index(needle)
 end
 
 return {
+  test_checkpoint_request_identity_separates_divergent_reason_replays = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local function checkpoint_request(reason)
+      return requests_lifecycle.build_implement_checkpoint_comment_request(
+        core,
+        "owner/repo",
+        42,
+        event,
+        "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/checkpoint-identity",
+        branch,
+        "1111111111111111111111111111111111111111",
+        "dev",
+        "abc123",
+        1,
+        "123",
+        "implement/exec/checkpoint-identity",
+        "checkpoint detail",
+        reason
+      )
+    end
+
+    local failed = checkpoint_request("codex-failed")
+    local failed_replay = checkpoint_request("codex-failed")
+    local verification_indeterminate = checkpoint_request("verification-indeterminate")
+
+    t.eq(failed.dedup_key, failed_replay.dedup_key)
+    t.is_true(failed.dedup_key ~= verification_indeterminate.dedup_key)
+  end,
+
   test_dirty_timeout_progress_is_committed_before_verification_and_pushed_as_wip_checkpoint = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
@@ -430,12 +443,13 @@ return {
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
   end,
 
-  test_unmarked_local_progress_is_retried_not_handed_off_when_remote_missing = function()
+  test_exhausted_redrive_reuses_unmarked_local_progress_through_verification_and_publication = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
     mock_missing_remote_branch(branch)
     mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
@@ -461,12 +475,18 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
 
     local result = run_implement(event, opts("implement-timeout-unmarked-local-progress"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 0)
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('state="impl-failed"', 1, true) ~= nil
+    end), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return tostring(payload.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
     end), nil)
@@ -474,6 +494,9 @@ return {
       return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
     end)
     t.is_true(final ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find("fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find('attempt="3"', 1, true) ~= nil)
     local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
   end,
