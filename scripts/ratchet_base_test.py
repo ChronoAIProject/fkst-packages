@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -117,15 +118,17 @@ class RatchetBaseTest(unittest.TestCase):
             ):
                 self.assertEqual(ratchet_base.resolve_target_ref(root), integration_commit)
 
-    def test_target_ref_uses_github_push_branch_before_dev(self) -> None:
+    def test_target_ref_uses_github_push_before_sha(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_repo(root)
             dev_commit = commit_file(root, "base.txt", "dev\n", "dev")
             git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
-            integration_commit = commit_file(root, "base.txt", "integration\n", "integration")
-            git(root, "update-ref", "refs/remotes/origin/integration", integration_commit)
-            commit_file(root, "base.txt", "head\n", "head")
+            before_commit = commit_file(root, "base.txt", "integration\n", "integration")
+            candidate_commit = commit_file(root, "base.txt", "head\n", "head")
+            git(root, "update-ref", "refs/remotes/origin/integration", candidate_commit)
+            event_path = root / "push-event.json"
+            event_path.write_text(json.dumps({"before": before_commit}), encoding="utf-8")
 
             with mock.patch.dict(
                 os.environ,
@@ -134,11 +137,12 @@ class RatchetBaseTest(unittest.TestCase):
                     "FKST_RATCHET_TARGET_REF": "",
                     "GITHUB_BASE_REF": "",
                     "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_EVENT_PATH": str(event_path),
                     "GITHUB_REF_NAME": "integration",
                     "GITHUB_REF_TYPE": "branch",
                 },
             ):
-                self.assertEqual(ratchet_base.resolve_target_ref(root), integration_commit)
+                self.assertEqual(ratchet_base.resolve_target_ref(root), before_commit)
 
     def test_target_ref_falls_back_to_dev_outside_pull_requests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

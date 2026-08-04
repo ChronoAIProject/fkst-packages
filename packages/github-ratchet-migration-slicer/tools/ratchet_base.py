@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -66,6 +67,20 @@ def _resolve_branch_ref(root: Path, branch: str) -> str | None:
     )
 
 
+def _github_event_before() -> str | None:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return None
+    try:
+        event = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(event, dict):
+        return None
+    before = event.get("before")
+    return before if isinstance(before, str) and before else None
+
+
 def resolve_target_ref(root: Path) -> str | None:
     # Use explicit CI and host topology facts; dev is the fallback when no target is configured.
     override = os.environ.get("FKST_RATCHET_TARGET_REF")
@@ -77,7 +92,8 @@ def resolve_target_ref(root: Path) -> str | None:
         return _resolve_branch_ref(root, github_base)
 
     if os.environ.get("GITHUB_EVENT_NAME") == "push" and os.environ.get("GITHUB_REF_TYPE") == "branch":
-        return _resolve_branch_ref(root, os.environ.get("GITHUB_REF_NAME", ""))
+        before = _github_event_before()
+        return _resolve_ref(root, (before,)) if before else None
 
     integration_branch = os.environ.get("FKST_DEVLOOP_INTEGRATION_BRANCH")
     if integration_branch:

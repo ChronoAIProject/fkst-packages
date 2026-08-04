@@ -166,11 +166,12 @@ def library_ratchet_messages(
     messages: list[str] = []
     for identity in sorted(current):
         location = current[identity]
-        if target_sites is not None and identity not in target_sites:
-            messages.append(
-                f"{location} production library error(...) string is new relative to the target baseline; "
-                f"diagnostic identity {identity}; classify the error string instead"
-            )
+        if target_sites is not None:
+            if identity not in target_sites:
+                messages.append(
+                    f"{location} production library error(...) string is new relative to the target baseline; "
+                    f"diagnostic identity {identity}; classify the error string instead"
+                )
         elif identity not in allowlist:
             messages.append(
                 f"{location} production library error(...) string lacks a greppable class prefix; "

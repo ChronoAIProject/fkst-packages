@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -173,7 +174,7 @@ class LibraryErrorClassRatchetTest(unittest.TestCase):
         self.assertIn(added, violations[0])
         self.assertIn("new relative to the target baseline", violations[0])
 
-    def test_git_target_comparison_uses_target_tip_after_divergence(self) -> None:
+    def test_git_target_comparison_accepts_target_debt_absent_from_candidate_allowlist(self) -> None:
         existing = self.site("existing debt")
         target_debt = self.site("target debt")
         with tempfile.TemporaryDirectory() as tmp:
@@ -207,7 +208,7 @@ class LibraryErrorClassRatchetTest(unittest.TestCase):
                 'error("existing debt")\nerror("target debt")\n',
                 encoding="utf-8",
             )
-            allowlist.write_text(f"{existing}\n{target_debt}\n", encoding="utf-8")
+            allowlist.write_text(f"{existing}\n", encoding="utf-8")
             violations: list[str] = []
             with mock.patch.dict(
                 "os.environ",
@@ -216,6 +217,57 @@ class LibraryErrorClassRatchetTest(unittest.TestCase):
                 check_repo_runner.check_library_error_class(check_repo, root, violations, enforce_base=True)
 
         self.assertEqual(violations, [])
+
+    def test_push_rejects_source_and_allowlist_growth_against_event_before(self) -> None:
+        existing = self.site("existing debt")
+        added = self.site("new debt")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.git(root, "init")
+            self.git(root, "config", "user.email", "fkst-test@example.invalid")
+            self.git(root, "config", "user.name", "fkst test")
+            source = root / "libraries" / "example" / "core.lua"
+            source.parent.mkdir(parents=True)
+            source.write_text('error("existing debt")\n', encoding="utf-8")
+            migration = root / "migration"
+            migration.mkdir()
+            allowlist = migration / "library-error-class.allowlist"
+            allowlist.write_text(f"{existing}\n", encoding="utf-8")
+            self.git(root, "add", ".")
+            self.git(root, "commit", "-m", "target")
+            before = self.git(root, "rev-parse", "HEAD")
+
+            source.write_text(
+                'error("existing debt")\nerror("new debt")\n',
+                encoding="utf-8",
+            )
+            allowlist.write_text(f"{existing}\n{added}\n", encoding="utf-8")
+            self.git(root, "add", ".")
+            self.git(root, "commit", "-m", "candidate")
+            candidate = self.git(root, "rev-parse", "HEAD")
+            self.git(root, "update-ref", "refs/remotes/origin/integration", candidate)
+            event_path = root / "push-event.json"
+            event_path.write_text(json.dumps({"before": before}), encoding="utf-8")
+
+            violations: list[str] = []
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "FKST_DEVLOOP_INTEGRATION_BRANCH": "",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "",
+                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_EVENT_PATH": str(event_path),
+                    "GITHUB_REF_NAME": "integration",
+                    "GITHUB_REF_TYPE": "branch",
+                },
+            ):
+                check_repo_runner.check_library_error_class(check_repo, root, violations, enforce_base=True)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("libraries/example/core.lua:2", violations[0])
+        self.assertIn(added, violations[0])
+        self.assertIn("new relative to the target baseline", violations[0])
 
     def test_checker_loads_target_diagnostics_when_enforcing_base(self) -> None:
         existing = self.site("missing class")
