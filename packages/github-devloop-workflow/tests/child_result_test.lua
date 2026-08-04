@@ -85,8 +85,47 @@ local tests = {
     t.eq(observed.proposal_id, successor.proposal_id)
   end,
 
+  test_transferred_disposition_precedes_late_trusted_merge_fact = function()
+    local successor = {
+      kind = "issue",
+      proposal_id = "github-devloop/issue/owner/repo/43",
+      source_ref = { kind = "external", ref = "owner/repo#issue/43" },
+    }
+    local status, detail = child_result.child_result_status(deps({
+      has_merged_marker = function() return true end,
+      current_obligation_disposition = function()
+        return {
+          disposition = "transferred",
+          successor_ref = successor,
+        }
+      end,
+      transferred_child_status = function()
+        return "running", { successor = true }
+      end,
+    }), child)
+    t.eq(status, "running")
+    t.eq(detail.successor, true)
+  end,
+
   test_undeliverable_disposition_is_fatal_with_why = function()
     local status, detail = child_result.child_result_status(deps({
+      current_obligation_disposition = function()
+        return {
+          disposition = "undeliverable",
+          reason_code = "premise-refuted",
+        }
+      end,
+    }), child)
+    t.eq(status, "fatal")
+    t.eq(detail.disposition, "undeliverable")
+    t.eq(detail.fatal_reason, "premise-refuted")
+  end,
+
+  test_undeliverable_disposition_precedes_late_native_merge_fact = function()
+    local status, detail = child_result.child_result_status(deps({
+      github_closed_with_merged_pr = function()
+        return { ok = true, pr_number = 108 }
+      end,
       current_obligation_disposition = function()
         return {
           disposition = "undeliverable",

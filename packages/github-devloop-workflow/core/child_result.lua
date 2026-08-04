@@ -168,6 +168,14 @@ function M.child_result_status(deps, child_ref)
     return M.STATUS_UNKNOWN
   end
 
+  local disposition_status, disposition_detail, disposition_found, disposition_ok = obligation_disposition_status(deps, child_ref)
+  if not disposition_ok then
+    return M.STATUS_UNKNOWN
+  end
+  if disposition_found then
+    return disposition_status, disposition_detail
+  end
+
   local merged_marker = has_trusted_merged_marker(deps, child_ref)
   if merged_marker == nil then
     return M.STATUS_UNKNOWN
@@ -182,14 +190,6 @@ function M.child_result_status(deps, child_ref)
   end
   if native_merged then
     return M.STATUS_RESULT_READY, { merged = true }
-  end
-
-  local disposition_status, disposition_detail, disposition_found, disposition_ok = obligation_disposition_status(deps, child_ref)
-  if not disposition_ok then
-    return M.STATUS_UNKNOWN
-  end
-  if disposition_found then
-    return disposition_status, disposition_detail
   end
 
   local impl_failed_fatal = impl_failed_is_fatal(deps, child_ref)

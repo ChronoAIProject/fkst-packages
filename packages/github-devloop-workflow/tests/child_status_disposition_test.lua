@@ -58,6 +58,25 @@ local function entity(issue_number, state, comments)
   }
 end
 
+local function append_late_merge(comments, issue_number, pr_number)
+  local proposal = base_ids.proposal_id(repo, issue_number)
+  local version = "ready/late-merge-v1"
+  comments[#comments + 1] = trusted_comment(devloop_marker_builders.pr_link_marker(
+    proposal,
+    pr_number,
+    "devloop-owner-repo-" .. tostring(issue_number),
+    version,
+    "dev"
+  ))
+  comments[#comments + 1] = trusted_comment(devloop_marker_builders.merged_marker(
+    core,
+    proposal,
+    pr_number,
+    version,
+    "0123456789abcdef0123456789abcdef01234567"
+  ))
+end
+
 local function reader(entities)
   return child_status.reader(core, {
     read_child_issue = function(_core, read_repo, issue_number)
@@ -87,6 +106,9 @@ local tests = {
       }),
       [109] = entity(109, "OPEN"),
     }
+    t.eq(reader(entities)(child_ref(108)), "running")
+
+    append_late_merge(entities[108].comments, 108, 111)
     t.eq(reader(entities)(child_ref(108)), "running")
 
     local successor_proposal = base_ids.proposal_id(repo, 109)
@@ -119,6 +141,11 @@ local tests = {
       }),
     }
     local status, detail = reader(entities)(child_ref(108))
+    t.eq(status, "fatal")
+    t.eq(detail.fatal_reason, "premise-refuted")
+
+    append_late_merge(entities[108].comments, 108, 111)
+    status, detail = reader(entities)(child_ref(108))
     t.eq(status, "fatal")
     t.eq(detail.fatal_reason, "premise-refuted")
   end,
