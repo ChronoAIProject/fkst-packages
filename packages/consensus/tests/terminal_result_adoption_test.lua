@@ -1,5 +1,6 @@
 local t = fkst.test
 
+local wait_seconds = 30
 local system_path = "/usr/bin:/bin"
 
 local function shell_quote(value)
@@ -25,6 +26,45 @@ local function write_file(path, body)
   file.write(path, body)
 end
 
+local function read_optional(path)
+  local handle = io.open(path, "r")
+  if handle == nil then
+    return nil
+  end
+  local body = handle:read("*a")
+  handle:close()
+  return body
+end
+
+local function wait_until(description, details, probe)
+  local last = nil
+  for _ = 1, wait_seconds * 10 do
+    local value, detail = probe()
+    last = detail or last
+    if value ~= nil and value ~= false then
+      return value
+    end
+    os.execute("sleep 0.1")
+  end
+  error("timed out waiting for " .. description
+    .. (last and ("\n" .. tostring(last)) or "")
+    .. (details and ("\nfixture logs:\n" .. tostring(details())) or ""))
+end
+
+local function process_alive(pid)
+  local _, ok = command_output("kill -0 " .. tostring(pid))
+  return ok
+end
+
+local function kill_process(pid)
+  if process_alive(pid) then
+    command_output("kill -KILL " .. tostring(pid))
+  end
+  wait_until("the original consensus owner to exit", nil, function()
+    return not process_alive(pid)
+  end)
+end
+
 local function framework_bin()
   local bin = os.getenv("BIN") or ""
   if bin == "" then
@@ -40,6 +80,21 @@ end
 local function count_files(path)
   local output = read_command("find " .. shell_quote(path) .. " -type f | wc -l")
   return assert(tonumber(output:match("%d+")))
+end
+
+local function count_named_files(path, name)
+  local output = read_command("find " .. shell_quote(path) .. " -type f -name "
+    .. shell_quote(name) .. " | wc -l")
+  return assert(tonumber(output:match("%d+")))
+end
+
+local function fixture_logs(root)
+  local output = command_output("for path in " .. shell_quote(root .. "/owner.stdout") .. " "
+    .. shell_quote(root .. "/owner.stderr") .. "; do"
+    .. " [ -f \"$path\" ] || continue;"
+    .. " echo FILE:$path; tail -120 \"$path\";"
+    .. " done")
+  return output
 end
 
 local function remove_fixture(root)
@@ -98,13 +153,14 @@ M.spec = {
 
 function M.pipeline(event)
   local proposal = assert(event and event.payload)
-  if proposal.fail_before_memo == true then
-    local real_cache_set = cache_set
-    cache_set = function(key, value)
-      if tostring(key):match("^consensus/result%-memo/") then
-        error("synthetic owner loss before result memo")
+  if proposal.block_before_await == true then
+    local real_await_all = await_all
+    await_all = function(handles)
+      file.write(assert(os.getenv("FKST_FIXTURE_ROOT")) .. "/await-entered", "ready\n")
+      while true do
+        os.execute("sleep 0.1")
       end
-      return real_cache_set(key, value)
+      return real_await_all(handles)
     end
   end
 
@@ -121,14 +177,14 @@ return M
   return package_root
 end
 
-local function event_json(dedup_key, fail_before_memo)
+local function event_json(dedup_key, block_before_await)
   return string.format([[
-{"queue":"proposal","payload":{"schema":"consensus.proposal.v1","proposal_id":"delivery-local-proposal","title":"Adopt completed consensus seats","body":"Replay one consensus invocation after its delivery owner exits.","context":"The replay must consume terminal child results without replacement spawns.","angles":["teleology","parsimony","fidelity"],"dedup_key":"%s","source_ref":{"kind":"external","ref":"fixture/repo#proposal/42"},"fail_before_memo":%s}}
-]], dedup_key, tostring(fail_before_memo))
+{"queue":"proposal","payload":{"schema":"consensus.proposal.v1","proposal_id":"delivery-local-proposal","title":"Adopt completed consensus seats","body":"Replay one consensus invocation after its delivery owner exits.","context":"The replay must consume terminal child results without replacement spawns.","angles":["teleology","parsimony","fidelity"],"dedup_key":"%s","source_ref":{"kind":"external","ref":"fixture/repo#proposal/42"},"block_before_await":%s}}
+]], dedup_key, tostring(block_before_await))
 end
 
-local function run_reach(bin, root, package_root, event)
-  local command = table.concat({
+local function reach_command(bin, root, package_root, event)
+  return table.concat({
     "PATH=" .. shell_quote(root .. "/bin:" .. system_path),
     "HOME=" .. shell_quote(os.getenv("HOME") or "/tmp"),
     "FKST_RUNTIME_ROOT=" .. shell_quote(root .. "/runtime"),
@@ -142,13 +198,30 @@ local function run_reach(bin, root, package_root, event)
     "--owner-namespace", "consensus-terminal-fixture",
     "--event", shell_quote(event),
   }, " ")
-  return command_output(command)
+end
+
+local function run_reach(bin, root, package_root, event)
+  return command_output(reach_command(bin, root, package_root, event))
+end
+
+local function start_reach(bin, root, package_root, event)
+  local command = reach_command(bin, root, package_root, event)
+    .. " >" .. shell_quote(root .. "/owner.stdout")
+    .. " 2>" .. shell_quote(root .. "/owner.stderr")
+    .. " & printf '%s\\n' \"$!\""
+  local output = read_command(command)
+  local pid = tonumber(output:match("(%d+)"))
+  if pid == nil then
+    error("consensus terminal-result fixture did not return an owner pid: " .. tostring(output))
+  end
+  return pid
 end
 
 return {
-  test_fresh_owner_adopts_terminal_results_after_memo_boundary_failure = function()
+  test_redelivery_adopts_terminal_results_after_owner_loss_before_await = function()
     local root = read_command("mktemp -d "
       .. shell_quote("/tmp/fkst-consensus-terminal-adoption.XXXXXX")):gsub("%s+$", "")
+    local owner_pid = nil
     local ok, err = pcall(function()
       local bin = framework_bin()
       write_fake_codex(root)
@@ -156,10 +229,24 @@ return {
       local first_event = event_json("delivery-a", true)
       local replay_event = event_json("delivery-b", false)
 
-      local first_output, first_ok = run_reach(bin, root, package_root, first_event)
-      t.eq(first_ok, false)
-      t.is_true(first_output:find("synthetic owner loss before result memo", 1, true) ~= nil)
+      owner_pid = start_reach(bin, root, package_root, first_event)
+      wait_until("the original owner to enter await_all", function()
+        return fixture_logs(root)
+      end, function()
+        return read_optional(root .. "/await-entered")
+      end)
+      wait_until("all terminal child result records", function()
+        return fixture_logs(root)
+      end, function()
+        local result_count = count_named_files(root .. "/runtime/logs/codex-adoption", "result.json")
+        if result_count == 3 then
+          return true
+        end
+        return nil, "terminal result records=" .. tostring(result_count)
+      end)
       t.eq(count_files(root .. "/codex-started"), 3)
+      kill_process(owner_pid)
+      owner_pid = nil
 
       local replay_output, replay_ok = run_reach(bin, root, package_root, replay_event)
       t.eq(replay_ok, true, replay_output)
@@ -167,6 +254,9 @@ return {
       t.eq(count_files(root .. "/codex-started"), 3)
     end)
 
+    if owner_pid ~= nil then
+      pcall(kill_process, owner_pid)
+    end
     local cleanup_ok, cleanup_err = pcall(remove_fixture, root)
     if not ok then
       error(err)
