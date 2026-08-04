@@ -1,247 +1,35 @@
-local base_ids = require("devloop.base_ids")
-local core = require("core")
-local digest = require("core.digest")
-local materialization = require("core.materialization")
-local materialize_reconcile = require("materialize_reconcile")
-local marker = require("core.marker")
-local testing = require("testkit_internal.testing")
-local t = fkst.test
+local fixtures = require("tests.materialize_reconcile_helpers")
+local base_ids = fixtures.base_ids
+local core = fixtures.core
+local digest = fixtures.digest
+local materialization = fixtures.materialization
+local materialize_reconcile = fixtures.materialize_reconcile
+local marker = fixtures.marker
+local testing = fixtures.testing
+local t = fixtures.t
+local repo = fixtures.repo
+local origin_issue = fixtures.origin_issue
+local origin = fixtures.origin
+local blueprint = fixtures.blueprint
+local blueprint_marker = fixtures.blueprint_marker
+local comment = fixtures.comment
+local issue = fixtures.issue
+local event = fixtures.event
+local generated_spec = fixtures.generated_spec
+local build_entry = fixtures.build_entry
+local generated_comment = fixtures.generated_comment
+local created_comment = fixtures.created_comment
+local label_projection_comment = fixtures.label_projection_comment
+local comments_with = fixtures.comments_with
+local parent_created_comment = fixtures.parent_created_comment
+local parent_intent_comment = fixtures.parent_intent_comment
+local child_body = fixtures.child_body
+local child_body_with_blueprint = fixtures.child_body_with_blueprint
+local raise_capture = fixtures.raise_capture
+local run_with = fixtures.run_with
+local only_queue = fixtures.only_queue
 
-local repo = "owner/repo"
-local origin_issue = 42
-local origin = base_ids.proposal_id(repo, origin_issue)
-
-local function blueprint()
-  return {
-    schema = "fkst.workflow.v1",
-    id = "workflow-one",
-    version = "2026-07-02",
-    summary = "A bounded workflow.",
-    applies_when = "The origin issue asks for this workflow.",
-    steps = {
-      {
-        id = "first",
-        title = "First static issue",
-        content = {
-          kind = "static",
-          intent = "Implement the first static step.",
-        },
-      },
-      {
-        id = "second",
-        title = "Second generated issue",
-        content = {
-          kind = "generated",
-          generator = "Use the predecessor result to write the next issue.",
-        },
-      },
-    },
-  }
-end
-
-local function blueprint_marker()
-  local built, err = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(blueprint()))
-  t.is_nil(err)
-  return built
-end
-
-local function comment(body)
-  return {
-    body = body,
-    author_login = "fkst-test-bot",
-    created_at = "2026-07-02T00:00:00Z",
-  }
-end
-
-local function issue(comments, fields)
-  local extra = fields or {}
-  return {
-    title = "Workflow origin",
-    body = "Run the workflow.",
-    state = extra.state or "OPEN",
-    labels = extra.labels or {},
-    assignees = { "fkst-test-bot" },
-    author_login = "fkst-test-bot",
-    comments = comments or { comment(blueprint_marker()) },
-    repo = repo,
-    number = origin_issue,
-  }
-end
-
-local function event()
-  return {
-    queue = "github-devloop-workflow.workflow_materialization_tick",
-    payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
-    ts = "2026-07-02T00:00:00Z",
-  }
-end
-
-local function generated_spec(slot, body)
-  return {
-    title = slot == "second" and "Generated child issue" or "First static issue",
-    body = body or (slot == "second" and "Generated follow-up body." or "Implement the first static step."),
-  }
-end
-
-local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state)
-  local slot = slot_id == "second" and blueprint().steps[2] or blueprint().steps[1]
-  local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(blueprint()), slot, predecessor_ref_digest, spec)
-  local built, err = marker.build_materialization_marker(
-    origin,
-    entry.blueprint_digest,
-    entry.slot,
-    entry.predecessor_ref_digest,
-    entry.gen_contract_digest,
-    entry.gen_spec_digest,
-    entry.child_dedup,
-    child_issue ~= nil and tostring(child_issue) or nil,
-    state or "generated"
-  )
-  t.is_nil(err)
-  return entry, built
-end
-
-local function generated_comment(slot_id, predecessor_ref_digest, spec)
-  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, nil, "generated")
-  return comment(built)
-end
-
-local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue)
-  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, child_issue, "created")
-  return comment(built)
-end
-
-local function label_projection_comment(state, generation)
-  local built, err = marker.build_label_projection_marker(origin, state, generation)
-  t.is_nil(err)
-  return comment(built)
-end
-
-local function comments_with(comments, extra)
-  local out = {}
-  for _, item in ipairs(comments or {}) do
-    out[#out + 1] = item
-  end
-  out[#out + 1] = extra
-  return out
-end
-
-
-local function parent_created_comment(entry, child_issue)
-  return comment('<!-- fkst:github-proxy:issue-created:v1 dedup="' .. entry.child_dedup .. '" issue="' .. tostring(child_issue) .. '" -->')
-end
-
-local function parent_intent_comment(entry)
-  return comment('<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. entry.child_dedup .. '" -->')
-end
-
-local function child_body(slot_id, spec, child_dedup)
-  local lineage = marker.build_lineage_header(origin, digest.blueprint_digest(blueprint()), slot_id)
-  return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
-end
-
-local function child_body_with_blueprint(slot_id, spec, child_dedup, bp)
-  local lineage = marker.build_lineage_header(origin, digest.blueprint_digest(bp or blueprint()), slot_id)
-  return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
-end
-
-local function raise_capture(fn)
-  local old_with_lock = with_lock
-  with_lock = function(_key, locked)
-    return locked()
-  end
-  local ok, result = pcall(fn)
-  with_lock = old_with_lock
-  if not ok then
-    error(result, 0)
-  end
-  return result
-end
-
-local function run_with(fakes)
-  local fake = fakes or {}
-  local dept = require("workflow.saga").department({
-    consumes = { "workflow_materialization_tick" },
-    produces = {
-      "github-proxy.github_issue_create_request",
-      "github-proxy.github_issue_comment_request",
-      "github-proxy.github_issue_label_request",
-    },
-    stall_window = "2m",
-  }, materialize_reconcile.handlers(core, {
-    deps = {
-      read_repo = function()
-        return repo
-      end,
-      list_open_issues = function()
-        return fake.issues or { { number = origin_issue, title = "Workflow origin" } }
-      end,
-      read_issue = function()
-        return fake.current or issue()
-      end,
-      verify_issue_claim = function()
-        return fake.claim ~= false
-      end,
-      dependency_gate = fake.dependency_gate or function()
-        return {
-          ok = true,
-          kind = "satisfied",
-          reason = "satisfied",
-          unmet = {},
-        }
-      end,
-      child_status = function(_core, child_ref)
-        local key = tostring(child_ref.issue_number or child_ref.proposal_id or "")
-        local result = (fake.child_statuses or {})[key] or fake.child_status or "running"
-        if type(result) == "table" then
-          return result.status, result.detail
-        end
-        return result
-      end,
-      load_blueprints = function()
-        if fake.workflow_missing then
-          return { valid = {} }
-        end
-        return {
-          valid = {
-            ["workflow-one"] = {
-              path = "test-workflow.json",
-              blueprint = fake.blueprint or blueprint(),
-            },
-          },
-        }
-      end,
-      spawn_codex = fake.spawn_codex,
-      content_fetch = fake.content_fetch,
-      release_done_claim = fake.release_done_claim or function()
-        return true
-      end,
-      close_done_origin = fake.close_done_origin or function()
-        return true
-      end,
-      read_created_issue = fake.read_created_issue,
-      search_created_issue = fake.search_created_issue or function()
-        return nil
-      end,
-    },
-  }))
-  local result = raise_capture(function()
-    return testing.run_fake(dept, event())
-  end)
-  return result.raises
-end
-
-local function only_queue(raised, queue)
-  local out = {}
-  for _, item in ipairs(raised or {}) do
-    if item.queue == queue then
-      out[#out + 1] = item
-    end
-  end
-  return out
-end
-
-local tests = {
+return {
   test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
     local changed_blueprint = blueprint()
     changed_blueprint.version = "2026-07-26"
@@ -539,97 +327,6 @@ local tests = {
     t.is_true(active_labels[1].payload.dedup_key ~= blocked_labels[1].payload.dedup_key)
   end,
 
-  test_child_fatal_writes_blocked_terminal = function()
-    local first_spec = generated_spec("first")
-    local raised = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
-      }),
-      child_statuses = { ["108"] = "fatal" },
-    })
-    t.eq(#raised, 1)
-    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
-    t.is_nil(raised[1].payload.replace_marker)
-    t.is_true(raised[1].payload.body:find("terminal:v1", 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('state="created"', 1, true) == nil)
-    t.is_true(raised[1].payload.body:find('state="blocked"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="child-fatal-first"', 1, true) ~= nil)
-  end,
-
-  test_stale_child_fatal_terminal_rederives_merged_children_and_completes = function()
-    local first_spec = generated_spec("first")
-    local second_spec = generated_spec("second")
-    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
-    local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-second")
-    t.is_nil(terminal_err)
-    local raised = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
-        created_comment("second", materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }), second_spec, 109),
-        comment(blocked_terminal),
-      }),
-      child_statuses = {
-        ["108"] = "result_ready",
-        ["109"] = "result_ready",
-      },
-    })
-
-    t.eq(#raised, 1)
-    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
-    t.is_true(raised[1].payload.body:find('state="done"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
-  end,
-
-  test_non_first_no_changes_child_writes_blocked_terminal_with_why = function()
-    local first_spec = generated_spec("first")
-    local second_spec = generated_spec("second")
-    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
-    local raised = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
-        created_comment("second", materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }), second_spec, 109),
-      }),
-      child_statuses = {
-        ["108"] = "result_ready",
-        ["109"] = {
-          status = "fatal",
-          detail = { impl_failed_reason = "no-changes" },
-        },
-      },
-    })
-    t.eq(#raised, 1)
-    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
-    t.is_nil(raised[1].payload.replace_marker)
-    t.is_true(raised[1].payload.body:find("terminal:v1", 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('state="blocked"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="child-fatal-second-no-changes"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="all-slots-result-ready"', 1, true) == nil)
-  end,
-
-  test_all_slots_ready_writes_done_terminal = function()
-    local first_spec = generated_spec("first")
-    local second_spec = generated_spec("second")
-    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
-    local raised = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
-        created_comment("second", materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }), second_spec, 109),
-      }),
-      child_statuses = {
-        ["108"] = "result_ready",
-        ["109"] = "result_ready",
-      },
-    })
-    t.eq(#raised, 1)
-    t.is_nil(raised[1].payload.replace_marker)
-    t.is_true(raised[1].payload.body:find('state="done"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
-  end,
-
   test_wait_when_predecessor_running_raises_nothing = function()
     local first_spec = generated_spec("first")
     local raised = run_with({
@@ -807,101 +504,4 @@ local tests = {
     t.eq(#only_queue(raised, "github-proxy.github_issue_comment_request"), 0)
   end,
 
-  test_impossible_ledger_writes_error_terminal = function()
-    local spec = generated_spec("second")
-    local raised = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("second", materialization.EMPTY_PREDECESSOR_REF_DIGEST, spec, 109),
-      }),
-    })
-    t.eq(#raised, 1)
-    t.is_true(raised[1].payload.body:find('state="error"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="impossible-ledger"', 1, true) ~= nil)
-  end,
-
-  test_done_terminal_releases_and_closes_only_after_marker_and_label_are_visible = function()
-    local first_spec = generated_spec("first")
-    local second_spec = generated_spec("second")
-    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
-    local released = nil
-    local closed = nil
-    local first = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
-        created_comment("second", materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }), second_spec, 109),
-      }),
-      child_statuses = {
-        ["108"] = "result_ready",
-        ["109"] = "result_ready",
-      },
-      release_done_claim = function(_core, release_repo, release_issue, release_origin)
-        released = {
-          repo = release_repo,
-          issue = release_issue,
-          origin = release_origin,
-        }
-        return true
-      end,
-      close_done_origin = function()
-        closed = true
-        return true
-      end,
-    })
-    local terminal_comments = only_queue(first, "github-proxy.github_issue_comment_request")
-    t.eq(#terminal_comments, 1)
-    t.eq(released, nil)
-    t.eq(closed, nil)
-
-    local projection = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        comment(terminal_comments[1].payload.body),
-      }),
-      release_done_claim = function()
-        released = true
-        return true
-      end,
-      close_done_origin = function()
-        closed = true
-        return true
-      end,
-    })
-    t.eq(#only_queue(projection, "github-proxy.github_issue_label_request"), 1)
-    t.eq(released, nil)
-    t.eq(closed, nil)
-
-    local completed = run_with({
-      current = issue({
-        comment(blueprint_marker()),
-        comment(terminal_comments[1].payload.body),
-      }, { labels = { "fkst-dev:merged" } }),
-      release_done_claim = function(_core, release_repo, release_issue, release_origin)
-        released = {
-          repo = release_repo,
-          issue = release_issue,
-          origin = release_origin,
-        }
-        return true
-      end,
-      close_done_origin = function(_core, close_repo, close_issue, close_origin)
-        closed = {
-          repo = close_repo,
-          issue = close_issue,
-          origin = close_origin,
-        }
-        return true
-      end,
-    })
-    t.eq(#completed, 0)
-    t.eq(released.repo, repo)
-    t.eq(released.issue, origin_issue)
-    t.eq(released.origin, origin)
-    t.eq(closed.repo, repo)
-    t.eq(closed.issue, origin_issue)
-    t.eq(closed.origin, origin)
-  end,
 }
-
-return tests
