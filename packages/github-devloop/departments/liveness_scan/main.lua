@@ -87,7 +87,11 @@ local function should_reinject_issue(repo, issue, limits, deadline)
   end
   local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(repo, issue.number), state, {
     proposal_id = proposal_id,
-    current = { comments = current.comments or {}, labels = current.labels or {} },
+    current = {
+      comments = current.comments or {},
+      labels = current.labels or {},
+      title = current.title,
+    },
     current_issue = current,
     current_pr = current_pr,
     ["pr-delegation"] = delegation,
