@@ -146,7 +146,7 @@ function M.read_current_for_candidate(package_core, dept, repo, issue_number, ca
   end
   local intake_fact = m_facts.intake_decision_fact(current.comments, candidate.proposal_id)
   local reached_thinking = devloop_state.reached(current.comments, candidate.proposal_id, "thinking", {
-    domain = "github-devloop",
+    domain = "github-devloop-issue",
   })
   local can_replay_enable_successor = intake_fact ~= nil
     and intake_fact.decision == "enable"
