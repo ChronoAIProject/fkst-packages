@@ -6,7 +6,7 @@ local forge_validators = require("devloop.forge_validators")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
 local transition_version = require("contract.transition_version")
-
+local base_constants = require("devloop.base_constants")
 function C.read_env_command(name)
   return config.read_env_command(name)
 end
@@ -14,51 +14,51 @@ function C.read_env(name, exec)
   return config.read_env(name, exec)
 end
 
-local max_key_len = 200
-local max_dedup_len = 512
-local max_title_len = 240
-local max_body_len = 12000
-local max_comments_len = 12000
-local max_meta_reason_len = 2000
-local max_framing_len = 1000
-local max_impl_output_len = 2000
-local max_blocking_gap_len = 240
-local max_review_ledger_len = 1200
-local max_pr_issue_context_len = 3000
-local max_update_key_len = 50
-local max_version_key_len = 40
-local max_worktree_prefix_len = 90
-local max_branch_len = 160
-local max_pr_title_len = 240
-local max_judgment_prefix_len = 120
-local action_label = "⟦FKST:ACTION⟧"
-local intake_label = "⟦FKST:INTAKE⟧"
-local class_label = "⟦FKST:CLASS⟧"
-local reason_label = "⟦FKST:REASON⟧"
-local verdict_label = "⟦FKST:VERDICT⟧"
-local reply_label = "⟦FKST:REPLY⟧"
-local untrusted_issue_data_begin = "BEGIN UNTRUSTED ISSUE DATA"
-local untrusted_issue_data_end = "END UNTRUSTED ISSUE DATA"
-local test_bot_login = "fkst-test-bot"
+local max_key_len = base_constants.max_key_len
+local max_dedup_len = base_constants.max_dedup_len
+local max_title_len = base_constants.max_title_len
+local max_body_len = base_constants.max_body_len
+local max_comments_len = base_constants.max_comments_len
+local max_meta_reason_len = base_constants.max_meta_reason_len
+local max_framing_len = base_constants.max_framing_len
+local max_impl_output_len = base_constants.max_impl_output_len
+local max_blocking_gap_len = base_constants.max_blocking_gap_len
+local max_review_ledger_len = base_constants.max_review_ledger_len
+local max_pr_issue_context_len = base_constants.max_pr_issue_context_len
+local max_update_key_len = base_constants.max_update_key_len
+local max_version_key_len = base_constants.max_version_key_len
+local max_worktree_prefix_len = base_constants.max_worktree_prefix_len
+local max_branch_len = base_constants.max_branch_len
+local max_pr_title_len = base_constants.max_pr_title_len
+local max_judgment_prefix_len = base_constants.max_judgment_prefix_len
+local action_label = base_constants.action_label
+local intake_label = base_constants.intake_label
+local class_label = base_constants.class_label
+local reason_label = base_constants.reason_label
+local verdict_label = base_constants.verdict_label
+local reply_label = base_constants.reply_label
+local untrusted_issue_data_begin = base_constants.untrusted_issue_data_begin
+local untrusted_issue_data_end = base_constants.untrusted_issue_data_end
+local test_bot_login = base_constants.test_bot_login
 
-local enabled_label = "fkst-dev:enabled"
-local tracking_label = "fkst-dev:tracking"
-local hold_label = "fkst-dev:hold"
-local thinking_label = "fkst-dev:thinking"
-local ready_label = "fkst-dev:ready"
-local implementing_label = "fkst-dev:implementing"
-local awaiting_pr_label = "fkst-dev:awaiting-pr"
-local pr_open_label = "fkst-dev:pr-open"
-local reviewing_label = "fkst-dev:reviewing"
-local merge_ready_label = "fkst-dev:merge-ready"
-local merging_label = "fkst-dev:merging"
-local merged_label = "fkst-dev:merged"
-local fixing_label = "fkst-dev:fixing"
-local review_meta_label = "fkst-dev:review-meta"
-local impl_failed_label = "fkst-dev:impl-failed"
-local declined_label = "fkst-dev:declined"
-local blocked_label = "fkst-dev:blocked"
-local blocked_on_dependency_label = "fkst-dev:blocked-on-dependency"
+local enabled_label = base_constants.enabled_label
+local tracking_label = base_constants.tracking_label
+local hold_label = base_constants.hold_label
+local thinking_label = base_constants.thinking_label
+local ready_label = base_constants.ready_label
+local implementing_label = base_constants.implementing_label
+local awaiting_pr_label = base_constants.awaiting_pr_label
+local pr_open_label = base_constants.pr_open_label
+local reviewing_label = base_constants.reviewing_label
+local merge_ready_label = base_constants.merge_ready_label
+local merging_label = base_constants.merging_label
+local merged_label = base_constants.merged_label
+local fixing_label = base_constants.fixing_label
+local review_meta_label = base_constants.review_meta_label
+local impl_failed_label = base_constants.impl_failed_label
+local declined_label = base_constants.declined_label
+local blocked_label = base_constants.blocked_label
+local blocked_on_dependency_label = base_constants.blocked_on_dependency_label
 
 local label_colors = {
   [enabled_label] = "1D76DB",
@@ -852,54 +852,17 @@ function C.trusted_bot_login()
   return test_bot_login
 end
 
-C._max_key_len = max_key_len
-C._max_dedup_len = max_dedup_len
-C._max_title_len = max_title_len
-C._max_body_len = max_body_len
-C._max_comments_len = max_comments_len
-C._max_meta_reason_len = max_meta_reason_len
-C._max_framing_len = max_framing_len
-C._max_impl_output_len = max_impl_output_len
-C._max_blocking_gap_len = max_blocking_gap_len
-C._max_review_ledger_len = max_review_ledger_len
-C._max_pr_issue_context_len = max_pr_issue_context_len
-C._max_pr_title_len = max_pr_title_len
-C._action_label = action_label
-C._intake_label = intake_label
-C._class_label = class_label
-C._reason_label = reason_label
-C._verdict_label = verdict_label
-C._reply_label = reply_label
-C._untrusted_issue_data_begin = untrusted_issue_data_begin
-C._untrusted_issue_data_end = untrusted_issue_data_end
-C._test_bot_login = test_bot_login
-C._enabled_label = enabled_label
-C._tracking_label = tracking_label
-C._hold_label = hold_label
-C._thinking_label = thinking_label
-C._ready_label = ready_label
-C._implementing_label = implementing_label
-C._awaiting_pr_label = awaiting_pr_label
-C._pr_open_label = pr_open_label
-C._reviewing_label = reviewing_label
-C._merge_ready_label = merge_ready_label
-C._merging_label = merging_label
-C._merged_label = merged_label
-C._fixing_label = fixing_label
-C._review_meta_label = review_meta_label
-C._impl_failed_label = impl_failed_label
-C._declined_label = declined_label
-C._blocked_label = blocked_label
-C._blocked_on_dependency_label = blocked_on_dependency_label
-C._label_colors = label_colors
-C._shell_single_quote = shell_single_quote
-C._neutralize_fkst_markers = neutralize_fkst_markers
-C._one_line = one_line
-C._is_bounded_string = is_bounded_string
-C._has_value = has_value
-C._is_review_meta_action = is_review_meta_action
-C.fix_reflection_checkpoint_round = fix_reflection_checkpoint_round
-C._is_path_safe_key = is_path_safe_key
-C._is_positive_pr_number = forge_validators.is_positive_pr_number
+base_constants.install_public(C, {
+  label_colors = label_colors,
+  shell_single_quote = shell_single_quote,
+  neutralize_fkst_markers = neutralize_fkst_markers,
+  one_line = one_line,
+  is_bounded_string = is_bounded_string,
+  has_value = has_value,
+  is_review_meta_action = is_review_meta_action,
+  fix_reflection_checkpoint_round = fix_reflection_checkpoint_round,
+  is_path_safe_key = is_path_safe_key,
+  is_positive_pr_number = forge_validators.is_positive_pr_number,
+})
 
 return C
