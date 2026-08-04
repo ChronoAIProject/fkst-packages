@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
@@ -120,7 +121,7 @@ function M.canonicalize_legacy_ready_dependency_wait(dept, issue, state, facts)
     version = state.version,
     comments = comments,
   })
-  local to_state = M.dependency_gate_is_satisfied(gate) and "ready" or "dependency_wait"
+  local to_state = dependency_gate.dependency_gate_is_satisfied(gate) and "ready" or "dependency_wait"
   local to_version = M.ready_split_version(state.version)
   local label_dedup_key = to_state == "dependency_wait"
     and base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(to_version), tostring(gate.hold_kind) })
@@ -257,10 +258,10 @@ function M.replay_dependency_wait_state(dept, issue, state, row, facts)
   if gate == nil then
     return false
   end
-  if M.dependency_gate_is_verified_cannot_proceed(gate, issue.repo, issue.number) then
+  if dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, issue.repo, issue.number) then
     return raise_dependency_gate_blocked(M, dept, issue, proposal_id, state, gate)
   end
-  if not M.dependency_gate_is_satisfied(gate) then
+  if not dependency_gate.dependency_gate_is_satisfied(gate) then
     return raise_dependency_wait_hold(M, dept, issue, proposal_id, state, facts.current, gate, facts.command, read_fact(facts, "dependency-wait"))
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "dependency_wait", "ready", "release-dependency-hold", gate.reason)
@@ -292,7 +293,7 @@ function M.replay_ready_state(dept, issue, state, row, facts)
   if gate == nil then
     return false
   end
-  if not M.dependency_gate_is_satisfied(gate) then
+  if not dependency_gate.dependency_gate_is_satisfied(gate) then
     local dep_version = M.ready_split_version(state.version)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "ready", "dependency_wait", "hold-dependency-reappeared", gate.reason)
     M.raise_ready_split_effects(dept, issue, proposal_id, state.version, "dependency_wait", dep_version, gate,
