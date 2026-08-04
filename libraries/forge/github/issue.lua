@@ -454,6 +454,18 @@ function M.install(handle)
     return M.normalize_issue(out.stdout, source_ref)
   end
 
+  -- Field-complete GraphQL issue view. Exists so consumers needing a full view under a REST
+  -- throttle do not have to import this module for `issue_view_fields`; the field list stays
+  -- owned by this adapter.
+  function handle.issue_view_full(repo, issue_number, timeout)
+    return handle._exec(
+      gh_issue_view_full_argv(repo, issue_number),
+      timeout,
+      "gh issue view",
+      stdout_policy.content_json("issue_view")
+    )
+  end
+
   function handle.issue_rest_view(repo, issue_number, timeout)
     return handle._exec(
       gh_issue_rest_argv(repo, issue_number),

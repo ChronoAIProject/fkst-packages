@@ -50,7 +50,16 @@ local function pr_json(pr)
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. strings.json_string(login) .. "}")
   end
+  -- Head-repository provenance is REQUIRED by core.lua's admission check; without it the PR is
+  -- rejected as `pr-provenance-unavailable` before any origin-comment logic runs. These
+  -- characterization tests never exercised that path before, because integration's repo check
+  -- aborted the suite ahead of them. Default to true, matching external_pr_intake_handled_test.
+  local is_cross_repository = pr.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = true
+  end
   return '{"number":' .. tostring(pr.number)
+    .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"title":' .. strings.json_string(pr.title)
     .. ',"headRefName":' .. strings.json_string(pr.head_ref_name)
     .. ',"baseRefName":' .. strings.json_string(pr.base_ref_name)
@@ -362,7 +371,10 @@ return {
         author_login = "Managed-Bot[bot]",
         head_ref_name = "feature/contrib",
         created_at = "2026-06-03T01:02:03Z",
-      }, managed, 1780459324), true)
+        -- Required provenance: without it admission rejects as `pr-provenance-unavailable`
+        -- before the login comparison this test is characterizing is ever reached.
+        is_cross_repository = true,
+      }, 1780459324), true)
     end)
   end,
 
