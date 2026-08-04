@@ -76,6 +76,14 @@ local function codex_identity(proposal, role, angle_lane, invocation_id)
   }
 end
 
+local function prepare_run(proposal, runtime_root, kind, role, angle_lane, invocation_id)
+  local run_identity = codex_identity(proposal, role, angle_lane, invocation_id)
+  local worktree = prepare_seat_worktree(proposal,
+    judgment_scratch_worktree(runtime_root, kind, run_identity.dedup_key)
+  )
+  return run_identity, worktree
+end
+
 local function defer_live_run(identity)
   log.info(
     "consensus dept=reach disposition=drop-redrive reason=live-run-active role=" .. tostring(identity.role)
@@ -89,8 +97,7 @@ local function defer_live_run(identity)
   }
 end
 
-local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id)
-  local run_identity = codex_identity(proposal, role, angle_lane, invocation_id)
+local function dispatch_codex(proposal, prompt, worktree, run_identity, opts)
   local dispatch_opts = codex_opts(proposal, prompt, worktree, run_identity.role)
   for key, value in pairs(opts or {}) do
     dispatch_opts[key] = value
@@ -104,10 +111,15 @@ end
 
 local function spawn_angle(proposal, angle, runtime_root, invocation_id)
   local prompt = core.build_angle_prompt(proposal, angle)
-  local worktree = prepare_seat_worktree(proposal,
-    judgment_scratch_worktree(runtime_root, "angle-" .. tostring(angle), proposal.dedup_key)
+  local run_identity, worktree = prepare_run(
+    proposal,
+    runtime_root,
+    "angle-" .. tostring(angle),
+    "consensus",
+    tostring(angle),
+    invocation_id
   )
-  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle), nil, invocation_id)
+  return dispatch_codex(proposal, prompt, worktree, run_identity)
 end
 
 local function with_runtime_context_root(proposal, runtime_root)
@@ -182,11 +194,11 @@ local function decide(proposal, invocation_id)
       build_rebuttal_prompt = function(target_proposal, own_result, peer_results)
         return core.build_rebuttal_prompt(target_proposal, own_result, peer_results)
       end,
-      judgment_scratch_worktree = function(root, kind, identity)
-        return judgment_scratch_worktree(root, kind, identity)
+      prepare_run = function(kind, role, angle_lane)
+        return prepare_run(proposal, runtime_root, kind, role, angle_lane, invocation_id)
       end,
-      dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
-        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane, nil, invocation_id)
+      dispatch_codex = function(target_proposal, prompt, worktree, run_identity)
+        return dispatch_codex(target_proposal, prompt, worktree, run_identity)
       end,
     })
     for _, handle in ipairs(rebuttal_handles) do
@@ -229,12 +241,18 @@ local function decide(proposal, invocation_id)
     end,
     spawn_sync = function(_kind, prompt)
       local repair = _kind == "synthesis-repair"
-      local worktree = prepare_seat_worktree(proposal,
-        judgment_scratch_worktree(runtime_root, repair and "synthesis-repair" or "synthesis", proposal.dedup_key)
+      local kind = repair and "synthesis-repair" or "synthesis"
+      local run_identity, worktree = prepare_run(
+        proposal,
+        runtime_root,
+        kind,
+        "consensus",
+        kind,
+        invocation_id
       )
-      return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
+      return dispatch_codex(proposal, prompt, worktree, run_identity, {
         sync = true,
-      }, invocation_id)
+      })
     end,
   })
   if result_deferred(parsed) then

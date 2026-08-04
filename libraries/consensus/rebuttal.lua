@@ -87,10 +87,9 @@ function M.spawn_all(ctx)
   local angle_results = ctx.angle_results or {}
   for index, result in ipairs(angle_results) do
     local prompt = ctx.build_rebuttal_prompt(ctx.proposal, result, peer_results(angle_results, index))
-    local worktree = ctx.prepare_judgment_worktree(
-      ctx.judgment_scratch_worktree(ctx.runtime_root, "rebuttal-" .. tostring(result.angle), ctx.proposal.dedup_key)
-    )
-    table.insert(handles, ctx.dispatch_codex(ctx.proposal, prompt, worktree, "consensus", "rebuttal-" .. tostring(result.angle)))
+    local kind = "rebuttal-" .. tostring(result.angle)
+    local run_identity, worktree = ctx.prepare_run(kind, "consensus", kind)
+    table.insert(handles, ctx.dispatch_codex(ctx.proposal, prompt, worktree, run_identity))
   end
   return handles
 end

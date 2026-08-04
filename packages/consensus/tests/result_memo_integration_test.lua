@@ -123,7 +123,7 @@ local function mock_converge(prefix)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("consensus-synthesis-proposal", {
+  t.mock_command("judgment-worktrees/consensus-synthesis-", {
     stdout = "converge: concurrent loser remains unresolved + inspect the loser evidence"
       .. "\nopen: inspect the concurrent loser evidence\n",
     stderr = "",
@@ -151,7 +151,7 @@ local function mock_gate_synthesis_reject(gap)
     })
   end
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("consensus-synthesis-proposal", {
+  t.mock_command("judgment-worktrees/consensus-synthesis-", {
     stdout = "reached:reject reject until the named gap is fixed\n" .. gap_label .. " " .. gap .. "\n",
     stderr = "",
     exit_code = 0,

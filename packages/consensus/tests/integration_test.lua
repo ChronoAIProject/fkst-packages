@@ -197,7 +197,7 @@ end
 
 local function mock_synthesis(line, exit_code)
   mock_judgment_dir()
-  t.mock_command("consensus-synthesis-proposal", {
+  t.mock_command("judgment-worktrees/consensus-synthesis-", {
     stdout = synthesis_stdout(line),
     stderr = "",
     exit_code = exit_code or 0,
@@ -206,7 +206,7 @@ end
 
 local function mock_synthesis_repair(line, exit_code)
   mock_judgment_dir()
-  t.mock_command("consensus-synthesis-repair-proposal", {
+  t.mock_command("judgment-worktrees/consensus-synthesis-repair-", {
     stdout = synthesis_stdout(line),
     stderr = "",
     exit_code = exit_code or 0,
@@ -584,7 +584,7 @@ return {
     mock_rebuttal_defend("fidelity", "approve", "Fidelity still approves.")
     mock_synthesis("malformed")
     mock_judgment_dir()
-    t.mock_command("consensus-synthesis-repair-proposal", {
+    t.mock_command("judgment-worktrees/consensus-synthesis-repair-", {
       stdout = "",
       stderr = "worker usage limit",
       exit_code = 7,
