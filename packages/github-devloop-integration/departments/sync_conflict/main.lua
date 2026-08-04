@@ -169,7 +169,7 @@ local function read_sync_conflict_attempt_ledger(git, conflict)
     error("github-devloop: sync-conflict-ledger-read-failed: "
       .. tostring(commit and commit.stderr or "missing result"))
   end
-  local data = sync_conflict_attempts.decode(commit.stdout)
+  local data = sync_conflict_attempts.decode(commit.stdout, conflict)
   if data == nil then
     error("github-devloop: sync-conflict-ledger-invalid: invalid sync conflict attempt ledger")
   end
@@ -218,7 +218,29 @@ local function write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt
     error("github-devloop: sync-conflict-ledger-commit-invalid: invalid ledger commit SHA")
   end
   local pushed = git.push_ref_update("origin", commit_sha, ledger.ref, ledger.sha or "", 60)
-  return type(pushed) == "table" and pushed.exit_code == 0, pushed
+  return type(pushed) == "table" and pushed.exit_code == 0, pushed, commit_sha
+end
+
+local function sync_conflict_attempt_commit_visible(git, conflict, commit_sha)
+  local ledger = read_sync_conflict_attempt_ledger(git, conflict)
+  if ledger.sha == commit_sha then
+    return true
+  end
+  if ledger.sha == nil then
+    return false
+  end
+  local ancestry = git.is_ancestor(commit_sha, ledger.sha, 30)
+  if type(ancestry) ~= "table" then
+    error("github-devloop: sync-conflict-ledger-ancestry-failed: missing result")
+  end
+  if ancestry.exit_code == 0 then
+    return true
+  end
+  if ancestry.exit_code == 1 then
+    return false
+  end
+  error("github-devloop: sync-conflict-ledger-ancestry-failed: "
+    .. tostring(ancestry.stderr or "missing error"))
 end
 
 local function record_sync_conflict_attempt(git, conflict, runtime)
@@ -240,8 +262,8 @@ local function record_sync_conflict_attempt(git, conflict, runtime)
       return attempt
     end
     devloop_base.assert_trusted_bot_configured()
-    local written, pushed = write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
-    if written then
+    local written, pushed, commit_sha = write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
+    if written or sync_conflict_attempt_commit_visible(git, conflict, commit_sha) then
       return attempt
     end
     devloop_logging.log_line("warn", "sync_conflict", "branch-sync", "CAS_RETRY", {

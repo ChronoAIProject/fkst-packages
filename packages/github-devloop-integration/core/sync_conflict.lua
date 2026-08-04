@@ -63,6 +63,7 @@ function M.sync_conflict_attempt_ref(conflict)
     tostring(conflict.repo or ""),
     tostring(conflict.upstream_branch or ""),
     tostring(conflict.integration_branch or ""),
+    tostring(conflict.integration_sha or ""),
   }, "\n")
   local ref = "refs/fkst/sync-conflict-attempts/"
     .. safe_ref_segment(conflict.repo, 48)
@@ -72,6 +73,8 @@ function M.sync_conflict_attempt_ref(conflict)
     .. safe_ref_segment(conflict.integration_branch, 40)
     .. "-"
     .. decimal_checksum(lane)
+    .. "/"
+    .. safe_ref_segment(conflict.integration_sha, 40)
   if not strings.is_path_safe_key(ref, M._max_dedup_len) then
     error("github-devloop: sync-conflict-ref-invalid: invalid sync conflict attempt ref")
   end
