@@ -280,7 +280,7 @@ function C.output_obligation_source_lineage_fact(fact, source_issue)
     return nil
   end
   local allowed_from_states = {}
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     if #devloop_state.state_successors(state) > 0 then
       allowed_from_states[state] = true
     end
