@@ -168,7 +168,7 @@ function M.reconcile(core, github, repo, entity, limits, deadline)
   local closed = github.issue_close(
     fact.escalation_repo,
     fact.escalation_issue_number,
-    { kind = "completed" },
+    { kind = decision.kind },
     timeout
   )
   if type(closed) ~= "table" or closed.exit_code ~= 0 then

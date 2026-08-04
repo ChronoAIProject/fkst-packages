@@ -179,30 +179,12 @@ local function has_any_state_label(labels)
   return false
 end
 
-function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
+function C.has_active_issue_state(labels, comments, proposal_id)
   local current = current_marker_state(comments, proposal_id)
   if current ~= nil then
     return tostring(current.state or "") ~= "blocked"
   end
   return devloop_base.is_opted_in(labels) or has_any_state_label(labels)
-end
-
-local function later_timestamp(left, right)
-  local l = tostring(left or "")
-  local r = tostring(right or "")
-  if r ~= "" and (l == "" or r > l) then
-    return r
-  end
-  return l ~= "" and l or nil
-end
-
-function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
-  local updated_at = (command and command.created_at) or (issue and issue.updated_at)
-  local current = current_marker_state(comments, proposal_id)
-  if command ~= nil and current ~= nil and tostring(current.state or "") == "blocked" then
-    updated_at = later_timestamp(updated_at, current.marker_created_at)
-  end
-  return updated_at or (issue and issue.updated_at)
 end
 
 function C.reached(comments, proposal_id, milestone, opts)

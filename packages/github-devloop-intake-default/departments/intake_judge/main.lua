@@ -5,7 +5,6 @@ local requests_lifecycle = require("devloop.requests.lifecycle")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
 local execution_start = require("devloop.execution_start")
-local operator_commands = require("devloop.operator_commands")
 local premise_correction = require("devloop.premise_correction")
 local saga = require("workflow.saga")
 local context_bundle = require("devloop.context_bundle")
@@ -118,45 +117,6 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
     return nil
   end
 
-  local reintake_command = operator_commands.operator_command_fact(current.comments, "reintake")
-  local has_pending_reintake = reintake_command ~= nil and not operator_commands.has_operator_command_response(current.comments, reintake_command)
-  if has_pending_reintake and not m_facts.has_intake_decision_marker(current.comments, candidate.proposal_id) then
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(repo,
-      issue_number,
-      reintake_command,
-      "reintake requires an existing intake decision",
-      candidate.source_ref
-    )
-    devloop_logging.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "refused(reintake-no-intake-decision)", "operator reintake requires an existing intake decision")
-    devloop_logging.log_raise("intake_judge", candidate.proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return nil
-  end
-  if has_pending_reintake and operator_commands.reintake_has_active_devloop_state(current.labels, current.comments, candidate.proposal_id) then
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(repo,
-      issue_number,
-      reintake_command,
-      "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states",
-      candidate.source_ref
-    )
-    devloop_logging.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "refused(reintake-active-state)", "operator reintake requires terminal blocked or no active devloop state")
-    devloop_logging.log_raise("intake_judge", candidate.proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return nil
-  end
-  if has_pending_reintake then
-    local expected = tostring(reintake_command.created_at or "")
-    if tostring(candidate.reintake_command_created_at or "") ~= expected then
-      devloop_logging.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale-reintake-candidate", "operator reintake candidate must be keyed by command identity")
-      return nil
-    end
-  end
-  local effective_updated_at = has_pending_reintake
-    and operator_commands.reintake_effect_updated_at(current, reintake_command, current.comments, candidate.proposal_id)
-    or nil
-  if has_pending_reintake and tostring(candidate.reintake_effect_updated_at or "") ~= tostring(effective_updated_at or "") then
-    devloop_logging.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale-reintake-candidate", "operator reintake candidate must be keyed by authoritative marker state")
-    return nil
-  end
-
   local correction_pair = nil
   local applied_correction_key = nil
   if candidate.premise_fingerprint ~= nil and candidate.correction_fingerprint ~= nil then
@@ -185,9 +145,7 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
 
   local decision_dedup_key = devloop_base.intake_decision_dedup_key(
     candidate.proposal_id,
-    current,
-    has_pending_reintake and reintake_command or nil,
-    effective_updated_at
+    current
   )
   if correction_pair ~= nil then
     decision_dedup_key = premise_correction.decision_dedup_key(decision_dedup_key, correction_pair)
@@ -210,12 +168,11 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
     and intake_fact.decision == "enable"
     and tostring(intake_fact.dedup_key or "") == tostring(decision_dedup_key or "")
     and not reached_thinking
-    and not has_pending_reintake
-  if devloop_base.is_opted_in(current.labels) and not has_pending_reintake and not can_replay_enable_successor then
+  if devloop_base.is_opted_in(current.labels) and not can_replay_enable_successor then
     devloop_logging.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-enabled", "fkst-dev:enabled is already present")
     return nil
   end
-  if intake_fact ~= nil and not has_pending_reintake then
+  if intake_fact ~= nil then
     if can_replay_enable_successor then
       local replay_candidate = copy_table(candidate)
       replay_candidate.service_class = intake_fact.service_class
@@ -234,8 +191,6 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
   return {
     current = current,
     decision_dedup_key = decision_dedup_key,
-    reintake_command = reintake_command,
-    has_pending_reintake = has_pending_reintake,
   }
 end
 
@@ -304,21 +259,12 @@ local function act_intake_judge(event)
     end
     local current = current_gate.current
     local decision_dedup_key = current_gate.decision_dedup_key
-    local reintake_command = current_gate.reintake_command
-    local has_pending_reintake = current_gate.has_pending_reintake
-
     candidate.service_class = parsed.service_class
     local decision_candidate = copy_table(candidate)
     decision_candidate.dedup_key = decision_dedup_key
-    local command_comment_request = has_pending_reintake
-      and operator_commands.build_operator_issue_reintake_comment_request(repo, issue_number, reintake_command, candidate, candidate.source_ref)
-      or nil
     local raised = {
       "github-proxy.github_issue_comment_request",
     }
-    if command_comment_request ~= nil then
-      table.insert(raised, "github-proxy.github_issue_comment_request")
-    end
     local class_carrier = nil
     local class_key = nil
     if parsed.action == "escalate-to-class" then
@@ -355,9 +301,6 @@ local function act_intake_judge(event)
       add = apply_add,
       remove = apply_remove,
     }, raised)
-    if command_comment_request ~= nil then
-      devloop_logging.log_raise("intake_judge", candidate.proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
-    end
     devloop_logging.log_raise("intake_judge", candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
     if parsed.action == "escalate-to-class" then
       local followup_comment = core.build_intake_class_followup_comment_request(
