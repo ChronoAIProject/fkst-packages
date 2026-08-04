@@ -18,11 +18,16 @@ end
 
 local function pr(fields)
   fields = fields or {}
+  local is_cross_repository = fields.is_cross_repository
+  if is_cross_repository == nil and not fields.omit_provenance then
+    is_cross_repository = true
+  end
   return {
     number = fields.number or 7,
     state = fields.state or "OPEN",
     author_login = fields.author_login or "contributor",
     head_ref_name = fields.head_ref_name or "feature/contrib",
+    is_cross_repository = is_cross_repository,
     created_at = fields.created_at,
     updated_at = fields.updated_at,
   }
@@ -50,6 +55,12 @@ end
 local function is_bridge_age_eligible_with_default_age(candidate)
   return with_env({ FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = "" }, function()
     return core.is_bridge_age_eligible(candidate, fixed_now_seconds)
+  end)
+end
+
+local function is_candidate_with_default_age(candidate)
+  return with_env({ FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = "" }, function()
+    return core.is_external_candidate(candidate, fixed_now_seconds)
   end)
 end
 
@@ -97,6 +108,28 @@ return {
     t.eq(core.normalize_pr({ number = 8, created_at = "2026-06-03T02:02:03Z" }, "owner/repo").created_at, "2026-06-03T02:02:03Z")
   end,
 
+  test_normalize_pr_preserves_cli_cross_repository_provenance = function()
+    local same_repo = core.normalize_pr({ number = 7, isCrossRepository = false }, "owner/repo")
+    local fork = core.normalize_pr({ number = 8, isCrossRepository = true }, "owner/repo")
+
+    t.eq(same_repo.is_cross_repository, false)
+    t.eq(fork.is_cross_repository, true)
+  end,
+
+  test_normalize_pr_derives_rest_cross_repository_provenance = function()
+    local same_repo = core.normalize_pr({
+      number = 7,
+      head = { repo = { full_name = "OWNER/REPO" } },
+    }, "owner/repo")
+    local fork = core.normalize_pr({
+      number = 8,
+      head = { repo = { full_name = "contributor/repo" } },
+    }, "owner/repo")
+
+    t.eq(same_repo.is_cross_repository, false)
+    t.eq(fork.is_cross_repository, true)
+  end,
+
   test_external_candidate_skips_young_pr = function()
     local candidate = pr({ created_at = "2026-06-03T04:01:03Z" })
     t.eq(is_bridge_age_eligible_with_default_age(candidate), false)
@@ -110,6 +143,39 @@ return {
   test_external_candidate_accepts_old_pr = function()
     local candidate = pr({ created_at = "2026-06-03T01:02:02Z" })
     t.eq(is_bridge_age_eligible_with_default_age(candidate), true)
+  end,
+
+  test_external_candidate_rejects_same_repository_operator_pr = function()
+    local candidate = pr({
+      author_login = "unknown-operator",
+      head_ref_name = "harness/operator-fix",
+      is_cross_repository = false,
+      created_at = "2026-06-03T01:02:02Z",
+    })
+
+    t.eq(is_candidate_with_default_age(candidate), false)
+  end,
+
+  test_external_candidate_uses_provenance_not_managed_login_or_branch = function()
+    local candidate = pr({
+      author_login = "other-bot",
+      head_ref_name = "devloop/self-excluding-fork",
+      is_cross_repository = true,
+      created_at = "2026-06-03T01:02:02Z",
+    })
+
+    t.eq(is_candidate_with_default_age(candidate), true)
+  end,
+
+  test_external_candidate_fails_closed_without_provenance = function()
+    local candidate = pr({
+      omit_provenance = true,
+      created_at = "2026-06-03T01:02:02Z",
+    })
+    local ok, err = pcall(is_candidate_with_default_age, candidate)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("pr-provenance-unavailable", 1, true) ~= nil)
   end,
 
   test_external_candidate_uses_created_at_not_recent_updated_at = function()

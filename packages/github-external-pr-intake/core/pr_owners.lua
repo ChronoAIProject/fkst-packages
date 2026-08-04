@@ -5,6 +5,7 @@ local axes = {
   "has_actionable_issue_origin",
   "is_managed_author",
   "is_authorized_author",
+  "is_cross_repository",
 }
 
 local declarations = {
@@ -43,6 +44,7 @@ local declarations = {
       has_actionable_issue_origin = false,
       is_managed_author = true,
       is_authorized_author = true,
+      is_cross_repository = false,
     },
   },
   {
@@ -55,8 +57,23 @@ local declarations = {
     match = {
       is_integration_rollup = false,
       has_actionable_issue_origin = false,
+      is_authorized_author = true,
+      is_cross_repository = true,
+    },
+  },
+  {
+    kind = "same-repository-pr",
+    lifecycle_package = "github-external-pr-intake",
+    claim_kind = "repository-provenance",
+    authorization_kind = "github-author-policy",
+    terminal_contract = "no-external-bridge",
+    disposition = "reserved",
+    match = {
+      is_integration_rollup = false,
+      has_actionable_issue_origin = false,
       is_managed_author = false,
       is_authorized_author = true,
+      is_cross_repository = false,
     },
   },
   {
@@ -123,12 +140,15 @@ local function each_fact_shape(fn)
     for _, origin in ipairs({ false, true }) do
       for _, managed in ipairs({ false, true }) do
         for _, authorized in ipairs({ false, true }) do
-          fn({
-            is_integration_rollup = rollup,
-            has_actionable_issue_origin = origin,
-            is_managed_author = managed,
-            is_authorized_author = authorized,
-          })
+          for _, cross_repository in ipairs({ false, true }) do
+            fn({
+              is_integration_rollup = rollup,
+              has_actionable_issue_origin = origin,
+              is_managed_author = managed,
+              is_authorized_author = authorized,
+              is_cross_repository = cross_repository,
+            })
+          end
         end
       end
     end

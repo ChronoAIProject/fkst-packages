@@ -50,7 +50,16 @@ local function pr_json(pr)
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. strings.json_string(login) .. "}")
   end
+  -- Head-repository provenance is REQUIRED by core.lua's admission check; without it the PR is
+  -- rejected as `pr-provenance-unavailable` before any origin-comment logic runs. These
+  -- characterization tests never exercised that path before, because integration's repo check
+  -- aborted the suite ahead of them. Default to true, matching external_pr_intake_handled_test.
+  local is_cross_repository = pr.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = true
+  end
   return '{"number":' .. tostring(pr.number)
+    .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"title":' .. strings.json_string(pr.title)
     .. ',"headRefName":' .. strings.json_string(pr.head_ref_name)
     .. ',"baseRefName":' .. strings.json_string(pr.base_ref_name)
@@ -96,6 +105,21 @@ local function fake_github(pr, authorized_login)
       timeout = timeout,
     })
     return { stdout = "[]", stderr = "", exit_code = 0 }
+  end
+
+  function handle.issue_view(repo, issue_number, fields, timeout)
+    table.insert(operations, {
+      kind = "issue_view",
+      repo = repo,
+      issue_number = issue_number,
+      fields = fields,
+      timeout = timeout,
+    })
+    return {
+      stdout = '{"number":42,"state":"OPEN","labels":[],"assignees":[],"author":{"login":"contributor"}}',
+      stderr = "",
+      exit_code = 0,
+    }
   end
 
   function handle.issue_assign(repo, issue_number, login, timeout)
@@ -191,6 +215,8 @@ local function run_event(github, event, write_enabled)
       FKST_GITHUB_WRITE = write_enabled and "1" or "",
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,other-bot",
       FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = "",
+      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
     })[name] or ""
   end
   with_lock = function(_key, fn)
@@ -248,6 +274,7 @@ local function candidate_event()
       schema = "github-external-pr-intake.v1",
       repo = "owner/repo",
       number = 7,
+      owner_kind = "external-pr-bridge",
       dedup_key = "github-external-pr-intake/owner/repo/pr/7",
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     },
@@ -263,7 +290,7 @@ local function assert_origin_fixture(pr, signer, branch, base_branch)
 end
 
 local function assert_origin_comment_does_not_change_outcome(signer, branch, base_branch)
-  -- Current intake does not consult pr-origin facts; a later policy change must update these outcomes explicitly.
+  -- A pr-origin comment alone does not reserve the PR; its backing issue must also be actionable.
   local scan_pr = production_pr(signer, branch, base_branch)
   assert_origin_fixture(scan_pr, signer, branch, base_branch)
   local scan_github = fake_github(scan_pr)
@@ -277,6 +304,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(scan_raises[1].payload.schema, "github-external-pr-intake.v1")
   t.eq(scan_raises[1].payload.repo, "owner/repo")
   t.eq(scan_raises[1].payload.number, 7)
+  t.eq(scan_raises[1].payload.owner_kind, "external-pr-bridge")
   t.eq(scan_raises[1].payload.updated_at, "2026-06-19T01:02:03Z")
   t.eq(scan_raises[1].payload.dedup_key, "github-external-pr-intake/owner/repo/pr/7")
   t.eq(scan_raises[1].payload.source_ref.kind, "external")
@@ -362,7 +390,10 @@ return {
         author_login = "Managed-Bot[bot]",
         head_ref_name = "feature/contrib",
         created_at = "2026-06-03T01:02:03Z",
-      }, managed, 1780459324), true)
+        -- Required provenance: without it admission rejects as `pr-provenance-unavailable`
+        -- before the login comparison this test is characterizing is ever reached.
+        is_cross_repository = true,
+      }, 1780459324), true)
     end)
   end,
 
@@ -387,7 +418,7 @@ return {
     t.eq(logs_contain(logs, "action=skip-"), false)
   end,
 
-  test_trusted_current_pr_origin_comment_is_ignored_by_intake = function()
+  test_trusted_current_pr_origin_without_actionable_issue_is_ignored_by_intake = function()
     assert_origin_comment_does_not_change_outcome("fkst-test-bot[bot]", "feature/contrib", "dev")
   end,
 

@@ -13,7 +13,7 @@ local spec = {
   stall_window = "30s",
 }
 
-local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,assignees"
+local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,assignees,headRepository,headRepositoryOwner,isCrossRepository"
 local bridge_issue_view_fields = "number,title,state,url,labels,comments,author"
 local github_author_policy_env = {
   bot_login_env = "FKST_GITHUB_BOT_LOGIN",
@@ -48,6 +48,9 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
       return false, "bridge-age-ineligible", owner
     end
     return false, "non-authorized-author", owner
+  end
+  if owner.kind == "same-repository-pr" then
+    return false, "not-external", owner
   end
   if owner.disposition ~= "bridge" then
     return false, "reserved-" .. tostring(owner.kind), owner

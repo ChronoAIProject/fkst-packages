@@ -347,6 +347,33 @@ local function comments(pr)
   return result
 end
 
+local function repository_name_with_owner(repository, repository_owner)
+  if type(repository) == "string" and repository ~= "" then
+    return repository
+  end
+  if type(repository) ~= "table" then
+    return nil
+  end
+  for _, field in ipairs({ "nameWithOwner", "name_with_owner", "full_name" }) do
+    if repository[field] ~= nil and tostring(repository[field]) ~= "" then
+      return tostring(repository[field])
+    end
+  end
+  local owner = nil
+  if type(repository.owner) == "table" then
+    owner = repository.owner.login
+  end
+  if owner == nil and type(repository_owner) == "table" then
+    owner = repository_owner.login
+  elseif owner == nil and type(repository_owner) == "string" then
+    owner = repository_owner
+  end
+  if owner ~= nil and repository.name ~= nil then
+    return tostring(owner) .. "/" .. tostring(repository.name)
+  end
+  return nil
+end
+
 function M.normalize_pr(pr, repo)
   assert(type(pr) == "table", "normalize_pr requires a table")
   local head = pr.headRefName or pr.head_ref_name
@@ -361,6 +388,27 @@ function M.normalize_pr(pr, repo)
   if state ~= "" then
     state = state:upper()
   end
+  local head_repository = repository_name_with_owner(
+    pr.headRepository or pr.head_repository,
+    pr.headRepositoryOwner or pr.head_repository_owner
+  )
+  if head_repository == nil and type(pr.head) == "table" then
+    head_repository = repository_name_with_owner(pr.head.repo)
+  end
+  local is_cross_repository = pr.isCrossRepository
+  if is_cross_repository == nil then
+    is_cross_repository = pr.is_cross_repository
+  end
+  if is_cross_repository ~= nil and type(is_cross_repository) ~= "boolean" then
+    is_cross_repository = nil
+  end
+  local derived_cross_repository = nil
+  if head_repository ~= nil and repo ~= nil and tostring(repo) ~= "" then
+    derived_cross_repository = tostring(head_repository):lower() ~= tostring(repo):lower()
+  end
+  if is_cross_repository == nil then
+    is_cross_repository = derived_cross_repository
+  end
   return {
     repo = repo,
     number = tonumber(pr.number),
@@ -371,6 +419,8 @@ function M.normalize_pr(pr, repo)
     updated_at = pr.updatedAt or pr.updated_at,
     author_login = author_login(pr),
     head_ref_name = head,
+    head_repository = head_repository,
+    is_cross_repository = is_cross_repository,
     base_ref_name = base,
     comments = comments(pr),
     assignees = assignee_logins(pr),
@@ -440,6 +490,15 @@ function M.classify_pr_owner_facts(facts, declarations)
   return pr_owners.classify_facts(facts, declarations)
 end
 
+local function required_cross_repository_fact(pr)
+  if type(pr.is_cross_repository) ~= "boolean" then
+    error("github-external-pr-intake: pr-provenance-unavailable: PR #"
+      .. tostring(pr.number)
+      .. " has no authoritative head repository provenance")
+  end
+  return pr.is_cross_repository
+end
+
 function M.classify_pr_owner(pr, managed, branches, is_authorized_author, has_actionable_issue_origin)
   if type(pr) ~= "table" or pr.number == nil then
     error("github-external-pr-intake: pr-owner-pr-required: PR ownership requires a numbered PR")
@@ -464,6 +523,7 @@ function M.classify_pr_owner(pr, managed, branches, is_authorized_author, has_ac
     has_actionable_issue_origin = has_actionable_issue_origin,
     is_managed_author = M.is_managed_bot_login(pr.author_login, managed),
     is_authorized_author = is_authorized_author,
+    is_cross_repository = required_cross_repository_fact(pr),
   }
   return pr_owners.classify_facts(facts), facts
 end
@@ -481,6 +541,19 @@ function M.is_bridge_age_eligible(pr, now_seconds)
     return false
   end
   return now_value - created_seconds >= M.external_pr_bridge_min_age_seconds()
+end
+
+function M.is_external_candidate(pr, now_seconds)
+  if type(pr) ~= "table" or pr.number == nil then
+    return false
+  end
+  if tostring(pr.state or "") ~= "" and tostring(pr.state):upper() ~= "OPEN" then
+    return false
+  end
+  if not required_cross_repository_fact(pr) then
+    return false
+  end
+  return M.is_bridge_age_eligible(pr, now_seconds)
 end
 
 function M.bridge_marker_issue_number(body)

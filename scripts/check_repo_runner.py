@@ -13,6 +13,7 @@ import check_repo_dead_letter
 import check_repo_devloop_godlib
 import check_repo_devloop_decouple
 import check_repo_devloop_installer
+import check_repo_error_class
 import check_repo_fanout_only
 import check_repo_service_locator
 import check_repo_ambient_surface
@@ -32,6 +33,29 @@ import check_repo_restart_preflight
 import check_repo_saga_head
 import check_repo_saga_split
 import check_repo_version_suffix
+
+
+def check_library_error_class(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+    current = check_repo_error_class.current_library_sites(
+        root,
+        c.read_text,
+        c.rel,
+        c.unclassified_error_call_lines,
+    )
+    allowlist = check_repo_error_class.load_library_allowlist(
+        c.allowlist_path(root, check_repo_error_class.LIBRARY_ALLOWLIST, allowlist_dir)
+    )
+    base_status, base_allowlist = (
+        check_repo_error_class.library_allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    )
+    if base_status == "unresolved":
+        c.add(
+            violations,
+            "G-LIB-ERROR-CLASS",
+            "cannot resolve dev base allowlist to enforce shrink-only library error-class ratchet; ensure CI provides the dev ref",
+        )
+    for message in check_repo_error_class.library_ratchet_messages(current, allowlist, base_allowlist):
+        c.add(violations, "G-LIB-ERROR-CLASS", message)
 
 
 def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
@@ -139,6 +163,7 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
     c.check_helper_reachability(root, violations); c.check_graphql_connection_guards(root, warnings)
     c.check_rest_pagination_guards(root, warnings); c.check_hidden_text_encoded_literals(root, violations)
     c.check_gh_rate_pool_sizing(root, violations); c.check_error_class_prefixes(root, violations, allowlists, enforce_base)
+    check_library_error_class(c, root, violations, allowlists, enforce_base)
     c.check_persistence_classes(root, violations); c.check_cross_package_require(root, violations)
     c.check_library_layering(root, violations, allowlists, enforce_base)
     for message in check_repo_dependency_cycle.messages(root, c.read_text, c.strip_lua_comments_and_strings, c.is_unmasked_range, allowlists, enforce_base):

@@ -4,7 +4,8 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 gh_argv.install(t, core)
 
 local repo = "owner/repo"
-local pr = '{"number":7,"title":"Contributor patch","headRefName":"feature/contrib","baseRefName":"dev","state":"OPEN","createdAt":"2026-06-03T01:02:03Z","updatedAt":"2026-06-19T01:02:03Z","author":{"login":"contributor"},"comments":[],"assignees":[]}'
+local pr_list_item = '{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"contributor"},"head":{"ref":"feature/contrib","repo":{"full_name":"contributor/repo"}},"base":{"ref":"dev"}}'
+local pr_view = '{"number":7,"title":"Contributor patch","headRefName":"feature/contrib","baseRefName":"dev","state":"OPEN","createdAt":"2026-06-03T01:02:03Z","updatedAt":"2026-06-19T01:02:03Z","headRepository":{"nameWithOwner":"contributor/repo"},"isCrossRepository":true,"author":{"login":"contributor"},"comments":[],"assignees":[]}'
 
 local function mock_env()
   local values = {
@@ -32,17 +33,17 @@ return {
   test_fire_raiser_external_pr_scan_routes_and_raises_real_candidate = function()
     mock_env()
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
-      stdout = "[[" .. pr .. "]]\n",
+      stdout = "[[" .. pr_list_item .. "]]\n",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("gh pr view '7' --repo 'owner/repo'", {
-      stdout = pr .. "\n",
+      stdout = pr_view .. "\n",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("gh pr view '7' --repo 'owner/repo'", {
-      stdout = pr .. "\n",
+      stdout = pr_view .. "\n",
       stderr = "",
       exit_code = 0,
     })

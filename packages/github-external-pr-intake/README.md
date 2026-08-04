@@ -1,8 +1,9 @@
 # github-external-pr-intake
 
-`github-external-pr-intake` is a flat Ports-and-Adapters boundary for one job: turn an open
-third-party GitHub pull request into one normal GitHub issue that `github-devloop` can already
-process.
+`github-external-pr-intake` is a flat Ports-and-Adapters boundary for PR ownership that does not
+belong to the normal `github-devloop-pr` or integration-promotion lifecycles. It turns authorized
+cross-repository PRs and same-repository managed-bot hotfix PRs into normal GitHub issues that
+`github-devloop` can already process, and it records deterministic non-bridge dispositions.
 
 The package exists because the established boundary is an Anti-Corruption Layer plus an
 Idempotent Consumer. External contributor PRs are untrusted PR facts, while `github-devloop` is an
@@ -20,6 +21,20 @@ an otherwise unauthorized external contributor is skipped and no bridge issue is
 
 Bridge issue identity contains only the PR number and canonical author login. Contributor prose is
 never used in the title, so a content-redaction marker cannot become a work-item identity.
+
+## Provenance Classification
+
+A PR is external only when GitHub reports that its head repository differs from the target
+repository. The scheduled REST scan derives that fact from `head.repo.full_name`; every durable
+candidate re-fetch requests `headRepository` and `isCrossRepository` before admission. Author
+login and head branch name do not determine externality, so an authorized same-repository PR from
+a non-managed author is reserved from this bridge and a fork cannot self-exclude by choosing a
+`devloop/` branch name. A same-repository PR from a managed bot is classified separately as an
+`operator-hotfix-bridge`; it is never represented as an external PR.
+
+Missing repository provenance fails closed through the package's structured failure boundary
+before any claim, issue, or comment write. Author authorization remains the separate
+deny-by-default gate described above.
 
 ## Why This Is Not `github-proxy`
 
@@ -52,7 +67,7 @@ A manual or no-op issue template can represent the final bridge issue after a hu
 but it cannot perform the required autonomous job:
 
 - scheduled detection of newly opened external PRs;
-- filtering out managed bot PRs and `devloop/` heads;
+- provenance-based rejection of same-repository PRs;
 - cross-instance single-winner coordination with `with_lock(core.bridge_lock_key(...))`;
 - durable deduplication through trusted `external-pr-bridge:v1` markers and bridge issue search.
 

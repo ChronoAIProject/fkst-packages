@@ -1,4 +1,5 @@
 local git_mechanics = require("devloop.git_mechanics")
+local devloop_commands = require("devloop.commands")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local C = {}
@@ -59,11 +60,11 @@ local function head_contains_base(M, base_head, entry)
     or not require("devloop.pr_safety").is_safe_branch(entry and entry.head_branch) then
     return false, "unsafe-current-base"
   end
-  local fetch_result = M.git_fetch_branch("origin", entry.head_branch, 60)
+  local fetch_result = devloop_commands.git_fetch_branch("origin", entry.head_branch, 60)
   if fetch_result.exit_code ~= 0 then
     return false, "candidate-head-fetch-failed"
   end
-  local fetched_head = M.git_fetch_head_commit(30)
+  local fetched_head = devloop_commands.git_fetch_head_commit(30)
   if fetched_head.exit_code ~= 0 then
     return false, "candidate-head-underivable"
   end

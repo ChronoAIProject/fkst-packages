@@ -30,6 +30,10 @@ end
 
 local function owner_pr(fields)
   fields = fields or {}
+  local is_cross_repository = fields.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = false
+  end
   return {
     repo = repo,
     number = fields.number or 7,
@@ -38,6 +42,7 @@ local function owner_pr(fields)
     author_login = fields.author_login or "fkst-test-bot",
     head_ref_name = fields.head_ref_name or "fix/operator-hotfix",
     base_ref_name = fields.base_ref_name or upstream_branch,
+    is_cross_repository = is_cross_repository,
     created_at = fields.created_at or "2026-06-03T01:02:03Z",
     updated_at = fields.updated_at or "2026-06-03T04:02:03Z",
     comments = fields.comments or {},
@@ -108,6 +113,8 @@ local function pr_json(pr)
     strings.json_string(pr.head_ref_name),
     ',"baseRefName":',
     strings.json_string(pr.base_ref_name),
+    ',"isCrossRepository":',
+    tostring(pr.is_cross_repository),
     ',"state":"OPEN","createdAt":',
     strings.json_string(pr.created_at),
     ',"updatedAt":',
@@ -288,35 +295,37 @@ return {
   test_owner_declarations_are_total_and_disjoint = function()
     t.eq(#core.pr_owner_conformance_errors(), 0)
 
-    local expected = {
-      ["true:true:true:true"] = "integration-promotion",
-      ["true:true:true:false"] = "integration-promotion",
-      ["true:true:false:true"] = "integration-promotion",
-      ["true:true:false:false"] = "integration-promotion",
-      ["true:false:true:true"] = "integration-promotion",
-      ["true:false:true:false"] = "integration-promotion",
-      ["true:false:false:true"] = "integration-promotion",
-      ["true:false:false:false"] = "integration-promotion",
-      ["false:true:true:true"] = "github-devloop-pr",
-      ["false:true:true:false"] = "github-devloop-pr",
-      ["false:true:false:true"] = "github-devloop-pr",
-      ["false:true:false:false"] = "github-devloop-pr",
-      ["false:false:true:true"] = "operator-hotfix-bridge",
-      ["false:false:false:true"] = "external-pr-bridge",
-      ["false:false:true:false"] = "unauthorized-pr-retirement",
-      ["false:false:false:false"] = "unauthorized-pr-retirement",
-    }
-    for key, kind in pairs(expected) do
-      local rollup, origin, managed_author, authorized_author = key:match(
-        "([^:]+):([^:]+):([^:]+):([^:]+)"
-      )
-      local owner = core.classify_pr_owner_facts({
-        is_integration_rollup = rollup == "true",
-        has_actionable_issue_origin = origin == "true",
-        is_managed_author = managed_author == "true",
-        is_authorized_author = authorized_author == "true",
-      })
-      t.eq(owner.kind, kind, key)
+    for _, rollup in ipairs({ false, true }) do
+      for _, origin in ipairs({ false, true }) do
+        for _, managed_author in ipairs({ false, true }) do
+          for _, authorized_author in ipairs({ false, true }) do
+            for _, cross_repository in ipairs({ false, true }) do
+              local expected
+              if rollup then
+                expected = "integration-promotion"
+              elseif origin then
+                expected = "github-devloop-pr"
+              elseif not authorized_author then
+                expected = "unauthorized-pr-retirement"
+              elseif cross_repository then
+                expected = "external-pr-bridge"
+              elseif managed_author then
+                expected = "operator-hotfix-bridge"
+              else
+                expected = "same-repository-pr"
+              end
+              local owner = core.classify_pr_owner_facts({
+                is_integration_rollup = rollup,
+                has_actionable_issue_origin = origin,
+                is_managed_author = managed_author,
+                is_authorized_author = authorized_author,
+                is_cross_repository = cross_repository,
+              })
+              t.eq(owner.kind, expected)
+            end
+          end
+        end
+      end
     end
   end,
 
@@ -364,7 +373,11 @@ return {
     t.eq(owner_kind(owner_pr({
       comments = { { author_login = "untrusted-contributor", body = origin } },
     })), "operator-hotfix-bridge")
-    t.eq(owner_kind(owner_pr({ author_login = "trusted-contributor" })), "external-pr-bridge")
+    t.eq(owner_kind(owner_pr({
+      author_login = "trusted-contributor",
+      is_cross_repository = true,
+    })), "external-pr-bridge")
+    t.eq(owner_kind(owner_pr({ author_login = "trusted-contributor" })), "same-repository-pr")
     t.eq(owner_kind(owner_pr({ author_login = "untrusted-contributor" }), false), "unauthorized-pr-retirement")
   end,
 
@@ -457,7 +470,12 @@ return {
       }),
       owner_pr({ number = 2, head_ref_name = integration_branch, base_ref_name = upstream_branch }),
       owner_pr({ number = 3, head_ref_name = "fix/operator-hotfix" }),
-      owner_pr({ number = 4, author_login = "trusted-contributor", head_ref_name = "feature/contrib" }),
+      owner_pr({
+        number = 4,
+        author_login = "trusted-contributor",
+        head_ref_name = "feature/contrib",
+        is_cross_repository = true,
+      }),
     }, {
       [42] = { number = 42, author_login = "fkst-test-bot", assignees = {}, labels = {} },
     })

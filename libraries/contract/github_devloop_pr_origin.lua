@@ -72,7 +72,7 @@ function O.fact(comments, options)
   local trusted_bot_login = strip_bot_login_suffix(opts.trusted_bot_login)
   local is_git_ref_safe = opts.is_git_ref_safe
   if type(is_git_ref_safe) ~= "function" then
-    error("contract.github_devloop_pr_origin: is_git_ref_safe is required")
+    error("contract: git-ref-validator-required: is_git_ref_safe is required")
   end
 
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
