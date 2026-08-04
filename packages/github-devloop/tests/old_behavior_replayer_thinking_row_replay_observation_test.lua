@@ -338,7 +338,7 @@ local function build_record(fixture)
 
   local target_version = nil
   if fixture.expected_target == "devloop_consensus_request" and dispatch.raises[1] ~= nil then
-    target_version = dispatch.raises[1].payload.dedup_key
+    target_version = dispatch.raises[1].payload.effect_version
   elseif fixture.expected_target == "blocked" then
     target_version = dispatch.applies[1] and dispatch.applies[1].version or nil
   end
