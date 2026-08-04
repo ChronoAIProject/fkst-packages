@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 MANIFEST = "migration/github-devloop-saga-split.inventory"
@@ -457,6 +457,14 @@ def load_allowlist(path: Path) -> set[LeakSite]:
     return entries
 
 
+def parse_dev_allowlist_lines(lines: list[str]) -> set[LeakSite]:
+    return {
+        LeakSite.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def covered_by_allowlist(site: LeakSite, allowlist: set[LeakSite]) -> bool:
     return any(entry.key() == site.key() for entry in allowlist)
 
@@ -480,21 +488,6 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[LeakSite] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            LeakSite.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(root: Path) -> list[str]:
     entries, messages = load_manifest(root / MANIFEST)
     messages.extend(manifest_messages(root, entries))
@@ -509,7 +502,11 @@ def repository_messages(root: Path) -> list[str]:
         pr_phase_states = set()
     leaks = current_leaks(root, entries, pr_phase_states)
     allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+        root,
+        allowlist=ALLOWLIST,
+        parse_allowlist_lines=parse_dev_allowlist_lines,
+    )
     if base_status == "unresolved":
         messages.append("allowlist-base-unresolved: cannot resolve dev base allowlist to enforce shrink-only ratchet")
     messages.extend(ratchet_messages(leaks, allowlist, base_allowlist))

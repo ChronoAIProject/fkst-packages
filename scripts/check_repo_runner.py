@@ -68,7 +68,15 @@ def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_ba
     allowlist = check_repo_content_truncation.load_allowlist(
         c.allowlist_path(root, check_repo_content_truncation.ALLOWLIST, allowlist_dir)
     )
-    base_status, base_allowlist = check_repo_content_truncation.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=check_repo_content_truncation.ALLOWLIST,
+            parse_allowlist_lines=check_repo_content_truncation.parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     if base_status == "unresolved":
         c.add(violations, "G-CONTENT-TRUNCATION", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_content_truncation.ratchet_messages(current, allowlist, base_allowlist):
@@ -87,7 +95,14 @@ def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_
         c.allowlist_path(root, check_repo_dept_failure_surface.ALLOWLIST, allowlist_dir)
     )
     base_status, base_allowlist = (
-        check_repo_dept_failure_surface.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=check_repo_dept_failure_surface.ALLOWLIST,
+            parse_allowlist_lines=check_repo_dept_failure_surface.parse_allowlist_lines,
+            catch_errors=False,
+        )
+        if enforce_base
+        else ("absent", None)
     )
     if base_status == "unresolved":
         c.add(violations, "G-DEPT-FAILURE-SURFACE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
@@ -120,7 +135,15 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
     allowlist = check_repo_producer_liveness.load_allowlist(
         c.allowlist_path(root, check_repo_producer_liveness.ALLOWLIST, allowlist_dir)
     )
-    base_status, base_allowlist = check_repo_producer_liveness.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=check_repo_producer_liveness.ALLOWLIST,
+            parse_allowlist_lines=check_repo_producer_liveness.parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     if base_status == "unresolved":
         c.add(violations, "G-PRODUCER-LIVENESS", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     messages = check_repo_producer_liveness.ratchet_messages(
@@ -148,7 +171,15 @@ def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=Tr
     allowlist = check_repo_monotone_gate.load_allowlist(
         c.allowlist_path(root, check_repo_monotone_gate.ALLOWLIST, allowlist_dir)
     )
-    base_status, base_allowlist = check_repo_monotone_gate.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=check_repo_monotone_gate.ALLOWLIST,
+            parse_allowlist_lines=check_repo_monotone_gate.parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     if base_status == "unresolved":
         c.add(violations, "G-MONOTONE-GATE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_monotone_gate.ratchet_messages(current, allowlist, base_allowlist):

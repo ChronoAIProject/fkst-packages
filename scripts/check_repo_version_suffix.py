@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
-import ratchet_base
 
 
 ALLOWLIST = "migration/version-suffix.allowlist"
@@ -269,6 +268,14 @@ def load_allowlist(path: Path) -> set[VersionSuffixAllowlistEntry]:
     return entries
 
 
+def parse_dev_allowlist_lines(lines: list[str]) -> set[VersionSuffixAllowlistEntry]:
+    return {
+        VersionSuffixAllowlistEntry.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def ratchet_messages(
     current: set[VersionSuffixSite],
     allowlist: set[VersionSuffixAllowlistEntry],
@@ -291,21 +298,6 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[VersionSuffixAllowlistEntry] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            VersionSuffixAllowlistEntry.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(
     root: Path,
     allowlist_dir: Path | None = None,
@@ -314,7 +306,15 @@ def repository_messages(
     current = sites(root)
     allow_path = root / ALLOWLIST if allowlist_dir is None else allowlist_dir / Path(ALLOWLIST).name
     allowlist = load_allowlist(allow_path)
-    base_status, base_allowlist = allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=ALLOWLIST,
+            parse_allowlist_lines=parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     messages: list[str] = []
     if base_status == "unresolved":
         messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")

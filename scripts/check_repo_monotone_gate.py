@@ -30,7 +30,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
-import ratchet_base
 
 
 MANIFEST = "migration/monotone-gate.inventory"
@@ -544,19 +543,12 @@ def load_allowlist(path: Path) -> list[Violation]:
     ]
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, list[Violation] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", [
-            Violation.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-    except Exception:
-        return "unresolved", None
+def parse_dev_allowlist_lines(lines: list[str]) -> list[Violation]:
+    return [
+        Violation.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
 
 
 def grouped_violations(violations: list[Violation] | set[Violation]) -> dict[tuple[str, str, str, str], list[Violation]]:
@@ -621,7 +613,11 @@ def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
     allowlist = load_allowlist(root / ALLOWLIST)
     base_allowlist: list[Violation] | None = None
     if enforce_base:
-        base_status, base_allowlist = allowlist_at_dev_base(root)
+        base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=ALLOWLIST,
+            parse_allowlist_lines=parse_dev_allowlist_lines,
+        )
         if base_status == "unresolved":
             messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     messages.extend(ratchet_messages(current, allowlist, base_allowlist))
