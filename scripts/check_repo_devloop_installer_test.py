@@ -232,5 +232,29 @@ class InstallerRatchetTest(unittest.TestCase):
             self.assertEqual(list(ratchet.repository_messages(root)), [])
 
 
+    def test_function_definitions_are_not_reader_sites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pkg = root / "packages" / "package-a"
+            (pkg / "core").mkdir(parents=True)
+            (root / "libraries" / "devloop").mkdir(parents=True)
+            (root / "libraries" / "devloop" / "commands.lua").write_text(
+                "local M = {}\nfunction M.install(target) target.thing = M.thing end\nfunction M.thing() end\nreturn M\n",
+                encoding="utf-8",
+            )
+            (pkg / "core.lua").write_text(
+                'require("devloop.commands").install(M)\n', encoding="utf-8"
+            )
+            (pkg / "core" / "defines.lua").write_text(
+                "function M.thing(a)\n  return a\nend\n", encoding="utf-8"
+            )
+            (pkg / "core" / "reads.lua").write_text(
+                "local x = core.thing(1)\n", encoding="utf-8"
+            )
+            counts = ratchet.current_counts(root)
+            self.assertEqual(counts, {"package-a": 1})
+            sites = ratchet.current_inventory(root)["package-a"]
+            self.assertEqual([s["path"] for s in sites], ["packages/package-a/core/reads.lua"])
+
 if __name__ == "__main__":
     unittest.main()

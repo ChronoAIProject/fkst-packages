@@ -96,6 +96,7 @@ def _reader_sites(root: Path, package: str, symbols: set[str]) -> list[dict[str,
     alt = "|".join(re.escape(s) for s in sorted(symbols, key=len, reverse=True))
     pattern = re.compile(rf"\b(?:core|M)\.({alt})\s*\(")
     sites: list[dict[str, object]] = []
+    definition = re.compile(r"\bfunction\s+$")
     package_root = root / "packages" / package
     for lua in sorted(package_root.glob("**/*.lua")):
         rel = lua.relative_to(root).as_posix()
@@ -103,6 +104,8 @@ def _reader_sites(root: Path, package: str, symbols: set[str]) -> list[dict[str,
             continue
         for line_number, line in enumerate(lua.read_text(encoding="utf-8").splitlines(), 1):
             for match in pattern.finditer(line):
+                if definition.search(line[: match.start()]):
+                    continue
                 sites.append(
                     {
                         "path": rel,
