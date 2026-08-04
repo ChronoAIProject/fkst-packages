@@ -93,7 +93,6 @@ class RatchetBaseTest(unittest.TestCase):
                 {"GITHUB_BASE_REF": "integration", "FKST_RATCHET_TARGET_REF": ""},
             ):
                 self.assertEqual(ratchet_base.resolve_target_ref(root), integration_commit)
-                self.assertEqual(ratchet_base.resolve_target_merge_base(root), integration_commit)
 
     def test_target_ref_falls_back_to_dev_outside_pull_requests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

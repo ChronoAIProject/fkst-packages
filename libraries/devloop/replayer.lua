@@ -560,11 +560,11 @@ local function restart_replayers(M)
   local function merge(source)
     if source == nil then return end
     if type(source) ~= "table" then
-      error("github-devloop: invalid restart replayer registry")
+      error("github-devloop: restart-replayer-registry-invalid: invalid restart replayer registry")
     end
     for state_name, replay in pairs(source) do
       if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
-        error("github-devloop: invalid restart replayer registration")
+        error("github-devloop: restart-replayer-registration-invalid: invalid restart replayer registration")
       end
       replayers[state_name] = replay
     end

@@ -33,7 +33,7 @@ local function numeric_cursor_key(item, key_of)
   local value = type(key_of) == "function" and key_of(item) or item
   local key = tonumber(value)
   if key == nil or key < 0 or key ~= math.floor(key) then
-    error("workflow-internal: sweep-cursor-key-invalid: cursor key must be a non-negative integer")
+    error("workflow-internal: sweep-cursor-key-invalid: workflow_internal.sweep: cursor key must be a non-negative integer")
   end
   return key
 end

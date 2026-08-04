@@ -105,10 +105,10 @@ def current_library_diagnostics(root, read_text, rel, unclassified_error_calls) 
 
 
 def target_library_sites(root, current: dict[str, str], unclassified_error_calls) -> tuple[str, dict[str, str] | None]:
-    base_commit = ratchet_base.resolve_target_merge_base(root)
-    if base_commit is None:
+    target_commit = ratchet_base.resolve_target_ref(root)
+    if target_commit is None:
         return "unresolved", None
-    changed = ratchet_base.changed_paths(root, base_commit, "libraries")
+    changed = ratchet_base.changed_paths(root, target_commit, "libraries")
     if changed is None:
         return "unresolved", None
 
@@ -122,7 +122,7 @@ def target_library_sites(root, current: dict[str, str], unclassified_error_calls
         path = Path(relative_path)
         if path.suffix != ".lua" or "tests" in path.relative_to("libraries").parts:
             continue
-        status, source = ratchet_base.file_at_commit(root, base_commit, relative_path)
+        status, source = ratchet_base.file_at_commit(root, target_commit, relative_path)
         if status == "unresolved":
             return "unresolved", None
         if status == "present":

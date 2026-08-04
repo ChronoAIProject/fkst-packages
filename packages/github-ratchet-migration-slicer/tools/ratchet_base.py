@@ -86,21 +86,10 @@ def resolve_dev_merge_base(root: Path) -> str | None:
     return base
 
 
-def resolve_target_merge_base(root: Path) -> str | None:
-    commit = resolve_target_ref(root)
-    if commit is None:
-        return None
-    result = _git(root, ["merge-base", "HEAD", commit])
-    base = result.stdout.strip()
-    if result.returncode != 0 or not base:
-        return None
-    return base
-
-
-def changed_paths(root: Path, base_commit: str, pathspec: str) -> list[str] | None:
+def changed_paths(root: Path, target_commit: str, pathspec: str) -> list[str] | None:
     tracked = _git(
         root,
-        ["diff", "--name-only", "--no-renames", base_commit, "--", pathspec],
+        ["diff", "--name-only", "--no-renames", target_commit, "--", pathspec],
     )
     if tracked.returncode != 0:
         return None

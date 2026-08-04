@@ -166,6 +166,50 @@ class LibraryErrorClassRatchetTest(unittest.TestCase):
         self.assertIn(added, violations[0])
         self.assertIn("new relative to the target baseline", violations[0])
 
+    def test_git_target_comparison_uses_target_tip_after_divergence(self) -> None:
+        existing = self.site("existing debt")
+        target_debt = self.site("target debt")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.git(root, "init")
+            self.git(root, "config", "user.email", "fkst-test@example.invalid")
+            self.git(root, "config", "user.name", "fkst test")
+            source = root / "libraries" / "example" / "core.lua"
+            source.parent.mkdir(parents=True)
+            source.write_text('error("existing debt")\n', encoding="utf-8")
+            migration = root / "migration"
+            migration.mkdir()
+            allowlist = migration / "library-error-class.allowlist"
+            allowlist.write_text(f"{existing}\n", encoding="utf-8")
+            self.git(root, "add", ".")
+            self.git(root, "commit", "-m", "common base")
+            self.git(root, "branch", "feature")
+
+            source.write_text(
+                'error("existing debt")\nerror("target debt")\n',
+                encoding="utf-8",
+            )
+            allowlist.write_text(f"{existing}\n{target_debt}\n", encoding="utf-8")
+            self.git(root, "add", ".")
+            self.git(root, "commit", "-m", "target advance")
+            target = self.git(root, "rev-parse", "HEAD")
+            self.git(root, "update-ref", "refs/remotes/origin/integration", target)
+
+            self.git(root, "checkout", "feature")
+            source.write_text(
+                'error("existing debt")\nerror("target debt")\n',
+                encoding="utf-8",
+            )
+            allowlist.write_text(f"{existing}\n{target_debt}\n", encoding="utf-8")
+            violations: list[str] = []
+            with mock.patch.dict(
+                "os.environ",
+                {"GITHUB_BASE_REF": "integration", "FKST_RATCHET_TARGET_REF": ""},
+            ):
+                check_repo_runner.check_library_error_class(check_repo, root, violations, enforce_base=True)
+
+        self.assertEqual(violations, [])
+
     def test_checker_loads_target_diagnostics_when_enforcing_base(self) -> None:
         existing = self.site("missing class")
         with tempfile.TemporaryDirectory() as tmp:
