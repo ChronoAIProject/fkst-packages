@@ -11,6 +11,13 @@ local issue_number = 3093
 local source_ref = entity_lib.issue_source_ref(repo, issue_number)
 local highwater_key = "github-devloop-intake/admission/highwater/owner/repo/issue/3093"
 
+local function version(number)
+  local offset = number - 1
+  local minute = math.floor(offset / 60)
+  local second = offset % 60
+  return string.format("2026-08-04T00:%02d:%02dZ", minute, second)
+end
+
 local function event(updated_at)
   return {
     queue = "github-proxy.github_entity_changed",
@@ -43,7 +50,7 @@ local function closed_issue(updated_at)
 end
 
 return {
-  test_admission_skips_only_strictly_older_reconciled_entity_versions = function()
+  test_oldest_admission_event_checkpoints_fetched_latest_version = function()
     h.mock_bot_env()
     cache_set(highwater_key, "")
 
@@ -56,7 +63,7 @@ return {
       },
       read_current_issue = function(_source_ref, updated_at)
         table.insert(reads, updated_at)
-        return repo, issue_number, closed_issue(updated_at)
+        return repo, issue_number, closed_issue(version(432))
       end,
     })
 
@@ -67,27 +74,20 @@ return {
       return original_log_line(level, dept, proposal_id, tag, fields)
     end
 
-    local v0 = "2026-08-04T00:00:00Z"
-    local v1 = "2026-08-04T00:01:00Z"
-    local v2 = "2026-08-04T00:02:00Z"
     local ok, err = pcall(function()
-      testing.run_fake(department, event(v1))
-      testing.run_fake(department, event(v0))
-      testing.run_fake(department, event(v1))
-      testing.run_fake(department, event(v2))
-      testing.run_fake(department, event(v2))
+      testing.run_fake(department, event(version(1)))
+      for number = 2, 431 do
+        testing.run_fake(department, event(version(number)))
+      end
     end)
     devloop_logging.log_line = original_log_line
     if not ok then
       error(err, 0)
     end
 
-    t.eq(#reads, 4, "V0 must skip while equal and newer versions still fetch")
-    t.eq(reads[1], v1)
-    t.eq(reads[2], v1)
-    t.eq(reads[3], v2)
-    t.eq(reads[4], v2)
-    t.eq(cache_get(highwater_key), v2)
+    t.eq(#reads, 1, "V1 fetching current V432 must make V2 through V431 zero-fetch no-ops")
+    t.eq(reads[1], version(1))
+    t.eq(cache_get(highwater_key), version(432))
 
     local skip_fact = nil
     for _, line in ipairs(captured_logs) do
@@ -97,8 +97,8 @@ return {
       end
     end
     t.is_true(skip_fact ~= nil)
-    t.is_true(skip_fact:find("incoming_updated_at=" .. v0, 1, true) ~= nil)
-    t.is_true(skip_fact:find("stored_updated_at=" .. v1, 1, true) ~= nil)
+    t.is_true(skip_fact:find("incoming_updated_at=" .. version(2), 1, true) ~= nil)
+    t.is_true(skip_fact:find("stored_updated_at=" .. version(432), 1, true) ~= nil)
     t.is_true(skip_fact:find("entity=owner/repo#issue/3093", 1, true) ~= nil)
   end,
 }

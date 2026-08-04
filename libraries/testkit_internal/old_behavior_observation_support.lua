@@ -82,6 +82,29 @@ function M.nullable(value)
   return value
 end
 
+function M.with_isolated_cache(keys, run)
+  if type(keys) ~= "table" or type(run) ~= "function" then
+    error("OLD observation cache isolation requires keys and a callback", 0)
+  end
+  local prior = {}
+  for index, key in ipairs(keys) do
+    if type(key) ~= "string" or key == "" then
+      error("OLD observation cache isolation requires non-empty string keys", 0)
+    end
+    prior[index] = cache_get(key)
+    cache_set(key, "")
+  end
+
+  local results = table.pack(pcall(run))
+  for index, key in ipairs(keys) do
+    cache_set(key, prior[index] or "")
+  end
+  if not results[1] then
+    error(results[2], 0)
+  end
+  return table.unpack(results, 2, results.n)
+end
+
 function M.canonical_json(value)
   if value == M.JSON_NULL then
     return "null"
