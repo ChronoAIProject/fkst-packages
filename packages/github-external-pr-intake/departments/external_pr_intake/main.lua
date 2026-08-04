@@ -12,7 +12,7 @@ local spec = {
   stall_window = "30s",
 }
 
-local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,assignees"
+local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,assignees,headRepository,headRepositoryOwner,isCrossRepository"
 local bridge_issue_view_fields = "number,title,state,url,labels,comments,author"
 local github_author_policy_env = {
   bot_login_env = "FKST_GITHUB_BOT_LOGIN",
@@ -37,8 +37,8 @@ local function read_pr(github, repo, pr_number)
   return core.normalize_pr(decoded, repo)
 end
 
-local function admit_external_candidate(github, pr, managed, now_seconds)
-  if not core.is_external_candidate(pr, managed, now_seconds) then
+local function admit_external_candidate(github, pr, now_seconds)
+  if not core.is_external_candidate(pr, now_seconds) then
     return false, "not-external"
   end
   if not github.is_authorized_author(pr.author_login) then
@@ -239,7 +239,7 @@ end
 
 local function maybe_acknowledge_bridge_from_scan(github, repo, pr, managed)
   local fresh_pr = read_pr(github, repo, pr.number)
-  local admitted = admit_external_candidate(github, fresh_pr, managed, now())
+  local admitted = admit_external_candidate(github, fresh_pr, now())
   if not admitted then
     return nil
   end
@@ -265,7 +265,7 @@ local function handle_candidate(github, payload)
   with_lock(core.bridge_lock_key(repo, pr_number), function()
     local managed = core.managed_bot_logins()
     local pr = read_pr(github, repo, pr_number)
-    local admitted, reason = admit_external_candidate(github, pr, managed, now())
+    local admitted, reason = admit_external_candidate(github, pr, now())
     if not admitted then
       action = "skip-" .. tostring(reason)
       return
@@ -291,7 +291,7 @@ local function handle_candidate(github, payload)
       return
     end
 
-    admitted, reason = admit_external_candidate(github, pr, managed, now())
+    admitted, reason = admit_external_candidate(github, pr, now())
     if not admitted then
       action = "skip-" .. tostring(reason) .. "-after-claim"
       return
@@ -331,7 +331,7 @@ local function handle_scan(github, event)
   local result = github.pr_list(repo, 30)
   for _, raw in ipairs(core.parse_pr_list(result and result.stdout or "[]")) do
     local pr = core.normalize_pr(raw, repo)
-    local admitted, reason = admit_external_candidate(github, pr, managed, now())
+    local admitted, reason = admit_external_candidate(github, pr, now())
     local dedup_key = nil
     if admitted or reason == "non-authorized-author" then
       dedup_key = core.dedup_key(repo, pr.number)
