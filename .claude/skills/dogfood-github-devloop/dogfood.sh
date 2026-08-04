@@ -219,7 +219,7 @@ workflow_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(workflow_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
@@ -243,7 +243,7 @@ lifecycle_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
@@ -258,11 +258,28 @@ lifecycle_board_fact() { # $1 issue-number
 # `proposal="..."` field rather than derived from the PR number. This lets the PR
 # classifier distinguish a genuinely-stuck PR from one that has reached a correct
 # terminal (blocked/merged/closed_unmerged) — the CI+age-only classifier cannot.
+# Fetch an entity's comments as a REST-shaped JSON array.
+# REST first; on failure fall back to GraphQL. GitHub's SECONDARY (request-rate) limit 403s REST
+# while GraphQL keeps a separate healthy budget, and these three call sites all `|| return 1`,
+# which silently degrades lifecycle classification: a TERMINAL `blocked` PR then falls through to
+# the CI+age classifier and renders as "⚠ STUCK". That is worse than a visible failure because the
+# board still looks authoritative (observed 2026-08-05: #3081/#2975/#2443 all mislabelled).
+# The GraphQL shape is normalised to the REST field names the callers already parse.
+fetch_entity_comments() { # $1 issue-or-pr number
+  local num="$1" out
+  out=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) && {
+    printf '%s' "$out"; return 0; }
+  gh issue view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null \
+  || gh pr view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null
+}
+
 pr_lifecycle_board_fact() { # $1 pr-number
   local num="$1" comments origin fact tool
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
     | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
     | sed -E 's/.*proposal="([^"]+)".*/\1/')
