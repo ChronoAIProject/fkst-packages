@@ -266,8 +266,21 @@ return {
 
     local result = run_shell(command)
 
-    t.eq(result.exit_code, 0, result.output)
-    t.eq(read_file(state_dir .. "/status"), "0 0\n")
+    local status = read_file(state_dir .. "/status")
+    local sync_rc, rollup_rc = status:match("^(%d+) (%d+)\n$")
+    t.is_true(sync_rc ~= nil and rollup_rc ~= nil)
+    local exit_codes = { tonumber(sync_rc), tonumber(rollup_rc) }
+    table.sort(exit_codes)
+
+    -- Substrate #305 defines exit 75 as a supervise-owned transient defer when with_lock is busy.
+    t.eq(result.exit_code, 75, result.output)
+    t.eq(exit_codes[1], 0, status)
+    t.eq(exit_codes[2], 75, status)
+    local deferred_output = read_file(state_dir .. (tonumber(sync_rc) == 75 and "/sync.out" or "/rollup.out"))
+    t.is_true(
+      deferred_output:find("with_lock lock busy: github-devloop/git/owner/repo/fetch", 1, true) ~= nil,
+      deferred_output
+    )
     local violations = io.open(state_dir .. "/violations", "r")
     if violations ~= nil then
       local body = violations:read("*a")
