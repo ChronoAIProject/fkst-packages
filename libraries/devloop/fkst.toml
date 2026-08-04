@@ -106,7 +106,6 @@ public = [
   "devloop.requests.shared",
   "devloop.restart",
   "devloop.restart.issue.pr_partition_contract",
-  "devloop.restart.issue_observation_conformance",
   "devloop.restart.issue_observation_facts",
   "devloop.restart.pr_review_replay_facts",
   "devloop.restart_actionable_epoch",
