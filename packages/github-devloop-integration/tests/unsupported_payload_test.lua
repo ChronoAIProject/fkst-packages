@@ -51,6 +51,7 @@ local function payload_for_queue(queue)
       error = "namespaced dispatch test error",
       source_ref = core.branch_sync_source_ref("owner/repo", "dev", "integration/dev"),
     },
+    devloop_branch_poll = { raiser = "github-devloop-integration.branch_poll" },
     devloop_branch_tick = { schema = "github-devloop.branch-tick.v1" },
     devloop_rollup_ready = core.rollup_ready_payload("owner/repo", "dev", "integration/dev", 7, "def456"),
     devloop_sync_conflict = {

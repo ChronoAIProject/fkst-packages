@@ -1,5 +1,7 @@
+local branch_tick = require("branch_tick")
+
 return {
   type = "cron",
-  interval = "5m",
-  produces = "devloop_branch_tick",
+  interval = branch_tick.poll_interval,
+  produces = branch_tick.source_queue,
 }
