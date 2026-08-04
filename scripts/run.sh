@@ -188,6 +188,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_error_class_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_dependency_cycle_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py"'
