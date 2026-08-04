@@ -882,13 +882,13 @@ def check_no_permission_control(root: Path, violations: list[str]) -> None: chec
 
 def is_saga_handler_source(source: str) -> bool: return check_repo_saga_handler.is_saga_handler_source(source, strip_lua_comments_and_strings)
 def saga_handler_ratchet_violations(sources: dict[str, str], allowlist: set[str], base_allowlist: set[str] | None = None) -> list[str]: return check_repo_saga_handler.ratchet_violations(sources, allowlist, strip_lua_comments_and_strings, base_allowlist)
-def saga_allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]: return check_repo_saga_handler.allowlist_at_dev_base(root)
 
 def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
     allow_path = allowlist_path(root, check_repo_saga_handler.ALLOWLIST, allowlist_dir)
     allowlist = set() if not allow_path.exists() else {line.strip() for line in read_text(allow_path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
     sources = {rel(root, path): read_text(path) for packages in package_roots(root) for path in sorted(packages.glob("*/departments/*/main.lua")) if path.is_file()}
-    base_status, base_allowlist = saga_allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(root, allowlist=check_repo_saga_handler.ALLOWLIST,
+        parse_allowlist_lines=check_repo_saga_handler.parse_dev_allowlist_lines) if enforce_base else ("absent", None)
     if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     violations.extend(saga_handler_ratchet_violations(sources, allowlist, base_allowlist))
 
