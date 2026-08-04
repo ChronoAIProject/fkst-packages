@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 ALLOWLIST = "migration/error-class.allowlist"
@@ -25,10 +25,7 @@ def parse_allowlist_lines(lines: list[str]) -> set[str]:
     return entries
 
 
-def load_allowlist(path: Path) -> set[str]:
-    if not path.exists():
-        return set()
-    return parse_allowlist_lines(path.read_text(encoding="utf-8").splitlines())
+load_allowlist, allowlist_at_dev_base = check_repo_config.bind_allowlist_helpers(ALLOWLIST, parse_allowlist_lines)
 
 
 def current_sites(root, package_lua_files, read_text, rel, unclassified_error_call_lines) -> set[str]:
@@ -56,14 +53,3 @@ def ratchet_messages(
             for site in sorted(allowlist - base_allowlist)
         )
     return messages
-
-
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", parse_allowlist_lines(shown.splitlines())
-    except Exception:
-        return "unresolved", None

@@ -42,6 +42,7 @@ def ratchet_violations(
     return violations
 
 
+# Local variant: parses raw non-comment saga-handler entries from dev.
 def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
     try:
         status, shown = ratchet_base.file_at_base(root, ALLOWLIST)

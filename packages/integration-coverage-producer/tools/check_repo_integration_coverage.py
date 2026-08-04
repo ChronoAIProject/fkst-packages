@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+import check_repo_config
+
 
 ALLOWLIST = "migration/integration-edge-coverage.allowlist"
 EXCLUSIONS = "migration/integration-edge-coverage.exclusions"
@@ -79,45 +82,15 @@ def mask_span(chars: list[str], start: int, end: int) -> None:
             chars[index] = " "
 
 
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
 def strip_lua_comments_and_strings(text: str) -> str:
     chars = list(text)
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
@@ -126,13 +99,13 @@ def strip_lua_comments_and_strings(text: str) -> str:
             continue
         char = text[cursor]
         if char in ("'", '"'):
-            cursor = end_of_quoted_string(text, cursor)
+            cursor = check_repo_config.lua_quoted_string_end(text, cursor)
             continue
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(text, cursor + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
                 continue
         cursor += 1
     return "".join(chars)
@@ -360,6 +333,7 @@ def load_jsonl_objects(path: Path, label: str) -> list[tuple[int, dict[str, Any]
     return entries
 
 
+# Local variant: validates JSONL edge/reason objects through load_jsonl_objects.
 def load_allowlist(path: Path) -> set[str]:
     entries: set[str] = set()
     for number, item in load_jsonl_objects(path, ALLOWLIST):
