@@ -135,7 +135,7 @@ end
 
 function H.reconcile(args)
   if type(args) ~= "table" or type(args.work) ~= "function" then
-    error("devloop.entity_highwater: reconcile requires args.work")
+    error("github-devloop: entity-highwater-work-invalid: reconcile requires args.work")
   end
   local context = highwater_context(args)
   local lock_key = args.lock_key

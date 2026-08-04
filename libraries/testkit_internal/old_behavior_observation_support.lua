@@ -375,11 +375,11 @@ end
 function M.admission_trace_output_path(filename)
   if type(filename) ~= "string"
     or filename:match("^[A-Za-z0-9][A-Za-z0-9._-]*$") == nil then
-    error("R9 admission trace output filename is invalid", 0)
+    error("testkit-internal: r9-trace-output-filename-invalid: R9 admission trace output filename is invalid", 0)
   end
   local root = os.getenv("FKST_R9_TRACE_ROOT") or os.getenv("FKST_RUNTIME_ROOT")
   if type(root) ~= "string" or root == "" or root:find("[\r\n]") ~= nil then
-    error("R9 admission trace output root is invalid", 0)
+    error("testkit-internal: r9-trace-output-root-invalid: R9 admission trace output root is invalid", 0)
   end
   return root:gsub("/+$", "") .. "/" .. filename
 end

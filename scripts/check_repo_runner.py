@@ -36,25 +36,28 @@ import check_repo_version_suffix
 
 
 def check_library_error_class(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
-    current = check_repo_error_class.current_library_sites(
+    current = check_repo_error_class.current_library_diagnostics(
         root,
         c.read_text,
         c.rel,
-        c.unclassified_error_call_lines,
+        c.unclassified_error_calls,
     )
     allowlist = check_repo_error_class.load_library_allowlist(
         c.allowlist_path(root, check_repo_error_class.LIBRARY_ALLOWLIST, allowlist_dir)
     )
-    base_status, base_allowlist = (
-        check_repo_error_class.library_allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    target_status, target_sites = (
+        check_repo_error_class.target_library_sites(root, current, c.unclassified_error_calls)
+        if enforce_base
+        else ("absent", None)
     )
-    if base_status == "unresolved":
+    if target_status == "unresolved":
         c.add(
             violations,
             "G-LIB-ERROR-CLASS",
-            "cannot resolve dev base allowlist to enforce shrink-only library error-class ratchet; ensure CI provides the dev ref",
+            "cannot resolve target baseline diagnostics to enforce the shrink-only library error-class ratchet; "
+            "ensure CI provides GITHUB_BASE_REF or FKST_RATCHET_TARGET_REF",
         )
-    for message in check_repo_error_class.library_ratchet_messages(current, allowlist, base_allowlist):
+    for message in check_repo_error_class.library_ratchet_messages(current, allowlist, target_sites):
         c.add(violations, "G-LIB-ERROR-CLASS", message)
 
 
