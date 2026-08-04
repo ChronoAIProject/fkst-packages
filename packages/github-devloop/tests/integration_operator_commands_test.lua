@@ -259,7 +259,10 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_ready")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      {
+        id = "IC_ready_before_timeout",
+        body = core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      },
       core.state_marker(proposal_id, "blocked", blocked_version),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,

@@ -61,6 +61,21 @@ local function count_comment_stream_reads(number)
   return count
 end
 
+local function count_issue_state_reads(numbers)
+  local selected = type(numbers) == "table" and numbers or { numbers or issue_number }
+  local expected = {}
+  for _, number in ipairs(selected) do
+    expected[h.argv_rendered(core.gh_issue_view_state_cmd(repo, number))] = true
+  end
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if expected[h.argv_rendered(tostring(call.rendered or ""))] then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function mock_repo_env()
   t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
     stdout = repo,
@@ -180,7 +195,8 @@ return {
         raised_by_number[tonumber(raised.payload.number)] = raised
       end
     end
-    t.eq(count_comment_stream_reads(), #numbers + 1)
+    t.eq(count_issue_state_reads(numbers), #numbers)
+    t.eq(count_comment_stream_reads(), 1)
 
     for _, number in ipairs(numbers) do
       local raised = raised_by_number[number]
@@ -190,7 +206,8 @@ return {
       t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
     end
 
-    t.eq(count_comment_stream_reads(), #numbers + 1)
+    t.eq(count_issue_state_reads(numbers), #numbers)
+    t.eq(count_comment_stream_reads(), 1)
   end,
 
   test_liveness_scan_reinjected_observe_reuses_same_validator_comment_stream = function()
@@ -208,10 +225,12 @@ return {
     t.is_true(raised ~= nil)
     t.eq(raised.payload.source, "liveness-scan")
     t.eq(raised.payload.updated_at, updated_at)
-    t.eq(count_comment_stream_reads(issue_number), 1)
+    t.eq(count_issue_state_reads(issue_number), 1)
+    t.eq(count_comment_stream_reads(issue_number), 0)
 
     local observed = run_observe_issue(raised.payload, run_opts)
     t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
-    t.eq(count_comment_stream_reads(issue_number), 1)
+    t.eq(count_issue_state_reads(issue_number), 1)
+    t.eq(count_comment_stream_reads(issue_number), 0)
   end,
 }

@@ -18,7 +18,7 @@ local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
 local find_raise = h.find_raise
 
-local issue_state_selector = "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+local issue_state_selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
 
 local function trusted_command(id, created_at)
   return {

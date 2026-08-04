@@ -1,6 +1,7 @@
 local C = {}
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
+local issue_reads = require("devloop.commands.issue_reads")
 
 local parse_view_updated_at = github_view.parse_view_updated_at
 local parse_updated_at_stdout = github_view.parse_updated_at_stdout
@@ -93,7 +94,24 @@ end
 
 local function adapter_error_result(err)
   if type(err) == "table" and type(err.result) == "table" then
-    return err.result
+    local result = {}
+    for key, value in pairs(err.result) do
+      result[key] = value
+    end
+    if err.class ~= nil then
+      result.class = err.class
+    end
+    if err.error_class ~= nil then
+      result.error_class = err.error_class
+    elseif err.class ~= nil then
+      result.error_class = err.class
+    end
+    for _, field in ipairs({ "retryable", "permanent" }) do
+      if err[field] ~= nil then
+        result[field] = err[field]
+      end
+    end
+    return result
   end
   error(err)
 end
@@ -274,6 +292,16 @@ local function rest_entity_view_result(repo, kind, number, timeout)
   return rest_issue_view_result(repo, number, timeout)
 end
 
+local function issue_state_view_result(repo, _, issue_number, timeout)
+  local result = issue_reads.gh_issue_view_state(repo, issue_number, timeout)
+  if type(result) ~= "table"
+    or tonumber(result.exit_code) == 0
+    or result.error_class ~= "gh-rate-limited" then
+    return result
+  end
+  return rest_issue_view_result(repo, issue_number, timeout)
+end
+
 local function encode_cached_view(stdout, updated_at, producer)
   return '{"updated_at":' .. json_string(updated_at)
     .. ',"producer":' .. json_string(producer)
@@ -296,7 +324,7 @@ local function cache_successful_view(key, result, producer)
   end
 end
 
-local function fetch_entity_view(repo, kind, number, updated_at, opts)
+local function fetch_entity_view(repo, kind, number, updated_at, opts, strategy)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
     error("github-devloop: invalid entity view kind")
@@ -306,9 +334,11 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
   local options = opts or {}
   local consumer = tostring(options.consumer or "")
   local timeout = tonumber(options.timeout) or 30
-  local key = entity_view_cache_key(repo, selected_kind, number)
+  local fetch_live = strategy and strategy.fetch_live or rest_entity_view_result
+  local cache_kind = strategy and strategy.cache_kind or selected_kind
+  local key = entity_view_cache_key(repo, cache_kind, number)
   if options.force_fresh == true and not (validator ~= "" and options.allow_cached_validator == true) then
-    local result = rest_entity_view_result(repo, selected_kind, number, timeout)
+    local result = fetch_live(repo, selected_kind, number, timeout)
     cache_successful_view(key, result, consumer)
     return result
   end
@@ -320,7 +350,7 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
     if cached ~= nil and cached.updated_at == validator then
       return success_from_cache(cached)
     end
-    local result = rest_entity_view_result(repo, selected_kind, number, timeout)
+    local result = fetch_live(repo, selected_kind, number, timeout)
     cache_successful_view(key, result, consumer)
     return result
   end
@@ -336,7 +366,7 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
     cache_set(key, "")
   end
 
-  local result = rest_entity_view_result(repo, selected_kind, number, timeout)
+  local result = fetch_live(repo, selected_kind, number, timeout)
   cache_successful_view(key, result, consumer)
   return result
 end
@@ -356,9 +386,13 @@ function C.invalidate_entity_after_write(repo, kind, number)
   end
   local entity_key = C.entity_cache_key(repo, selected_kind, number)
   local view_key = entity_view_cache_key(repo, selected_kind, number)
+  local state_view_key = selected_kind == "issue" and entity_view_cache_key(repo, "issue-state", number) or nil
   with_lock(entity_key, function()
     cache_set(entity_key, "")
     cache_set(view_key, "")
+    if state_view_key ~= nil then
+      cache_set(state_view_key, "")
+    end
   end)
 end
 
@@ -401,7 +435,10 @@ end
 function C.fetch_issue_view_state(repo, issue_number, updated_at, opts)
   local options = opts or {}
   options.consumer = options.consumer or "observe_issue"
-  return C.fetch_marker_issue_view(repo, issue_number, updated_at, options)
+  return fetch_entity_view(repo, "issue", issue_number, updated_at, options, {
+    cache_kind = "issue-state",
+    fetch_live = issue_state_view_result,
+  })
 end
 
 function C.fetch_issue_view_open_pr(repo, issue_number, updated_at, opts)

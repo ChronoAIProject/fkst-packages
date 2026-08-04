@@ -36,6 +36,7 @@ local AWAITING_PR_NEW_TRACE_PATH = observation_support.admission_trace_output_pa
 )
 local OWNER = core.restart_package_name
 local IMPLEMENTING_SHADOW_VARIANT = "implementing_terminal_delegated_pr"
+local ISSUE_STATE_SELECTOR = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
 
 local POLICY_ID = "cas.legacy_awaiting_pr_v1"
 local REPO = "owner/repo"
@@ -224,14 +225,20 @@ local function mock_env()
 end
 
 local function mock_reads(fixture, issue_comments, pr_comments)
-  entity_mocks.mock_issue_view_selector(t, {
+  local issue_fields = {
     repo = REPO,
     number = ISSUE_NUMBER,
     labels = { "fkst-dev:enabled", "fkst-dev:" .. tostring(fixture.current_state or "thinking") },
     comments = issue_comments,
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }
+  entity_mocks.mock_issue_view_selector(
+    t,
+    issue_fields,
+    "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+  )
+  entity_mocks.mock_issue_view_selector(t, issue_fields, ISSUE_STATE_SELECTOR)
   entity_mocks.mock_pr_view_selector(t, {
     repo = REPO,
     number = PR_NUMBER,

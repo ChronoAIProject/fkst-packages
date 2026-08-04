@@ -230,16 +230,24 @@ local function mock_no_rollup_receipt()
   })
 end
 
+local issue_state_selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
+
 local function mock_reads(issue_comments, pr_comments, opts)
   local options = opts or {}
-  entity_mocks.mock_issue_view_selector(t, {
+  local issue_fields = {
     repo = repo,
     number = issue_number,
     labels = options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
     comments = issue_comments,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }
+  entity_mocks.mock_issue_view_selector(
+    t,
+    issue_fields,
+    "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+  )
+  entity_mocks.mock_issue_view_selector(t, issue_fields, issue_state_selector)
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = options.pr_number or pr_number,

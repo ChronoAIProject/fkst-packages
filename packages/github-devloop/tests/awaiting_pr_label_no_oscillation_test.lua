@@ -18,6 +18,7 @@ local delegation = "g1"
 local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local integration_branch = "integration/dev"
 local original_branch = devloop_base.implement_branch(repo, issue_number, core.implementation_base_version(version))
+local issue_state_selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
 
 local function comment(body, author, created_at)
   return {
@@ -110,14 +111,20 @@ local function mock_reads(issue_comments, pr_comments, opts)
     stderr = "",
     exit_code = 0,
   })
-  entity_mocks.mock_issue_view_selector(t, {
+  local issue_fields = {
     repo = repo,
     number = issue_number,
     labels = options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
     comments = issue_comments,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }
+  entity_mocks.mock_issue_view_selector(
+    t,
+    issue_fields,
+    "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+  )
+  entity_mocks.mock_issue_view_selector(t, issue_fields, issue_state_selector)
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = pr_number,

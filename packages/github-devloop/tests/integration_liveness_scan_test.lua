@@ -324,10 +324,11 @@ local function assert_no_observe_reinject(result)
   t.eq(find_raise(result.raises, ISSUE_REDRIVE_QUEUE), nil)
 end
 
-local function issue_rest_view_number(rendered)
-  local text = tostring(rendered or "")
-  return text:match("gh api 'repos/owner/repo/issues/(%d+)'$")
-    or text:match("gh api repos/owner/repo/issues/(%d+)$")
+local function issue_state_view_number(rendered)
+  local text = h.argv_rendered(tostring(rendered or ""))
+  local selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
+  return text:match("^gh issue view (%d+) %-%-repo owner/repo %-%-json '" .. selector .. "'$")
+    or text:match("^gh issue view (%d+) %-%-repo owner/repo %-%-json " .. selector .. "$")
 end
 
 return {
@@ -879,7 +880,7 @@ return {
     t.eq(find_raise(result.raises, ISSUE_REDRIVE_QUEUE), nil)
     local views = 0
     for _, call in ipairs(t.command_calls()) do
-      if issue_rest_view_number(call.rendered) ~= nil then
+      if issue_state_view_number(call.rendered) ~= nil then
         views = views + 1
       end
     end
@@ -906,7 +907,7 @@ return {
 
     local viewed = {}
     for _, call in ipairs(t.command_calls()) do
-      local issue_number = issue_rest_view_number(call.rendered)
+      local issue_number = issue_state_view_number(call.rendered)
       if issue_number ~= nil then
         viewed[tonumber(issue_number)] = true
       end
@@ -938,7 +939,7 @@ return {
       t.eq(result.exit_code, 0)
 
       for _, call in ipairs(t.command_calls()) do
-        local issue_number = issue_rest_view_number(call.rendered)
+        local issue_number = issue_state_view_number(call.rendered)
         if issue_number ~= nil then
           viewed[tonumber(issue_number)] = true
         end
@@ -954,7 +955,7 @@ return {
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_empty_pr_list()
-    t.mock_command("gh api 'repos/owner/repo/issues/42'", {
+    t.mock_command(core.gh_issue_view_state_cmd(repo, 42), {
       stdout = "",
       stderr = "timed out",
       exit_code = 124,

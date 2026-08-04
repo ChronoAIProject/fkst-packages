@@ -69,8 +69,9 @@ end
 return {
   test_marker_issue_state_reader_accepts_explicit_timeout = function()
     mock_author_policy()
+    local repo = "owner/timeout-state"
     seam.mock_issue_read_forms(t, {
-      repo = "owner/repo",
+      repo = repo,
       number = 42,
       title = "Timeout",
       updated_at = "2026-06-03T01:02:03Z",
@@ -79,20 +80,15 @@ return {
     })
 
     local ok, result = pcall(function()
-      return require("devloop.github_proxy_entity_view").fetch_issue_view_state("owner/repo", 42, "2026-06-03T01:02:03Z", {
+      return require("devloop.github_proxy_entity_view").fetch_issue_view_state(repo, 42, "2026-06-03T01:02:03Z", {
         timeout = 10,
       })
     end)
 
     t.eq(ok, true, tostring(result))
     t.eq(result.exit_code, 0)
-    local seen_rest_read = 0
-    for _, call in ipairs(t.command_calls()) do
-      if tostring(call.rendered or "") == issue_rest_command("owner/repo", 42) then
-        seen_rest_read = seen_rest_read + 1
-      end
-    end
-    t.eq(seen_rest_read, 1)
+    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, 42)), 1)
+    t.eq(count_exact_calls(issue_rest_command(repo, 42)), 0)
   end,
 
   test_validator_match_serves_cached_issue_view_without_graphql = function()
@@ -110,7 +106,7 @@ return {
       register_all_views = true,
       times = 1,
     })
-    seed_cached_view(repo, "issue", issue_number, seam.issue_view_stdout({
+    seed_cached_view(repo, "issue-state", issue_number, seam.issue_view_stdout({
       repo = repo,
       number = issue_number,
       title = "Cached",
@@ -123,7 +119,7 @@ return {
 
     t.eq(second.exit_code, 0)
     t.is_true(second.stdout:find('"Cached"', 1, true) ~= nil)
-    t.eq(count_calls(view_command), 0)
+    t.eq(count_exact_calls(view_command), 0)
     t.eq(count_calls(probe_command), 0)
   end,
 
@@ -134,7 +130,7 @@ return {
     local updated_at = "2026-06-03T01:02:03Z"
     local rest_command = issue_rest_command(repo, issue_number)
     local comments_command = comments_rest_command(repo, issue_number)
-    seed_cached_view(repo, "issue", issue_number, seam.issue_view_stdout({
+    seed_cached_view(repo, "issue-state", issue_number, seam.issue_view_stdout({
       repo = repo,
       number = issue_number,
       title = "Cached",
@@ -227,7 +223,8 @@ return {
     t.is_true(second.stdout:find('"After"', 1, true) ~= nil)
     t.eq(third.exit_code, 0)
     t.is_true(third.stdout:find('"After"', 1, true) ~= nil)
-    t.eq(count_calls(view_command), 0)
+    t.eq(count_exact_calls(view_command), 0)
+    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 1)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,
@@ -263,7 +260,8 @@ return {
     t.eq(forced.exit_code, 0)
     t.is_true(forced.stdout:find('"After"', 1, true) ~= nil)
     t.is_true(cached.stdout:find('"After"', 1, true) ~= nil)
-    t.eq(count_calls(view_command), 0)
+    t.eq(count_exact_calls(view_command), 0)
+    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 1)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,
@@ -282,8 +280,16 @@ return {
       title = "Before",
       updated_at = updated_at,
     }), updated_at)
+    seed_cached_view(repo, "issue-state", issue_number, seam.issue_view_stdout({
+      repo = repo,
+      number = issue_number,
+      title = "Before state",
+      updated_at = updated_at,
+    }), updated_at)
 
     devloop_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
+    t.eq(cache_get(devloop_entity_view.entity_view_cache_key(repo, "issue", issue_number)), "")
+    t.eq(cache_get(devloop_entity_view.entity_view_cache_key(repo, "issue-state", issue_number)), "")
     seam.mock_issue_read_forms(t, {
       repo = repo,
       number = issue_number,

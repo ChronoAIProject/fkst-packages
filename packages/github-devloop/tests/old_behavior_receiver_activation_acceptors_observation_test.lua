@@ -13,6 +13,7 @@ local replayer = require("devloop.replayer")
 local sink_inventory = require("core.restart.sink_inventory")
 local testing = require("testkit_internal.testing")
 local devloop_commands = require("devloop.commands")
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local implement_department = require("departments.implement.main")
 local observe_issue_department = require("departments.observe_issue.main")
 
@@ -306,6 +307,22 @@ local function prepare_observe_fixture(fixture, payload)
   for _, login in ipairs(assignees) do
     table.insert(rest_assignees, '{"login":"' .. tostring(login) .. '"}')
   end
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = REPO,
+    number = ISSUE_NUMBER,
+    title = "Capture receiver activation",
+    state = fixture.issue_state or "OPEN",
+    updated_at = UPDATED_AT,
+    labels = labels,
+    comments = {
+      {
+        id = "IC_receiver_activation_ready",
+        body = core.state_marker(PROPOSAL_ID, "ready", payload.dedup_key),
+        created_at = "2099-01-01T00:00:00Z",
+      },
+    },
+    assignees = assignees,
+  }, "title,createdAt,updatedAt,labels,state,comments,assignees,author")
   t.mock_command("gh api repos/owner/repo/issues/42", {
     stdout = '{"number":42,"title":"Capture receiver activation","body":"Receiver activation boundary fixture","state":"'
       .. tostring(fixture.issue_state or "OPEN"):lower()

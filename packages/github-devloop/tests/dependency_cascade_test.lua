@@ -11,6 +11,14 @@ local m_builders = require("devloop.markers.builders")
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local dependency_wait_version = core.ready_split_version(version)
+
+local function ready_handoff_comment()
+  return {
+    id = "IC_dependency_ready",
+    body = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready"),
+  }
+end
 
 local function source_ref()
   return {
@@ -207,16 +215,9 @@ local function mock_observe_issue(labels, comments)
     number = 42,
     labels = labels or { "fkst-dev:enabled", "fkst-dev:ready" },
     comments = comments or {
-      core.state_marker(proposal_id, "ready", version),
+      ready_handoff_comment(),
     },
     times = 1,
-  })
-  t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), {
-    stdout = issue_view_json(labels or { "fkst-dev:enabled", "fkst-dev:ready" }, comments or {
-      core.state_marker(proposal_id, "ready", version),
-    }),
-    stderr = "",
-    exit_code = 0,
   })
 end
 
@@ -632,9 +633,10 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        core.state_marker(proposal_id, "dependency_wait", version),
+        ready_handoff_comment(),
+        core.state_marker(proposal_id, "dependency_wait", dependency_wait_version, "ready-split-canonicalized"),
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
-          .. core.dependency_wait_marker(proposal_id, version, { 53 }),
+          .. core.dependency_wait_marker(proposal_id, dependency_wait_version, { 53 }),
       }
     )
     mock_blocked_by(42, { { number = 53 } })
@@ -922,9 +924,10 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        core.state_marker(proposal_id, "dependency_wait", version),
+        ready_handoff_comment(),
+        core.state_marker(proposal_id, "dependency_wait", dependency_wait_version, "ready-split-canonicalized"),
         "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
-          .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
+          .. core.dependency_unresolvable_marker(proposal_id, dependency_wait_version, { 42 }),
       }
     )
     mock_blocked_by(42, {})
