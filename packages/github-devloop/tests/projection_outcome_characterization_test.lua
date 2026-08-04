@@ -325,6 +325,32 @@ return {
     assert_ready_activation(outcome, version)
   end,
 
+  test_ready_activation_rejects_acknowledged_non_marker_comment = function()
+    local marker_comment_id = "IC_projection_authoritative_ready"
+    local unrelated_comment_id = "IC_projection_unrelated_handoff"
+    local outcome = {
+      state_facts = {
+        { state = "ready", version = version, comment_id = marker_comment_id },
+      },
+      lifecycle_activations = {
+        {
+          proposal_id = proposal_id,
+          marker_version = version,
+          comment_id = unrelated_comment_id,
+        },
+      },
+      acked_comment_ids = {
+        [marker_comment_id] = true,
+        [unrelated_comment_id] = true,
+      },
+      visible_comment_ids = {},
+    }
+
+    t.raises(function()
+      assert_ready_activation(outcome, version)
+    end)
+  end,
+
   test_consensus_dependency_wait_projection_has_result_and_no_activation = function()
     mock_consensus(true)
     local result = h.run_result(reached(), h.opts("projection-outcome-consensus-dependency-wait"))

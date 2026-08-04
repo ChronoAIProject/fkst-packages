@@ -242,6 +242,17 @@ end
 
 function M.activation_has_marker_evidence(outcome, activation)
   local comment_id = tostring(activation and activation.comment_id or "")
+  local marker_version = tostring(activation and activation.marker_version or "")
+  local matches_ready_fact = false
+  for _, fact in ipairs(outcome.state_facts or {}) do
+    if fact.state == "ready"
+      and tostring(fact.version or "") == marker_version
+      and tostring(fact.comment_id or "") == comment_id then
+      matches_ready_fact = true
+      break
+    end
+  end
+  if not matches_ready_fact then return false end
   return outcome.acked_comment_ids[comment_id] == true
     or outcome.visible_comment_ids[comment_id] == true
 end
