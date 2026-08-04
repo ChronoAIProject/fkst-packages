@@ -436,6 +436,18 @@ return {
     t.eq(terminal_pr.action, "receipt")
   end,
 
+  test_rereview_command_omits_retired_authorization_epoch = function()
+    local decision = core.output_obligation_resolution_decision(
+      classify(escalation_issue()),
+      escalation_issue(),
+      source_with_pr_delegation(),
+      linked_pr_snapshot("blocked", pr_blocked_version)
+    )
+
+    t.eq(decision.action, "command")
+    t.eq(decision.request.body:find("authorization_epoch", 1, true), nil)
+  end,
+
   test_rereview_requires_exact_applied_response_and_command_derived_reentry = function()
     local issue = escalation_issue()
     local fact = classify(issue)

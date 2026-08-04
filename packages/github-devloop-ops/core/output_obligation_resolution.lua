@@ -121,9 +121,7 @@ local function command_correlation_marker(M, fact, decision, fields)
     .. '" decision="' .. marker_attr(decision, M._max_key_len)
     .. '" pr="' .. marker_attr(values.pr_number, M._max_key_len)
     .. '" head_sha="' .. marker_attr(values.head_sha, M._max_key_len)
-    .. '" target_version="' .. marker_attr(values.target_version, M._max_dedup_len)
-    .. '" authorization_epoch="' .. marker_attr(values.authorization_epoch, M._max_key_len)
-    .. '" -->'
+    .. '" target_version="' .. marker_attr(values.target_version, M._max_dedup_len) .. '" -->'
 end
 
 local function command_dedup_key(fact, decision, fields)
@@ -134,13 +132,9 @@ local function command_dedup_key(fact, decision, fields)
     decision,
   }
   local target = fields or {}
-  if decision == "rereview" then
-    table.insert(parts, target.pr_number)
-    table.insert(parts, target.head_sha)
-    table.insert(parts, target.target_version)
-  else
-    table.insert(parts, target.authorization_epoch)
-  end
+  table.insert(parts, target.pr_number)
+  table.insert(parts, target.head_sha)
+  table.insert(parts, target.target_version)
   return base_ids.dedup_key(parts)
 end
 
