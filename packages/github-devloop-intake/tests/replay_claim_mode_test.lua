@@ -59,9 +59,6 @@ local function label_mode_admission_department()
       authorize = function()
         return true, "label-mode-test-capacity"
       end,
-      authorize_reintake = function()
-        return true, "label-mode-test-capacity"
-      end,
       relinquish = function()
         error("label-mode initial admission must not relinquish capacity")
       end,
