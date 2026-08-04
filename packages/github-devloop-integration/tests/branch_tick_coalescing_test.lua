@@ -1,4 +1,5 @@
 local branch_tick = require("branch_tick")
+local branch_poll = require("raisers.branch_poll")
 local t = fkst.test
 
 local function shell_quote(value)
@@ -196,6 +197,9 @@ end
 
 return {
   test_branch_tick_producer_declares_constant_forbid_contract = function()
+    t.eq(branch_poll.type, "cron")
+    t.eq(branch_poll.interval, branch_tick.poll_interval)
+    t.eq(branch_poll.produces, branch_tick.source_queue)
     t.eq(branch_tick.poll_interval, "5m")
     t.eq(branch_tick.overlap_policy, "Forbid")
     t.eq(branch_tick.dedup_key, "github-devloop-integration/devloop-branch-tick/forbid")
