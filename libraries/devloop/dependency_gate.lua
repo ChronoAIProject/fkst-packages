@@ -259,7 +259,7 @@ end
 
 function M.new(core)
   if type(core) ~= "table" then
-    error("github-devloop: dependency gate requires a core table")
+    error("github-devloop: dependency-gate-core-type-invalid: dependency gate requires a core table")
   end
 
   local function gh_blocked_by(repo, issue_number, timeout, exec)
