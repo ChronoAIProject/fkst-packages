@@ -43,7 +43,6 @@ function M.liveness_timeout_due(row, state, now_seconds)
 end
 
 local base = require("devloop.base")
-local function dept_exec_sync(...) return exec_sync(...) end
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end

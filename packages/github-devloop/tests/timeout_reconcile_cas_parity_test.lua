@@ -468,30 +468,6 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function normalized_old_admission(fixture, production, incoming_version)
-  if production.observed ~= nil then
-    return production.observed.status, production.observed.reason_code,
-      devloop_state.cas_outcome(production.probe.current, production.probe.outcome, incoming_version)
-  end
-  local outcome = production.decision.outcome
-  if outcome == "pending" then
-    return "pending", "source-marker-not-visible",
-      devloop_state.cas_outcome({ state = nil, version = nil }, "pending", incoming_version)
-  end
-  if outcome:find("lineage-mismatch", 1, true) ~= nil then
-    return "stale", "incoming-version-older",
-      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
-  end
-  -- Owner directive (#2725): the timeout watchdog never escalates, so the reconcile
-  -- department short-circuits an over-budget source-equal timeout-reconcile pre-CAS with
-  -- skip-stale(no-longer-over-budget). It never reaches the CAS apply, so its admission is
-  -- a stale skip -- the terminal drop is neutralized.
-  if outcome:find("no-longer-over-budget", 1, true) ~= nil then
-    return "stale", "advanced-or-diverged",
-      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
-  end
-  error("timeout reconcile trace saw unsupported pre-CAS outcome: " .. tostring(outcome), 0)
-end
 
 local function trace_artifact(corpus_hash, fixtures)
   return observation_support.admission_trace_artifact(

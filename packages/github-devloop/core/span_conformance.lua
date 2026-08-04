@@ -354,16 +354,6 @@ local function function_binds_marker(functions, function_name, durable_start_mar
   return false
 end
 
-local function worker_rows(transition_sources)
-  local rows = {}
-  for _, path in ipairs(sorted_keys(transition_sources)) do
-    local source = transition_sources[path]
-    for start_pos, _quote, state in source:gmatch("()from_state%s*=%s*([\"'])(.-)%2.-state_kind%s*=%s*([\"'])worker%4") do
-      table.insert(rows, { state = state, path = path, line = line_number(source, start_pos), start = start_pos })
-    end
-  end
-  return rows
-end
 
 local function restart_rows(transition_sources)
   local rows = {}

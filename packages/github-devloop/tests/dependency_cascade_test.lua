@@ -53,18 +53,6 @@ local function issue_view_json(labels, comments, state)
   )
 end
 
-local function observe_issue_state_json(labels, comments, state)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', encode_json_string(label)))
-  end
-  return string.format(
-    '{"state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-    encode_json_string(state or "OPEN"),
-    table.concat(rendered_labels, ","),
-    issue_comments_json(comments)
-  )
-end
 
 local function blocked_by_json(nodes)
   local rendered = {}

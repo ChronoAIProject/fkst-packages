@@ -143,84 +143,11 @@ local function mock_empty_pr_list()
   })
 end
 
-local function mock_branch_config()
-  t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 
-local function mock_pr_list(items)
-  t.mock_command(core.gh_pr_list_observe_cmd(repo), {
-    stdout = numbered_list_json(items),
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
-local function mock_pr_state(comments, state)
-  entity_read_mocks.mock_pr_read_forms(t, {
-    repo = repo,
-    number = 7,
-    head = "devloop-owner-repo-42-01HY",
-    head_sha = "def456",
-    base_branch = "dev",
-    state = state or "OPEN",
-    updated_at = "2026-06-04T01:02:03Z",
-    comments = comments,
-    times = 1,
-  })
-end
 
-local function mock_linked_pr_state(comments, state, exit_code, times, run_opts)
-  local rendered = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered, render_comment(comment))
-  end
-  local stderr = ""
-  if exit_code ~= nil and exit_code ~= 0 then
-    stderr = "pr view failed"
-  end
-  local stdout = string.format(
-    '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"%s","updatedAt":"2026-06-04T01:02:03Z","comments":[%s]}\n',
-    json_string(state or "OPEN"),
-    table.concat(rendered, ",")
-  )
-  entity_read_mocks.mock_pr_view_raw_selector(t, { repo = repo, number = 7 }, entity_read_mocks.pr_origin_selector, {
-    stdout = stdout,
-    stderr = stderr,
-    exit_code = exit_code or 0,
-  }, times or 1)
-  if exit_code == nil or exit_code == 0 then
-    h.run_department("departments/test_cache_seed/main.lua", { queue = "cache_seed", payload = { key = require("devloop.github_proxy_entity_view").entity_view_cache_key(repo, "pr", 7), value = '{"updated_at":"2026-06-04T01:02:03Z","producer":"observe_pr","stdout":"' .. json_string(stdout) .. '"}' } }, run_opts or opts("liveness-scan-linked-pr-cache-seed"))
-    entity_read_mocks.mock_pr_read_forms(t, {
-      repo = repo,
-      number = 7,
-      head = "devloop-owner-repo-42-01HY",
-      head_sha = "def456",
-      base_branch = "dev",
-      state = state or "OPEN",
-      updated_at = "2026-06-04T01:02:03Z",
-      comments = comments,
-      times = times or 1,
-    })
-  end
-end
 
-local function mock_linked_pr_absent(times)
-  entity_read_mocks.mock_pr_view_raw_selector(t, { repo = repo, number = 7 }, entity_read_mocks.pr_origin_selector, {
-    stdout = "",
-    stderr = "HTTP 404: Not Found",
-    exit_code = 1,
-  }, times or 1)
-end
 
 local function assert_no_entity_change(result)
   t.eq(result.exit_code, 0)

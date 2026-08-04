@@ -79,12 +79,6 @@ local function mock_issue_close()
   })
 end
 
-local function run_timeout_reconcile(payload, opts)
-  return t.run_department("departments/reconcile/main.lua", {
-    queue = "devloop_timeout_reconcile",
-    payload = payload,
-  }, opts)
-end
 
 local function parent_comments(fields)
   local f = fields or {}

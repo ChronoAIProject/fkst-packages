@@ -140,11 +140,6 @@ local function mock_pr_list(items)
   })
 end
 
-local function render_assignees(logins)
-  local rendered = {}
-  for _, login in ipairs(logins or {}) do rendered[#rendered + 1] = '{"login":"' .. encode_json_string(login) .. '"}' end
-  return "[" .. table.concat(rendered, ",") .. "]"
-end
 
 local function mock_issue_view(comments, state, extra)
   extra = extra or {}
@@ -193,15 +188,6 @@ local function first_call(needle)
   return nil
 end
 
-local function calls_matching(needle)
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
 
 local observability_pipeline = nil
 

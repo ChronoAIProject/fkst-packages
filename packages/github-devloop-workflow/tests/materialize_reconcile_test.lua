@@ -126,28 +126,6 @@ local function comments_with(comments, extra)
   return out
 end
 
-local function divergent_generated_comment(slot_id, predecessor_ref_digest, spec)
-  local entry = materialization.write_generated_entry(
-    origin,
-    digest.blueprint_digest(blueprint()),
-    slot_id == "second" and blueprint().steps[2] or blueprint().steps[1],
-    predecessor_ref_digest,
-    spec
-  )
-  local built, err = marker.build_materialization_marker(
-    origin,
-    entry.blueprint_digest,
-    entry.slot,
-    entry.predecessor_ref_digest,
-    entry.gen_contract_digest,
-    "d-9999999999",
-    entry.child_dedup,
-    nil,
-    "generated"
-  )
-  t.is_nil(err)
-  return comment(built)
-end
 
 local function parent_created_comment(entry, child_issue)
   return comment('<!-- fkst:github-proxy:issue-created:v1 dedup="' .. entry.child_dedup .. '" issue="' .. tostring(child_issue) .. '" -->')

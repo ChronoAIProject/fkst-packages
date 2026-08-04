@@ -423,35 +423,6 @@ local function run_liveness_scan(name, run_opts, now_seconds)
   }, run_opts or opts(name or "fixing-codex-run-liveness"))
 end
 
-local function run_timeout_reconcile(payload, comments, name)
-  entity_read_mocks.mock_issue_read_forms(t, {
-    repo = repo,
-    number = 42,
-    labels = { "fkst-dev:enabled", "fkst-dev:fixing" },
-    comments = {},
-    assignees = { "fkst-test-bot" },
-    author_login = "fkst-test-bot",
-    register_all_views = true,
-    times = 1,
-  })
-  entity_read_mocks.mock_pr_read_forms(t, {
-    repo = repo,
-    number = 7,
-    head = "devloop-owner-repo-42-01HY",
-    head_sha = "def456",
-    base_branch = "dev",
-    state = "OPEN",
-    updated_at = "2026-06-04T01:02:03Z",
-    comments = comments,
-    labels = {},
-    register_all_views = true,
-    times = 3,
-  })
-  return h.run_department("departments/reconcile/main.lua", {
-    queue = "devloop_timeout_reconcile",
-    payload = payload,
-  }, opts(name or "fixing-timeout-reconcile"))
-end
 
 local function assert_live_run_over_row_budget_caps(event, row, state, facts, role, dedup_key)
   with_codex_runs({
