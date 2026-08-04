@@ -24,6 +24,7 @@ public = [
   "testkit_internal.devloop_helpers_fixtures",
   "testkit_internal.devloop_pr_fixtures",
   "testkit_internal.devloop_worktree_fixtures",
+  "testkit_internal.entity_read_mock_fixtures",
   "testkit_internal.gh_argv_mock",
   "testkit_internal.github_author_policy",
   "testkit_internal.liveness_scan_rate_limit_fixture",
