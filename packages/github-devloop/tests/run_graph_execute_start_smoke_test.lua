@@ -149,23 +149,23 @@ end
 local function mock_consensus_approval(opts)
   opts = opts or {}
   for _ = 1, #consensus_core.angles({}) do
-    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    if not opts.omit_checkout_probe_mock then
+      t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
+        stdout = "",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
     t.mock_command("mkdir -p", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    if not opts.omit_codex_mock then
-      t.mock_command("codex exec", {
-        stdout = verdict_label .. " approve\n" .. reply_label .. " execute start approves.\n",
-        stderr = "",
-        exit_code = 0,
-      })
-    end
+    t.mock_command("codex exec", {
+      stdout = verdict_label .. " approve\n" .. reply_label .. " execute start approves.\n",
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 
@@ -178,6 +178,7 @@ local function run_execute_start_graph(opts)
   mock_consensus_result_issue(dedup_key)
   mock_consensus_approval(opts)
   h.mock_context_bundle(request, {
+    strict_context_path_probe_mocks = opts.omit_checkout_probe_mock,
     env = {
       FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop-run-graph-execute-start/runtime",
     },
@@ -235,15 +236,15 @@ return {
     assert_env_command_contract()
   end,
 
-  test_run_graph_unmocked_codex_command_failure_names_the_command = function()
+  test_run_graph_unmocked_checkout_probe_failure_names_the_command = function()
     local trace = run_execute_start_graph({
-      omit_codex_mock = true,
+      omit_checkout_probe_mock = true,
       request_dedup_key = request_dedup_key .. "/unmocked-command",
     })
     local ok, err = pcall(function()
       graph.require_quiescent(trace)
     end)
-    local expected = "unmocked external command: codex exec"
+    local expected = "unmocked external command: " .. consensus_core.checkout_root_exists_cmd(".")
 
     t.eq(ok, false)
     if tostring(err):find(expected, 1, true) == nil then
