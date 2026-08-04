@@ -1,6 +1,6 @@
 local S = {}
 local hidden_state_conformance = require("devloop.hidden_state_conformance")
-local issue_observation_conformance = require("devloop.restart.issue_observation_conformance")
+local issue_observation_conformance = require("core.restart.issue_observation_conformance")
 local m_rrc = require("devloop.restart_responsibility_contract")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local temporal = require("devloop.restart_temporal_obligations")
@@ -16,13 +16,13 @@ local START_WORDS = {
   beginning = true,
 }
 
-local function sorted_keys(map)
-  local keys = {}
-  for key, _ in pairs(map or {}) do
-    table.insert(keys, key)
+local function sorted_source_paths(sources)
+  local paths = {}
+  for path, _ in pairs(sources or {}) do
+    table.insert(paths, path)
   end
-  table.sort(keys)
-  return keys
+  table.sort(paths)
+  return paths
 end
 
 local function line_number(source, index)
@@ -125,7 +125,7 @@ end
 
 local function comment_strings(sources)
   local values = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     if path == "libraries/devloop/strings.lua" or path:sub(-#"core/strings.lua") == "core/strings.lua" then
       for key, value in pairs(key_value_strings(sources[path])) do
         values[key] = value
@@ -228,7 +228,7 @@ end
 local function completion_fact_name_messages(sources)
   local strings = comment_strings(sources)
   local messages = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     if path:sub(-4) == ".lua" then
       for _, block in ipairs(function_blocks(sources[path])) do
         if block.name:find("comment_request", 1, true) ~= nil and has_head_sha_dependency(block) then
@@ -269,7 +269,7 @@ end
 
 local function function_index(sources)
   local index = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     for _, block in ipairs(function_blocks(sources[path])) do
       local short = short_function_name(block.name)
       index[short] = index[short] or {}
@@ -356,7 +356,7 @@ end
 
 local function worker_rows(transition_sources)
   local rows = {}
-  for _, path in ipairs(sorted_keys(transition_sources)) do
+  for _, path in ipairs(sorted_source_paths(transition_sources)) do
     local source = transition_sources[path]
     for start_pos, _quote, state in source:gmatch("()from_state%s*=%s*([\"'])(.-)%2.-state_kind%s*=%s*([\"'])worker%4") do
       table.insert(rows, { state = state, path = path, line = line_number(source, start_pos), start = start_pos })
@@ -367,7 +367,7 @@ end
 
 local function restart_rows(transition_sources)
   local rows = {}
-  for _, path in ipairs(sorted_keys(transition_sources)) do
+  for _, path in ipairs(sorted_source_paths(transition_sources)) do
     local source = transition_sources[path]
     for start_pos, _quote, state in source:gmatch("()from_state%s*=%s*([\"'])(.-)%2") do
       table.insert(rows, { state = state, path = path, line = line_number(source, start_pos), start = start_pos })
@@ -523,7 +523,7 @@ local function spawn_start_messages(transition_sources, department_sources, supp
         local saw_spawn = false
         local declared_function_reaches_spawn = contract.spawn_function ~= nil
           and function_reaches_spawn(functions, contract.spawn_function)
-        for _, source_path in ipairs(sorted_keys(sources)) do
+        for _, source_path in ipairs(sorted_source_paths(sources)) do
           local source = sources[source_path]
           if contract.spawn_function ~= nil then
             if declared_function_reaches_spawn then
