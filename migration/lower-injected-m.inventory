@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 15,
     "workflow_injected_m_unique_symbols": 7,
-    "forge_injected_m_reads": 20,
-    "forge_injected_m_unique_symbols": 12,
-    "total_injected_m_reads": 35,
-    "total_injected_m_unique_symbols": 19
+    "forge_injected_m_reads": 15,
+    "forge_injected_m_unique_symbols": 10,
+    "total_injected_m_reads": 30,
+    "total_injected_m_unique_symbols": 17
   },
   "manifest": {
     "workflow": {

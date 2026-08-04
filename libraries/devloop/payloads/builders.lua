@@ -108,7 +108,7 @@ function C.build_devloop_ready_payload(M, source)
       generation_key = source.redrive_delivery.generation_key,
       attempt = source.redrive_delivery.attempt,
     }
-    payload.dedup_key = shared.ready_redrive_delivery_dedup_key(
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
       source.proposal_id,
       ready_version,
       payload.redrive_delivery

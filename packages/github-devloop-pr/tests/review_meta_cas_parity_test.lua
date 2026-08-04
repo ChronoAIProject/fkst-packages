@@ -34,7 +34,9 @@ local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T0
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 local REVIEW_META_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-review-meta.json"
-local REVIEW_META_NEW_TRACE_PATH = ".fkst/run/r9-pr-review-meta-new-trace.json"
+local REVIEW_META_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-meta-new-trace.json"
+)
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {

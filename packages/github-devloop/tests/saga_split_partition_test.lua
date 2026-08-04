@@ -27,6 +27,12 @@ return {
     t.eq(contract.state_allowed_for_saga("issue", "ready"), true)
   end,
 
+  test_issue_partition_accepts_every_issue_lifecycle_state = function()
+    for _, state in ipairs(core.restart_lifecycle_states) do
+      t.eq(contract.state_allowed_for_saga("issue", state), true, state)
+    end
+  end,
+
   test_pr_partition_accepts_pr_phases_and_terminals = function()
     for _, state in ipairs(contract.pr_phase_states()) do
       t.eq(contract.state_allowed_for_saga("pr", state), true, state)

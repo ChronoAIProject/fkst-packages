@@ -13,6 +13,9 @@ local merge_sha = "cccc3333"
 local production_bot = "production-bot"
 local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, version, branch_sha)
 local review_dedup = "consensus:" .. review_proposal .. "/review"
+local pr_updated_at = "2026-06-03T02:03:04Z"
+local issue_updated_at = "2026-06-03T01:02:03Z"
+local unparseable_updated_at = "not-a-timestamp"
 
 local function opts(name, extra)
   local env = {
@@ -60,17 +63,31 @@ local function render_comments(comments)
   return table.concat(rendered, ",")
 end
 
-local function mock_pr_list(is_draft, managed_branch, repo)
-  t.mock_command("repos/" .. (repo or "owner/repo") .. "/pulls?state=open", {
+local function mock_issue_freshness_list(updated_at)
+  t.mock_command("gh api graphql", {
     stdout = string.format(
-      '[[{"number":7,"headRefOid":"%s","headRefName":"%s","baseRefName":"integration/dev","state":"OPEN","isDraft":%s}]]\n',
-      branch_sha,
-      encode_json_string(managed_branch or branch),
-      is_draft and "true" or "false"
+      '{"data":{"repository":{"i42":{"number":42,"updatedAt":"%s"}}}}\n',
+      encode_json_string(updated_at or unparseable_updated_at)
     ),
     stderr = "",
     exit_code = 0,
   })
+end
+
+local function mock_pr_list(is_draft, managed_branch, repo, extra)
+  local fields = extra or {}
+  t.mock_command("repos/" .. (repo or "owner/repo") .. "/pulls?state=open", {
+    stdout = string.format(
+      '[[{"number":7,"headRefOid":"%s","headRefName":"%s","baseRefName":"integration/dev","state":"open","draft":%s,"updated_at":"%s"}]]\n',
+      branch_sha,
+      encode_json_string(managed_branch or branch),
+      is_draft and "true" or "false",
+      encode_json_string(fields.pr_updated_at or unparseable_updated_at)
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_issue_freshness_list(fields.issue_updated_at)
 end
 
 local function pr_comments(state, author_login)
@@ -98,34 +115,31 @@ local function mock_pr_view(state, comments, extra)
       encode_json_string(fields.mergeable or "MERGEABLE"),
       encode_json_string(fields.merge_state_status or "CLEAN"),
       render_comments(comments or pr_comments(state))
+    ):gsub(
+      '"updatedAt":"2026%-06%-03T02:03:04Z"',
+      '"updatedAt":"' .. encode_json_string(fields.updated_at or pr_updated_at) .. '"'
     ),
     stderr = "",
     exit_code = 0,
   })
 end
 
-local function mock_issue_view(labels, comments, owner_login, repo)
+local function mock_issue_view(labels, comments, owner_login, repo, extra)
   local target_repo = repo or "owner/repo"
+  local fields = extra or {}
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = target_repo,
     labels = labels,
     comments = comments,
     assignees = owner_login ~= nil and { owner_login } or nil,
     author_login = owner_login,
-  }, "labels,comments")
-  entity_read_mocks.mock_issue_view_selector(t, {
-    repo = target_repo,
-    assignees = owner_login ~= nil and { owner_login } or nil,
-    author_login = owner_login,
-  }, "assignees,author")
+    updated_at = fields.updated_at or issue_updated_at,
+  }, "title,createdAt,updatedAt,labels,state,comments,assignees,author")
 end
 
 local function mock_issue_view_other_owned()
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "labels,comments", {
-    stdout = '{"labels":[],"comments":[]}\n',
-  })
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "assignees,author", {
-    stdout = '{"assignees":[{"login":"human"}],"author":{"login":"fkst-test-bot"}}\n',
+  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,createdAt,updatedAt,labels,state,comments,assignees,author", {
+    stdout = '{"updatedAt":"' .. issue_updated_at .. '","labels":[],"comments":[],"assignees":[{"login":"human"}],"author":{"login":"fkst-test-bot"}}\n',
   })
 end
 
@@ -157,6 +171,108 @@ local function mock_worktree_merge(exit_code, unmerged_stdout)
 end
 
 return {
+  test_pr_freshness_poll_checkpoint_skips_only_unchanged_deep_views = function()
+    local run_opts = opts("pr-freshness-poll-checkpoint")
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = issue_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_pr_view("fixing")
+    mock_issue_view({}, nil, core._test_bot_login)
+    local absent_mark = run_scan(run_opts)
+    t.eq(absent_mark.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 1)
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = issue_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    local unchanged = run_scan(run_opts)
+    t.eq(unchanged.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls("i42:issue(number:42)"), 2)
+
+    local changed_issue_at = "2026-06-03T01:02:04Z"
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = changed_issue_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_issue_view({}, nil, core._test_bot_login, nil, { updated_at = changed_issue_at })
+    local changed_issue = run_scan(run_opts)
+    t.eq(changed_issue.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 2)
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = unparseable_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_issue_view({}, nil, core._test_bot_login, nil, { updated_at = changed_issue_at })
+    local unparsable_issue = run_scan(run_opts)
+    t.eq(unparsable_issue.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+
+    local changed_pr_at = "2026-06-03T02:03:05Z"
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = changed_issue_at,
+      pr_updated_at = changed_pr_at,
+    })
+    mock_pr_view("fixing", nil, { updated_at = changed_pr_at })
+    local changed_pr = run_scan(run_opts)
+    t.eq(changed_pr.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 2)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = changed_issue_at,
+      pr_updated_at = unparseable_updated_at,
+    })
+    mock_pr_view("fixing", nil, { updated_at = changed_pr_at })
+    local unparsable_pr = run_scan(run_opts)
+    t.eq(unparsable_pr.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 3)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+    t.eq(h.count_calls("repos/owner/repo/issues?state=open"), 0)
+  end,
+
+  test_pr_freshness_poll_checkpoint_advances_only_after_processing_success = function()
+    local run_opts = opts("pr-freshness-poll-checkpoint-failure")
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = issue_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_pr_view("merge-ready")
+    mock_issue_view({})
+    local first = run_scan(run_opts)
+    t.eq(first.exit_code, 1)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 1)
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = issue_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_pr_view("merge-ready")
+    mock_issue_view({})
+    local retry = run_scan(run_opts)
+    t.eq(retry.exit_code, 1)
+    t.eq(h.count_calls("gh pr view '7'"), 2)
+    t.eq(h.count_calls("gh issue view '42'"), 2)
+  end,
+
   test_pr_freshness_scan_accepts_maximum_length_managed_branch = function()
     local repo = "the-omega-institute/trureturing"
     local prefix = "devloop/issue/the-omega-institute/trureturing/42/ready-"

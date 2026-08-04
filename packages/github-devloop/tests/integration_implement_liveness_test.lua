@@ -129,7 +129,7 @@ local function liveness_redrive_ready(event)
       attempt = 1,
     },
   })
-  t.eq(payload.dedup_key, payloads_shared.ready_redrive_delivery_dedup_key(
+  t.eq(payload.dedup_key, payloads_shared.issue_redrive_delivery_dedup_key(
     payload.proposal_id, payload.implementation_version, payload.redrive_delivery
   ))
   return payload

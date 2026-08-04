@@ -145,6 +145,49 @@ return {
     t.eq(parsed.blocking_gap, "missing regression test")
   end,
 
+  test_parse_or_retry_propagates_live_run_defer_without_repair = function()
+    local call_count = 0
+    local result = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {},
+      p2_results = {},
+      build_prompt = function(repair)
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        return { deferred = true, reason = "live-run-active" }
+      end,
+    })
+
+    t.eq(call_count, 1)
+    t.eq(result.deferred, true)
+    t.eq(result.reason, "live-run-active")
+  end,
+
+  test_parse_or_retry_propagates_live_run_defer_from_repair = function()
+    local call_count = 0
+    local result = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {},
+      p2_results = {},
+      build_prompt = function(repair)
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        if call_count == 1 then
+          return { stdout = "invalid synthesis", stderr = "", exit_code = 0 }
+        end
+        return { deferred = true, reason = "live-run-active" }
+      end,
+    })
+
+    t.eq(call_count, 2)
+    t.eq(result.deferred, true)
+    t.eq(result.reason, "live-run-active")
+  end,
+
   test_parse_output_accepts_premise_refutation_only_in_converge_mode = function()
     local reached = synthesis.parse_output("premise-refuted: verified source proves the claimed missing feature exists", "converge")
     t.eq(reached.kind, "reached")

@@ -1,6 +1,7 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
@@ -594,31 +595,16 @@ local function process_ready_event(event)
         version = core.ready_payload_inner_version(ready.dedup_key),
         comments = current.comments,
       })
-      if not core.dependency_gate_is_satisfied(gate) then
+      if not dependency_gate.dependency_gate_is_satisfied(gate) then
         local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
         local dep_version = core.ready_split_version(inner_ready_version)
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
-        devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { devloop_base._blocked_on_dependency_label }, remove = {} }, {
-          "github-proxy.github_issue_comment_request",
-          "github-proxy.github_issue_label_request",
-        })
-        devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", core.build_ready_split_canonicalized_comment_request(
-          repo,
-          issue_number,
-          ready.proposal_id,
-          inner_ready_version,
-          "dependency_wait",
-          dep_version,
-          gate,
-          ready.source_ref
-        ))
-        devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
-          issue_number,
-          { devloop_base._blocked_on_dependency_label },
-          {},
-          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }),
-          ready.source_ref
-        ))
+        core.raise_ready_split_effects("implement", {
+          repo = repo,
+          number = issue_number,
+          source_ref = ready.source_ref,
+        }, ready.proposal_id, inner_ready_version, "dependency_wait", dep_version, gate,
+          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }))
         return
       end
     end

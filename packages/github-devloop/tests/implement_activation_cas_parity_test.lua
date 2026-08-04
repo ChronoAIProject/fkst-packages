@@ -34,7 +34,9 @@ local implement_department = require("departments.implement.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local IMPLEMENT_ACTIVATION_CORPUS_PATH = "migration/intent_bounded_replay/corpus/implement-activation.json"
-local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = ".fkst/run/r9-implement-activation-new-trace.json"
+local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-implement-activation-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"

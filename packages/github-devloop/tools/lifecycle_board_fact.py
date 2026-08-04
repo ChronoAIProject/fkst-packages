@@ -19,6 +19,7 @@ TERMINAL_STATES = {"blocked", "impl-failed", "merged", "declined"}
 MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop:state:v1\b(.*?)-->")
 ATTR_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"')
 UPDATED_AT_RE = re.compile(r"\d\d\d\d-\d\d-\d\dT\d\d[-:]\d\d[-:]\d\dZ")
+ISO_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -85,7 +86,11 @@ def trusted_comments(comments: list[Any], bot_login: str) -> list[dict[str, Any]
             continue
         body = comment.get("body")
         if isinstance(body, str):
-            trusted.append({"body": body})
+            created_at = comment.get("created_at")
+            trusted_comment = {"body": body}
+            if isinstance(created_at, str) and ISO_TIMESTAMP_RE.fullmatch(created_at):
+                trusted_comment["created_at"] = created_at
+            trusted.append(trusted_comment)
     return trusted
 
 
@@ -93,6 +98,7 @@ def collect_state_facts(comments: list[dict[str, Any]], origin: str) -> list[dic
     facts = []
     for comment in comments:
         body = str(comment.get("body") or "")
+        condition_started_at = comment.get("created_at")
         for match in MARKER_RE.finditer(body):
             attrs = parse_attrs(match.group(1))
             proposal = safe_attr(attrs.get("proposal"), MAX_PROPOSAL_ID_BYTES)
@@ -100,11 +106,14 @@ def collect_state_facts(comments: list[dict[str, Any]], origin: str) -> list[dic
             version = safe_attr(attrs.get("version"), MAX_VERSION_BYTES)
             marker_order_key = safe_attr(attrs.get("marker_order_key"), MAX_ORDER_KEY_BYTES)
             if proposal == origin and state is not None and version is not None and marker_order_key is not None:
-                facts.append({
+                fact = {
                     "state": state,
                     "version": version,
                     "marker_order_key": marker_order_key,
-                })
+                }
+                if isinstance(condition_started_at, str):
+                    fact["condition_started_at"] = condition_started_at
+                facts.append(fact)
     return facts
 
 
@@ -117,10 +126,13 @@ def board_fact(facts: list[dict[str, str]]) -> dict[str, Any] | None:
         return None
     current = max(facts, key=lambda fact: (primary_rank(fact), fact["marker_order_key"]))
     state = current["state"]
-    return {
+    result = {
         "state": state,
         "terminal": state in TERMINAL_STATES,
     }
+    if current.get("condition_started_at") is not None:
+        result["condition_started_at"] = current["condition_started_at"]
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
