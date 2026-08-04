@@ -200,6 +200,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_restart_test.py"'
     'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
