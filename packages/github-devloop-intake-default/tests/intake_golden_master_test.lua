@@ -4,7 +4,6 @@ local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local t = h.t
 local core = h.core
-local operator_commands = require("devloop.operator_commands")
 local opts = h.opts
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -162,17 +161,8 @@ local default_current = {
   body = "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries.",
 }
 
-local function decision_key(payload, current, command)
-  return devloop_base.intake_decision_dedup_key(payload.proposal_id, current or default_current, command)
-end
-
-local function trusted_reintake_command(id)
-  return {
-    id = id or "IC_reintake_1",
-    body = "fkst: reintake",
-    author_login = devloop_base.trusted_bot_login(),
-    created_at = "2026-06-04T03:00:00Z",
-  }
+local function decision_key(payload, current)
+  return devloop_base.intake_decision_dedup_key(payload.proposal_id, current or default_current)
 end
 
 local function run_judge(payload, run_opts)
@@ -444,38 +434,6 @@ return {
       payload.proposal_id,
       payload.dedup_key,
     }), "standard")
-  end,
-
-  test_golden_judge_reintake_active_state_refusal = function()
-    local command = trusted_reintake_command("IC_reintake_active")
-    local base = candidate()
-    local command_fact = operator_commands.operator_command_fact({ command }, "reintake")
-    local payload = candidate({
-      effect_id = decision_key(base, nil, command),
-      reintake_command_created_at = command.created_at,
-    })
-    payload.dedup_key = core.intake_candidate_delivery_dedup_key(payload.proposal_id, payload.effect_id, payload.effect_id)
-    h.mock_bot_env()
-    mock_intake_judge_view({ "fkst-dev:thinking" }, {
-      m_builders.intake_decision_marker(payload.proposal_id, "decline", payload.effect_id, "standard"),
-      command,
-    })
-
-    local result = run_judge(payload, opts("golden-judge-reintake-refusal"))
-
-    t.eq(result.exit_code, 0)
-    assert_queues(result.raises, { "github-proxy.github_issue_comment_request" })
-    local request = result.raises[1].payload
-    local refusal_reason = "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states"
-    assert_common_issue_request(request, "github-proxy.v1", base_ids.dedup_key({
-      "operator-command",
-      "comment",
-      command_fact.key,
-      "refused",
-      refusal_reason,
-    }))
-    t.is_true(request.body:find("github-devloop operator command refused: " .. refusal_reason, 1, true) ~= nil)
-    t.eq(h.count_calls("codex exec"), 0)
   end,
 
   test_golden_judge_skip_foreign_hold_and_foreign_assignee = function()
