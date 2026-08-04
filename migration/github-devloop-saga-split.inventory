@@ -110,7 +110,6 @@
 {"path":"packages/github-devloop-integration/departments/rollup_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_conflict/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
-{"path":"packages/github-devloop-integration/departments/test_cache_seed/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/core/conflict_telemetry.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-ops/core/dashboard_commands.lua","owner":"cross-cutting","reason":"package-local dashboard GitHub command adapter is shared by ensure-repo and observability dashboard."}
 {"path":"packages/github-devloop-ops/core/dependency_wait.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
