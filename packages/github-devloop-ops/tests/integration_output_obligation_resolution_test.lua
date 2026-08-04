@@ -234,7 +234,7 @@ local function mock_census(comments, opts)
   else
     t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   end
-  for _, state in ipairs(core.issue_state_order()) do
+  for _, state in ipairs(core.lifecycle_state_order()) do
     t.mock_command(core.gh_issue_list_observe_cmd(repo, core.state_label(state), 1, true), empty)
   end
   entity_read_mocks.mock_issue_list_command(
