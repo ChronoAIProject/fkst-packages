@@ -1,0 +1,1 @@
+../packages/github-ratchet-migration-slicer/tools/check_repo_gh_git_adapter.py

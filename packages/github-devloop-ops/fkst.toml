@@ -1,0 +1,15 @@
+kind = "package.composed"
+name = "github-devloop-ops"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit_internal", "forge", "devloop"]
+
+[event_deps]
+packages = ["github-proxy", "github-devloop", "github-devloop-pr"]
+
+[conformance]
+function = "core.saga_conformance_errors"
