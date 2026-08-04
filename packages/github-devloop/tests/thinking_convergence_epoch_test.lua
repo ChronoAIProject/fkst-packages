@@ -54,7 +54,7 @@ return {
     local result = run_observe(issue({
       updated_at = current_created_at,
       labels = { "fkst-dev:enabled", "fkst-dev:thinking" },
-    }), opts("observe-fresh-thinking-epoch"))
+    }), opts("observe-fresh-thinking-epoch"), current_created_at)
 
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
