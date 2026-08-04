@@ -53,6 +53,7 @@ def _resolve_ref(root: Path, refs: tuple[str, ...]) -> str | None:
 
 
 def resolve_target_ref(root: Path) -> str | None:
+    # PR checks use their target branch; push and local checks retain dev as the canonical fallback.
     override = os.environ.get("FKST_RATCHET_TARGET_REF")
     if override:
         return _resolve_ref(root, (override,))
