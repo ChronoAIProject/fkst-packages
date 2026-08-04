@@ -22,7 +22,7 @@ end
 function M.production_handle()
   if production_handle == nil then
     if type(exec_argv) ~= "function" then
-      error("github-devloop: GitHub adapter requires exec_argv")
+      error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
     end
     if type(exec_sync) ~= "function" then
       error("github-devloop: GitHub adapter requires exec_sync for author policy")
