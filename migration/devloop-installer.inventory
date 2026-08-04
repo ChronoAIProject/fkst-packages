@@ -1,1 +1,119 @@
-{"installer_reads_through_m": 43}
+{
+  "_comment": "G-DEVLOOP-INSTALLER shrink-only per-package baseline. Each entry is one production reader call through that package core to a symbol installed by that same package core. CI compares counts independently per package; record progress by deleting migrated sites. Target: no package entries.",
+  "packages": {
+    "github-devloop-integration": [
+      {
+        "column": 10,
+        "line": 211,
+        "path": "packages/github-devloop-integration/core/release_notes.lua",
+        "symbol": "gh_pr_create_body"
+      }
+    ],
+    "github-devloop-ops": [
+      {
+        "column": 7,
+        "line": 302,
+        "path": "packages/github-devloop-ops/core/observability_bounds.lua",
+        "symbol": "gh_issue_list_observe_opts"
+      },
+      {
+        "column": 16,
+        "line": 304,
+        "path": "packages/github-devloop-ops/core/observability_bounds.lua",
+        "symbol": "gh_issue_list_observe_opts"
+      },
+      {
+        "column": 5,
+        "line": 326,
+        "path": "packages/github-devloop-ops/core/observability_bounds.lua",
+        "symbol": "gh_pr_list_observe_opts"
+      },
+      {
+        "column": 14,
+        "line": 328,
+        "path": "packages/github-devloop-ops/core/observability_bounds.lua",
+        "symbol": "gh_pr_list_observe_opts"
+      },
+      {
+        "column": 14,
+        "line": 370,
+        "path": "packages/github-devloop-ops/departments/observability/avm_scoreboard.lua",
+        "symbol": "gh_pr_list_recent_merged"
+      },
+      {
+        "column": 16,
+        "line": 388,
+        "path": "packages/github-devloop-ops/departments/observability/avm_scoreboard.lua",
+        "symbol": "gh_pr_view_observe"
+      },
+      {
+        "column": 14,
+        "line": 404,
+        "path": "packages/github-devloop-ops/departments/observability/avm_scoreboard.lua",
+        "symbol": "gh_issue_list_recent_closed"
+      },
+      {
+        "column": 16,
+        "line": 422,
+        "path": "packages/github-devloop-ops/departments/observability/avm_scoreboard.lua",
+        "symbol": "gh_issue_view_observe"
+      },
+      {
+        "column": 14,
+        "line": 90,
+        "path": "packages/github-devloop-ops/departments/observability/common.lua",
+        "symbol": "gh_issue_view_observe"
+      },
+      {
+        "column": 14,
+        "line": 103,
+        "path": "packages/github-devloop-ops/departments/observability/common.lua",
+        "symbol": "gh_pr_view_observe"
+      },
+      {
+        "column": 14,
+        "line": 179,
+        "path": "packages/github-devloop-ops/departments/observability/reaper.lua",
+        "symbol": "gh_pr_close"
+      },
+      {
+        "column": 14,
+        "line": 197,
+        "path": "packages/github-devloop-ops/departments/observability/reaper.lua",
+        "symbol": "gh_pr_comment"
+      }
+    ],
+    "github-devloop-pr": [
+      {
+        "column": 23,
+        "line": 6,
+        "path": "packages/github-devloop-pr/core/high_risk_merge_gate.lua",
+        "symbol": "gh_pr_diff_name_only"
+      },
+      {
+        "column": 24,
+        "line": 285,
+        "path": "packages/github-devloop-pr/core/merge_executor.lua",
+        "symbol": "gh_pr_ready"
+      },
+      {
+        "column": 18,
+        "line": 309,
+        "path": "packages/github-devloop-pr/core/merge_executor.lua",
+        "symbol": "gh_pr_comment"
+      },
+      {
+        "column": 3,
+        "line": 362,
+        "path": "packages/github-devloop-pr/core/merge_executor.lua",
+        "symbol": "log_forged_markers"
+      },
+      {
+        "column": 58,
+        "line": 777,
+        "path": "packages/github-devloop-pr/core/merge_executor.lua",
+        "symbol": "payload_field"
+      }
+    ]
+  }
+}

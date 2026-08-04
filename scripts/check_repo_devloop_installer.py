@@ -12,12 +12,14 @@ facade ratchet. This ratchet makes that coupling VISIBLE and drives it to zero a
 core is re-architected to explicit typed capability injection (caps.log.raise(...), etc.), per
 docs/devloop-decouple-endpoint.md and the typed-DI SPEC.
 
-It resolves each package core's `require("devloop.<mod>").install(M)` calls, collects the
-`function M.<name>` symbols those modules (and, for aggregator modules, their listed submodules)
-install onto M, and counts `(core|M).<symbol>(` reader call-sites in production code (excl.
-*/core.lua and tests). Shrink-only against migration/devloop-installer.inventory. Deterministic,
-read-only. Not a full proof (a reader could reach an installed method under another alias), so it
-is a shrink-only ratchet, not a "gaming is impossible" claim.
+For each package, it resolves that package core's `require("devloop.<mod>").install(M)` calls,
+collects the `function M.<name>` symbols those modules (and, for aggregator modules, their listed
+submodules) install onto M, and counts `(core|M).<symbol>(` reader call-sites only in that same
+package's production code (excluding */core.lua and tests). The inventory stores the resulting
+reader sites per package, so every baseline unit is auditable. Shrink-only comparison is also per
+package: coupling removed from one package cannot mask growth in another. Deterministic, read-only.
+Not a full proof (a reader could reach an installed method under another alias), so it is a
+shrink-only ratchet, not a "gaming is impossible" claim.
 """
 import json
 import re
@@ -55,18 +57,12 @@ def _module_path(root: Path, mod: str) -> Path:
     return root / "libraries" / (mod.replace(".", "/") + ".lua")
 
 
-def installer_symbols(root: Path) -> set[str]:
-    """Symbols installed onto M by the devloop modules that package cores `install(M)`.
-
-    For each `require("devloop.<mod>").install(M)` in a package core, collect the `function M.<name>`
-    definitions in that module; for aggregator modules (whose install loops over a list of
-    submodules), also collect from every `"devloop.<submod>"` string the module references.
-    """
-    install_mods: set[str] = set()
-    for core in root.glob("packages/*/core.lua"):
-        for m in _INSTALL.finditer(core.read_text(encoding="utf-8")):
-            install_mods.add(m.group(1))
-
+def _installer_symbols_for_core(root: Path, core: Path) -> set[str]:
+    """Symbols installed onto M by the devloop modules one package core installs."""
+    install_mods = {
+        match.group(1)
+        for match in _INSTALL.finditer(core.read_text(encoding="utf-8"))
+    }
     symbols: set[str] = set()
     for mod in install_mods:
         path = _module_path(root, mod)
@@ -74,7 +70,6 @@ def installer_symbols(root: Path) -> set[str]:
             continue
         text = path.read_text(encoding="utf-8")
         symbols.update(_install_method_names(text))
-        # aggregator: pull submodules it references and collect their installed methods too
         for sub in _SUBMOD.findall(text):
             sub_path = _module_path(root, sub)
             if sub_path.exists():
@@ -82,50 +77,101 @@ def installer_symbols(root: Path) -> set[str]:
     return symbols
 
 
-def reader_calls(root: Path, symbols: set[str]) -> int:
+def installer_symbols_by_package(root: Path) -> dict[str, set[str]]:
+    """Return each package's own installed devloop symbols.
+
+    For each `require("devloop.<mod>").install(M)` in a package core, collect the `function M.<name>`
+    definitions in that module; for aggregator modules (whose install loops over a list of
+    submodules), also collect from every `"devloop.<submod>"` string the module references.
+    """
+    return {
+        core.parent.name: _installer_symbols_for_core(root, core)
+        for core in sorted(root.glob("packages/*/core.lua"))
+    }
+
+
+def _reader_sites(root: Path, package: str, symbols: set[str]) -> list[dict[str, object]]:
     if not symbols:
-        return 0
+        return []
     alt = "|".join(re.escape(s) for s in sorted(symbols, key=len, reverse=True))
-    pattern = re.compile(rf"\b(?:core|M)\.(?:{alt})\s*\(")
-    total = 0
-    for lua in root.glob("packages/**/*.lua"):
-        rel = lua.as_posix()
+    pattern = re.compile(rf"\b(?:core|M)\.({alt})\s*\(")
+    sites: list[dict[str, object]] = []
+    package_root = root / "packages" / package
+    for lua in sorted(package_root.glob("**/*.lua")):
+        rel = lua.relative_to(root).as_posix()
         if rel.endswith("/core.lua") or "/tests/" in rel:
             continue
-        total += len(pattern.findall(lua.read_text(encoding="utf-8")))
-    return total
+        for line_number, line in enumerate(lua.read_text(encoding="utf-8").splitlines(), 1):
+            for match in pattern.finditer(line):
+                sites.append(
+                    {
+                        "path": rel,
+                        "line": line_number,
+                        "column": match.start() + 1,
+                        "symbol": match.group(1),
+                    }
+                )
+    return sites
+
+
+def current_inventory(root: Path) -> dict[str, list[dict[str, object]]]:
+    by_package = installer_symbols_by_package(root)
+    inventory = {
+        package: _reader_sites(root, package, symbols)
+        for package, symbols in sorted(by_package.items())
+    }
+    return {package: sites for package, sites in inventory.items() if sites}
+
+
+def current_counts(root: Path) -> dict[str, int]:
+    return {package: len(sites) for package, sites in current_inventory(root).items()}
 
 
 def current_count(root: Path) -> int:
-    return reader_calls(root, installer_symbols(root))
+    return sum(current_counts(root).values())
 
 
-def baseline(root: Path) -> int | None:
+def baseline(root: Path) -> dict[str, list[dict[str, object]]] | None:
     path = root / INVENTORY
     if not path.exists():
         return None
-    return int(json.loads(path.read_text(encoding="utf-8"))["installer_reads_through_m"])
+    data = json.loads(path.read_text(encoding="utf-8"))
+    packages = data.get("packages")
+    if not isinstance(packages, dict):
+        raise ValueError(f"invalid {INVENTORY}: expected a packages object")
+    for package, sites in packages.items():
+        if not isinstance(package, str) or not isinstance(sites, list):
+            raise ValueError(f"invalid {INVENTORY}: package baselines must be site lists")
+    return packages
+
+
+def _format_site(site: dict[str, object]) -> str:
+    return f"{site['path']}:{site['line']}:{site['column']} core.{site['symbol']}"
 
 
 def repository_messages(root: Path):
     if not (root / "libraries" / "devloop").exists():
         return
-    cur = current_count(root)
+    cur = current_inventory(root)
     base = baseline(root)
     if base is None:
         yield (
-            f"missing baseline {INVENTORY}; create it with "
-            f'{{"installer_reads_through_m": {cur}}} (shrink-only; migrate install(M) composed-core '
-            f"reads to explicit typed capability injection to lower it toward zero)"
+            f"missing baseline {INVENTORY}; create a packages object containing the current "
+            f"per-package reader-site inventory (shrink-only; migrate install(M) composed-core "
+            f"reads to explicit typed capability injection to lower each package toward zero)"
         )
         return
-    if cur > base:
-        yield (
-            f"{cur} production reader-calls through the ambient M to install(M) composed-core "
-            f"symbols (baseline {base}); this GREW. Do not add new install(M) composed-core reads; "
-            f"migrate readers to explicit capability handles (caps.log/state/egress). Update "
-            f"{INVENTORY} only when the real count drops."
-        )
+    for package, sites in sorted(cur.items()):
+        base_count = len(base.get(package, []))
+        if len(sites) > base_count:
+            diagnostics = ", ".join(_format_site(site) for site in sites)
+            yield (
+                f"package {package} has {len(sites)} production reader-calls through the ambient "
+                f"M to its install(M) composed-core symbols (baseline {base_count}); this GREW. "
+                f"Current sites: {diagnostics}. Do not add new install(M) composed-core reads; "
+                f"migrate readers to explicit capability handles (caps.log/state/egress). Update "
+                f"{INVENTORY} only when that package's real count drops."
+            )
 
 
 def check(root: Path, violations: list[str]) -> None:
@@ -137,7 +183,9 @@ if __name__ == "__main__":
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
     v: list[str] = []
     check(root, v)
-    print("current:", current_count(root), "baseline:", baseline(root))
+    current = current_inventory(root)
+    print("current:", json.dumps({"packages": current}, indent=2, sort_keys=True))
+    print("baseline:", json.dumps({"packages": baseline(root)}, indent=2, sort_keys=True))
     for m in v:
         print("VIOLATION:", m)
     sys.exit(1 if v else 0)
