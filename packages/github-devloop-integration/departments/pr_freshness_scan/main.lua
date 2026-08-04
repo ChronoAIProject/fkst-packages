@@ -40,6 +40,10 @@ local function require_repo(repo)
   return value
 end
 
+local function scan_lock_key(repo)
+  return "github-devloop/pr-freshness-scan/" .. require_repo(repo)
+end
+
 local function trim_stdout(result)
   return tostring(result.stdout or ""):gsub("%s+$", "")
 end
@@ -141,7 +145,17 @@ local function load_checkpointed_entity(repo, kind, number, current_updated_at, 
 
   local viewed = git_mechanics.run_required(fetch(), description)
   local stdout = tostring(viewed.stdout or "")
-  return parse(stdout), {
+  local entity = parse(stdout)
+  if valid_updated_at(stored)
+    and valid_updated_at(entity and entity.updated_at)
+    and entity.updated_at == stored then
+    devloop_logging.log_line("info", "pr_freshness_scan", "pr-freshness", "RECONCILE", {
+      "outcome=verified-unchanged-after-fetch",
+      "entity=" .. tostring(repo) .. "#" .. tostring(kind) .. "/" .. tostring(number),
+      "updated_at=" .. tostring(stored),
+    })
+  end
+  return entity, {
     dirty = true,
     mark_key = mark_key,
     stdout = stdout,
@@ -221,6 +235,17 @@ end
 local function list_open_prs(repo)
   local listed = git_mechanics.run_required(devloop_commands.gh_pr_list_freshness(repo, 30), "PR freshness list")
   return parsers_pr.parse_pr_list_freshness(listed.stdout)
+end
+
+local function list_issue_versions(repo, issue_numbers)
+  if #issue_numbers == 0 then
+    return {}
+  end
+  local listed = git_mechanics.run_required(
+    devloop_commands.gh_issue_list_freshness(repo, issue_numbers, 30),
+    "PR freshness issue list"
+  )
+  return parsers_issue.parse_issue_list_freshness(listed.stdout)
 end
 
 local function raise_conflict(repo, branch, integration, branch_sha, integration_sha, pr_number)
@@ -345,21 +370,44 @@ local function process_pr(repo, branches, listed_pr, pr, origin, issue)
   end)
 end
 
-local function process_listed_pr(repo, branches, listed_pr, versions)
+local function prepare_listed_pr(repo, branches, listed_pr)
   local pr, pr_checkpoint = load_current_pr(repo, listed_pr)
   pr.number = listed_pr.number
   local origin = m_facts.pr_origin_fact(pr.comments)
   if not in_managed_scope(repo, branches, pr, origin) then
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = nil, version = nil }, "tick", "freshness", "skip-foreign(pr-shape)", "PR is outside managed freshness scope")
     commit_checkpoint(pr_checkpoint, pr)
-    return
+    return nil
   end
 
-  local issue_updated_at = versions.issue[tonumber(origin.issue_number)]
-  local issue, issue_checkpoint = issue_state(repo, origin.issue_number, issue_updated_at)
-  process_pr(repo, branches, listed_pr, pr, origin, issue)
+  return {
+    listed_pr = listed_pr,
+    origin = origin,
+    pr = pr,
+    pr_checkpoint = pr_checkpoint,
+  }
+end
+
+local function backing_issue_numbers(prepared_prs)
+  local numbers = {}
+  local seen = {}
+  for _, prepared in ipairs(prepared_prs) do
+    local number = tonumber(prepared.origin.issue_number)
+    if number ~= nil and not seen[number] then
+      seen[number] = true
+      table.insert(numbers, number)
+    end
+  end
+  return numbers
+end
+
+local function process_prepared_pr(repo, branches, prepared, issue_versions)
+  local issue_number = prepared.origin.issue_number
+  local issue_updated_at = issue_versions[tonumber(issue_number)]
+  local issue, issue_checkpoint = issue_state(repo, issue_number, issue_updated_at)
+  process_pr(repo, branches, prepared.listed_pr, prepared.pr, prepared.origin, issue)
   commit_checkpoint(issue_checkpoint, issue)
-  commit_checkpoint(pr_checkpoint, pr)
+  commit_checkpoint(prepared.pr_checkpoint, prepared.pr)
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
@@ -371,8 +419,18 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = "same-branch", version = branches.integration }, "tick", "freshness", "skip-idempotent(same-branch)", "integration branch equals upstream branch")
     return
   end
-  local prs, versions = list_open_prs(repo)
-  for _, pr in ipairs(prs) do
-    process_listed_pr(repo, branches, pr, versions)
-  end
+  with_lock(scan_lock_key(repo), function()
+    local prs = list_open_prs(repo)
+    local prepared_prs = {}
+    for _, listed_pr in ipairs(prs) do
+      local prepared = prepare_listed_pr(repo, branches, listed_pr)
+      if prepared ~= nil then
+        table.insert(prepared_prs, prepared)
+      end
+    end
+    local issue_versions = list_issue_versions(repo, backing_issue_numbers(prepared_prs))
+    for _, prepared in ipairs(prepared_prs) do
+      process_prepared_pr(repo, branches, prepared, issue_versions)
+    end
+  end)
 end, name = "pr_freshness_scan" })
