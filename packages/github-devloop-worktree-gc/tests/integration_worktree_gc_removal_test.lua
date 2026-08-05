@@ -1,7 +1,7 @@
 -- End-to-end safety integration: drive the REAL worktree_gc department through its
 -- full act path (list -> classify -> pre-remove recheck -> remove) with injected fakes,
--- and prove it removes ONLY the terminal old-RT deterministic worktree while keeping the
--- orphan-after-restart worktree and skipping current-RT / detached / foreign ones.
+-- and prove it removes only unowned deterministic worktrees while preserving live
+-- restart orphans and stable worktrees without a lifecycle-owned release fact.
 
 local testing = require("testkit_internal.testing")
 local git_fake = require("forge.git_fake")
@@ -16,16 +16,18 @@ local t = fkst.test
 local REPO = "ChronoAIProject/fkst-packages"
 local OLD_RT = "/runtime/dogfood-rt-packages.1111"
 local CUR_RT = "/runtime/dogfood-rt-packages.2222"
+local DURABLE_ROOT = "/runtime/dogfood-durable-packages"
+local STABLE_ROOT = base.implementation_worktree_root(DURABLE_ROOT)
 local NOW_S = 1000000
 
 local ORPHAN_BRANCH = base.implement_branch(REPO, 111, "dedup-orphan")
 local TERMINAL_BRANCH = base.implement_branch(REPO, 222, "dedup-terminal")
-local CURRENT_BRANCH = base.implement_branch(REPO, 333, "dedup-current")
+local STABLE_BRANCH = base.implement_branch(REPO, 333, "dedup-current")
 
 local MAIN_PATH = "/home/dev/fkst-packages"
 local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
-local CURRENT_PATH = CUR_RT .. "/worktrees/devloop-current-333"
+local STABLE_PATH = STABLE_ROOT .. "/worktrees/devloop-current-333"
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -48,7 +50,7 @@ local FULL = porcelain({
   { path = MAIN_PATH, branch = "integration" },
   { path = ORPHAN_PATH, branch = ORPHAN_BRANCH },
   { path = TERMINAL_PATH, branch = TERMINAL_BRANCH },
-  { path = CURRENT_PATH, branch = CURRENT_BRANCH },
+  { path = STABLE_PATH, branch = STABLE_BRANCH },
   { path = DETACHED_PATH, detached = true },
   { path = FOREIGN_PATH, branch = "feature/some-external-branch" },
 })
@@ -81,11 +83,11 @@ local function running_row(issue, dedup, role)
   }
 end
 
-local function issue_fixture(issue_number, state_name, lifecycle_marker)
+local function issue_fixture(issue_number, state_name, lifecycle_marker, state_version)
   local marker_body = state_comment(
     "github-devloop/issue/" .. REPO .. "/" .. tostring(issue_number),
     state_name,
-    "dedup-current"
+    state_version or "dedup-current"
   )
   if lifecycle_marker ~= nil then
     marker_body = marker_body .. "\n" .. lifecycle_marker
@@ -105,10 +107,11 @@ local function issue_fixture(issue_number, state_name, lifecycle_marker)
   }
 end
 
-local function fake_github(issue_state, lifecycle_marker)
+local function fake_github(issue_state, lifecycle_marker, state_version)
   local issues = {}
   if issue_state ~= nil then
-    issues[REPO .. "#issue/333"] = issue_fixture(333, issue_state, lifecycle_marker)
+    issues[REPO .. "#issue/333"] = issue_fixture(
+      333, issue_state, lifecycle_marker, state_version)
   end
   return github_fake.new(github_fake.model({ issues = issues }))
 end
@@ -123,13 +126,16 @@ local function sequenced_github(snapshots, reads)
   }
 end
 
-local function department_with(removed, running_rows, remove_env, issue_state, lifecycle_marker, github_override)
+local function department_with(
+    removed, running_rows, remove_env, issue_state, lifecycle_marker, github_override, state_version)
   return worktree_gc.make_department({
     git = fake_git(removed),
-    github = github_override or fake_github(issue_state, lifecycle_marker),
+    github = github_override or fake_github(issue_state, lifecycle_marker, state_version),
     read_env = function(name)
       if name == "FKST_RUNTIME_ROOT" then
         return CUR_RT
+      elseif name == "FKST_DURABLE_ROOT" then
+        return DURABLE_ROOT
       elseif name == "FKST_WORKTREE_GC_REMOVE" then
         return remove_env
       end
@@ -148,7 +154,7 @@ local function implementation_marker()
   return marker_builders.implementing_marker(
     "github-devloop/issue/" .. REPO .. "/333",
     "dedup-current",
-    CURRENT_BRANCH,
+    STABLE_BRANCH,
     "1111111111111111111111111111111111111111",
     "dev",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -159,7 +165,7 @@ local function checkpoint_marker()
   return marker_builders.implement_checkpoint_marker(
     "github-devloop/issue/" .. REPO .. "/333",
     "dedup-current",
-    CURRENT_BRANCH,
+    STABLE_BRANCH,
     "1111111111111111111111111111111111111111",
     "dev",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -194,7 +200,7 @@ end
 
 return {
   -- The orphan (live codex row) is kept; the terminal old-RT worktree is removed;
-  -- current-RT, detached, foreign, and the main checkout are never removed.
+  -- the nonterminal stable worktree, detached, foreign, and main checkout are never removed.
   test_removes_only_terminal_old_rt_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "ready")
@@ -203,7 +209,7 @@ return {
     t.eq(#removed, 1)
     t.eq(removed[1], TERMINAL_PATH)
     t.eq(contains(removed, ORPHAN_PATH), false)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
     t.eq(contains(removed, DETACHED_PATH), false)
     t.eq(contains(removed, FOREIGN_PATH), false)
     t.eq(contains(removed, MAIN_PATH), false)
@@ -231,53 +237,51 @@ return {
     t.eq(#removed, 0)
   end,
 
-  -- A current-runtime deterministic worktree is removed only when the issue stream has
+  -- A stable deterministic worktree is removed only when the issue stream has
   -- a fresh trusted terminal marker and codex_runs proves the branch is not live.
-  test_removes_current_rt_terminal_worktree = function()
+  test_removes_stable_terminal_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "merged")
     testing.run_fake(dept, tick())
 
     t.eq(#removed, 2)
     t.eq(contains(removed, TERMINAL_PATH), true)
-    t.eq(contains(removed, CURRENT_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), true)
     t.eq(contains(removed, ORPHAN_PATH), false)
   end,
 
-  -- A current-runtime worktree without a lifecycle finalization fact remains owned.
-  test_keeps_current_rt_unfinalized_worktree = function()
+  -- A stable deterministic worktree with a nonterminal trusted marker is kept
+  -- even when no codex row is live.
+  test_keeps_stable_nonterminal_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "implementing")
     testing.run_fake(dept, tick())
 
     t.eq(#removed, 1)
     t.eq(removed[1], TERMINAL_PATH)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_finalized_current_rt_after_fresh_live_revalidation = function()
+  test_live_retry_worktree_survives_terminal_marker_race = function()
+    local removed = {}
+    local dept = department_with(removed, {
+      running_row(333, "dedup-current/reimplement/2"),
+    }, "1", "merged")
+    testing.run_fake(dept, tick())
+
+    t.eq(contains(removed, STABLE_PATH), false)
+  end,
+
+  test_published_stable_worktree_remains_owned_without_live_row_during_fix_harvest = function()
     local release_marker = implementation_marker()
-    local reads = 0
-    local raced_removed = {}
-    local raced = department_with(raced_removed, function()
-      reads = reads + 1
-      local running = reads == 1 and {} or { running_row(333, "dedup-current") }
-      return { running = running, recent = {} }
-    end, "1", "implementing", release_marker)
+    local removed = {}
+    local dept = department_with(removed, {}, "1", "implementing", release_marker)
+    testing.run_fake(dept, tick())
 
-    testing.run_fake(raced, tick())
-
-    t.eq(reads >= 2, true)
-    t.eq(contains(raced_removed, CURRENT_PATH), false)
-
-    local released = {}
-    local inactive = department_with(released, {}, "1", "implementing", release_marker)
-    testing.run_fake(inactive, tick())
-
-    t.eq(contains(released, CURRENT_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_preserves_finalized_branch_reacquired_by_live_fix = function()
+  test_preserves_published_branch_reacquired_by_live_fix = function()
     local release_marker = implementation_marker()
     local reads = 0
     local removed = {}
@@ -292,36 +296,44 @@ return {
     testing.run_fake(dept, tick())
 
     t.eq(reads >= 2, true)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_checkpointed_current_rt_worktree = function()
+  test_retry_harvest_keeps_stable_worktree_despite_stale_checkpoint = function()
     local removed = {}
-    local dept = department_with(removed, {}, "1", "implementing", checkpoint_marker())
+    local dept = department_with(
+      removed,
+      {},
+      "1",
+      "implementing",
+      checkpoint_marker(),
+      nil,
+      "dedup-current/reimplement/2"
+    )
     testing.run_fake(dept, tick())
 
-    t.eq(contains(removed, CURRENT_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_current_impl_failed_disposable_residue = function()
+  test_stale_impl_failed_does_not_release_reentered_worktree_during_harvest = function()
     local removed = {}
     local dept = department_with(removed, {}, "1", "impl-failed", failure_marker())
     testing.run_fake(dept, tick())
 
-    t.eq(contains(removed, CURRENT_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
   test_preserves_candidate_when_release_fact_vanishes_before_remove = function()
     local removed = {}
     local reads = { count = 0 }
     local github = sequenced_github({
-      { state = "implementing", marker = implementation_marker() },
+      { state = "merged", marker = nil },
       { state = "implementing", marker = nil },
     }, reads)
     local dept = department_with(removed, {}, "1", nil, nil, github)
     testing.run_fake(dept, tick())
 
     t.eq(reads.count >= 2, true)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 }

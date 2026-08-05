@@ -375,7 +375,6 @@ return {
       source_ref = source_ref(),
     })
     h.mock_fresh_implement_worktree({
-      runtime = runtime_root,
       impl_version = lean_ready_version,
     })
     t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {

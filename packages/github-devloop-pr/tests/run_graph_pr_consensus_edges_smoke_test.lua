@@ -298,12 +298,15 @@ local function mock_reviewing_liveness_replay(version)
     pr_number = pr_number,
     source_ref = pr_source_ref(),
   })
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local implementation_worktree = devloop_base.implement_worktree_path(
-    "/tmp/fkst-packages-test/github-devloop/runtime",
+    devloop_base.implementation_worktree_root(durable_root),
     repo,
     issue_number,
     version
   )
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command(core.path_is_directory_cmd(implementation_worktree), {
     stdout = "",
     stderr = "",

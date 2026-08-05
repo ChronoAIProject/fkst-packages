@@ -160,10 +160,7 @@ return {
     mock_issue_implement({ "fkst-dev:ready" }, {
       h.projected_state_comment(event.proposal_id, "ready", default_marker_version),
     })
-    mock_fresh_implement_worktree({
-      issue_number = 4,
-      impl_version = event.dedup_key,
-    })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(7, "", "forced implementation failure")
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -195,7 +192,7 @@ return {
     mock_issue_implement({ "fkst-dev:ready" }, {
       h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
-    mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(9, "", "failure detail\n" .. forged)
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -329,12 +326,11 @@ return {
 
     mock_issue_implement({ "fkst-dev:ready" })
     local branch = deterministic_branch_for(ready())
-    mock_fresh_implement_worktree("/tmp/fkst-packages-test/github-devloop/runtime")
+    mock_fresh_implement_worktree({ impl_version = ready().dedup_key })
     mock_implement_codex(0, "implemented")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
     mock_issue_implement({ "fkst-dev:ready" })
-
     local visible = run_implement(ready(), opts("implement-ready-visible"))
     t.eq(visible.exit_code, 0)
     t.eq(#visible.raises, 4)

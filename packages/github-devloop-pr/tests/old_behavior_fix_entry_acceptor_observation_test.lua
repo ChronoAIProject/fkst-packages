@@ -31,6 +31,12 @@ local OLDER = VERSION:gsub("2026%-06%-03", "2026-06-02")
 local HEAD_SHA = "def456"
 local NEW_HEAD = "feedface"
 local BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, VERSION)
+local WORKTREE = devloop_base.implement_worktree_path(
+  devloop_base.implementation_worktree_root("/tmp/fkst-observe/durable"),
+  REPO,
+  ISSUE_NUMBER,
+  VERSION
+)
 local PREFIX = "entry-fix-"
 local SITE = {
   path = "packages/github-devloop-pr/departments/fix/main.lua",
@@ -361,7 +367,7 @@ local function capture(fixture)
     return { stdout = stdout or "", stderr = "", exit_code = 0 }
   end
   function ports.git.worktree_list() return git_result("worktree_list", nil,
-    "worktree /tmp/fkst-observe/worktree\nbranch refs/heads/" .. BRANCH .. "\n\n") end
+    "worktree " .. WORKTREE .. "\nbranch refs/heads/" .. BRANCH .. "\n\n") end
   function ports.git.fetch_branch(_, branch) return git_result("fetch_branch", { branch = branch }) end
   function ports.git.remote_branch_head() return git_result("remote_branch_head", nil, "abc123\n") end
   function ports.git.merge_no_edit() return git_result("merge_no_edit") end
@@ -390,8 +396,8 @@ local function capture(fixture)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function() return true end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   ra.replace(_G, "exec_sync", function(opts)
-    if tostring(opts.cmd):find("FKST_RUNTIME_ROOT", 1, true) then
-      return { stdout = "/tmp/fkst-observe", stderr = "", exit_code = 0 }
+    if tostring(opts.cmd):find("FKST_DURABLE_ROOT", 1, true) then
+      return { stdout = "/tmp/fkst-observe/durable", stderr = "", exit_code = 0 }
     end
     return { stdout = "", stderr = "", exit_code = 0 }
   end, restorations)

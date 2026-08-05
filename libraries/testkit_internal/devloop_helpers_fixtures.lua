@@ -181,6 +181,11 @@ function M.new(deps)
         stderr = "",
         exit_code = 0,
       })
+      helpers.t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+        stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+        stderr = "",
+        exit_code = 0,
+      })
     end
     local directory_probe = "test -d"
     local path_probe = "test -e"
@@ -301,10 +306,10 @@ function M.new(deps)
       mock_context_bundle(payload, run_opts)
       mock_default_issue_claim(repo, issue_number)
       if add_missing_review_worktree then
-        helpers.t.mock_command("/worktrees/devloop-", {
+        helpers.t.mock_command("git worktree list --porcelain", {
           stdout = "",
           stderr = "",
-          exit_code = 1,
+          exit_code = 0,
         })
       end
       return base_run(...)
