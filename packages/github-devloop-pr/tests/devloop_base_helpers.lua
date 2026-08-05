@@ -11,4 +11,5 @@ return require("testkit_internal.devloop_fixtures").new({
   review_result_department = require("departments.review_result.main"),
   decompose_queue = "github-devloop-decompose.devloop_decompose",
   mock_merge_pr_diff_name_only = true,
+  projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
 })

@@ -246,7 +246,7 @@ return {
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
         id = "IC_ready_visible",
-        body = core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready"),
+        body = h.projected_state_comment(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready"),
         created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
       },
     })

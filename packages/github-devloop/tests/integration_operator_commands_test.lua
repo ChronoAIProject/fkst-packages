@@ -194,7 +194,7 @@ return {
     local event = reached()
     local command = trusted_issue_command("reready", "IC_issue_reready_release")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }, "OPEN", {
-      core.state_marker(event.proposal_id, "dependency_wait", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "dependency_wait", event.dedup_key),
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_unresolvable_marker(event.proposal_id, event.dedup_key, { 42 }),
       command,
@@ -238,7 +238,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_ready")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
@@ -283,7 +283,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_pr_link")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       m_builders.pr_link_marker(proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {

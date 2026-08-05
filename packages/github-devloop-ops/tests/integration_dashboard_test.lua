@@ -54,7 +54,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.projected_state_comment(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local logs = capture_observability_logs()

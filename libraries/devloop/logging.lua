@@ -22,11 +22,11 @@ function C.error_class_from_message(message)
   if text:match("github%-devloop: .-codex failed:") then
     return "codex-failed"
   end
-  local class = text:match("github%-devloop: [^:]+ failed: ([%w%-]+):")
-    or text:match("github%-devloop: ([%w%-]+):")
+  local class =
+    text:match("github%-devloop: [^:]+ failed: ([%w%-]+):")
     or text:match("github%-devloop: ([%w%-]+) failed:")
     or text:match("github%-devloop: ([%w%-]+) retrying")
-  return class or "caught-failure"
+  return class or error_facts.error_class_from_message(text)
 end
 
 function C.log_error_fact(level, dept, proposal_id, tag, error_class, queue, message, context)

@@ -136,7 +136,7 @@ end
 
 local function state_comment(state_name, state_version, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment(proposal_id, state_name, state_version),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }

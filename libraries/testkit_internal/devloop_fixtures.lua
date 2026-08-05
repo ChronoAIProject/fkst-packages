@@ -56,7 +56,7 @@ function M.new(deps)
     entity_read_mocks = entity_read_mocks,
     m_builders = m_builders,
     pr_safety = pr_safety,
-    has_value = has_value,
+    has_value = has_value, projected_state_comment = deps.projected_state_comment,
     default_pr_origin_times = deps.default_pr_origin_times,
     pr_origin_view_times_enabled = deps.pr_origin_view_times_enabled == true,
     pending_result_issue = nil,
@@ -705,6 +705,8 @@ function M.new(deps)
   return {
     t = t,
     core = core,
+    projected_state_comment = deps.projected_state_comment,
+    state_comment = deps.state_comment,
     action_label = deps.action_label or "⟦FKST:ACTION⟧",
     reason_label = deps.reason_label or "⟦FKST:REASON⟧",
     has_value = has_value,
