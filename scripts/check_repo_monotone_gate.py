@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
+import check_repo_lua
 
 
 MANIFEST = "migration/monotone-gate.inventory"
@@ -69,7 +70,6 @@ FUNCTION_RE = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\("
     r"|^\s*(?P<assign>[A-Za-z_][A-Za-z0-9_]*(?:\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*=\s*function\b"
 )
-LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 GATE_KIND_RE = re.compile(r"\bgate_kind\s*=\s*['\"]monotone_milestone['\"]")
 RESPONSIBILITY_RE = re.compile(r"\bresponsibility_signature\s*\(")
 STRING_FIELD_RE = re.compile(r"\b(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<quote>['\"])(?P<value>[^'\"]*)(?P=quote)")
@@ -196,22 +196,8 @@ class Block:
 
 
 def strip_lua_line_comment(line: str) -> str:
-    quote = None
-    escaped = False
-    for index, char in enumerate(line):
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            continue
-        if line.startswith("--", index):
-            return line[:index]
+    for span in check_repo_lua.comment_spans(line, recognize_long_brackets=False):
+        return line[: span.start]
     return line
 
 
@@ -219,46 +205,8 @@ def code_without_lua_line_comments(source: str) -> str:
     return "\n".join(strip_lua_line_comment(line) for line in source.splitlines())
 
 
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            newline = text.find("\n", cursor)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-        if text[cursor] in {"'", '"'}:
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-        cursor += 1
-    return "".join(chars)
-
-
-def block_delta(line: str) -> int:
-    tokens = LUA_WORD_RE.findall(line)
-    delta = 0
-    for index, token in enumerate(tokens):
-        if token in {"function", "do", "repeat"}:
-            delta += 1
-        elif token == "then" and (index == 0 or tokens[index - 1] != "elseif"):
-            delta += 1
-        elif token in {"end", "until"}:
-            delta -= 1
-    return delta
-
-
 def function_blocks(source: str) -> list[Block]:
-    code_lines = lua_code_mask(source).splitlines()
+    code_lines = check_repo_lua.code_mask(source, recognize_long_brackets=False).splitlines()
     original_lines = source.splitlines()
     blocks: list[Block] = []
     index = 0
@@ -267,11 +215,11 @@ def function_blocks(source: str) -> list[Block]:
         if match is None:
             index += 1
             continue
-        depth = block_delta(code_lines[index])
+        depth = check_repo_lua.block_delta(code_lines[index])
         end = index
         while depth > 0 and end + 1 < len(code_lines):
             end += 1
-            depth += block_delta(code_lines[end])
+            depth += check_repo_lua.block_delta(code_lines[end])
         name = (match.group("name") or match.group("assign") or "unknown").replace(" ", "")
         blocks.append(Block(name=name, start=index + 1, end=end + 1, source="\n".join(original_lines[index:end + 1])))
         index += 1
@@ -393,7 +341,7 @@ def load_manifest(path: Path) -> tuple[list[Surface], list[str]]:
 
 
 def is_cursor_definition(line: str, match_start: int) -> bool:
-    declaration = FUNCTION_RE.match(lua_code_mask(line))
+    declaration = FUNCTION_RE.match(check_repo_lua.code_mask(line, recognize_long_brackets=False))
     if declaration is None:
         return False
     name = declaration.group("name")
@@ -469,7 +417,10 @@ def package_sources(root: Path) -> dict[str, str]:
 
 def accessor_references(source: str, accessor: str) -> bool:
     basename = accessor.split(".")[-1]
-    return re.search(r"\b" + re.escape(basename) + r"\s*\(", lua_code_mask(source)) is not None
+    return re.search(
+        r"\b" + re.escape(basename) + r"\s*\(",
+        check_repo_lua.code_mask(source, recognize_long_brackets=False),
+    ) is not None
 
 
 def manifest_messages(root: Path, sources: dict[str, str]) -> list[str]:
