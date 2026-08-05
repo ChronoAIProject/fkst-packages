@@ -165,11 +165,10 @@ return {
     t.eq(issue_ref.source_ref.ref, REPO .. "#issue/333")
   end,
 
-  test_published_output_releases_exact_branch = function()
+  test_published_output_does_not_release_reusable_branch = function()
     local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
     local fact = core.branch_release_fact({ comment(implementation_marker()) }, issue_ref, CURRENT_BRANCH)
-    t.eq(fact.kind, "published")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
   test_checkpoint_does_not_release_inflight_branch = function()
@@ -178,17 +177,16 @@ return {
     t.eq(fact, nil)
   end,
 
-  test_current_impl_failure_classifies_residue_disposable = function()
+  test_current_impl_failure_does_not_release_reenterable_branch = function()
     local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
     local comments = {
       comment(devloop_state.state_marker(proposal_id, "impl-failed", "dedup-current") .. "\n" .. failure_marker()),
     }
     local fact = core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH)
-    t.eq(fact.kind, "disposable-residue")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
-  test_retry_impl_failure_releases_reused_base_branch = function()
+  test_retry_impl_failure_does_not_release_reused_base_branch = function()
     local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
     local retry_dedup = "dedup-current/reimplement/2"
     local comments = {
@@ -200,8 +198,7 @@ return {
       core.issue_ref_from_branch(CURRENT_BRANCH),
       CURRENT_BRANCH
     )
-    t.eq(fact.kind, "disposable-residue")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
   test_stale_impl_failure_does_not_release_reentered_attempt = function()

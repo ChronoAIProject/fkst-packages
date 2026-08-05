@@ -1,7 +1,7 @@
 -- worktree_gc: level-triggered, stateless, fail-open sweep that removes EXPIRED
 -- deterministic github-devloop worktrees. "Expired" = proven not-live by the
 -- ground-truth codex-run -> implement_branch join (never age). Worktrees in either
--- the current runtime or stable implementation root require a lifecycle release fact.
+-- the current runtime or stable implementation root require a terminal lifecycle fact.
 --
 -- Safety: nothing is removed unless core.classify proves it, and each candidate is
 -- re-validated against a FRESH codex_runs snapshot immediately before removal
@@ -224,7 +224,7 @@ local function make_department(ports)
     end
 
     -- (4) classify. Old generations are reclaimable once not live; current-runtime
-    -- and stable implementation worktrees additionally require lifecycle release.
+    -- and stable implementation worktrees additionally require terminal lifecycle release.
     local released_branches = owned_released_branches(
       worktrees,
       live,

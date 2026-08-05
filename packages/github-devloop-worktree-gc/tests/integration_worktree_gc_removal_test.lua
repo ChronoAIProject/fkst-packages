@@ -271,29 +271,16 @@ return {
     t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_finalized_stable_worktree_after_fresh_live_revalidation = function()
+  test_published_stable_worktree_remains_owned_without_live_row_during_fix_harvest = function()
     local release_marker = implementation_marker()
-    local reads = 0
-    local raced_removed = {}
-    local raced = department_with(raced_removed, function()
-      reads = reads + 1
-      local running = reads == 1 and {} or { running_row(333, "dedup-current") }
-      return { running = running, recent = {} }
-    end, "1", "implementing", release_marker)
+    local removed = {}
+    local dept = department_with(removed, {}, "1", "implementing", release_marker)
+    testing.run_fake(dept, tick())
 
-    testing.run_fake(raced, tick())
-
-    t.eq(reads >= 2, true)
-    t.eq(contains(raced_removed, STABLE_PATH), false)
-
-    local released = {}
-    local inactive = department_with(released, {}, "1", "implementing", release_marker)
-    testing.run_fake(inactive, tick())
-
-    t.eq(contains(released, STABLE_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_preserves_finalized_branch_reacquired_by_live_fix = function()
+  test_preserves_published_branch_reacquired_by_live_fix = function()
     local release_marker = implementation_marker()
     local reads = 0
     local removed = {}
@@ -327,19 +314,19 @@ return {
     t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_stable_impl_failed_disposable_residue = function()
+  test_stale_impl_failed_does_not_release_reentered_worktree_during_harvest = function()
     local removed = {}
     local dept = department_with(removed, {}, "1", "impl-failed", failure_marker())
     testing.run_fake(dept, tick())
 
-    t.eq(contains(removed, STABLE_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
   test_preserves_candidate_when_release_fact_vanishes_before_remove = function()
     local removed = {}
     local reads = { count = 0 }
     local github = sequenced_github({
-      { state = "implementing", marker = implementation_marker() },
+      { state = "merged", marker = nil },
       { state = "implementing", marker = nil },
     }, reads)
     local dept = department_with(removed, {}, "1", nil, nil, github)
