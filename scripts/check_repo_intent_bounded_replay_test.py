@@ -216,6 +216,30 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         self.write_manifest(self.manifest())
         self.assertEqual(self.messages(), [])
 
+    def test_manifest_on_configured_integration_is_not_growth(self) -> None:
+        git(self.root, "branch", "dev", self.base)
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        git(self.root, "branch", "integration", "HEAD")
+        self.write("tracked.txt", "feature change\n")
+        self.commit("feature")
+
+        with mock.patch.object(checker, "_admission_trace_messages", return_value=[]), mock.patch.dict(
+            os.environ,
+            {
+                "FKST_RESTART_PREFLIGHT_BASE_REF": "",
+                "FKST_RATCHET_TARGET_REF": "",
+                "GITHUB_BASE_REF": "",
+                "GITHUB_EVENT_NAME": "",
+                "GITHUB_REF_TYPE": "",
+                "FKST_DEVLOOP_INTEGRATION_BRANCH": "integration",
+            },
+            clear=False,
+        ):
+            messages = checker.repository_messages(self.root, enforce_base=True)
+
+        self.assertFalse(any("grows" in message for message in messages), messages)
+
     def test_during_refactor_valid_manifest_growth_is_forbidden(self) -> None:
         self.write("libraries/devloop/restart_effect_seal.lua", "return {}\n")
         self.commit("retain old authority")

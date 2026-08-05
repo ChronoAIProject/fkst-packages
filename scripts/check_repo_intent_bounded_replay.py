@@ -561,7 +561,16 @@ def _protected_base_sha(root: Path) -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    return ratchet_base.resolve_dev_merge_base(root)
+    target = ratchet_base.resolve_target_ref(root)
+    if target is None:
+        return None
+    result = subprocess.run(
+        ["git", "merge-base", "HEAD", target], cwd=root, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
 
 
 def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[str] | None, list[str]]:
