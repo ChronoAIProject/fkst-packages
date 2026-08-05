@@ -30,6 +30,7 @@ local expected_bytes = table.concat({
   "impl-failed->implementing",
   "implementing->awaiting-pr",
   "implementing->blocked",
+  "implementing->dependency_wait",
   "implementing->impl-failed",
   "ready->blocked",
   "ready->dependency_wait",
@@ -51,6 +52,7 @@ local pending_order_goldens = {
   ["github-devloop/thinking/autonomous/premise-refuted"] = no,
   ["github-devloop/thinking/autonomous/consensus-stalled"] = yes("thinking"),
   ["github-devloop/implementing/autonomous/revision_published"] = yes("implementing"),
+  ["github-devloop/implementing/autonomous/precursor_waiting"] = yes("implementing"),
   ["github-devloop/implementing/autonomous/implementation_refused"] = yes("implementing"),
   ["github-devloop/implementing/autonomous/revision_failed"] = yes("implementing"),
   ["github-devloop/dependency_wait/guard_boundary/blockers_still_open"] = yes("dependency_wait"),
@@ -88,8 +90,8 @@ local function assert_pending_order_goldens(edges)
     if edge.pending_order.participates then participating = participating + 1 end
   end
   for id in pairs(pending_order_goldens) do t.eq(seen[id], true) end
-  t.eq(#edges, 28)
-  t.eq(participating, 20)
+  t.eq(#edges, 29)
+  t.eq(participating, 21)
 end
 
 return {
