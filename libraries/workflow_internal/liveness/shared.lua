@@ -61,9 +61,6 @@ local function reachable_lifecycle_states(M)
     end
     return scoped
   end
-  if type(M.lifecycle_state_set) == "function" then
-    return M.lifecycle_state_set()
-  end
   local seen = {}
   return seen
 end

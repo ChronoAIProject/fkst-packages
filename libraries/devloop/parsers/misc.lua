@@ -1,6 +1,6 @@
 local devloop_base = require("devloop.base")
 local error_facts = require("contract.error_facts")
-local forge_validators = require("devloop.forge_validators")
+local check_runs = require("forge.github.check_runs")
 local shared = require("devloop.parsers.shared")
 local strings = require("forge.strings")
 local C = {}
@@ -205,44 +205,6 @@ local function safe_rollup_check_name(entry)
   return name
 end
 
-local function entry_commit_sha(entry)
-  if type(entry) ~= "table" then
-    return nil
-  end
-  local candidates = {
-    entry.headSha,
-    entry.head_sha,
-    entry.sha,
-    entry.oid,
-  }
-  if type(entry.commit) == "table" then
-    table.insert(candidates, entry.commit.oid)
-    table.insert(candidates, entry.commit.sha)
-  end
-  if type(entry.checkSuite) == "table" then
-    table.insert(candidates, entry.checkSuite.headSha)
-    table.insert(candidates, entry.checkSuite.head_sha)
-    if type(entry.checkSuite.commit) == "table" then
-      table.insert(candidates, entry.checkSuite.commit.oid)
-      table.insert(candidates, entry.checkSuite.commit.sha)
-    end
-  end
-  if type(entry.check_suite) == "table" then
-    table.insert(candidates, entry.check_suite.headSha)
-    table.insert(candidates, entry.check_suite.head_sha)
-    if type(entry.check_suite.commit) == "table" then
-      table.insert(candidates, entry.check_suite.commit.oid)
-      table.insert(candidates, entry.check_suite.commit.sha)
-    end
-  end
-  for _, candidate in ipairs(candidates) do
-    if forge_validators.is_git_sha(candidate) then
-      return tostring(candidate)
-    end
-  end
-  return nil
-end
-
 function C.pr_rollup_failure_summary(pr)
   local entries = type(pr) == "table" and pr.status_check_rollup or nil
   if type(entries) ~= "table" or #entries == 0 then
@@ -292,32 +254,7 @@ function C.pr_rollup_failure_summary(pr)
 end
 
 function C.rollup_failure_gate_sha(pr)
-  local entries = type(pr) == "table" and pr.status_check_rollup or nil
-  if type(entries) ~= "table" or #entries == 0 then
-    return nil
-  end
-  local gate_sha = nil
-  for _, entry in ipairs(entries) do
-    local state, conclusion = check_entry_state(entry)
-    local is_failed = false
-    if state == "COMPLETED" then
-      is_failed = not green_check_conclusions[conclusion]
-    elseif conclusion == "" and red_status_states[state] then
-      is_failed = true
-    end
-    if is_failed then
-      local sha = entry_commit_sha(entry)
-      if sha == nil then
-        return nil
-      end
-      if gate_sha == nil then
-        gate_sha = sha
-      elseif gate_sha ~= sha then
-        return nil
-      end
-    end
-  end
-  return gate_sha
+  return check_runs.rollup_failure_gate_sha(pr)
 end
 
 C.max_rollup_check_name_len = max_rollup_check_name_len
