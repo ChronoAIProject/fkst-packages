@@ -202,7 +202,7 @@ return function(M, h)
       },
     }),
     payload_builder = payloads_builders.build_devloop_fixing_payload,
-    dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>",
+    dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>; timeout delivery appends delivery-redrive/<generation_key>/<attempt> to the logical replay identity",
     required_facts = {
       fact("state", "marker-read"),
       fact("pr-link", "marker-read"),
