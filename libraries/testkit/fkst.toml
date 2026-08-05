@@ -1,0 +1,24 @@
+kind = "library"
+name = "testkit"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = []
+
+[dependency_constraints]
+allowed_lib_deps = []
+
+[library]
+name = "testkit"
+publishable = true
+stable_id = "fkst.library.testkit"
+version = "workspace"
+
+[exports]
+exact = true
+public = ["testkit.graph"]
+
+[visibility]
+public = true

@@ -1,0 +1,12 @@
+kind = "package"
+name = "github-external-pr-intake"
+persistence_class = "stateless_adapter"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "forge", "devloop"]
+
+[conformance]
+function = "core.pr_owner_conformance_errors"
