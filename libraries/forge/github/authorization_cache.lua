@@ -11,7 +11,7 @@ local CACHE_RECORD_KIND = "forge.github.org-membership-authorization-cache.v1"
 local function normalized_org(org)
   local value = strings.trim(org or ""):lower()
   if value == "" or value:find("/", 1, true) ~= nil then
-    error("forge.github.authorization_cache: organization must be a non-empty slug")
+    error("forge-github-authorization-cache: invalid-organization: organization must be a non-empty slug")
   end
   return value
 end
@@ -24,7 +24,7 @@ end
 function M.epoch_at(now_seconds)
   local seconds = tonumber(now_seconds)
   if seconds == nil or seconds < 0 then
-    error("forge.github.authorization_cache: current time must be non-negative seconds")
+    error("forge-github-authorization-cache: invalid-current-time: current time must be non-negative seconds")
   end
   return math.floor(seconds / M.REVOCATION_BOUND_SECONDS)
 end
@@ -117,7 +117,7 @@ end
 
 function M.get(org, fetch_logins)
   if type(fetch_logins) ~= "function" then
-    error("forge.github.authorization_cache: fetch_logins must be a function")
+    error("forge-github-authorization-cache: invalid-fetch-logins: fetch_logins must be a function")
   end
   local key = M.cache_key(org)
   local epoch = current_epoch()

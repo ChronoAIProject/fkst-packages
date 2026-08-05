@@ -53,6 +53,39 @@ local function successful_member_fetch(counter, login)
 end
 
 return {
+  test_invalid_cache_inputs_expose_stable_error_classes = function()
+    local cases = {
+      {
+        run = function()
+          authorization_cache.cache_key("")
+        end,
+        error_class = "invalid-organization",
+      },
+      {
+        run = function()
+          authorization_cache.epoch_at(-1)
+        end,
+        error_class = "invalid-current-time",
+      },
+      {
+        run = function()
+          authorization_cache.get("cache-invalid-fetch-org", nil)
+        end,
+        error_class = "invalid-fetch-logins",
+      },
+    }
+
+    for _, case in ipairs(cases) do
+      local ok, err = pcall(case.run)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find(
+        "forge-github-authorization-cache: " .. case.error_class .. ":",
+        1,
+        true
+      ) ~= nil)
+    end
+  end,
+
   test_authorization_epoch_changes_exactly_at_the_revocation_boundary = function()
     local bound = authorization_cache.REVOCATION_BOUND_SECONDS
 
