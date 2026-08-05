@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local child_disposition = require("child_disposition")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
 local devloop_entity = require("devloop.entity")
 local digest = require("core.digest")
@@ -550,6 +551,25 @@ local tests = {
     t.eq(committed.disposition, "satisfied")
     t.eq(committed.commit_sha, first_sha)
     t.eq(remote_sha, first_sha)
+  end,
+
+  test_production_receipt_refs_do_not_alias_distinct_valid_slot_identities = function()
+    local first_ref = child_disposition_receipt.receipt_ref({
+      repo = repo,
+      origin = base_ids.proposal_id(repo, 249813),
+      blueprint_digest = "d-1234567890",
+      slot = "first",
+      child_issue = "788438",
+    })
+    local second_ref = child_disposition_receipt.receipt_ref({
+      repo = repo,
+      origin = base_ids.proposal_id(repo, 982744),
+      blueprint_digest = "d-1234567890",
+      slot = "first",
+      child_issue = "991610",
+    })
+
+    t.is_true(first_ref ~= second_ref)
   end,
 
   test_request_rejects_transfer_after_trusted_child_merge = function()

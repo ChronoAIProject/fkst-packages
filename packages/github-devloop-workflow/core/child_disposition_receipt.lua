@@ -1,4 +1,5 @@
 local contract_error_facts = require("contract.error_facts")
+local sha256 = require("contract.sha256")
 local commands = require("devloop.commands")
 local forge_validators = require("devloop.forge_validators")
 local marker = require("core.marker")
@@ -41,7 +42,7 @@ end
 
 local function receipt_ref(expected)
   local repo_key = contract_error_facts.stable_hash(expected.repo)
-  local receipt_key = contract_error_facts.stable_hash(expected.dedup_key)
+  local receipt_key = sha256.hex(expected.dedup_key)
   local ref = "refs/fkst/github-devloop-workflow/child-disposition/"
     .. repo_key .. "/" .. receipt_key
   if not forge_validators.is_git_ref_safe(ref) then
