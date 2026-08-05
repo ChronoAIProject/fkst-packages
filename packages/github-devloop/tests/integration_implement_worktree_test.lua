@@ -145,7 +145,7 @@ return {
     })
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", default_marker_version),
+      h.projected_state_comment(event.proposal_id, "ready", default_marker_version),
     }, { number = 4 })
     mock_fresh_implement_worktree({
       issue_number = 4,

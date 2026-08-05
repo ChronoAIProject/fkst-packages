@@ -169,17 +169,7 @@ end
 
 local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local state_marker = devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
-  local request = entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = issue.repo,
-    number = issue.number,
-  }, "github-devloop resumed parent issue from delegated PR child state"
-    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
-    .. "\nChild state: " .. tostring(child_state.state)
-    .. "\nReason: " .. tostring(next_state.reason)
-    .. "\n\n" .. state_marker
-    .. resume_terminal_markers(issue, next_state, delegation, current_pr), base_ids.dedup_key({
+  local comment_dedup_key = base_ids.dedup_key({
     "awaiting-pr",
     "resume",
     tostring(delegation.proposal_id),
@@ -189,17 +179,45 @@ local function build_resume_comment_request(issue, state, next_state, child_stat
     tostring(child_state.state),
     tostring(next_state.to_state),
     tostring(next_state.version),
-  }), source_ref)
+  })
+  local body_before_marker = "github-devloop resumed parent issue from delegated PR child state"
+    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
+    .. "\nChild state: " .. tostring(child_state.state)
+    .. "\nReason: " .. tostring(next_state.reason)
+    .. "\n\n"
+  local body_after_marker = resume_terminal_markers(issue, next_state, delegation, current_pr)
   if next_state.to_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
+    return devloop_state.build_projected_state_comment_request({
+      repo = issue.repo,
+      issue_number = issue.number,
       proposal_id = delegation.proposal_id,
-      version = next_state.version,
+      state = "ready",
       marker_version = next_state.version,
+      handoff_version = next_state.version,
+      body_before_marker = body_before_marker,
+      body_after_marker = body_after_marker,
+      comment_dedup_key = comment_dedup_key,
+      label_policy = {
+        dedup_key = base_ids.dedup_key({
+          "awaiting-pr",
+          "label",
+          tostring(delegation.proposal_id),
+          tostring(delegation.pr_number),
+          tostring(delegation.delegation),
+          "ready",
+          tostring(next_state.version),
+        }),
+      },
       source_ref = source_ref,
-    }
+    })
   end
-  return request
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = issue.repo,
+    number = issue.number,
+  }, body_before_marker
+    .. devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
+    .. body_after_marker, comment_dedup_key, source_ref)
 end
 S.build_resume_comment_request = build_resume_comment_request
 

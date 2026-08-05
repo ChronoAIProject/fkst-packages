@@ -77,7 +77,7 @@ local function comments_for(fixture)
   local version = state_version(fixture)
   local effects = fixture.ready_handoff and "result-marker,ready-label,devloop-ready" or nil
   local comments = json_array({
-    trusted_comment("IC_state_" .. fixture.state, core.state_marker(PROPOSAL_ID, fixture.state, version, effects)),
+    trusted_comment("IC_state_" .. fixture.state, h.state_comment(PROPOSAL_ID, fixture.state, version, effects)),
   })
   if fixture.dependency_wait then
     table.insert(comments, trusted_comment(

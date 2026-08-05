@@ -130,8 +130,9 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id,
-      initial_attempt == 1 and "ready" or "implementing", ready.dedup_key),
+    initial_attempt == 1
+      and h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key)
+      or core.state_marker(event.proposal_id, "implementing", ready.dedup_key),
   }
   if initial_attempt == 1 then
     mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
@@ -267,7 +268,7 @@ local function run_first_clean_implementation_attempt(name, build_stdout)
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }
   mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
   mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
