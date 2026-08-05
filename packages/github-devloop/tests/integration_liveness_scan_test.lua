@@ -99,7 +99,7 @@ return {
       })
       local fresh_version = state == "implementing" and "ready/2999-01-01T00-00-00Z" or "2999-01-01T00-00-00Z"
       local proposal = base_ids.proposal_id(repo, number)
-      local comments = { { body = core.state_marker(proposal, state, fresh_version), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" } }
+      local comments = { { body = h.state_comment(proposal, state, fresh_version), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" } }
       if state == "implementing" then table.insert(comments, { body = core.implement_attempt_marker(proposal, fresh_version, 1, tostring(now() - 60)), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" }) end
       mock_issue_state_number(number, { "fkst-dev:enabled", core.state_label(state) }, "OPEN", comments)
       if row.terminal == false then
@@ -146,7 +146,7 @@ return {
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }, "OPEN", {
-      core.state_marker(proposal_id, "dependency_wait", version),
+      h.projected_state_comment(proposal_id, "dependency_wait", version),
       core.dependency_wait_marker(proposal_id, version, { 7 }),
     })
     mock_empty_pr_list()

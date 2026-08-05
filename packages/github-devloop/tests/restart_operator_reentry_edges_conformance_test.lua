@@ -515,7 +515,7 @@ local function observe_ready_reready_row_replay()
   local ready_version = payloads_builders.build_devloop_ready_payload(core, h.reached()).dedup_key
   local comments = {
     trusted_comment(
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       "IC_ready_handoff"
     ),
     trusted_command("reready", "IC_negative_reready_ready"),
@@ -540,7 +540,7 @@ local function observe_dependency_wait_reready_row_replay()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:ready" } })
   local version = "ready/consensus-github-devloop/issue/owner/repo/42/dependency"
   local comments = {
-    core.state_marker(proposal_id, "dependency_wait", version),
+    h.projected_state_comment(proposal_id, "dependency_wait", version),
     "github-devloop dependency hold: unresolvable\n\n"
       .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
     trusted_command("reready", "IC_negative_reready_dependency_wait"),
@@ -566,7 +566,7 @@ local function observe_blocked_reready_row_replay()
   local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
   local comments = {
     trusted_comment(
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       "IC_ready_before_timeout"
     ),
     core.state_marker(proposal_id, "blocked", blocked_version),
