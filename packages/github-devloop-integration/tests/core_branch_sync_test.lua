@@ -264,18 +264,19 @@ return {
         .. " 2>&1"
     end
 
+    -- Start the contender only after sync_scan has entered fetch while holding the shared lock.
     local command = table.concat({
       run_department_command("departments/sync_scan/main.lua", "sync.out") .. " & sync_pid=$!",
       "ready_attempt=0",
       "while [ ! -e " .. shell_quote(state_dir .. "/ready")
         .. " ] && [ \"$ready_attempt\" -lt 500 ]; do ready_attempt=$((ready_attempt + 1)); sleep 0.02; done",
       "if [ ! -e " .. shell_quote(state_dir .. "/ready") .. " ]; then "
-        .. "touch " .. shell_quote(state_dir .. "/release") .. "; "
+        .. "printf 'release\\n' > " .. shell_quote(state_dir .. "/release") .. "; "
         .. "wait \"$sync_pid\"; sync_rc=$?; "
         .. "printf '%s %s\\n' \"$sync_rc\" 70 > " .. shell_quote(state_dir .. "/status") .. "; "
         .. "exit 70; fi",
       run_department_command("departments/rollup_scan/main.lua", "rollup.out") .. "; rollup_rc=$?",
-      "touch " .. shell_quote(state_dir .. "/release"),
+      "printf 'release\\n' > " .. shell_quote(state_dir .. "/release"),
       "wait \"$sync_pid\"; sync_rc=$?",
       "printf '%s %s\\n' \"$sync_rc\" \"$rollup_rc\" > " .. shell_quote(state_dir .. "/status"),
       "exit $((sync_rc + rollup_rc))",
