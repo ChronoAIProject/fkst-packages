@@ -597,14 +597,18 @@ def _allowlist_entries(path: Path, root: Path) -> tuple[set[str], list[str]]:
 
 def _protected_base_sha(root: Path) -> str | None:
     explicit = os.environ.get("FKST_RESTART_PREFLIGHT_BASE_REF")
-    if explicit and ".." not in explicit and BASE_REF_RE.fullmatch(explicit):
-        result = subprocess.run(
-            ["git", "merge-base", "HEAD", explicit], cwd=root, check=False,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    return ratchet_base.resolve_dev_merge_base(root)
+    target = (
+        explicit
+        if explicit and ".." not in explicit and BASE_REF_RE.fullmatch(explicit)
+        else ratchet_base.resolve_target_ref(root)
+    )
+    if target is None:
+        return None
+    result = subprocess.run(
+        ["git", "merge-base", "HEAD", target], cwd=root, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
 
 
 def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[str] | None, list[str]]:

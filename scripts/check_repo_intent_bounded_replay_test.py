@@ -258,6 +258,38 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         self.assertTrue(any("grows" in message for message in messages))
 
 
+class ProtectedBaseSelectionTest(unittest.TestCase):
+    def test_intent_replay_uses_github_target_merge_base_before_dev(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git(root, "init", "-q")
+            git(root, "config", "user.email", "intent@example.invalid")
+            git(root, "config", "user.name", "Intent Test")
+            (root / "base.txt").write_text("dev\n", encoding="utf-8")
+            git(root, "add", "base.txt")
+            git(root, "commit", "-qm", "dev")
+            dev_commit = git(root, "rev-parse", "HEAD")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+            (root / "base.txt").write_text("integration\n", encoding="utf-8")
+            git(root, "commit", "-qam", "integration")
+            integration_commit = git(root, "rev-parse", "HEAD")
+            git(root, "update-ref", "refs/remotes/origin/integration", integration_commit)
+            (root / "head.txt").write_text("feature\n", encoding="utf-8")
+            git(root, "add", "head.txt")
+            git(root, "commit", "-qm", "feature")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FKST_RESTART_PREFLIGHT_BASE_REF": "",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "integration",
+                },
+                clear=False,
+            ):
+                self.assertEqual(checker._protected_base_sha(root), integration_commit)
+
+
 class CompareTest(unittest.TestCase):
     def test_identical_artifacts_compare_equal(self) -> None:
         old = {"schema": "example.v1", "values": [1, 2], "artifact_sha256": "old"}
