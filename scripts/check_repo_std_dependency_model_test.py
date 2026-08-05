@@ -252,6 +252,24 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
 
         self.assertEqual(violations, [])
 
+    def test_devloop_rollup_parser_may_delegate_to_forge_check_runs_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "libraries" / "forge" / "github" / "check_runs.lua", "return {}\n")
+            write(
+                root / "libraries" / "devloop" / "parsers" / "misc.lua",
+                'local check_runs = require("forge.github.check_runs")\nreturn check_runs\n',
+            )
+            write(root / "migration" / "devloop-forge-imports.inventory", "")
+            with mock.patch.object(
+                check_repo.check_repo_std_dependency_model.ratchet_base,
+                "file_at_base",
+                return_value=("present", ""),
+            ):
+                violations, _warnings = self.run_guard(root)
+
+        self.assertEqual(violations, [])
+
     def test_devloop_entity_view_must_not_import_forge_policy_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
