@@ -62,12 +62,28 @@ return {
     t.is_true(one ~= changed)
   end,
 
-  test_sync_conflict_attempt_count_round_trips_cache = function()
+  test_sync_conflict_lineage_ignores_attempt_outcomes_and_upstream_head_drift = function()
     local item = conflict()
-    local fingerprint = core.sync_conflict_fingerprint(item, "100644 abc 1\tcore.lua\n")
-    t.eq(core.sync_conflict_attempt_count(item, fingerprint), 0)
-    core.record_sync_conflict_attempt(item, fingerprint, 2)
-    t.eq(core.sync_conflict_attempt_count(item, fingerprint), 2)
+    local advanced_upstream = conflict({ upstream_sha = "cccc3333" })
+    local advanced_integration = conflict({ integration_sha = "dddd4444" })
+
+    t.eq(core.sync_conflict_lineage(item), core.sync_conflict_lineage(advanced_upstream))
+    t.eq(core.sync_conflict_attempt_ref(item), core.sync_conflict_attempt_ref(advanced_upstream))
+    t.is_true(core.sync_conflict_lineage(item) ~= core.sync_conflict_lineage(advanced_integration))
+  end,
+
+  test_sync_conflict_attempt_ledger_round_trips_stable_lineage = function()
+    local item = conflict()
+    local encoded = core.sync_conflict_attempt_ledger(item, 2)
+    local decoded = core.decode_sync_conflict_attempt_ledger(
+      "tree 1111111111111111111111111111111111111111\n\n" .. encoded .. "\n",
+      item
+    )
+
+    t.eq(decoded.schema, "github-devloop.sync-conflict-attempt.v1")
+    t.eq(decoded.lineage, core.sync_conflict_lineage(item))
+    t.eq(decoded.attempt, 2)
+    t.is_nil(core.decode_sync_conflict_attempt_ledger(encoded, conflict({ integration_sha = "dddd4444" })))
   end,
 
   test_sync_conflict_self_hash_normalizer_registry_selects_known_manifest_once = function()
@@ -114,8 +130,18 @@ return {
     t.is_true(request.body:find("Reason: sync conflict remains unresolved after codex completed", 1, true) ~= nil)
     t.is_true(request.body:find("Attempt: 3", 1, true) ~= nil)
     t.is_true(request.body:find("Fingerprint: " .. fingerprint, 1, true) ~= nil)
+    t.is_true(request.body:find("Conflict lineage: " .. core.sync_conflict_lineage(item), 1, true) ~= nil)
     t.is_true(request.body:find("- core.lua", 1, true) ~= nil)
     t.eq(request.source_ref.ref, "owner/repo#branch-sync/dev/integration/dev")
+
+    local changed_residual = core.build_sync_conflict_escalation_request(
+      conflict({ upstream_sha = "cccc3333" }),
+      core.sync_conflict_fingerprint(item, "100644 def 1\tother.lua\n"),
+      core.max_sync_conflict_attempts(),
+      "sync conflict remains unresolved after codex completed",
+      "100644 def 1\tother.lua\n"
+    )
+    t.eq(request.dedup_key, changed_residual.dedup_key)
   end,
 
   test_sync_conflict_prompt_omits_issue_pr_history_directive = function()

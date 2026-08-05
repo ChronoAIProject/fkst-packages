@@ -53,6 +53,14 @@ error(prefix .. detail)
 """
         self.assertEqual(self.warning_lines(source), [])
 
+    def test_exposes_message_anchor_for_stable_diagnostic_identity(self) -> None:
+        source = '\nerror("github-devloop: failed without narrow class")\n'
+
+        self.assertEqual(
+            check_repo.unclassified_error_calls(source),
+            [(2, "github-devloop: failed without narrow class")],
+        )
+
 
 class RestPaginationGuardTest(unittest.TestCase):
     def warning_lines(self, source: str) -> list[int]:

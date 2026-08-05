@@ -157,6 +157,7 @@ usage() {
 
 cmd_check() {
   local fail=0 competence_base_ref="" pool
+  unset FKST_R9_TRACE_ROOT
   pool="$(detect_pool_size)"
   # Every unit below is an independent process (its own repo-read + unique tempdir),
   # so the check verdict is a commutative AND-fold — running them concurrently changes
@@ -187,6 +188,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_error_class_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_dependency_cycle_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py"'
@@ -212,6 +214,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
     'python3 -B "$ROOT/scripts/board_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_board_test.py"'
+    'python3 -B "$ROOT/scripts/dogfood_split_test.py"'
     'python3 -B "$ROOT/scripts/durable_health_test.py"'
     'python3 -B "$ROOT/scripts/tmp_receipt_sweep_test.py"'
     'python3 -B "$ROOT/scripts/doctor_test.py"'
@@ -504,6 +507,11 @@ cmd_test() {
   TEST_HERMETIC_PKG_ROOTS="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-pkgroots.XXXXXX")"
   export FKST_RUNTIME_ROOT="$TEST_HERMETIC_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$TEST_HERMETIC_DURABLE_ROOT"
+  export FKST_R9_TRACE_ROOT="$TEST_HERMETIC_RUNTIME_ROOT/r9-traces"
+  if ! mkdir -p "$FKST_R9_TRACE_ROOT"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  fi
   unset FKST_GITHUB_WRITE
   unset FKST_SUPERVISOR_PID
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"

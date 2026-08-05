@@ -77,6 +77,11 @@ freshness or conflict checks required for a born-green pull request. It must be 
 invocation. Put multiple steps in a repository-owned executable, Make target, or task-runner target
 instead of shell control operators in the environment value.
 
+For implementation candidate verification, `github-devloop` exports `BASE` as the candidate's frozen
+base head before invoking the configured target. Base-aware gates must use that value instead of a
+moving default branch. The detached raw-base attribution probe runs without this candidate-only
+override because it has no candidate diff.
+
 The gate owns the meaning of its result. On every catchable process completion it must print exactly
 one v2 result line to stdout or stderr. The closed verdict and fault-class pairs are:
 

@@ -2,6 +2,7 @@ local github_fake = require("forge.github_fake")
 local github_factory = require("devloop.github_factory")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -18,6 +19,10 @@ local json_array = observation_support.json_array
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", {
+  kind = "external",
+  ref = REPO .. "#issue/" .. ISSUE_NUMBER,
+})
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local OLDER_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CURRENT_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-04Z"
@@ -248,7 +253,11 @@ local function capture_current_state_fact()
       source_ref = { kind = "external", ref = REPO .. "#issue/" .. ISSUE_NUMBER },
     }),
   }
-  local ok, result = pcall(testing.run_fake, observe_issue_department, event)
+  local ok, result = pcall(function()
+    return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+      return testing.run_fake(observe_issue_department, event)
+    end)
+  end)
   devloop_state.current_state = original_current_state
   github_proxy_entity_view.fetch_issue_view_state = original_fetch
   github_factory.production_handle = original_handle

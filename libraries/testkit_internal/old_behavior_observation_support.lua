@@ -372,8 +372,20 @@ function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures
   return artifact
 end
 
+function M.admission_trace_output_path(filename)
+  if type(filename) ~= "string"
+    or filename:match("^[A-Za-z0-9][A-Za-z0-9._-]*$") == nil then
+    error("testkit-internal: admission-trace-filename-invalid: R9 admission trace output filename is invalid", 0)
+  end
+  local root = os.getenv("FKST_R9_TRACE_ROOT") or os.getenv("FKST_RUNTIME_ROOT")
+  if type(root) ~= "string" or root == "" or root:find("[\r\n]") ~= nil then
+    error("testkit-internal: admission-trace-root-invalid: R9 admission trace output root is invalid", 0)
+  end
+  return root:gsub("/+$", "") .. "/" .. filename
+end
+
 local R11_CAUSE = "R11.queue_dialogue_to_sync_consensus_call"
-local R11_MANIFEST_PATH = "migration/intent-diffs/2775.json"
+local R11_AUTHORIZATION_PATH = "migration/intent_bounded_replay/r11-delivery-authorizations.json"
 local R11_DELIVERY_ATOMS = {
   ["queue:consensus.proposal"] = true,
   ["queue:consensus.consensus_reached"] = true,
@@ -411,7 +423,7 @@ end
 
 local function delivery_authorizations(manifest)
   if type(manifest) ~= "table" or manifest.cause ~= R11_CAUSE then
-    error("testkit-internal: r11-manifest-cause-invalid: R11 OLD observation comparison requires the committed R11 manifest", 0)
+    error("testkit-internal: r11-manifest-cause-invalid: R11 OLD observation comparison requires the committed R11 authorization corpus", 0)
   end
   local changed = {}
   for _, field in ipairs({ "changed_row_ids", "changed_edge_ids", "changed_policy_ids" }) do
@@ -645,7 +657,7 @@ local function index_records(records, label)
 end
 
 function M.assert_delivery_atom_pair(actual, expected, observation_id, context, manifest)
-  local authorization_manifest = manifest or json.decode(file.read(R11_MANIFEST_PATH))
+  local authorization_manifest = manifest or json.decode(file.read(R11_AUTHORIZATION_PATH))
   local authorization = delivery_authorizations(authorization_manifest)[observation_id]
   if authorization == nil then
     error(tostring(context) .. " has no R11 delivery authorization for " .. observation_id, 0)
@@ -700,7 +712,7 @@ function M.assert_delivery_scoped_admission_fixture(actual, expected, observatio
 end
 
 function M.assert_old_behavior_records(actual, expected, context, manifest)
-  local authorization_manifest = manifest or json.decode(file.read(R11_MANIFEST_PATH))
+  local authorization_manifest = manifest or json.decode(file.read(R11_AUTHORIZATION_PATH))
   local authorizations = delivery_authorizations(authorization_manifest)
   local actual_records = index_records(actual, "runtime OLD observations")
   local expected_records = index_records(expected, "committed OLD observations")
@@ -746,6 +758,29 @@ function M.assert_old_behavior_records(actual, expected, context, manifest)
       end
     end
   end
+end
+
+function M.with_isolated_cache(keys, run)
+  if type(keys) ~= "table" or type(run) ~= "function" then
+    error("old-observation: invalid-cache-isolation: keys and a callback are required", 0)
+  end
+  local prior = {}
+  for index, key in ipairs(keys) do
+    if type(key) ~= "string" or key == "" then
+      error("old-observation: invalid-cache-key: cache keys must be non-empty strings", 0)
+    end
+    prior[index] = cache_get(key)
+    cache_set(key, "")
+  end
+
+  local results = table.pack(pcall(run))
+  for index, key in ipairs(keys) do
+    cache_set(key, prior[index] or "")
+  end
+  if not results[1] then
+    error(results[2], 0)
+  end
+  return table.unpack(results, 2, results.n)
 end
 
 return M

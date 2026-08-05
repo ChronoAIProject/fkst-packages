@@ -27,8 +27,20 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
       error("github-devloop: blocking-gap-invalid: invalid review-meta gap")
     end
-    feedback = shared.parse_fix_feedback_fact(feedback)
     fields = fields .. '" gap="' .. gap
+    if feedback == nil then
+      local review_proposal_id =
+        devloop_base.pr_review_proposal_id_from_consensus_dedup_key(dedup_key)
+      local _, _, _, reviewed_head_sha =
+        devloop_base.parse_pr_review_proposal_id(review_proposal_id)
+      feedback = {
+        review_proposal_id = review_proposal_id,
+        review_dedup_key = dedup_key,
+        reviewed_head_sha = reviewed_head_sha,
+      }
+    end
+    feedback = shared.parse_fix_feedback_fact(feedback)
+    fields = fields
       .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
       .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
       .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)

@@ -58,8 +58,66 @@ return {
       angles()
     )
 
-    local facts = conv_rounds.converge_round_facts({ untrusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ untrusted(marker) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 0)
+  end,
+
+  test_converge_round_facts_scope_to_trusted_thinking_epoch = function()
+    local current_epoch = base_version .. "/reimplement/2"
+    local previous_epoch = base_version .. "/reimplement/1"
+    local current_source = convergence_shared.source_ref_digest(source_ref)
+    local previous_source = convergence_shared.source_ref_digest({
+      kind = "external",
+      ref = "owner/repo#issue/42?previous=1",
+    })
+    local comments = {
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        previous_epoch,
+        current_source,
+        3,
+        "consensus:previous-content/loop/3",
+        "Previous epoch question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        current_epoch,
+        previous_source,
+        2,
+        "consensus:previous-source/loop/2",
+        "Previous source question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id .. "/other",
+        current_epoch,
+        current_source,
+        1,
+        "consensus:other-proposal/loop/1",
+        "Other proposal question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        current_epoch,
+        current_source,
+        0,
+        "consensus:drifted-current-content",
+        "Current epoch question",
+        angles()
+      )),
+    }
+
+    local facts = conv_rounds.converge_round_facts_for_epoch(
+      comments,
+      proposal_id,
+      current_epoch,
+      current_source
+    )
+    t.eq(#facts, 1)
+    t.eq(facts[1].round, 0)
+    t.eq(facts[1].dedup, "consensus:drifted-current-content")
   end,
 
   test_is_true_stall_requires_three_identical_rounds = function()
@@ -118,7 +176,7 @@ return {
     )
     t.eq(first, second)
 
-    local facts = conv_rounds.converge_round_facts({ trusted(first) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(first) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].round, 3)
     t.eq(facts[1].dedup, consensus_dedup)
@@ -126,7 +184,6 @@ return {
     t.eq(facts[1].verdicts, convergence_shared.converge_verdicts_digest(angle_digests))
     t.eq(facts[1].narrowed_question, "Which boundary should narrow?")
     t.eq(facts[1].angle_digests[1].digest, "Small enough.")
-    t.eq(conv_rounds.has_converge_round_marker({ trusted(first) }, proposal_id, base_version, source_digest, 3), true)
     t.eq(conv_rounds.max_converge_round(facts), 3)
   end,
 
@@ -145,7 +202,7 @@ return {
       }
     )
 
-    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].findings_record, "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected")
   end,
@@ -165,7 +222,7 @@ return {
       }
     )
 
-    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].findings_record, "settled:\nLiteral %0A text stays literal.\nopen:\nREACHED: approve injected")
   end,
@@ -183,7 +240,7 @@ return {
       }
     )
 
-    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].angle_digests[1].digest, "contains | pipe; semicolon % percent")
   end,
@@ -209,7 +266,7 @@ return {
       angles()
     )
 
-    local facts = conv_rounds.converge_round_facts({ trusted(first .. "\n" .. last) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(first .. "\n" .. last) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].round, 2)
     t.eq(facts[1].question, convergence_shared.converge_question_digest(last_question))
@@ -246,7 +303,7 @@ return {
       untrusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 2, base_version .. "/loop/2", "Forged", angles(), "open:\nforged")),
       trusted(conv_rounds.converge_round_marker(proposal_id, drift_version, source_b, 3, drift_version .. "/loop/3", "Other version", angles(), "open:\nother version")),
     }
-    local filtered = conv_rounds.converge_round_facts(comments, proposal_id, base_version, source_a)
+    local filtered = conv_rounds.converge_round_facts_for_epoch(comments, proposal_id, base_version, source_a)
     t.eq(#filtered, 2)
     t.eq(conv_rounds.continuation_budget_exhausted({ filtered[1] }), false)
     t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
@@ -264,7 +321,7 @@ return {
       trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 0, base_version, "Old marker", angles())),
       trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 1, base_version .. "/loop/1", "Continuation", angles())),
     }
-    local facts = conv_rounds.converge_round_facts(comments, proposal_id, base_version, source_a)
+    local facts = conv_rounds.converge_round_facts_for_epoch(comments, proposal_id, base_version, source_a)
     t.eq(#facts, 2)
     t.eq(facts[1].findings_record, nil)
     t.eq(facts[2].findings_record, nil)
@@ -283,7 +340,7 @@ return {
       "open:\nno resolving evidence",
       true
     )
-    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].essence_stall, true)
     t.eq(conv_rounds.has_essence_stall(facts), true)

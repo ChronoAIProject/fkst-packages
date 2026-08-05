@@ -86,34 +86,44 @@ return {
     t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
   end,
 
-  test_loop_proposal_lineage_budget_survives_version_and_source_ref_drift = function()
-    local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
-    local drift_version = "consensus:github-devloop/issue/owner/repo/42/intake/drifted"
+  test_loop_prior_thinking_epoch_evidence_does_not_skip_fresh_epoch = function()
+    local current_epoch = "github-devloop/issue/owner/repo/42/intake/current/reimplement/2"
+    local previous_epoch = "github-devloop/issue/owner/repo/42/intake/current/reimplement/1"
+    local current_consensus = "consensus:github-devloop/issue/owner/repo/42/content/current"
     local event = unresolved({
-      dedup_key = base_version .. "/loop/3",
-      round = 3,
-      source_ref = { kind = "external", ref = "owner/repo#issue/42?current=1" },
+      dedup_key = current_consensus,
+      round = 0,
       narrowed_question = "Current boundary question",
       angle_digests = angles(0),
     })
-    local current_digest = convergence_shared.source_ref_digest(event.source_ref)
-    local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
+    local source_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
-      {
-        body = conv_rounds.converge_round_marker(event.proposal_id, base_version, current_digest, 1, base_version .. "/loop/1", "Forged", angles(1), findings("forged finding")),
-        author_login = "ordinary-user",
-      },
-      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 1, drift_version .. "/loop/1", "Other boundary", angles(1), findings("drifted finding")),
+      core.state_marker(event.proposal_id, "thinking", current_epoch),
+      conv_rounds.converge_round_marker(
+        event.proposal_id,
+        previous_epoch,
+        source_digest,
+        3,
+        "consensus:previous-content/loop/3",
+        "Previous terminal boundary",
+        angles(3),
+        findings("previous epoch terminal finding"),
+        true
+      ),
     })
 
-    local result = run_loop(event, opts("loop-drifted-lineage-budget"))
+    local result = run_loop(event, opts("loop-fresh-thinking-epoch"))
     t.eq(result.exit_code, 0)
-    -- Owner directive (#2725): the round-budget is non-terminal. The forged non-bot
-    -- round-1 marker is still ignored and only the drifted bot lineage (round 1) counts,
-    -- but the incoming round 3 is a gap ahead of that head -- a plain idempotent skip,
-    -- not a terminal reconcile handoff (never drops to blocked).
-    t.eq(#result.raises, 0)
+    t.eq(#result.raises, 2)
+    local proposal = take_consensus_proposal()
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.round, 1)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/content/current/loop/1")
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_nil(comment.payload.handoff)
+    t.is_true(comment.payload.body:find('version="' .. current_epoch .. '"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('round="0"', 1, true) ~= nil)
   end,
 
   test_loop_essence_stall_handoffs_terminal_reconcile_without_continuation = function()

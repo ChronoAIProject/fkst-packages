@@ -353,7 +353,7 @@ local function replay_ready_with_comments(comments)
         comments = comments,
       },
       dependency_gate = {
-        ok = true,
+        kind = "satisfied",
         reason = "test",
       },
     })
@@ -489,7 +489,7 @@ return {
           },
         },
         dependency_gate = {
-          ok = true,
+          kind = "satisfied",
           reason = "test",
         },
         ready_payload = payloads_builders.build_devloop_ready_payload(core, {
