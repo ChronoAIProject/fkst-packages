@@ -137,7 +137,12 @@ local function production_child_status_deps(core, repo)
     end,
     irreversible_terminal = function(child_ref)
       local child = issue(child_ref)
-      if devloop_state.has_blocked_label(child.labels) then
+      local current = devloop_state.route_current(
+        child.comments,
+        child.proposal_id or child_ref.proposal_id,
+        { blocked = true }
+      )
+      if current.route == true then
         return true
       end
       if tostring(child.state or ""):upper() == "CLOSED" then

@@ -10,7 +10,9 @@ local core = h.core
 local OWNER = "github-devloop-pr"
 local EDGE_ID = OWNER .. "/reviewing/autonomous/changes_requested"
 local CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-review-result.json"
-local OUTPUT_PATH = ".fkst/run/r9-pr-review-result-new-trace.json"
+local OUTPUT_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-result-new-trace.json"
+)
 local V_OLDER = "2026-06-02T01-02-03Z"
 local V_EQUAL = "2026-06-03T01-02-03Z"
 

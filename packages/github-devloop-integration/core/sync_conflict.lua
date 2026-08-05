@@ -7,12 +7,22 @@ local conflict_telemetry = require("devloop.conflict_telemetry")
 
 function S.install(M)
 local max_sync_conflict_attempts = 3
+local sync_conflict_attempt_schema = "github-devloop.sync-conflict-attempt.v1"
 local self_hash_normalizers = {
   ["migration/restart-lifecycle.inventory.json"] = "scripts/check_repo_restart_lifecycle.py",
 }
 
-local function safe_branch_segment(branch)
-  return strings.sanitize_key(tostring(branch or ""), false):gsub("/", "-")
+local function safe_ref_segment(value, limit)
+  local safe = strings.sanitize_key(tostring(value or ""), false)
+    :gsub("/", "-")
+    :gsub("%.", "-")
+    :gsub("%-+", "-")
+    :gsub("^%-+", "")
+    :gsub("%-+$", "")
+  if safe == "" then
+    safe = "empty"
+  end
+  return safe:sub(1, limit):gsub("%-+$", "")
 end
 
 local function conflict_fingerprint(conflict, unmerged_stdout)
@@ -38,27 +48,48 @@ function M.max_sync_conflict_attempts()
   return max_sync_conflict_attempts
 end
 
-function M.sync_conflict_attempt_key(conflict, fingerprint)
-  local readable = base_ids.safe_repo(conflict.repo)
+function M.sync_conflict_lineage(conflict)
+  return base_ids.dedup_key({
+    "sync-conflict-lineage",
+    tostring(conflict.repo or ""),
+    tostring(conflict.upstream_branch or ""),
+    tostring(conflict.integration_branch or ""),
+    tostring(conflict.integration_sha or ""),
+  })
+end
+
+function M.sync_conflict_attempt_ref(conflict)
+  local lane = table.concat({
+    tostring(conflict.repo or ""),
+    tostring(conflict.upstream_branch or ""),
+    tostring(conflict.integration_branch or ""),
+    tostring(conflict.integration_sha or ""),
+  }, "\n")
+  local ref = "refs/fkst/sync-conflict-attempts/"
+    .. safe_ref_segment(conflict.repo, 48)
     .. "/"
-    .. safe_branch_segment(conflict.upstream_branch)
+    .. safe_ref_segment(conflict.upstream_branch, 40)
     .. "/"
-    .. safe_branch_segment(conflict.integration_branch)
+    .. safe_ref_segment(conflict.integration_branch, 40)
+    .. "-"
+    .. decimal_checksum(lane)
     .. "/"
-    .. tostring(fingerprint or "")
-  local suffix = decimal_checksum(readable)
-  local key = "github-devloop/sync-conflict-attempt/"
-    .. base_ids.safe_repo(conflict.repo)
-    .. "/"
-    .. safe_branch_segment(conflict.upstream_branch):sub(1, 40):gsub("%-+$", "")
-    .. "/"
-    .. safe_branch_segment(conflict.integration_branch):sub(1, 40):gsub("%-+$", "")
-    .. "/"
-    .. suffix
-  if not strings.is_path_safe_key(key, M._max_dedup_len) then
-    error("github-devloop: sync-conflict-key-invalid: invalid sync conflict attempt key")
+    .. safe_ref_segment(conflict.integration_sha, 40)
+  if not strings.is_path_safe_key(ref, M._max_dedup_len) then
+    error("github-devloop: sync-conflict-ref-invalid: invalid sync conflict attempt ref")
   end
-  return key
+  return ref
+end
+
+function M.parse_sync_conflict_attempt_ref_sha(stdout, conflict)
+  local expected_ref = M.sync_conflict_attempt_ref(conflict)
+  for line in (tostring(stdout or "") .. "\n"):gmatch("(.-)\n") do
+    local sha, ref = line:match("^(%x+)%s+([^%s]+)$")
+    if ref == expected_ref and sha ~= nil and #sha == 40 then
+      return sha
+    end
+  end
+  return nil
 end
 
 function M.sync_conflict_fingerprint(conflict, unmerged_stdout)
@@ -102,22 +133,44 @@ function M.sync_conflict_self_hash_normalizer_argv(source_root, worktree, path)
   }
 end
 
-function M.sync_conflict_attempt_count(conflict, fingerprint)
-  local raw = cache_get(M.sync_conflict_attempt_key(conflict, fingerprint))
-  local count = tonumber(raw)
-  if count == nil or count < 0 or count ~= math.floor(count) then
-    return 0
-  end
-  return count
-end
-
-function M.record_sync_conflict_attempt(conflict, fingerprint, attempt)
-  local n = tonumber(attempt)
-  if n == nil or n < 1 or n ~= math.floor(n) then
+function M.sync_conflict_attempt_ledger(conflict, attempt)
+  local count = tonumber(attempt)
+  if count == nil or count < 1 or count ~= math.floor(count) then
     error("github-devloop: sync-conflict-attempt-invalid: invalid sync conflict attempt")
   end
-  cache_set(M.sync_conflict_attempt_key(conflict, fingerprint), tostring(n))
-  return n
+  return "{"
+    .. '"schema":' .. strings.json_string(sync_conflict_attempt_schema)
+    .. ',"lineage":' .. strings.json_string(M.sync_conflict_lineage(conflict))
+    .. ',"attempt":' .. tostring(count)
+    .. "}"
+end
+
+function M.decode_sync_conflict_attempt_ledger(stdout, conflict)
+  local text = tostring(stdout or "")
+  local _, header_end = text:find("\n\n", 1, true)
+  if header_end ~= nil then
+    text = text:sub(header_end + 1)
+  end
+  local ok, decoded = pcall(json.decode, text)
+  local attempt = ok and type(decoded) == "table" and tonumber(decoded.attempt) or nil
+  if not ok
+    or type(decoded) ~= "table"
+    or decoded.schema ~= sync_conflict_attempt_schema
+    or type(decoded.lineage) ~= "string"
+    or decoded.lineage == ""
+    or attempt == nil
+    or attempt < 1
+    or attempt ~= math.floor(attempt) then
+    return nil
+  end
+  if conflict ~= nil and decoded.lineage ~= M.sync_conflict_lineage(conflict) then
+    return nil
+  end
+  return {
+    schema = decoded.schema,
+    lineage = decoded.lineage,
+    attempt = attempt,
+  }
 end
 
 function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt, reason, unmerged_stdout)
@@ -144,6 +197,7 @@ function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt
     "Reason: " .. devloop_base.neutralize_untrusted_comment_text(reason or "unresolved sync conflict"),
     "Attempt: " .. tostring(attempt),
     "Max attempts: " .. tostring(M.max_sync_conflict_attempts()),
+    "Conflict lineage: " .. M.sync_conflict_lineage(conflict),
     "Fingerprint: " .. tostring(fingerprint),
     "Repository: " .. tostring(conflict.repo),
     "Upstream branch: " .. tostring(conflict.upstream_branch),
@@ -168,10 +222,7 @@ function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt
     labels = json.decode("[]"),
     dedup_key = base_ids.dedup_key({
       "sync-conflict-escalation",
-      tostring(conflict.repo),
-      tostring(conflict.upstream_branch),
-      tostring(conflict.integration_branch),
-      tostring(fingerprint),
+      M.sync_conflict_lineage(conflict),
     }),
     source_ref = base_ids.normalize_source_ref(conflict.source_ref),
   }

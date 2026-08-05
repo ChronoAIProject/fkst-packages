@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
+local entity_highwater = require("devloop.entity_highwater")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
@@ -19,6 +20,19 @@ end
 
 local function source_ref()
   return entity_lib.issue_source_ref(repo, issue_number)
+end
+
+local highwater_key = entity_highwater.key("github-devloop/observe_issue", source_ref())
+
+local function with_isolated_observation_highwater(run)
+  local prior = cache_get(highwater_key)
+  cache_set(highwater_key, "")
+  local results = table.pack(pcall(run))
+  cache_set(highwater_key, prior or "")
+  if not results[1] then
+    error(results[2], 0)
+  end
+  return table.unpack(results, 2, results.n)
 end
 
 local function initial_event()
@@ -88,33 +102,35 @@ end
 
 return {
   test_run_graph_entity_changed_delivers_to_observe_issue_and_raises_forward_action = function()
-    mock_runtime_and_context()
-    mock_blocked_issue_with_stale_label()
+    return with_isolated_observation_highwater(function()
+      mock_runtime_and_context()
+      mock_blocked_issue_with_stale_label()
 
-    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 4 }))
-    graph.assert_covers(trace, {
-      "github-proxy.github_entity_changed -> github-devloop.observe_issue",
-      "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
-    })
+      local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 4 }))
+      graph.assert_covers(trace, {
+        "github-proxy.github_entity_changed -> github-devloop.observe_issue",
+        "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
+      })
 
-    local route = graph.require_router_regression(trace, {
-      spec = observe_spec(),
-      entry_queue = "github-proxy.github_entity_changed",
-      consumer = "github-devloop.observe_issue",
-      raised_queue = "github-proxy.github_issue_label_request",
-      downstream_consumer = "github-proxy.github_issue_label",
-      raised_predicate = function(raised)
-        local payload = raised.payload or {}
-        return payload.schema == "github-proxy.label.v1"
-          and payload.repo == repo
-          and tonumber(payload.issue_number) == issue_number
-          and payload.add_labels ~= nil
-          and payload.add_labels[1] == "fkst-dev:blocked"
-          and graph.payload_contains(raised, proposal_id)
-      end,
-    })
+      local route = graph.require_router_regression(trace, {
+        spec = observe_spec(),
+        entry_queue = "github-proxy.github_entity_changed",
+        consumer = "github-devloop.observe_issue",
+        raised_queue = "github-proxy.github_issue_label_request",
+        downstream_consumer = "github-proxy.github_issue_label",
+        raised_predicate = function(raised)
+          local payload = raised.payload or {}
+          return payload.schema == "github-proxy.label.v1"
+            and payload.repo == repo
+            and tonumber(payload.issue_number) == issue_number
+            and payload.add_labels ~= nil
+            and payload.add_labels[1] == "fkst-dev:blocked"
+            and graph.payload_contains(raised, proposal_id)
+        end,
+      })
 
-    local label_request = route.raised
-    t.eq(label_request.payload.source_ref.ref, "owner/repo#issue/42")
+      local label_request = route.raised
+      t.eq(label_request.payload.source_ref.ref, "owner/repo#issue/42")
+    end)
   end,
 }

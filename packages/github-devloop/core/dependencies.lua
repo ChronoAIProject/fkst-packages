@@ -77,15 +77,6 @@ function M.dependency_release_marker(proposal_id, version)
     .. '" -->'
 end
 
-function M.ready_split_canonicalized_marker(proposal_id, from_version, to_version, derived_state, reason)
-  return '<!-- fkst:github-devloop:ready-split-canonicalized:v1 proposal="' .. tostring(proposal_id)
-    .. '" from_version="' .. safe_dependency_attr(from_version)
-    .. '" to_version="' .. safe_dependency_attr(to_version)
-    .. '" derived_state="' .. safe_dependency_attr(derived_state)
-    .. '" reason="' .. safe_dependency_attr(reason or "ready_split_rederive")
-    .. '" -->'
-end
-
 function M.dependency_void_marker(proposal_id, version, blocker_number, reason)
   return '<!-- fkst:github-devloop:dependency-void:v1 proposal="' .. tostring(proposal_id)
     .. '" version="' .. tostring(version)

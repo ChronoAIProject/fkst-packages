@@ -5,6 +5,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local C = {}
 local transition_version = require("contract.transition_version")
 local devloop_logging = require("devloop.logging")
+local payloads_shared = require("devloop.payloads.shared")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 
 local function latest_converge_round(caps, comments, proposal_id, state_version, source_ref)
@@ -23,24 +24,47 @@ local function converge_round_facts_for_epoch(comments, proposal_id, epoch_versi
   )
 end
 
+function C.level_replay_delivery_identity(proposal_id, state, event_ts)
+  if event_ts == nil or tostring(event_ts) == "" then
+    return nil
+  end
+  return {
+    generation_key = base_ids.dedup_key({
+      "level-replay",
+      proposal_id,
+      tostring(state.version),
+      tostring(event_ts),
+    }),
+    attempt = 1,
+  }
+end
+
 function C.build_replay_proposal(caps, issue, proposal_id, state, current, event_ts)
-  local latest = latest_converge_round(caps, current.comments, proposal_id, state.version, issue.source_ref)
+  local replay_issue = {}
+  for key, value in pairs(issue) do
+    replay_issue[key] = value
+  end
+  if current.title ~= nil then
+    replay_issue.title = current.title
+  end
+
+  local latest = latest_converge_round(caps, current.comments, proposal_id, state.version, replay_issue.source_ref)
   if latest ~= nil then
     local base_version = conv_rounds.converge_proposal_base_dedup(latest.dedup)
     local replay_n = latest.round + 1
     local replay_dedup = transition_version.loop_at(base_version, replay_n)
     local content_fetch = caps.context_fetch({
       dept = "observe_issue",
-      repo = issue.repo,
-      issue_number = issue.number,
+      repo = replay_issue.repo,
+      issue_number = replay_issue.number,
       proposal_id = proposal_id,
       version = replay_dedup,
       tick = event_ts,
     })
-    local proposal = caps.build_board_loop(issue.repo, issue.number, {
-      title = issue.title,
-      updated_at = issue.updated_at,
-    }, issue.source_ref, replay_n, {
+    local proposal = caps.build_board_loop(replay_issue.repo, replay_issue.number, {
+      title = replay_issue.title,
+      updated_at = replay_issue.updated_at,
+    }, replay_issue.source_ref, replay_n, {
       narrowed_question = latest.narrowed_question,
       angle_digests = latest.angle_digests,
       findings_record = latest.findings_record,
@@ -48,15 +72,11 @@ function C.build_replay_proposal(caps, issue, proposal_id, state, current, event
     return v_validate_proposal.validate_proposal(proposal) and proposal or nil
   end
 
-  local replay_issue = {}
-  for key, value in pairs(issue) do
-    replay_issue[key] = value
-  end
   local replay_dedup = transition_version.strip_timeout_suffixes(state.version)
   replay_issue.content_fetch = caps.context_fetch({
     dept = "observe_issue",
-    repo = issue.repo,
-    issue_number = issue.number,
+    repo = replay_issue.repo,
+    issue_number = replay_issue.number,
     proposal_id = proposal_id,
     version = replay_dedup,
     tick = event_ts,
@@ -146,10 +166,11 @@ function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, rai
   if proposal == nil then
     return log_skip(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-foreign(payload)", "cannot rebuild thinking replay proposal")
   end
-  if caps.dispatch_live_run("consensus", proposal_id, proposal.dedup_key, {
+  local effect_version = proposal.dedup_key
+  if caps.dispatch_live_run("consensus", proposal_id, effect_version, {
     state = {
       state = "thinking",
-      version = proposal.dedup_key,
+      version = effect_version,
       proposal_id = proposal_id,
       marker_created_at = state.marker_created_at,
     },
@@ -159,8 +180,23 @@ function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, rai
   }) then
     return log_defer(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-idempotent(live-exec-ref)", "matching consensus codex run is still live")
   end
+  if facts.redrive_delivery ~= nil then
+    proposal.effect_version = effect_version
+    proposal.redrive_delivery = {
+      generation_key = facts.redrive_delivery.generation_key,
+      attempt = facts.redrive_delivery.attempt,
+    }
+    proposal.dedup_key = payloads_shared.issue_redrive_delivery_dedup_key(
+      proposal_id,
+      effect_version,
+      proposal.redrive_delivery
+    )
+    if not v_validate_proposal.validate_proposal(proposal) then
+      error("github-devloop: thinking-redrive-proposal-invalid: generated redrive proposal violates its contract")
+    end
+  end
   devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "applied(replay)", "replaying consensus proposal from trusted state facts")
-  return raise_effects(dept, proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {
+  return raise_effects(dept, proposal_id, "thinking", proposal.effect_version or proposal.dedup_key, { add = {}, remove = {} }, {
     { queue = "devloop_consensus_request", payload = proposal },
   })
 end

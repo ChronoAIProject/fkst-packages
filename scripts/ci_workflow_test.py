@@ -105,6 +105,11 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn("github.event.pull_request.number", workflow)
         self.assertIn("github.event.pull_request.head.sha", workflow)
         self.assertIn("origin/${{ github.base_ref }}", workflow)
+        self.assertIn(
+            "FKST_R9_TRACE_OUTPUT_DIR: ${{ github.workspace }}/.fkst/run/intent-diff-traces",
+            workflow,
+        )
+        self.assertIn("--trace-root .fkst/run/intent-diff-traces", workflow)
         self.assertIn(".fkst/run/intent-diff-attestations", workflow)
         self.assertIn("actions/upload-artifact@v4", workflow[attestation_at:])
 
@@ -118,18 +123,42 @@ class CiWorkflowTest(unittest.TestCase):
           fetch-depth: 0
           path: pull-request-merge
 """
+        merge_ref = """      - name: Resolve pull request merge fkst-substrate source pin
+        if: github.event_name == 'pull_request'
+        id: merge_substrate_ref
+        working-directory: pull-request-merge
+"""
+        merge_engine_checkout = """      - name: Checkout pull request merge fkst-substrate
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          repository: ChronoAIProject/fkst-substrate
+          ref: ${{ steps.merge_substrate_ref.outputs.ref }}
+          path: pull-request-merge-fkst-substrate
+"""
+        merge_build = """      - name: Build pull request merge fkst-framework
+        if: github.event_name == 'pull_request'
+        working-directory: pull-request-merge-fkst-substrate
+        run: cargo build -p fkst-framework
+"""
         merge_test = """      - name: Test pull request merge result
         if: github.event_name == 'pull_request'
         working-directory: pull-request-merge
         env:
-          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+          BIN: ${{ github.workspace }}/pull-request-merge-fkst-substrate/target/debug/fkst-framework
         run: |
           test -x "$BIN"
           scripts/run.sh test
 """
         checkout_at = workflow.index(merge_checkout)
+        merge_ref_at = workflow.index(merge_ref)
+        merge_engine_checkout_at = workflow.index(merge_engine_checkout)
+        merge_build_at = workflow.index(merge_build)
         test_at = workflow.index(merge_test)
-        self.assertLess(checkout_at, test_at)
+        self.assertLess(checkout_at, merge_ref_at)
+        self.assertLess(merge_ref_at, merge_engine_checkout_at)
+        self.assertLess(merge_engine_checkout_at, merge_build_at)
+        self.assertLess(merge_build_at, test_at)
 
 
 if __name__ == "__main__":

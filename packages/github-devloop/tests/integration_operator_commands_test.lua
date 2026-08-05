@@ -227,11 +227,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(command_response.payload.body:find('outcome="applied"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    local ready_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return type(payload.handoff) == "table"
         and payload.handoff.kind == "github-devloop.ready"
-    end) ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_label_request") ~= nil)
+    end)
+    t.is_true(ready_comment ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.is_true(type(ready_comment.payload.handoff.label_request) == "table")
   end,
 
   test_issue_reready_command_invalid_state_refuses = function()
@@ -330,7 +332,8 @@ return {
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
       command,
     })
 

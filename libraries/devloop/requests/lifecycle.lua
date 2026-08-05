@@ -168,7 +168,7 @@ end
 
 function C.build_intake_decision_comment_request(M, repo, issue_number, candidate, decision, reason, service_class)
   if not m_shared.is_intake_service_class(service_class) then
-    error("github-devloop: invalid intake service class")
+    error("github-devloop: intake-service-class-invalid: invalid intake service class")
   end
   local normalized_class = m_shared.normalize_intake_service_class(service_class)
   local premise_fingerprint = decision == "decline"
@@ -213,16 +213,16 @@ end
 
 function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: implementing-branch-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid implementing head_sha")
+    error("github-devloop: implementing-head-sha-invalid: invalid implementing head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: implementing-base-branch-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: implementing-base-sha-invalid: invalid implementing base_sha")
   end
   local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -250,13 +250,13 @@ end
 
 function C.build_implementing_state_comment_request(M, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: implementing-branch-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: implementing-base-branch-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: implementing-base-sha-invalid: invalid implementing base_sha")
   end
   local state_marker = M.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -281,18 +281,18 @@ function C.build_implementing_state_comment_request(M, repo, issue_number, ready
   }, ready.source_ref)
 end
 
-function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail)
+function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid checkpoint branch")
+    error("github-devloop: checkpoint-branch-invalid: invalid checkpoint branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid checkpoint head_sha")
+    error("github-devloop: checkpoint-head-sha-invalid: invalid checkpoint head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid checkpoint base_branch")
+    error("github-devloop: checkpoint-base-branch-invalid: invalid checkpoint base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid checkpoint base_sha")
+    error("github-devloop: checkpoint-base-sha-invalid: invalid checkpoint base_sha")
   end
   local text = tostring(detail or "")
   if #text > M._max_impl_output_len then
@@ -302,7 +302,17 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     text = "Checkpoint pushed after implementation timeout."
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
-  local checkpoint_marker = m_builders.implement_checkpoint_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha, attempt or 1)
+  local checkpoint_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
+  local checkpoint_marker = m_builders.implement_checkpoint_marker(
+    ready.proposal_id,
+    ready.dedup_key,
+    branch,
+    head_sha,
+    base_branch,
+    base_sha,
+    attempt or 1,
+    checkpoint_reason
+  )
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
@@ -324,6 +334,7 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
       tostring(ready.dedup_key),
       tostring(attempt or 1),
       tostring(head_sha),
+      checkpoint_reason,
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)
@@ -366,7 +377,7 @@ function C.build_implement_version_mismatch_comment_request(M, repo, issue_numbe
   }
 end
 
-function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reason, detail, attempt)
+function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
   local safe_reason = strings.sanitize_key(reason or "failed", M._max_key_len):gsub("/", "-")
   local retry_attempt = tonumber(attempt) or 1
   local text = tostring(detail or "")
@@ -378,7 +389,8 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
 
-  local marker = M.impl_failure_marker(ready.proposal_id, ready.dedup_key, safe_reason, attempt)
+  local marker = M.impl_failure_marker(
+    ready.proposal_id, ready.dedup_key, safe_reason, attempt, fault_class, retryable)
   local state_marker = M.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",

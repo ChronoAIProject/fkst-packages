@@ -6,7 +6,7 @@ local R = {}
 local label_by_state = label_defs.label_by_state
 local state_labels = label_defs.state_labels
 local state_graph = label_defs.state_graph
-local issue_state_order = label_defs.issue_state_order
+local lifecycle_state_order = label_defs.lifecycle_state_order
 local state_order = label_defs.state_order
 local state_stage_rank = label_defs.state_stage_rank
 local copy_array = label_defs.copy_array
@@ -67,7 +67,7 @@ function R.is_state(state) return label_by_state[state] ~= nil end
 function R.is_state_label(label) return state_labels[tostring(label)] == true end
 function R.state_label(state) return label_by_state[state] end
 function R.state_order() return copy_array(state_order) end
-function R.issue_state_order() return copy_array(issue_state_order) end
+function R.lifecycle_state_order() return copy_array(lifecycle_state_order) end
 function R.state_successors(state) return copy_array(state_graph[state]) end
 function R.lifecycle_state_set()
   local out = {}
@@ -387,7 +387,7 @@ local exported_names = {
   "is_loop_terminal",
   "is_state",
   "is_state_label",
-  "issue_state_order",
+  "lifecycle_state_order",
   "lifecycle_state_set",
   "marker_order_key",
   "next_fix_version",

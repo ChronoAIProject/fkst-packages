@@ -18,6 +18,69 @@ local function log_resolution(fact, decision, action, mode, reason)
   }, " "))
 end
 
+local function resolution_queue(request)
+  if request.pr_number ~= nil then
+    return "github-proxy.github_pr_comment_request"
+  end
+  return "github-proxy.github_issue_comment_request"
+end
+
+local function refresh_decision(core, github, fact, limits, deadline, consumer)
+  if not core.observability_has_budget(deadline) then
+    return nil, nil, nil, "deadline"
+  end
+  local timeout = core.observability_call_timeout(limits, deadline)
+  if timeout < 1 then
+    return nil, nil, nil, "deadline"
+  end
+  local source_issue = github.read_issue(fact.source_ref, {
+    force_fresh = true,
+    timeout = timeout,
+    consumer = consumer .. "-source",
+  })
+  local linked_pr_snapshot = nil
+  if tostring(source_issue and source_issue.state or ""):upper() == "OPEN" then
+    linked_pr_snapshot = core.linked_pr_delegation_surface_snapshot(
+      fact.source_repo,
+      fact.proposal_id,
+      source_issue.comments,
+      {
+        github = github,
+        timeout = core.observability_call_timeout(limits, deadline),
+      }
+    )
+  end
+  if not core.observability_has_budget(deadline) then
+    return nil, nil, nil, "deadline"
+  end
+  timeout = core.observability_call_timeout(limits, deadline)
+  if timeout < 1 then
+    return nil, nil, nil, "deadline"
+  end
+  local escalation_issue = github.read_issue(fact.escalation_source_ref, {
+    force_fresh = true,
+    timeout = timeout,
+    consumer = consumer .. "-escalation",
+  })
+  local current_fact, current_reason = failure_triage_cap.classify_output_obligation_escalation_issue(
+    escalation_issue,
+    fact.escalation_repo,
+    fact.escalation_issue_number
+  )
+  if current_fact == nil
+    or current_fact.dedup_key ~= fact.dedup_key
+    or current_fact.terminal_version ~= fact.terminal_version then
+    return nil, nil, nil, current_reason or "escalation-changed"
+  end
+  local decision = failure_triage_cap.output_obligation_resolution_decision(
+    current_fact,
+    escalation_issue,
+    source_issue,
+    linked_pr_snapshot
+  )
+  return current_fact, decision, source_issue, nil
+end
+
 function M.reconcile(core, github, repo, entity, limits, deadline)
   local escalation_issue = type(entity) == "table" and entity.parent_issue or nil
   local fact = failure_triage_cap.classify_output_obligation_escalation_issue(
@@ -36,83 +99,76 @@ function M.reconcile(core, github, repo, entity, limits, deadline)
     error("github-devloop-ops: output-obligation-github-port-missing: observability resolution requires a GitHub adapter")
   end
 
-  local source_issue = github.read_issue(fact.source_ref, {
-    force_fresh = true,
-    timeout = core.observability_call_timeout(limits, deadline),
-    consumer = "github-devloop-ops.output-obligation-resolution",
-  })
-  local decision = failure_triage_cap.output_obligation_resolution_decision(
+  local current_fact, decision, _, refresh_reason = refresh_decision(
+    core,
+    github,
     fact,
-    escalation_issue,
-    source_issue
+    limits,
+    deadline,
+    "github-devloop-ops.output-obligation-resolution"
   )
-  if decision.decision ~= "source-closed" then
+  if current_fact == nil or decision == nil then
+    log_resolution(fact, nil, "skip", config.write_mode(), refresh_reason or "refresh-failed")
     return nil
   end
+  fact = current_fact
 
   local mode = config.write_mode()
-  if decision.action == "receipt" then
-    log_resolution(fact, decision.decision, "receipt", mode, "closed-source")
+  if decision.action == "command" or decision.action == "receipt" then
+    log_resolution(fact, decision.decision, decision.action, mode, "fresh-authority")
     return {
-      queue = "github-proxy.github_issue_comment_request",
+      queue = resolution_queue(decision.request),
       payload = decision.request,
       fact = fact,
     }
   end
+  if decision.action == "wait" or decision.action == "skip" then
+    log_resolution(fact, decision.decision, decision.action, mode, decision.reason)
+    return nil
+  end
   if decision.action ~= "close" then
-    error("github-devloop-ops: output-obligation-decision-invalid: source-closed decision has no supported action")
+    error("github-devloop-ops: output-obligation-decision-invalid: resolution decision has no supported action")
   end
   if mode ~= "real" then
     log_resolution(fact, decision.decision, "close", mode, "receipt-visible")
     return nil
   end
+  local close_fact, close_decision, _, close_reason = refresh_decision(
+    core,
+    github,
+    fact,
+    limits,
+    deadline,
+    "github-devloop-ops.output-obligation-resolution-close-guard"
+  )
+  if close_fact == nil
+    or close_decision == nil
+    or close_decision.decision ~= decision.decision
+    or close_decision.action ~= "close" then
+    log_resolution(
+      close_fact or fact,
+      close_decision and close_decision.decision or decision.decision,
+      "skip",
+      mode,
+      close_reason or (close_decision and close_decision.reason) or "resolution-changed"
+    )
+    return nil
+  end
   if not core.observability_has_budget(deadline) then
-    log_resolution(fact, decision.decision, "defer", mode, "deadline-after-source-read")
+    log_resolution(close_fact, close_decision.decision, "defer", mode, "deadline-after-escalation-read")
     return nil
   end
   local timeout = core.observability_call_timeout(limits, deadline)
   if timeout < 1 then
-    log_resolution(fact, decision.decision, "defer", mode, "deadline-after-source-read")
+    log_resolution(close_fact, close_decision.decision, "defer", mode, "deadline-after-escalation-read")
     return nil
   end
-  local current_escalation = github.read_issue(fact.escalation_source_ref, {
-    force_fresh = true,
-    timeout = timeout,
-    consumer = "github-devloop-ops.output-obligation-resolution-close-guard",
-  })
-  local current_fact, current_reason = failure_triage_cap.classify_output_obligation_escalation_issue(
-    current_escalation,
-    fact.escalation_repo,
-    fact.escalation_issue_number
-  )
-  if current_fact == nil then
-    log_resolution(fact, decision.decision, "skip", mode, current_reason or "escalation-changed")
-    return nil
-  end
-  local current_decision = failure_triage_cap.output_obligation_resolution_decision(
-    current_fact,
-    current_escalation,
-    source_issue
-  )
-  if current_decision.decision ~= "source-closed" or current_decision.action ~= "close" then
-    log_resolution(current_fact, current_decision.decision, "skip", mode, current_decision.reason or "escalation-changed")
-    return nil
-  end
-  if not core.observability_has_budget(deadline) then
-    log_resolution(current_fact, current_decision.decision, "defer", mode, "deadline-after-escalation-read")
-    return nil
-  end
-  timeout = core.observability_call_timeout(limits, deadline)
-  if timeout < 1 then
-    log_resolution(current_fact, current_decision.decision, "defer", mode, "deadline-after-escalation-read")
-    return nil
-  end
-  fact = current_fact
-  decision = current_decision
+  fact = close_fact
+  decision = close_decision
   local closed = github.issue_close(
     fact.escalation_repo,
     fact.escalation_issue_number,
-    { kind = "completed" },
+    { kind = decision.kind },
     timeout
   )
   if type(closed) ~= "table" or closed.exit_code ~= 0 then

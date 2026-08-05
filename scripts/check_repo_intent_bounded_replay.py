@@ -57,6 +57,10 @@ PR_FIX_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].old_pat
 PR_FIX_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].new_path
 PR_MERGE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-merge"].old_path
 PR_MERGE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-merge"].new_path
+ADMISSION_TRACE_SPECS = tuple(
+    (pair.old_path, pair.new_path, pair.schema, pair.family, pair.owner)
+    for pair in TRACE_PAIRS
+)
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/attestation.py",
     "scripts/intent_bounded_replay/normalize.py",
@@ -289,6 +293,7 @@ def _trace_pair_messages(
     schema: str,
     family: str,
     owner: str = "github-devloop",
+    trace_root: Path | None = None,
 ) -> list[str]:
     old_path = root / old_relative
     if not old_path.is_file():
@@ -303,7 +308,9 @@ def _trace_pair_messages(
         _admission_trace_shape_messages(old, old_relative, schema, family, owner)
     )
 
-    new_path = root / new_relative
+    if trace_root is None:
+        return messages
+    new_path = trace_root / new_relative
     if not new_path.is_file():
         return messages
     new, load_messages = _load_json_object(new_path)
@@ -328,7 +335,7 @@ def _trace_pair_messages(
     return messages
 
 
-def _admission_trace_messages(root: Path) -> list[str]:
+def _admission_trace_messages(root: Path, trace_root: Path | None = None) -> list[str]:
     messages: list[str] = []
     for pair in TRACE_PAIRS:
         messages.extend(
@@ -338,21 +345,34 @@ def _admission_trace_messages(root: Path) -> list[str]:
                 pair.new_path,
                 pair.schema,
                 pair.family,
-                owner=pair.owner,
+                pair.owner,
+                trace_root,
             )
         )
+    if trace_root is not None and not any(
+        (trace_root / pair.new_path).is_file()
+        for pair in TRACE_PAIRS
+    ):
+        messages.append(f"explicit R9 trace root contains no emitted traces: {trace_root}")
     return messages
 
 
-def admission_trace_status(root: Path) -> str:
+def admission_trace_status(root: Path, trace_root: Path | None = None) -> str:
+    if trace_root is None:
+        return "admission trace comparisons skipped: no explicit trace root"
     emitted = [
         pair.new_path
         for pair in TRACE_PAIRS
-        if (Path(root) / pair.new_path).is_file()
+        if (trace_root / pair.new_path).is_file()
     ]
     if not emitted:
         return "admission trace comparisons skipped: emitted traces are absent"
     return "admission trace comparisons executed by canonical artifact hash: " + ", ".join(emitted)
+
+
+def trace_root_from_environment() -> Path | None:
+    value = os.environ.get("FKST_R9_TRACE_ROOT", "")
+    return Path(value) if value else None
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -559,11 +579,15 @@ def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[s
     return status, entries, messages
 
 
-def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
+def repository_messages(
+    root: Path,
+    enforce_base: bool = False,
+    trace_root: Path | None = None,
+) -> list[str]:
     from check_repo_restart_preflight import _step8_complete  # Lazy to avoid the checker import cycle.
 
     root = Path(root)
-    messages = _admission_trace_messages(root)
+    messages = _admission_trace_messages(root, trace_root)
     messages.extend(
         f"missing protected input: {relative}"
         for relative in PROTECTED_MODULES
@@ -640,16 +664,27 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             messages.append(f"{entry} grows {ALLOWLIST} relative to the protected base")
 
     for path, artifact in attestations:
-        messages.extend(attestation_messages(root, path, artifact, manifests))
+        messages.extend(
+            attestation_messages(
+                root,
+                path,
+                artifact,
+                manifests,
+                trace_root=trace_root,
+            )
+        )
     return messages
 
 
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
-    violations = repository_messages(project_root, enforce_base=True)
+    explicit_trace_root = trace_root_from_environment()
+    violations = repository_messages(
+        project_root, enforce_base=True, trace_root=explicit_trace_root
+    )
     if violations:
         for violation in violations:
             print(f"R9-INTENT-BOUNDED-REPLAY: {violation}")
         raise SystemExit(1)
     print("OK: R9 intent-bounded-replay refactor-phase checks passed; "
-          + admission_trace_status(project_root))
+          + admission_trace_status(project_root, explicit_trace_root))

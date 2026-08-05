@@ -108,7 +108,7 @@ function C.build_devloop_ready_payload(M, source)
       generation_key = source.redrive_delivery.generation_key,
       attempt = source.redrive_delivery.attempt,
     }
-    payload.dedup_key = shared.ready_redrive_delivery_dedup_key(
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
       source.proposal_id,
       ready_version,
       payload.redrive_delivery
@@ -277,7 +277,7 @@ local function replay_fact_sha(value, fallback)
   return fallback
 end
 
-function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref)
+function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref, redrive_delivery)
   local payload = C.build_devloop_fixing_payload(origin, pr_number, {
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
@@ -301,6 +301,17 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
       tostring(feedback.ci_failure_key or "noci"),
       replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
     })
+  end
+  if redrive_delivery ~= nil then
+    payload.redrive_delivery = {
+      generation_key = redrive_delivery.generation_key,
+      attempt = redrive_delivery.attempt,
+    }
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      origin.proposal_id,
+      payload.dedup_key,
+      payload.redrive_delivery
+    )
   end
   return payload
 end
@@ -425,8 +436,6 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
     proposal_id = proposal_id,
     dedup_key = dedup_key,
     effect_id = effect_id,
-    reintake_command_created_at = opts.reintake_command_created_at,
-    reintake_effect_updated_at = opts.reintake_effect_updated_at,
     premise_fingerprint = opts.premise_fingerprint,
     correction_fingerprint = opts.correction_fingerprint,
     source_ref = source_ref,

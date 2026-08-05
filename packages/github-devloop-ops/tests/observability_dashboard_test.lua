@@ -1,7 +1,7 @@
 local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
-local dashboard_commands = require("devloop.commands.dashboard")
+local dashboard_commands = require("core.dashboard_commands")
 require("departments.observability.main")
 local unpack_results = table.unpack or unpack
 

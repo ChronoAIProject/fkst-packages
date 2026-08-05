@@ -139,6 +139,18 @@ function C.current_state(comments, proposal_id)
   return derive_current_marker(comments, proposal_id)
 end
 
+function C.route_current(comments, proposal_id, routes)
+  if type(routes) ~= "table" then
+    error("github-devloop: invalid current state routes")
+  end
+  local current = derive_current_marker(comments, proposal_id) or {}
+  return {
+    route = routes[current.state],
+    version = current.version,
+    marker_created_at = current.marker_created_at,
+  }
+end
+
 function C.current_issue_observation_is_terminal(comments, proposal_id)
   local current = derive_current_marker(comments, proposal_id)
   local row = current and issue_observation_facts.transition_row(current.state) or nil
@@ -167,41 +179,12 @@ local function has_any_state_label(labels)
   return false
 end
 
-local function current_marker_allows_reintake(current)
-  if current == nil then
-    return false
-  end
-  if tostring(current.state or "") == "blocked" then
-    return true
-  end
-  local row = issue_observation_facts.transition_row(current.state)
-  return row ~= nil and row.terminal == true
-end
-
-function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
+function C.has_active_issue_state(labels, comments, proposal_id)
   local current = current_marker_state(comments, proposal_id)
   if current ~= nil then
-    return not current_marker_allows_reintake(current)
+    return tostring(current.state or "") ~= "blocked"
   end
   return devloop_base.is_opted_in(labels) or has_any_state_label(labels)
-end
-
-local function later_timestamp(left, right)
-  local l = tostring(left or "")
-  local r = tostring(right or "")
-  if r ~= "" and (l == "" or r > l) then
-    return r
-  end
-  return l ~= "" and l or nil
-end
-
-function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
-  local updated_at = (command and command.created_at) or (issue and issue.updated_at)
-  local current = current_marker_state(comments, proposal_id)
-  if command ~= nil and current_marker_allows_reintake(current) then
-    updated_at = later_timestamp(updated_at, current.marker_created_at)
-  end
-  return updated_at or (issue and issue.updated_at)
 end
 
 function C.reached(comments, proposal_id, milestone, opts)
@@ -340,7 +323,7 @@ end
 
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "lifecycle_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
 end
 C.install = S.install
 

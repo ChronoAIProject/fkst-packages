@@ -96,6 +96,8 @@ jobs:
         env:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
+          FKST_R9_TRACE_OUTPUT_DIR: ${{ github.workspace }}/.fkst/run/intent-diff-traces
+          FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
           test -x "$BIN"
           scripts/run.sh test
@@ -107,11 +109,38 @@ jobs:
           fetch-depth: 0
           path: pull-request-merge
 
+      - name: Resolve pull request merge fkst-substrate source pin
+        if: github.event_name == 'pull_request'
+        id: merge_substrate_ref
+        working-directory: pull-request-merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref 2>/dev/null || true)"
+          if [ -z "$ref" ]; then
+            ref="dev"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "pull request merge fkst-substrate ref: $ref"
+
+      - name: Checkout pull request merge fkst-substrate
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          repository: ChronoAIProject/fkst-substrate
+          ref: ${{ steps.merge_substrate_ref.outputs.ref }}
+          path: pull-request-merge-fkst-substrate
+
+      - name: Build pull request merge fkst-framework
+        if: github.event_name == 'pull_request'
+        working-directory: pull-request-merge-fkst-substrate
+        run: cargo build -p fkst-framework
+
       - name: Test pull request merge result
         if: github.event_name == 'pull_request'
         working-directory: pull-request-merge
         env:
-          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+          BIN: ${{ github.workspace }}/pull-request-merge-fkst-substrate/target/debug/fkst-framework
         run: |
           test -x "$BIN"
           scripts/run.sh test
@@ -122,7 +151,8 @@ jobs:
           python3 scripts/generate_intent_diff_attestation.py \
             --pr-number "${{ github.event.pull_request.number }}" \
             --base-ref "origin/${{ github.base_ref }}" \
-            --head-ref "${{ github.event.pull_request.head.sha }}"
+            --head-ref "${{ github.event.pull_request.head.sha }}" \
+            --trace-root .fkst/run/intent-diff-traces
 
       - name: Upload intent-diff attestation
         if: github.event_name == 'pull_request'
@@ -131,6 +161,18 @@ jobs:
           name: intent-diff-attestation-${{ github.event.pull_request.number }}
           path: .fkst/run/intent-diff-attestations/*.json
           if-no-files-found: ignore
+
+      # Per-test outcomes exist in every run as `--report-json` files and were discarded with
+      # their scratch dir, so a CI run's per-test results could not be inspected afterwards and
+      # the summary counts were the only surviving evidence. Uploaded on failure too — that is
+      # the case where they are actually needed.
+      - name: Upload test reports artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: .fkst/run/test-reports
+          if-no-files-found: warn
 
       - name: Upload Lua coverage artifact
         uses: actions/upload-artifact@v4

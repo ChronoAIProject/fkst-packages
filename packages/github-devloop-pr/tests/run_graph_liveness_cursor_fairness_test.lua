@@ -10,9 +10,12 @@ local t = h.t
 local core = h.core
 
 local repo = "owner/repo"
-local low_pr_number = 3
+local malformed_pr_number = 5
 local target_pr_number = 7
 local cursor_prefix = "github-devloop-pr/liveness-scan/pr-cursor/"
+local malformed_issue_number = 41
+local malformed_proposal_id = "github-devloop/issue/owner/repo/41"
+local malformed_version = "ready/consensus-github-devloop/issue/owner/repo/41/2026-06-03T01-02-03Z/fix/1"
 
 local function trusted_comment(body)
   return {
@@ -69,21 +72,51 @@ local function mock_under_cap_pr_list()
   end
 end
 
-local function mock_throwing_head_pr_list()
-  local stdout = '[{"number":3,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
+local function mock_malformed_feedback_pr_list()
+  local stdout = '[{"number":5,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
     .. '{"number":7,"state":"open","updated_at":"2026-06-04T01:02:04Z"}]\n'
-  for _ = 1, 2 do
-    t.mock_command(core.gh_pr_list_observe_cmd(repo), {
-      stdout = stdout,
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-  t.mock_command("gh api 'repos/owner/repo/pulls/3'", {
-    stdout = "",
-    stderr = "deterministic head failure",
-    exit_code = 1,
+  t.mock_command(core.gh_pr_list_observe_cmd(repo), {
+    stdout = stdout,
+    stderr = "",
+    exit_code = 0,
   })
+end
+
+local function mock_malformed_fixing_pr()
+  local branch = "devloop-owner-repo-41-01HY"
+  local comments = {
+    trusted_comment(m_builders.pr_origin_marker(
+      malformed_proposal_id,
+      tostring(malformed_issue_number),
+      branch,
+      malformed_version,
+      "dev"
+    )),
+    trusted_comment(core.state_marker(malformed_proposal_id, "fixing", malformed_version)),
+    trusted_comment('<!-- fkst:github-devloop:review-meta:v1 proposal="' .. malformed_proposal_id
+      .. '" dedup="review-meta-delivery" action="fix" version="' .. malformed_version
+      .. '" gap="missing binding" -->'),
+  }
+
+  entity_read_mocks.mock_pr_read_forms(t, {
+    repo = repo,
+    number = malformed_pr_number,
+    head = branch,
+    head_sha = "119ef6fd",
+    base_branch = "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    labels = {},
+    register_all_views = true,
+    times = 8,
+  })
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = malformed_issue_number,
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+  }, "assignees,author", 8)
 end
 
 local function mock_target_fixing_pr()
@@ -188,7 +221,7 @@ return {
     mock_target_fixing_pr()
 
     local cursor_key = liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix)
-    cache_set(cursor_key, "v1/0/0")
+    cache_set(cursor_key, "0")
     local original_cache_get = cache_get
     local original_raise = raise
     local original_with_lock = with_lock
@@ -273,7 +306,7 @@ return {
           end
         end
         t.eq(head_calls, 1)
-        t.eq(original_cache_get(cursor_key), "v1/7/7")
+        t.eq(original_cache_get(cursor_key), "0")
       end)
     end)
     cache_get = original_cache_get
@@ -291,9 +324,9 @@ return {
     for number = 1, liveness_scan.liveness_scan_limits().entity_cap do
       table.insert(numbers, number)
     end
-    cache_set(key, "v1/0/0")
+    cache_set(key, "0")
 
-    local activations, deferred, actual_key, cursor_progress = liveness_scan.liveness_scan_activation_slice(
+    local activations, deferred, actual_key, cursor, total = liveness_scan.liveness_scan_activation_slice(
       exact_repo,
       "pr",
       numbered_entities(numbers),
@@ -301,33 +334,27 @@ return {
     )
     t.eq(#activations, 100)
     t.eq(deferred, 0)
+    t.eq(total, 100)
     t.eq(actual_key, key)
-    liveness_scan.liveness_scan_update_cursor(actual_key, cursor_progress, #activations)
-    t.eq(cache_get(key), "v1/100/100")
-    local wrapped = liveness_scan.liveness_scan_activation_slice(
-      exact_repo,
-      "pr",
-      numbered_entities(numbers),
-      cursor_prefix
-    )
-    t.eq(wrapped[1].entity.number, 1)
+    liveness_scan.liveness_scan_update_cursor(actual_key, cursor, total, #activations)
+    t.eq(cache_get(key), "0")
   end,
 
   test_append_waits_for_wrap_then_joins_next_cursor_cycle = function()
     local append_repo = "owner/append"
     local key = liveness_scan.liveness_scan_cursor_key(append_repo, cursor_prefix)
-    cache_set(key, "v1/0/0")
+    cache_set(key, "0")
 
-    local first, _, first_key, first_cursor_progress = liveness_scan.liveness_scan_activation_slice(
+    local first, _, first_key, first_cursor, first_total = liveness_scan.liveness_scan_activation_slice(
       append_repo,
       "pr",
       numbered_entities({ 1, 3 }),
       cursor_prefix
     )
-    liveness_scan.liveness_scan_update_cursor(first_key, first_cursor_progress, 1)
-    t.eq(cache_get(key), "v1/1/3")
+    liveness_scan.liveness_scan_update_cursor(first_key, first_cursor, first_total, 1)
+    t.eq(cache_get(key), "1:3")
 
-    local remainder, _, remainder_key, remainder_cursor_progress = liveness_scan.liveness_scan_activation_slice(
+    local remainder, _, remainder_key, remainder_cursor, remainder_total = liveness_scan.liveness_scan_activation_slice(
       append_repo,
       "pr",
       numbered_entities({ 1, 3, 5 }),
@@ -335,8 +362,8 @@ return {
     )
     t.eq(#remainder, 1)
     t.eq(remainder[1].entity.number, 3)
-    liveness_scan.liveness_scan_update_cursor(remainder_key, remainder_cursor_progress, 1)
-    t.eq(cache_get(key), "v1/3/3")
+    liveness_scan.liveness_scan_update_cursor(remainder_key, remainder_cursor, remainder_total, 1)
+    t.eq(cache_get(key), "0")
 
     local wrapped = liveness_scan.liveness_scan_activation_slice(
       append_repo,
@@ -351,18 +378,18 @@ return {
   test_removed_cursor_entity_resumes_above_stable_number = function()
     local removal_repo = "owner/removal"
     local key = liveness_scan.liveness_scan_cursor_key(removal_repo, cursor_prefix)
-    cache_set(key, "v1/0/0")
+    cache_set(key, "0")
 
-    local first, _, first_key, first_cursor_progress = liveness_scan.liveness_scan_activation_slice(
+    local first, _, first_key, first_cursor, first_total = liveness_scan.liveness_scan_activation_slice(
       removal_repo,
       "pr",
       numbered_entities({ 1, 3, 5 }),
       cursor_prefix
     )
-    liveness_scan.liveness_scan_update_cursor(first_key, first_cursor_progress, 2)
-    t.eq(cache_get(key), "v1/3/5")
+    liveness_scan.liveness_scan_update_cursor(first_key, first_cursor, first_total, 2)
+    t.eq(cache_get(key), "3:5")
 
-    local remainder, _, remainder_key, remainder_cursor_progress = liveness_scan.liveness_scan_activation_slice(
+    local remainder, _, remainder_key, remainder_cursor, remainder_total = liveness_scan.liveness_scan_activation_slice(
       removal_repo,
       "pr",
       numbered_entities({ 1, 5 }),
@@ -370,38 +397,54 @@ return {
     )
     t.eq(#remainder, 1)
     t.eq(remainder[1].entity.number, 5)
-    liveness_scan.liveness_scan_update_cursor(remainder_key, remainder_cursor_progress, 1)
-    t.eq(cache_get(key), "v1/5/5")
+    liveness_scan.liveness_scan_update_cursor(remainder_key, remainder_cursor, remainder_total, 1)
+    t.eq(cache_get(key), "0")
   end,
 
-  test_throwing_head_checkpoints_attempt_before_next_tick = function()
+  test_legacy_fix_feedback_reaches_review_meta_while_later_pr_progresses = function()
     mock_env()
-    mock_throwing_head_pr_list()
+    mock_malformed_feedback_pr_list()
+    mock_malformed_fixing_pr()
     mock_target_fixing_pr()
-    cache_set(liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix), "v1/0/0")
+    local cursor_key = liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix)
+    cache_set(cursor_key, "0")
 
     with_no_codex_runs(function()
-      local first = h.run_department(
-        "departments/liveness_scan/main.lua",
-        liveness_tick(201)
-      )
-      t.eq(first.exit_code, 1)
-
-      local second = graph.require_quiescent(graph.run(liveness_tick(202), { max_steps = 3 }))
-      graph.assert_covers(second, {
+      local trace = graph.run(liveness_tick(201), { max_steps = 12 })
+      graph.assert_covers(trace, {
         "github-devloop-pr.devloop_liveness_tick -> github-devloop-pr.liveness_scan",
       })
-      local timeout_attempt = graph.require_raise(second, "github-proxy.github_pr_comment_request", function(raised)
-        return tonumber(raised.payload.pr_number) == target_pr_number
+      t.eq(trace.status, "quiescent")
+      local scan_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_liveness_tick",
+        consumer = "github-devloop-pr.liveness_scan",
+      })
+      local malformed_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_observe_pr",
+        consumer = "github-devloop-pr.observe_pr",
+      })
+      t.eq(scan_step.exit_code, 0)
+      t.eq(malformed_step.exit_code, 0)
+      t.is_true(type(malformed_step.delivery_id) == "string" and malformed_step.delivery_id ~= "")
+      t.eq(cache_get(cursor_key), "0")
+      local remediation = graph.require_raise(
+        trace, "github-proxy.github_pr_comment_request", function(raised)
+          return tonumber(raised.payload and raised.payload.pr_number) == malformed_pr_number
+            and tostring(raised.payload.body or ""):find(
+              'state="review-meta"', 1, true) ~= nil
+            and tostring(raised.payload.body or ""):find(
+              "legacy-fix-feedback-unbound", 1, true) ~= nil
+        end)
+      local timeout_attempt = graph.require_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
+        return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
           and tostring(raised.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
       end)
-      local fixing = graph.require_raise(second, "github-devloop-pr.devloop_fixing", function(raised)
+      t.eq(tonumber(remediation.payload.pr_number), malformed_pr_number)
+      local fixing = graph.require_raise(trace, "github-devloop-pr.devloop_fixing", function(raised)
         return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
       end)
       t.eq(tonumber(timeout_attempt.payload.pr_number), target_pr_number)
       t.eq(fixing.queue, "github-devloop-pr.devloop_fixing")
-      t.eq(graph.find_raise(second, "devloop_timeout_reconcile"), nil)
-      t.eq(graph.find_raise(second, "github-devloop-pr.devloop_timeout_reconcile"), nil)
     end)
   end,
 
@@ -409,7 +452,7 @@ return {
     mock_env()
     mock_under_cap_pr_list()
     mock_target_fixing_pr()
-    cache_set(liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix), "v1/0/0")
+    cache_set(liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix), "0")
 
     with_no_codex_runs(function()
       local first = graph.run(liveness_tick(101), { max_steps = 1 })

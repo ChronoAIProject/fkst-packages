@@ -84,9 +84,11 @@ def generate_attestation(
     base_ref: str,
     head_ref: str,
     output_dir: Path,
+    trace_root: Path,
     trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
 ) -> dict[str, object] | None:
     root = Path(root).resolve()
+    trace_root = Path(trace_root).resolve()
     if pr_number < 1:
         raise AttestationError("actual PR number must be positive")
     head_sha = _git(root, "rev-parse", "--verify", f"{head_ref}^{{commit}}").lower()
@@ -99,7 +101,12 @@ def generate_attestation(
     expected_manifest = f"{checker.INTENT_DIFF_DIR}/{pr_number}.json"
     changed_manifests = _changed_manifest_paths(root, base_sha, head_sha)
     output_path = Path(output_dir) / f"{pr_number}.json"
-    trace_hashes = recompute_trace_hashes(root, trace_pairs, old_ref=base_sha)
+    trace_hashes = recompute_trace_hashes(
+        root,
+        trace_pairs,
+        old_ref=base_sha,
+        trace_root=trace_root,
+    )
     if not changed_manifests:
         if output_path.is_file():
             output_path.unlink()
@@ -153,6 +160,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--pr-number", required=True, type=int)
     parser.add_argument("--base-ref", required=True)
     parser.add_argument("--head-ref", required=True)
+    parser.add_argument("--trace-root", required=True, type=Path)
     parser.add_argument(
         "--output-dir",
         default=".fkst/run/intent-diff-attestations",
@@ -171,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             base_ref=args.base_ref,
             head_ref=args.head_ref,
             output_dir=(root / args.output_dir),
+            trace_root=(root / args.trace_root),
         )
     except AttestationError as error:
         print(f"R9-INTENT-DIFF-ATTESTATION: {error}", file=sys.stderr)

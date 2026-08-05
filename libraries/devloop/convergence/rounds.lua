@@ -188,8 +188,7 @@ function C.converge_round_facts_for_epoch(comments, proposal_id, epoch_version, 
   return converge_record_map(comments, "converge%-round", matches)
 end
 
-function C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
-  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+function C.review_converge_round_facts_for_heartbeat(comments, review_proposal_id, issue_proposal_id, heartbeat_version, head_sha, source_ref_digest)
   local matches = function(marker)
     return attr(marker, "proposal") == tostring(review_proposal_id)
       and attr(marker, "issue_proposal") == tostring(issue_proposal_id)
@@ -198,6 +197,18 @@ function C.review_converge_round_facts(M, comments, review_proposal_id, issue_pr
       and attr(marker, "source_ref") == tostring(source_ref_digest)
   end
   return converge_record_map(comments, "review%-converge%-round", matches)
+end
+
+function C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
+  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+  return C.review_converge_round_facts_for_heartbeat(
+    comments,
+    review_proposal_id,
+    issue_proposal_id,
+    heartbeat_version,
+    head_sha,
+    source_ref_digest
+  )
 end
 
 function C.max_converge_round(facts)

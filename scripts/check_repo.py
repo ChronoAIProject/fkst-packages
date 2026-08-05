@@ -5,10 +5,33 @@ from __future__ import annotations
 
 import re
 import sys
-import os, base64, binascii, subprocess
+import os
+import base64
+import binascii
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-import check_repo_config, check_repo_content_truncation, check_repo_cross_package, check_repo_dedup, check_repo_dependency_cycle, check_repo_error_class, check_repo_gh_git_adapter as gh_git_adapter, check_repo_github_content_ingress, check_repo_ingress, check_repo_integration_coverage, check_repo_library_layering, check_repo_namespaced_queue, check_repo_ownership_gate, check_repo_perm, check_repo_producer_liveness, check_repo_saga_handler, check_repo_saga_head, check_repo_shell_out_to_self, check_repo_std_dependency_model, check_repo_version_suffix, ratchet_base
+import check_repo_config
+import check_repo_content_truncation
+import check_repo_cross_package
+import check_repo_dedup
+import check_repo_dependency_cycle
+import check_repo_error_class
+import check_repo_gh_git_adapter as gh_git_adapter
+import check_repo_github_content_ingress
+import check_repo_ingress
+import check_repo_integration_coverage
+import check_repo_library_layering
+import check_repo_namespaced_queue
+import check_repo_ownership_gate
+import check_repo_perm
+import check_repo_producer_liveness
+import check_repo_saga_handler
+import check_repo_saga_head
+import check_repo_shell_out_to_self
+import check_repo_std_dependency_model
+import check_repo_version_suffix
+import ratchet_base
 LINE_LIMIT = 1000
 # Warn before the hard limit so files split by stable responsibility, not last-minute churn.
 LINE_WARNING_MARGIN = 100
@@ -42,8 +65,6 @@ GRAPHQL_FIRST_CONNECTION_RE = re.compile(
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
 HIDDEN_TEXT_STRING_CHAR_ARG_MIN = 6
-ERROR_CALL_STRING_RE = re.compile(r"\berror\s*\(\s*(?P<quote>['\"])(?P<message>[^'\"]*)(?P=quote)")
-ERROR_CLASS_PREFIX_RE = re.compile(r"^[a-z0-9][a-z0-9-]*: [a-z0-9][a-z0-9-]*:")
 HELPER_STRING_ARG_RE = re.compile(
     r"\b(?P<func>(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*)"
     r"\s*\(\s*(?P<quote>[\"'])"
@@ -83,47 +104,24 @@ def rel(root: Path, path: Path) -> str:
             pass
     return path.relative_to(root).as_posix()
 
-def read_text(path: Path) -> str: return path.read_text(encoding="utf-8")
-def package_roots(root: Path) -> list[Path]: return check_repo_config.package_roots(root)
-def packages_root(root: Path) -> Path: return check_repo_config.package_root(root)
-def line_count(path: Path) -> int: return len(read_text(path).splitlines())
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+def package_roots(root: Path) -> list[Path]:
+    return check_repo_config.package_roots(root)
+def packages_root(root: Path) -> Path:
+    return check_repo_config.package_root(root)
+def line_count(path: Path) -> int:
+    return len(read_text(path).splitlines())
 def add(violations: list[str], rule: str, message: str) -> None: violations.append(f"{rule}: {message}")
-
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
 
 def mask_span(chars: list[str], start: int, end: int) -> None:
     for index in range(start, end):
         if chars[index] != "\n":
             chars[index] = " "
 
-def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-def end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
 def bracket_test_assignment_key_string_end(text: str, quote_start: int) -> int | None:
     quote = text[quote_start]
-    string_end = end_of_quoted_string(text, quote_start)
+    string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
     if string_end > len(text) or text[string_end - 1] != quote:
         return None
     if not TEST_NAME_RE.fullmatch(text[quote_start + 1 : string_end - 1]):
@@ -153,10 +151,10 @@ def strip_lua_comments_and_strings(text: str) -> str:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
@@ -166,17 +164,17 @@ def strip_lua_comments_and_strings(text: str) -> str:
 
         char = text[cursor]
         if char in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             if bracket_test_assignment_key_string_end(text, cursor) is None:
                 mask_span(chars, cursor, end)
             cursor = end
             continue
 
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
                 mask_span(chars, cursor, end)
                 cursor = end
                 continue
@@ -190,10 +188,10 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is not None:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             else:
                 newline = text.find("\n", cursor)
                 cursor = len(text) if newline == -1 else newline
@@ -201,7 +199,7 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
 
         char = text[cursor]
         if char in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             content_end = end - 1 if end <= len(text) and text[end - 1] == char else end
             literals.append(
                 LuaStringLiteral(
@@ -213,7 +211,7 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
             continue
 
         if char == "[":
-            bracket = long_bracket_at(text, cursor)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
             if bracket is not None:
                 opener_len, closer = bracket
                 body_start = cursor + opener_len
@@ -335,16 +333,12 @@ def hidden_text_string_char_lines(text: str) -> list[int]:
     return lines
 
 
+def unclassified_error_calls(text: str) -> list[tuple[int, str]]:
+    return check_repo_error_class.unclassified_error_calls(text, strip_lua_comments_and_strings, is_unmasked_range)
+
+
 def unclassified_error_call_lines(text: str) -> list[int]:
-    stripped = strip_lua_comments_and_strings(text)
-    lines: list[int] = []
-    for match in ERROR_CALL_STRING_RE.finditer(text):
-        if not is_unmasked_range(text, stripped, match.start(), match.start("quote")):
-            continue
-        message = match.group("message")
-        if not ERROR_CLASS_PREFIX_RE.match(message):
-            lines.append(text.count("\n", 0, match.start()) + 1)
-    return lines
+    return [line for line, _message in unclassified_error_calls(text)]
 
 
 def looks_like_decode_helper(func: str) -> bool:
@@ -412,7 +406,7 @@ def hidden_text_encoded_literal_lines(text: str) -> list[int]:
         quote_start = match.start("quote")
         if not is_unmasked_range(text, stripped, match.start(), quote_start):
             continue
-        string_end = end_of_quoted_string(text, quote_start)
+        string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
         if string_end > len(text) or text[string_end - 1] != match.group("quote"):
             continue
         if not looks_like_decode_helper(match.group("func")):

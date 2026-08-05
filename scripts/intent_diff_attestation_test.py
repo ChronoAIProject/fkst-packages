@@ -30,7 +30,7 @@ from intent_bounded_replay.semantic_tree import (
 PAIR = TracePair(
     family="example",
     old_path="migration/intent_bounded_replay/corpus/example.json",
-    new_path=".fkst/run/r9-example-new-trace.json",
+    new_path="r9-example-new-trace.json",
     schema="example-trace.v1",
     owner="example-owner",
 )
@@ -140,6 +140,7 @@ class AttestationGenerationTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.trace_root = self.root / ".fkst/run/r9-traces"
         git(self.root, "init", "-q")
         git(self.root, "config", "user.email", "attestation@example.invalid")
         git(self.root, "config", "user.name", "Attestation Test")
@@ -153,7 +154,7 @@ class AttestationGenerationTest(unittest.TestCase):
         (self.root / "tracked.txt").write_text("behavior change\n", encoding="utf-8")
         git(self.root, "add", "tracked.txt")
         git(self.root, "commit", "-qm", "behavior change")
-        write_json(self.root, PAIR.new_path, trace("new"))
+        write_json(self.trace_root, PAIR.new_path, trace("new"))
 
     def add_manifest(
         self,
@@ -161,7 +162,11 @@ class AttestationGenerationTest(unittest.TestCase):
         trace_hashes: dict[str, str] | None = None,
     ) -> dict[str, object]:
         if trace_hashes is None:
-            trace_hashes = recompute_trace_hashes(self.root, (PAIR,))
+            trace_hashes = recompute_trace_hashes(
+                self.root,
+                (PAIR,),
+                trace_root=self.trace_root,
+            )
         tree_hash = semantic_tree_sha256(self.root)
         diff_hash = semantic_diff_sha256(self.root, self.base_sha)
         manifest: dict[str, object] = {
@@ -199,6 +204,7 @@ class AttestationGenerationTest(unittest.TestCase):
             head_ref=head_ref,
             output_dir=output_dir,
             trace_pairs=(PAIR,),
+            trace_root=self.trace_root,
         )
 
     def test_generates_manifest_bound_head_attestation_from_recomputed_traces(self) -> None:
@@ -222,7 +228,7 @@ class AttestationGenerationTest(unittest.TestCase):
 
     def test_changed_trace_cannot_reuse_manifest_declaration(self) -> None:
         self.add_manifest()
-        write_json(self.root, PAIR.new_path, trace("tampered after manifest"))
+        write_json(self.trace_root, PAIR.new_path, trace("tampered after manifest"))
 
         with self.assertRaisesRegex(AttestationError, "new_trace_sha256 mismatch"):
             self.generate()
@@ -238,7 +244,11 @@ class AttestationGenerationTest(unittest.TestCase):
             self.generate(head_ref="different-head")
 
     def test_old_trace_is_loaded_from_protected_base(self) -> None:
-        base_trace_hashes = recompute_trace_hashes(self.root, (PAIR,))
+        base_trace_hashes = recompute_trace_hashes(
+            self.root,
+            (PAIR,),
+            trace_root=self.trace_root,
+        )
         write_json(self.root, PAIR.old_path, trace("head-controlled old trace"))
         git(self.root, "add", PAIR.old_path)
         git(self.root, "commit", "-qm", "change old corpus in head")
@@ -272,7 +282,7 @@ class AttestationGenerationTest(unittest.TestCase):
         self.assertFalse((self.root / ".fkst/run/intent-diff-attestations/123.json").exists())
 
     def test_pr_without_changed_manifest_still_requires_trace_evidence(self) -> None:
-        (self.root / PAIR.new_path).unlink()
+        (self.trace_root / PAIR.new_path).unlink()
 
         with self.assertRaisesRegex(AttestationError, "missing trace artifact"):
             self.generate()

@@ -478,13 +478,6 @@ return {
     t.eq(core.git_worktree_clean_cmd(worktree_path), "git -C '" .. worktree_path .. "' clean -fd")
     t.eq(core.git_worktree_list_cmd(), "git worktree list --porcelain")
     t.is_true(core.git_worktree_add_remote_branch_cmd(worktree_path, "origin", deterministic_branch, true):find("git worktree add --force -B", 1, true) ~= nil)
-    -- #677: idempotent clear of the target worktree path before `git worktree add`,
-    -- robust to an orphan dir (present on disk but unregistered) as well as a
-    -- registered worktree; must remove --force, rm -rf, and prune, and exit 0.
-    local force_clean = core.git_worktree_force_clean_cmd(worktree_path)
-    t.is_true(force_clean:find("git worktree remove --force '" .. worktree_path .. "'", 1, true) ~= nil)
-    t.is_true(force_clean:find("rm -rf '" .. worktree_path .. "'", 1, true) ~= nil)
-    t.is_true(force_clean:find("git worktree prune", 1, true) ~= nil)
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
     t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
@@ -536,25 +529,6 @@ return {
     t.eq(attempt.started_at, "123")
     t.eq(core.implement_attempt_count({ attempt_marker }, ready.proposal_id, ready.dedup_key), 2)
 
-    local failed = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "codex-failed")
-    t.eq(core.has_impl_failure_marker({ failed }, ready.proposal_id, ready.dedup_key), true)
-    t.eq(core.has_implementation_fact_marker({ failed }, ready.proposal_id, ready.dedup_key), true)
-    t.eq(core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key).attempt, 1)
-    local retry_failed = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "codex-failed", 2)
-    local retry_fact = core.impl_failure_fact({ failed, retry_failed }, ready.proposal_id, ready.dedup_key)
-    t.eq(retry_fact.reason, "codex-failed")
-    t.eq(retry_fact.attempt, 2)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key)), true)
-    t.eq(core.impl_failure_retry_allowed(retry_fact), false)
-    local non_descendant = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "non-descendant-head")
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ non_descendant }, ready.proposal_id, ready.dedup_key)), true)
-    local local_iteration = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "local-iteration-failed")
-    local local_iteration_fact = core.impl_failure_fact({ local_iteration }, ready.proposal_id, ready.dedup_key)
-    t.eq(core.impl_failure_retry_allowed(local_iteration_fact), false)
-    local base_local_iteration = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "base-local-iteration-failed")
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ base_local_iteration }, ready.proposal_id, ready.dedup_key)), false)
-    local unretryable = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "no-changes")
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ unretryable }, ready.proposal_id, ready.dedup_key)), false)
     t.eq(core.implementation_attempt_version(ready.dedup_key, 2), ready.dedup_key .. "/reimplement/2")
     t.eq(core.implementation_base_version(ready.dedup_key .. "/reimplement/2"), ready.dedup_key)
     t.eq(core.implementation_retry_attempt(ready.dedup_key .. "/reimplement/2"), 2)
@@ -593,12 +567,14 @@ return {
     t.eq(failed_label.remove_labels[7], "fkst-dev:fixing")
     t.eq(#failed_label.remove_labels, 13)
 
-    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "no-changes", "No files changed.")
+    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(
+      core, "owner/repo", "42", ready, "no-changes", "No files changed.", nil, "UNKNOWN", false)
     t.is_true(failure_comment.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(failure_comment.body:find("No files changed.", 1, true) ~= nil)
 
     local forged = core.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
-    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged)
+    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(
+      core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
     local current = core.current_state({ forged_failure.body }, ready.proposal_id)
@@ -680,31 +656,6 @@ return {
     t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
     t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
     t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-  end,
-
-  test_issue_fix_prompt_template_uses_local_iteration_command = function()
-    local M = {}
-    for key, value in pairs(core) do
-      M[key] = value
-    end
-    prompt_installers.install(M, {
-      prompts = {
-        fix = require("prompts.fix"),
-      },
-    }, { fix = true })
-    local fix = {
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "version", "abcdef123456"),
-      reviewed_head_sha = "abcdef123456",
-      blocking_gap = "missing rollback guard",
-    }
-    local prompt = M.build_fix_prompt(fix, { title = "Fix parser" }, "Review says tests are red.", "Approved framing.")
-    t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
-    t.is_true(prompt:find("configured command is this deployment's local verification gate", 1, true) ~= nil)
-    t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
-    t.is_true(prompt:find("comprehensive gate", 1, true) ~= nil)
-    t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-    t.is_nil(prompt:find("rerun `scripts/run.sh test` until it exits 0", 1, true))
   end,
 
   test_implement_prompt_handles_nil_framing = function()

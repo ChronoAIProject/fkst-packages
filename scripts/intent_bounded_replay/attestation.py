@@ -68,105 +68,105 @@ TRACE_PAIRS = (
     TracePair(
         "awaiting-pr",
         "migration/intent_bounded_replay/corpus/awaiting-pr.json",
-        ".fkst/run/r9-awaiting-pr-new-trace.json",
+        "r9-awaiting-pr-new-trace.json",
         "restart-awaiting-pr-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "implement-activation",
         "migration/intent_bounded_replay/corpus/implement-activation.json",
-        ".fkst/run/r9-implement-activation-new-trace.json",
+        "r9-implement-activation-new-trace.json",
         "restart-implement-activation-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "issue-reconcile",
         "migration/intent_bounded_replay/corpus/issue-reconcile.json",
-        ".fkst/run/r9-issue-reconcile-new-trace.json",
+        "r9-issue-reconcile-new-trace.json",
         "restart-issue-reconcile-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "loop-plain",
         "migration/intent_bounded_replay/corpus/loop-plain.json",
-        ".fkst/run/r9-loop-plain-new-trace.json",
+        "r9-loop-plain-new-trace.json",
         "restart-loop-plain-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "observe-issue-entry",
         "migration/intent_bounded_replay/corpus/observe-issue-entry.json",
-        ".fkst/run/r9-observe-issue-entry-new-trace.json",
+        "r9-observe-issue-entry-new-trace.json",
         "restart-observe-issue-entry-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "observe-pr-fix",
         "migration/intent_bounded_replay/corpus/observe-pr-fix.json",
-        ".fkst/run/r9-observe-pr-fix-new-trace.json",
+        "r9-observe-pr-fix-new-trace.json",
         "restart-observe-pr-fix-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-fix",
         "migration/intent_bounded_replay/corpus/pr-fix.json",
-        ".fkst/run/r9-pr-fix-new-trace.json",
+        "r9-pr-fix-new-trace.json",
         "restart-pr-fix-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-fix-reconcile",
         "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json",
-        ".fkst/run/r9-pr-fix-reconcile-new-trace.json",
+        "r9-pr-fix-reconcile-new-trace.json",
         "restart-pr-fix-reconcile-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-merge",
         "migration/intent_bounded_replay/corpus/pr-merge.json",
-        ".fkst/run/r9-pr-merge-new-trace.json",
+        "r9-pr-merge-new-trace.json",
         "restart-pr-merge-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-review-activation",
         "migration/intent_bounded_replay/corpus/pr-review-activation.json",
-        ".fkst/run/r9-pr-review-activation-new-trace.json",
+        "r9-pr-review-activation-new-trace.json",
         "restart-pr-review-activation-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-review-loop",
         "migration/intent_bounded_replay/corpus/pr-review-loop.json",
-        ".fkst/run/r9-pr-review-loop-new-trace.json",
+        "r9-pr-review-loop-new-trace.json",
         "restart-pr-review-loop-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-review-meta",
         "migration/intent_bounded_replay/corpus/pr-review-meta.json",
-        ".fkst/run/r9-pr-review-meta-new-trace.json",
+        "r9-pr-review-meta-new-trace.json",
         "restart-pr-review-meta-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "pr-review-result",
         "migration/intent_bounded_replay/corpus/pr-review-result.json",
-        ".fkst/run/r9-pr-review-result-new-trace.json",
+        "r9-pr-review-result-new-trace.json",
         "restart-pr-review-result-trace.v1",
         "github-devloop-pr",
     ),
     TracePair(
         "thinking",
         "migration/intent_bounded_replay/corpus/thinking.json",
-        ".fkst/run/r9-thinking-new-trace.json",
+        "r9-thinking-new-trace.json",
         "restart-thinking-trace.v1",
         "github-devloop",
     ),
     TracePair(
         "timeout-reconcile",
         "migration/intent_bounded_replay/corpus/timeout-reconcile.json",
-        ".fkst/run/r9-timeout-reconcile-new-trace.json",
+        "r9-timeout-reconcile-new-trace.json",
         "restart-timeout-reconcile-trace.v1",
         "github-devloop",
     ),
@@ -242,6 +242,7 @@ def recompute_trace_hashes(
     trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
     *,
     old_ref: str | None = None,
+    trace_root: Path | None = None,
 ) -> dict[str, str]:
     """Recompute aggregate OLD, NEW, and behavior-diff hashes from all trace pairs."""
     pairs = sorted(tuple(trace_pairs), key=lambda pair: pair.family.encode("utf-8"))
@@ -254,9 +255,10 @@ def recompute_trace_hashes(
     old_entries: list[dict[str, str]] = []
     new_entries: list[dict[str, str]] = []
     comparisons: list[dict[str, object]] = []
+    new_artifact_root = Path(trace_root) if trace_root is not None else Path(root)
     for pair in pairs:
         old = _load_trace(Path(root), pair.old_path, pair, git_ref=old_ref)
-        new = _load_trace(Path(root), pair.new_path, pair)
+        new = _load_trace(new_artifact_root, pair.new_path, pair)
         report = compare_report(old, new)
         old_hash = str(report["old_hash"])
         new_hash = str(report["new_hash"])
@@ -292,10 +294,16 @@ def trace_hash_messages(
     trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
     *,
     old_ref: str | None = None,
+    trace_root: Path | None = None,
 ) -> list[str]:
     """Return fail-closed verifier messages for declared aggregate trace hashes."""
     try:
-        computed = recompute_trace_hashes(root, trace_pairs, old_ref=old_ref)
+        computed = recompute_trace_hashes(
+            root,
+            trace_pairs,
+            old_ref=old_ref,
+            trace_root=trace_root,
+        )
     except AttestationError as error:
         return [f"{relative} cannot recompute trace hashes: {error}"]
     return [
@@ -329,6 +337,7 @@ def attestation_messages(
     manifests: Mapping[str, dict[str, Any]],
     *,
     head_ref: str = "HEAD",
+    trace_root: Path | None = None,
 ) -> list[str]:
     """Validate an attestation by recomputing every verifier-owned digest."""
     relative = path.relative_to(root).as_posix()
@@ -403,6 +412,7 @@ def attestation_messages(
             artifact,
             relative,
             old_ref=str(artifact["base_sha"]),
+            trace_root=trace_root,
         )
     )
 
