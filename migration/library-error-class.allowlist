@@ -4,11 +4,6 @@
 libraries/contract/convergence_identity.lua:16
 libraries/contract/convergence_identity.lua:44
 libraries/contract/convergence_identity.lua:5
-libraries/contract/external_pr_bridge.lua:13
-libraries/contract/external_pr_bridge.lua:39
-libraries/contract/external_pr_bridge.lua:43
-libraries/contract/external_pr_bridge.lua:79
-libraries/contract/external_pr_bridge.lua:84
 libraries/contract/sha256.lua:63
 libraries/contract/transition_version.lua:663
 libraries/devloop/adapters/workflow_ports.lua:13
@@ -87,8 +82,6 @@ libraries/devloop/decompose.lua:258
 libraries/devloop/decompose.lua:69
 libraries/devloop/decompose.lua:72
 libraries/devloop/dependency_gate.lua:194
-libraries/devloop/di/select_caps.lua:51
-libraries/devloop/di/select_caps.lua:56
 libraries/devloop/entity.lua:156
 libraries/devloop/entity.lua:161
 libraries/devloop/entity.lua:198
@@ -712,7 +705,6 @@ libraries/workflow/saga.lua:37
 libraries/workflow_internal/codex.lua:115
 libraries/workflow_internal/codex.lua:170
 libraries/workflow_internal/codex.lua:174
-libraries/workflow_internal/codex.lua:42
 libraries/workflow_internal/codex.lua:64
 libraries/workflow_internal/codex.lua:68
 libraries/workflow_internal/codex.lua:76

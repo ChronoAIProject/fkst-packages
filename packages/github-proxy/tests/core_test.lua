@@ -48,6 +48,13 @@ local function count_literal(text, needle)
 end
 
 return {
+  test_error_class_from_message_preserves_nested_failure_envelope = function()
+    t.eq(
+      core.error_class_from_message("github-proxy: gh issue comment failed: gh-command-failed: details"),
+      "gh-command-failed"
+    )
+  end,
+
   test_env_command_whitelist = function()
 	    t.eq(core.read_env_command("FKST_GITHUB_REPO"), 'printf %s "$FKST_GITHUB_REPO"')
 	    t.eq(core.read_env_command("FKST_GITHUB_BOT_LOGIN"), 'printf %s "$FKST_GITHUB_BOT_LOGIN"')
