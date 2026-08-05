@@ -8,13 +8,13 @@
     "row-replay-observe-pr-local-route-fixing-head-advanced-reviewing"
   ],
   "intent": "behavior-change",
-  "manifest_sha256": "29634f627c6e7ecacb572539ae7a557aedd3cc273505e1b087cb89dda22225e9",
+  "manifest_sha256": "524c4eb8d6d42e5a23f7c3e6a3b56e60a198ff9f9bcb523a3f5bdceb7c870a87",
   "new_trace_sha256": "22583c57ef2cfe3abfeb4ad828878983b2ea785b74496b1ed802f9fa209567c7",
   "old_trace_sha256": "6ceea7572ae049420844023b9e27174dc25c778483da1d9d076ba9c8205c331a",
-  "one_use_identity": "3207/c3f8cd7ce81aa4bf505d59024297d79e53242ac5/75609740fe5eb9ca8cf5a0b190bbab31ee3e5293e78b8531719a4e0874feaf4d/84c747f7729ec69f4c2c1a4c027e711962ac3415870eeba71f49c11d3229541f",
-  "pr_number": 3207,
-  "review_reference": "Issue #3203; PR #3207; SPEC R9 lines 103-109 and Annex §9.4 lines 1649-1666 (row replay effects, effect order, queue/payload/dedup, package-visible delivery expectations).",
+  "one_use_identity": "3209/c3f8cd7ce81aa4bf505d59024297d79e53242ac5/a38c1f49a91a297b5d614f82f60e1d05d885b043298e3868d6839e0a875728a4/13b520993c7a01ee53cd63e33c72734f8f19f6fad891050868895aa77fc37287",
+  "pr_number": 3209,
+  "review_reference": "Issue #3203; PR #3209; SPEC R9 lines 103-109 and Annex §9.4 lines 1649-1666 (row replay effects, effect order, queue/payload/dedup, package-visible delivery expectations).",
   "schema": "fkst.intent-diff.v2",
-  "semantic_diff_sha256": "84c747f7729ec69f4c2c1a4c027e711962ac3415870eeba71f49c11d3229541f",
-  "semantic_tree_sha256": "75609740fe5eb9ca8cf5a0b190bbab31ee3e5293e78b8531719a4e0874feaf4d"
+  "semantic_diff_sha256": "13b520993c7a01ee53cd63e33c72734f8f19f6fad891050868895aa77fc37287",
+  "semantic_tree_sha256": "a38c1f49a91a297b5d614f82f60e1d05d885b043298e3868d6839e0a875728a4"
 }
