@@ -55,10 +55,23 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   version = version or result_version(reached)
   local declined = reached.decision == "reject"
   to_state = to_state or (declined and "declined" or gate and gate.ok and "ready" or "dependency_wait")
+  local result_marker_visible = devloop_state.has_result_marker(
+    current.comments,
+    reached.proposal_id,
+    reached.decision,
+    reached.dedup_key,
+    reached.decision_reason
+  )
   local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
     or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
-  local label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
-    or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
+  local label_request = nil
+  if result_marker_visible then
+    label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
+      or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
+    if to_state == "ready" then
+      table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
+    end
+  end
   local dependency_comment_request = nil
   local dependency_label_request = nil
   local dependency_release_comment_request = nil
@@ -106,15 +119,11 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       reached.source_ref
     )
   end
-  if to_state == "ready" then
-    table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
-  end
-
   local raised = {}
-  if not devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason) then
+  if not result_marker_visible then
     table.insert(raised, "github-proxy.github_issue_comment_request")
   end
-  if not devloop_state.state_label_hint_matches(current.labels, to_state) then
+  if label_request ~= nil and not devloop_state.state_label_hint_matches(current.labels, to_state) then
     table.insert(raised, "github-proxy.github_issue_label_request")
   end
   if not declined and gate.ok then
@@ -132,10 +141,10 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
   devloop_logging.log_apply("consensus_result", reached.proposal_id, to_state, version, { add = add_labels, remove = remove_labels }, raised)
 
-  if not devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason) then
+  if not result_marker_visible then
     devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   end
-  if not devloop_state.state_label_hint_matches(current.labels, to_state) then
+  if label_request ~= nil and not devloop_state.state_label_hint_matches(current.labels, to_state) then
     devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
   if not declined and not gate.ok then

@@ -209,7 +209,8 @@ local function authorize_fix_receiver(repo, fix, pr, state, phase)
 end
 
 local function run_fix_attempt(plan)
-  local worktree = branch_worktree(plan.repo, plan.issue_number, plan.fix.version, plan.branch)
+  local worktree = branch_worktree(
+    plan.repo, plan.issue_number, plan.impl_version, plan.branch)
   local merge_context, speculative_reason, speculative_current_set
   if plan.speculative_predecessors ~= nil then
     merge_context, speculative_reason = merge_predecessor_entries_for_fix(
@@ -831,6 +832,7 @@ local function act_fix(event)
       fix = fix,
       branches = branches,
       branch = branch,
+      impl_version = origin.impl_version,
       current_pr = current_pr,
       current_issue = current_issue,
       feedback_reason = feedback_reason,

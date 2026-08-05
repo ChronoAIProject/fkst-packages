@@ -202,6 +202,19 @@ local function run_attempt(args)
   end
   devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, "result=completed", nil)
 
+  local unavailable = harvest.worktree_unavailable_outcome(
+    args.ready,
+    args.worktree,
+    args.branch,
+    args.attempt,
+    args.codex_started_at,
+    args.exec_ref,
+    args.base_head
+  )
+  if unavailable ~= nil then
+    return unavailable
+  end
+
   if proof ~= nil then
     local proof_outcome, complete = proof_result_outcome(args, result, proof.context, proof.timeout_seconds)
     if not complete then

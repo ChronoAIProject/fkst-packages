@@ -130,12 +130,16 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id,
-      initial_attempt == 1 and "ready" or "implementing", ready.dedup_key),
+    initial_attempt == 1
+      and h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key)
+      or core.state_marker(event.proposal_id, "implementing", ready.dedup_key),
   }
   if initial_attempt == 1 then
     mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
-    mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+    mock_existing_empty_implement_worktree({
+      impl_version = ready.dedup_key,
+      harvest_checks = 1,
+    })
   else
     table.insert(ready_comments, core.implement_attempt_marker(
       event.proposal_id, ready.dedup_key, initial_attempt - 1, tostring(now() - 7201)))
@@ -151,7 +155,10 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
       stderr = "",
       exit_code = 1,
     })
-    mock_fresh_implement_worktree({ impl_version = ready.dedup_key })
+    mock_fresh_implement_worktree({
+      impl_version = ready.dedup_key,
+      harvest_checks = 1,
+    })
   end
   mock_implement_codex(0, implementation_receipt(
     event, ready.dedup_key, "cannot-implement-here", initial_attempt, reason, evidence))
@@ -261,7 +268,7 @@ local function run_first_clean_implementation_attempt(name, build_stdout)
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }
   mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
   mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
@@ -445,6 +452,43 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(m_facts.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
+  end,
+
+  test_completed_codex_with_vanished_worktree_returns_typed_retry = function()
+    local event = reached()
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    ready.impl_retry_attempt = 2
+    local comments = {
+      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
+    }
+    for _ = 1, 3 do
+      mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+    end
+    mock_existing_empty_implement_worktree({
+      impl_version = ready.dedup_key .. "/reimplement/2",
+      harvest = false,
+    })
+    mock_implement_codex(0, "implemented")
+    local stable_root = devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable")
+    local worktree = devloop_base.implement_worktree_path(
+      stable_root, "owner/repo", 42, ready.dedup_key)
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
+    mock_git_status("", 128, "fatal: cannot change to missing worktree")
+
+    local result = run_implement(ready, opts("implement-worktree-vanished-after-codex"))
+
+    t.eq(result.exit_code, 0, "vanished worktree retry failed: "
+      .. tostring(result.error or result.stderr or "unknown error"))
+    t.eq(count_calls("status --porcelain"), 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:impl-failure:v1", 1, true) ~= nil
+    end), nil)
   end,
 
   test_replayed_ready_rederives_proof_profile_from_accepted_result = function()

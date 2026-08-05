@@ -178,7 +178,7 @@ return {
     local timeout_version = version .. "/timeout/ready/3"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
-        body = core.state_marker(proposal_id, "ready", timeout_version),
+        body = h.projected_state_comment(proposal_id, "ready", timeout_version),
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T01:02:03Z",
       },

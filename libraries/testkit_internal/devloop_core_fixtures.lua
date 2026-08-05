@@ -93,6 +93,8 @@ function M.new(deps)
 
   return {
     core = core,
+    projected_state_comment = deps.projected_state_comment,
+    state_comment = deps.state_comment,
     t = t,
     has_value = has_value,
     source_ref = source_ref,
