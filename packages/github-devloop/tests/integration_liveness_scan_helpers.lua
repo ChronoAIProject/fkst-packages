@@ -254,7 +254,7 @@ end
 
 local function timeout_state_comment(state_name, state_version, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment(proposal_id, state_name, state_version),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -263,7 +263,7 @@ local function recent_state_comment(state_name, state_version, seconds_ago)
   return timeout_state_comment(state_name, state_version, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60)))
 end
 local function ready_state_comment(comment_id, state_version, created_at)
-  return { id = comment_id, body = core.state_marker(proposal_id, "ready", state_version, "result-marker,ready-label,devloop-ready"), author_login = "fkst-test-bot", created_at = created_at or "2026-06-03T00:00:00Z" }
+  return { id = comment_id, body = h.projected_state_comment(proposal_id, "ready", state_version, "result-marker,ready-label,devloop-ready"), author_login = "fkst-test-bot", created_at = created_at or "2026-06-03T00:00:00Z" }
 end
 local function timeout_attempt_comment(state_name, state_version, round, created_at)
   return {

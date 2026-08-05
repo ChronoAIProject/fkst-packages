@@ -263,6 +263,11 @@ return {
       "codex-failed"
     )
   end,
+  test_error_class_from_message_preserves_non_envelope_forms = function()
+    t.eq(core.error_class_from_message("github-devloop: scan failed: bad ref"), "scan")
+    t.eq(core.error_class_from_message("github-devloop: scan failed: inner-class: details"), "inner-class")
+    t.eq(core.error_class_from_message("github-devloop: marker-pending retrying"), "marker-pending")
+  end,
   test_build_proposal = function()
     local proposal = payloads_builders.build_proposal(issue())
     t.eq(proposal.schema, "consensus.proposal.v1")

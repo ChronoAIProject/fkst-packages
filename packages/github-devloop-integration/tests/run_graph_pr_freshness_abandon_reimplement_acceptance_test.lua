@@ -503,7 +503,7 @@ return {
     t.eq(child_state.state, "closed-unmerged")
     t.eq(child_state.version, ROOT_VERSION)
 
-    local ready_marker = core.state_marker(PROPOSAL_ID, "ready", REPLACEMENT_VERSION)
+    local ready_marker = h.projected_state_comment(PROPOSAL_ID, "ready", REPLACEMENT_VERSION)
     local expected_ready = payloads_builders.build_devloop_ready_payload(core, {
       proposal_id = PROPOSAL_ID,
       dedup_key = REPLACEMENT_VERSION,
