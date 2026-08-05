@@ -1798,10 +1798,12 @@ self-hashes, then hashes these canonical aggregates:
 `fkst.intent-diff-behavior-diff.v1`, whose byte-ordered `comparisons` bind each family,
 both recomputed trace hashes, equality, and `first_divergence` when unequal. A missing
 trace, malformed artifact, self-hash mismatch, aggregate mismatch, or manifest mismatch
-fails closed. A PR that changes a numbered intent-diff manifest must change exactly
-`migration/intent-diffs/<actual-pr-number>.json`; a PR without a changed manifest has no
-attestation claim. The generated `fkst.intent-diff-attestation.v1` remains outside the
-tracked tree and is uploaded as a CI artifact.
+fails closed. A feature PR that changes its own numbered intent-diff manifest must change
+exactly `migration/intent-diffs/<actual-pr-number>.json`. A rollup that carries prior
+manifests emits `fkst.intent-diff-rollup-attestation.v1`; its byte-ordered subject list
+binds each manifest path, raw blob SHA-256, and canonical `manifest_sha256` independently
+of the carrier PR number. A PR without a changed manifest has no attestation claim. The
+generated attestations remain outside the tracked tree and are uploaded as CI artifacts.
 
 ### 9.7 Preflight
 

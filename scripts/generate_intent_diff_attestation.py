@@ -77,6 +77,23 @@ def _load_manifest(path: Path, relative: str) -> dict[str, object]:
     return artifact
 
 
+def _manifest_subject(root: Path, relative: str) -> dict[str, object]:
+    manifest_path = root / relative
+    manifest = _load_manifest(manifest_path, relative)
+    manifest_messages = checker._manifest_messages(
+        manifest,
+        relative,
+        int(Path(relative).stem),
+    )
+    if manifest_messages:
+        raise AttestationError("; ".join(manifest_messages))
+    return {
+        "manifest_path": relative,
+        "manifest_blob_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "manifest_sha256": manifest["manifest_sha256"],
+    }
+
+
 def generate_attestation(
     *,
     root: Path,
@@ -111,12 +128,33 @@ def generate_attestation(
         if output_path.is_file():
             output_path.unlink()
         return None
-    if changed_manifests != [expected_manifest]:
+    if expected_manifest in changed_manifests and changed_manifests != [expected_manifest]:
         shown = ", ".join(changed_manifests)
         raise AttestationError(
             f"changed intent-diff manifest must be {expected_manifest} for actual PR {pr_number}; "
             f"found: {shown}"
         )
+
+    if expected_manifest not in changed_manifests:
+        artifact = {
+            "schema": "fkst.intent-diff-rollup-attestation.v1",
+            "carrier_pr_number": pr_number,
+            "base_sha": base_sha,
+            "head_sha": head_sha,
+            "manifest_subjects": [
+                _manifest_subject(root, relative)
+                for relative in changed_manifests
+            ],
+            "semantic_tree_sha256": semantic_tree_sha256(root, head_sha),
+            "semantic_diff_sha256": semantic_diff_sha256(root, base_sha, head_sha),
+            **trace_hashes,
+            "result": "approved",
+            "attestation_sha256": "",
+        }
+        artifact["attestation_sha256"] = canonical_attestation_sha256(artifact)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(canonical_json(artifact) + b"\n")
+        return artifact
 
     manifest_path = root / expected_manifest
     manifest = _load_manifest(manifest_path, expected_manifest)

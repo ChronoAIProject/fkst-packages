@@ -261,11 +261,40 @@ class AttestationGenerationTest(unittest.TestCase):
         self.assertEqual(artifact["old_trace_sha256"], base_trace_hashes["old_trace_sha256"])
         self.assertEqual(manifest["old_trace_sha256"], base_trace_hashes["old_trace_sha256"])
 
-    def test_changed_manifest_must_match_actual_pr_number(self) -> None:
-        self.add_manifest(pr_number=124)
+    def test_rollup_binds_carried_manifests_by_content_identity(self) -> None:
+        manifests = {
+            200: self.add_manifest(pr_number=200),
+            124: self.add_manifest(pr_number=124),
+        }
 
-        with self.assertRaisesRegex(AttestationError, "actual PR 123"):
-            self.generate(pr_number=123)
+        artifact = self.generate(pr_number=999)
+
+        self.assertIsNotNone(artifact)
+        assert artifact is not None
+        self.assertEqual(artifact["schema"], "fkst.intent-diff-rollup-attestation.v1")
+        self.assertEqual(artifact["carrier_pr_number"], 999)
+        self.assertEqual(
+            artifact["manifest_subjects"],
+            [
+                {
+                    "manifest_path": f"migration/intent-diffs/{pr_number}.json",
+                    "manifest_blob_sha256": hashlib.sha256(
+                        (
+                            self.root
+                            / f"migration/intent-diffs/{pr_number}.json"
+                        ).read_bytes()
+                    ).hexdigest(),
+                    "manifest_sha256": manifests[pr_number]["manifest_sha256"],
+                }
+                for pr_number in (124, 200)
+            ],
+        )
+        self.assertEqual(artifact["head_sha"], git(self.root, "rev-parse", "HEAD"))
+        self.assertEqual(artifact["base_sha"], self.base_sha)
+        self.assertEqual(
+            artifact["attestation_sha256"],
+            canonical_attestation_sha256(artifact),
+        )
 
     def test_deleted_manifest_fails_closed(self) -> None:
         self.add_manifest()
