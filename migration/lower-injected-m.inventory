@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 15,
     "workflow_injected_m_unique_symbols": 7,
-    "forge_injected_m_reads": 15,
-    "forge_injected_m_unique_symbols": 10,
-    "total_injected_m_reads": 30,
-    "total_injected_m_unique_symbols": 17
+    "forge_injected_m_reads": 13,
+    "forge_injected_m_unique_symbols": 8,
+    "total_injected_m_reads": 28,
+    "total_injected_m_unique_symbols": 15
   },
   "manifest": {
     "workflow": {
@@ -68,17 +68,9 @@
         "route": "forge",
         "owner": "forge-github"
       },
-      "read_env": {
-        "route": "workflow",
-        "owner": "workflow-env"
-      },
       "read_runtime_root_cmd": {
         "route": "workflow",
         "owner": "workflow-env"
-      },
-      "rollup_failure_gate_sha": {
-        "route": "typed_port",
-        "owner": "devloop-seam-dissolution"
       }
     }
   }

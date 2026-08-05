@@ -42,7 +42,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_consensus_result_result_marker_heals_only_missing_label_and_ready_replay = function()
+  test_consensus_result_result_marker_without_state_reprojects_canonical_comment = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:thinking" }, {
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
@@ -51,13 +51,17 @@ return {
     local result = run_result(current, opts("result-outbox-result-marker-no-label"))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.is_true(label ~= nil)
-    t.eq(label.payload.expected_state, "ready")
-    t.eq(label.payload.expected_version, current.dedup_key)
-    t.eq(label.payload.marker_guard.expected.state, "ready")
-    t.eq(label.payload.marker_guard.expected.version, current.dedup_key)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_true(comment.payload.body:find(
+      h.projected_state_comment(current.proposal_id, "ready", current.dedup_key,
+        "result-marker,ready-label,devloop-ready"),
+      1,
+      true
+    ) ~= nil)
+    t.eq(comment.payload.handoff.label_request.expected_state, "ready")
+    t.eq(comment.payload.handoff.label_request.expected_version, current.dedup_key)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 
