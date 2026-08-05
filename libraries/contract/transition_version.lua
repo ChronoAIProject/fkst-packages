@@ -660,7 +660,7 @@ end
 local function assert_blocked_reason(reason)
   local text = tostring(reason or "")
   if text == "" or text:find("/", 1, true) ~= nil then
-    error("contract.transition_version: blocked reason must be a non-empty slash-free segment")
+    error("contract.transition_version: blocked-reason-invalid: blocked reason must be a non-empty slash-free segment")
   end
   return text
 end

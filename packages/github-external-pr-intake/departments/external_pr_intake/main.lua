@@ -1,6 +1,6 @@
 local core = require("core")
-local pr_owner_resolution = require("core.pr_owner_resolution")
 local ports_seam = require("forge.ports")
+local pr_owner_caps = require("pr_owner_caps")
 local saga = require("workflow.saga")
 
 local M = {}
@@ -42,9 +42,9 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
   if tostring(pr and pr.state or ""):upper() ~= "OPEN" then
     return false, "pr-not-open"
   end
-  local owner = pr_owner_resolution.classify(github, pr, managed, branches)
+  local owner = pr_owner_caps.classify(github, pr, managed, branches)
   if owner.disposition == "retire" then
-    if not core.is_bridge_age_eligible(pr, now_seconds) then
+    if not pr_owner_caps.is_bridge_age_eligible(pr, now_seconds) then
       return false, "bridge-age-ineligible", owner
     end
     return false, "non-authorized-author", owner
@@ -58,7 +58,7 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
   if expected_owner_kind ~= nil and owner.kind ~= expected_owner_kind then
     return false, "owner-changed-to-" .. tostring(owner.kind), owner
   end
-  if not core.is_bridge_age_eligible(pr, now_seconds) then
+  if not pr_owner_caps.is_bridge_age_eligible(pr, now_seconds) then
     return false, "bridge-age-ineligible", owner
   end
   return true, nil, owner
@@ -134,7 +134,7 @@ end
 
 local function write_pr_disposition_comment(github, repo, pr, owner_kind, why)
   local path = core.body_file_path(repo, pr.number, "disposition")
-  file.write(path, core.pr_retirement_comment_body(repo, pr, owner_kind, why) .. "\n")
+  file.write(path, pr_owner_caps.retirement_comment_body(repo, pr, owner_kind, why) .. "\n")
   return github.pr_comment(repo, pr.number, path, 30)
 end
 
@@ -145,7 +145,7 @@ local function retire_pr(github, repo, pr, owner, reason, managed)
   if not core.write_enabled() then
     return "would-retire-" .. reason
   end
-  local existing = core.find_pr_disposition_marker(
+  local existing = pr_owner_caps.find_disposition_marker(
     pr.comments,
     repo,
     pr.number,
@@ -326,7 +326,7 @@ local function handle_candidate(github, payload)
   local action = "skipped"
   with_lock(core.bridge_lock_key(repo, pr_number), function()
     local managed = core.managed_bot_logins()
-    local branches = core.pr_owner_branches()
+    local branches = pr_owner_caps.branches()
     local pr = read_pr(github, repo, pr_number)
     local admitted, reason, owner = admit_bridge_candidate(
       github,
@@ -408,7 +408,7 @@ end
 local function handle_scan(github, event)
   local repo = core.required_repo()
   local managed = core.managed_bot_logins()
-  local branches = core.pr_owner_branches()
+  local branches = pr_owner_caps.branches()
   local result = github.pr_list(repo, 30)
   for _, raw in ipairs(core.parse_pr_list(result and result.stdout or "[]")) do
     local listed_pr = core.normalize_pr(raw, repo)

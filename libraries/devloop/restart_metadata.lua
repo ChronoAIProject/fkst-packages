@@ -229,10 +229,10 @@ local function validate_milestone_domain(domain, milestone)
     return
   end
   if milestone_domains[domain] == nil and domain ~= "github-devloop" then
-    error("github-devloop: unknown milestone domain")
+    error("github-devloop: milestone-domain-unknown: unknown milestone domain")
   end
   if not domain_allows_state(domain, milestone) then
-    error("github-devloop: milestone is outside milestone domain")
+    error("github-devloop: milestone-domain-state-invalid: milestone is outside milestone domain")
   end
 end
 
@@ -245,7 +245,7 @@ function R.compare_phase(left, right, opts)
   local right_state = type(right) == "table" and right.state or right
   local right_rank = R.stage_rank(right_state)
   if not R.is_state(right_state) then
-    error("github-devloop: invalid milestone")
+    error("github-devloop: milestone-invalid: invalid milestone")
   end
   validate_milestone_domain(options.domain or options.milestone_domain, right_state)
   local left_rank = type(left) == "table" and tonumber(left.stage_rank) or nil

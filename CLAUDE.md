@@ -73,6 +73,21 @@
 
 **实证落地：liveness 必须是真实执行状态，不是 receiver 可能无法刷新的自报代理。** watchdog/心跳 doctrine 有个隐藏假设——被监督的 receiver 会周期「踢狗」（自写心跳）。但 **detach/阻塞的 receiver 踢不了狗**（implement codex 阻塞在 `spawn_codex_sync`、detach 跑、无 Lua 循环写心跳），于是「心跳 defer」退化成「从 spawn 起的固定秒表」（`now − started_at`）——一个没有踢狗、只有秒表的假 watchdog，会在 receiver 活着干活时误杀它（实证 false-terminal 根）。新增任何 live-defer 态前先问「这个 receiver **能不能**自己刷新心跳？不能 → 它的 liveness 必须**外部观测**真实执行（进程 / worktree-mtime / 引擎 live-child lease），而非自报 marker 年龄」。且「盲重投」的「盲」只施于**动作**（重发驱动事件、不分析为何慢），**绝不施于前置条件**：重投 / force-terminate 前**必须查 receiver 是否还在执行**（这不是「原因分析」，是 ground state）——在跑 → drop 重投（它唯一目的是激活没在跑的）；没跑 → 激活；没跑 + 激活预算耗尽 → **继续 redrive，不终止**（#2725：超时永不进终态）。
 
+## 每次修改都是一次优化与重构：系统一代比一代更精炼（RAPTOR GATE·质量梯度非负·非新增第 N 条）
+
+**这个系统要像 SpaceX 的火箭发动机那样演进：一代比一代更精炼、更美、性能更高、效率更高。** 没有「只是加个功能」「只是修个 bug」这种中性改动——**每一次修改都同时是一次优化与重构的机会，也是一次让系统变钝的机会**，两者必居其一。prior art：Musk 的设计算法「**最好的零件是没有零件，最好的流程是没有流程**」——先删，删到不得不加回来为止；Raptor 1→2→3 的路线不是「加保护」而是**删零件**（把管路与屏蔽整合进铸件、砍掉整束线束），推力反而更高、成本更低。这与本文件已有的 Saint-Exupéry「完美不是无可再加，而是无可再减」、BEAUTY GATE 的「删无可删」「让非法状态不可表示，而非事后接住」是同一句话——**RAPTOR GATE 只是给它一个方向与棘轮**。
+
+**机械形式：质量梯度非负（scope 不扩，梯度不降）。** 这条**绝不是**「借修一个问题顺手重写无关模块」——那是 WORTH GATE 点名的 scope creep，仍然禁止。它约束的不是改动的**范围**，而是改动**留下的系统状态**：
+
+- **改动的 scope 保持最小**（hotfix 只修那个 bug），但**它触碰到的那块地方，改完后不得比改前更钝**：不新增魔法数字、不新增代理信号、不新增第二真源、不新增 deprecated shim、不让文件更靠近行数上限、不让任何 shrink-only 账本增长。
+- **同等正确的两个解，选删得更多的那个。** 「加一个分支接住它」与「让它不可表示」并列时，后者胜；「传一个 facade」与「传一个窄能力」并列时，后者胜；「造一个 port」与「删掉那条不可达的 fallback」并列时，后者胜。**净删代码的改动优于净增代码的改动**，除非增的那部分是被要求的能力或被要求的证据。
+- **优化必须是重构，改行为的不算。** 「更快 / 更省」若改变了可观察行为，它就不是优化而是 behavior change，按 behavior change 单独论证、单独 review（接「重构不改语义」）。
+- **不为「以后更精炼」提前造抽象**（三次法则 / 模式服务当前问题 / YAGNI 仍然优先）。精炼来自**删**，不来自**预建**。
+
+**诚实分栏（不许把这条说得比它实际强）**：**精炼**这一维已有真牙齿——shrink-only 账本只减不增、保守扩展律不翻旧真、G1 行数上限、G-DEDUP 禁字节级克隆、「不留 deprecated shim / 不要历史兼容性」（当前态是唯一形态）——这些机器判，违则红〔半硬〕。**美**只有对抗 review + 跨模型 + user-as-oracle 的尽力门〔软〕。**性能与效率目前没有任何机械度量**：没有 ratcheted benchmark，就没有「一代比一代快」的证据，只有愿望——所以在建立可比基线之前，**不得声称某次改动提升了性能**，只能声称它改变了什么（接 competence 轴「审证据不审叙事」、实事求是门⑥「无证据就标 UNKNOWN」）。想让这一维长出牙齿，路径是**先冻结一条可复现的基准、再让它单调**，而不是在 PR 里写「更高效了」。
+
+**一句话姿态：每次改动都问「这一代比上一代删掉了什么」，而不是「这一代加了什么」。** 答不出删掉了什么、且账本没有变小、文件没有变短、真源没有减少一个——那这次改动很可能只是让系统更钝了一点，需要重新想。⟦AI:FKST⟧
+
 ## 不动点标架：本文件全部 doctrine 是一个对象的投影（整合自姊妹仓 trureturing 不动点标架·逐条过一遍）
 
 **框架（先立精神）**：本文件每条原则皆**非本仓发明**，而是人类长期沉淀、经时间检验的成熟理论与最佳实践——它们是「变换下不变的不动点」（好坐标系＝变换下的不动标架）。任何模型作用于本仓都是一次**变换**；本文件是变换下**不变**的标架。这与「先找 harness 再执行」同源：锚定成熟 prior art，不重造。本节把姊妹仓 trureturing（同一作者的 Lean 真值-DAG 库）的「不动点标架」**逐条**映射进来：能机器判的归 CI/ratchet（**硬**·违则红），不能的靠对抗 review 与自觉（**软**·会漂移）——**每条标守护，绝不让「harness」这个名字比它实际保证的更强**。这是既有 doctrine 在「如何诚实地不夸大自己」上的同一张脸，非新增第 N 条。
@@ -98,7 +113,7 @@
 - **8 生长自相似，裂由压力**：不预建空壳，抽象只在第二实例或已证实压力出现时上收 → 本仓「模式服务当前问题 / 三次法则」「over-split 与 over-merge 同为病」「YAGNI」。〔软·容量阈半硬，「不预建」靠自觉〕
 
 ### Ⅲ 协作不动点——信任的形状
-- **9 通信即工件；未见于工件视同未发生**：一切协调经库内工件，禁库外旁路信道 → 本仓「消息只许 fanout」「marker-as-fact / GitHub-surface 合法输入」「通信面 requester-provenance noninterference」；干预必须是程序定义的合法输入，不代行程序写权。〔半硬·fanout-only checker DESIGNED-NOT-YET-ENFORCED（软），marker/version 硬；「无库外信道」靠纪律〕
+- **9 通信即工件；未见于工件视同未发生**：一切协调经库内工件，禁库外旁路信道 → 本仓「消息只许 fanout」「marker-as-fact / GitHub-surface 合法输入」「通信面 requester-provenance noninterference」；干预必须是程序定义的合法输入，不代行程序写权。〔半硬·fanout-only 的 narrow known-dialogue ratchet 已 ENFORCED（`G-FANOUT-ONLY`，硬），通用 audience-independence detector 未实现（缺 typed evidence）；marker/version 硬；「无库外信道」靠纪律〕
 - **10 利益回避，旗判分离**：对手官 ≠ 证师，提问者不判自己的答案 → 本仓 sshx「实施席 ≠ 评审席、异 bias 隔离」；**准入层不依赖它**（第 19 条零信任：合并由机器门判，身份无关）。〔流程纪律（质量层）；准入由机器门（硬）〕
 - **11 陈述回声先行**：先审题（回声核对「要证的是不是对的东西」）后判卷，防「证对了错题」→ 本仓 consensus intake + review 的先审题；autochrono/devloop 先据 `source_ref` 回源读全貌再决策（不信过期 payload）。〔软·靠先审题自觉 + 评审〕
 - **12 失败即尸检，只增不删；先翻卷宗后立新案**：每次失败入账不重走死路，立新案前先翻编年 → 本仓「有问题不可怕：discover→root-cause→harness-ify」「intent-before-create 防重（fingerprint+时间窗去重）」「L2 triage 只读消费失败事实起草 issue」。〔半硬·尸检/去重半硬；「先翻卷宗」靠自觉〕
@@ -491,7 +506,7 @@ dogfood 中发现**运行的系统在流血**（storm / 资源耗尽 / churn / �
 - **library composition 与 event-graph composition 的边界（唯一）**：request-reply 逻辑只允许 declared direct `lib_deps` composition；真需要包面时，建薄包直接 call 该 library，多个薄包可引用同一 library。`[event_deps]` 始终是 composed-package 的 event-topology composition（Facade/Adapter），用于组合 fanout-shaped queues；它对 **request-reply reuse** 明确禁用。两者都是 composition，但职责与语义保持严格分离。
 - **为什么（teleology + testability，头号理由）**：**request-reply-as-message 对测试是噩梦**——要编排消息往返、mock reply、处理时序与投递；而 **lib 调用 trivially testable**（调函数、断返回值）。且它 inevitable：要值回来就调函数。
 - **层归属（不归引擎）**：引擎只知静态 `raise ⊆ produces ⊆ published_seam` 与 `M.spec.fanout` queue-cardinality contract，**看不到 Lua 的 provenance-independent acceptance semantics**（丢弃 pipeline 返回值、按 exit=0 ACK），真假 request-reply 对引擎图相同 → 强制归 **fkst-packages conformance**；**不新增引擎 `kind="broadcast"` 自报字段**。
-- **当前唯一可声称的 mechanical harness = known-dialogue inventory ratchet；状态为 `ENFORCED`（2026-08-04 核实）。** 包拥有的 checker 固定为 `scripts/check_repo_fanout_only.py`，shrink-only inventory 固定为 `migration/request-reply-message.allowlist`；`scripts/check_repo_runner.py:191-192` 以 `enforce_base=True` 把 checker 结果记为 `G-FANOUT-ONLY` violation。**执法范围严格限于 checker 可见面**：源码扫描只遍历 `packages/*/departments/*/main.lua`（`scripts/check_repo_fanout_only.py:139-160,170-180`），对 `packages/consensus/` 之外的包只匹配 Lua string literal 中完整出现的 `consensus.proposal` / `consensus.consensus_reached` / `consensus.consensus_converge`，并对这些已知 reply string 配套识别既定 `proposal_id` origin-filter 形状（`:152-160`）；`packages/consensus/` 走独立的 local-queue 分支并提前返回，匹配**不带命名空间**的 `proposal` / `consensus_reached` / `consensus_converge`，且不做 origin-filter 识别（`:144-150`）；manifest 扫描只匹配 `[event_deps]` 段内带引号的 `consensus`（同文件 `:163-180`）。inventory 当前零条目，所以**在上述可见范围内**新增被识别的 surface 直接 CI 红；helper module、department-local 子模块、computed/concatenated queue name 均不在该 checker 的检测面内。
+- **当前唯一可声称的 mechanical harness = known-dialogue inventory ratchet；状态为 `ENFORCED`（2026-08-04 核实）。** 包拥有的 checker 固定为 `scripts/check_repo_fanout_only.py`，shrink-only inventory 固定为 `migration/request-reply-message.allowlist`；`scripts/check_repo_runner.py:216` 以 `enforce_base=True` 把 checker 结果记为 `G-FANOUT-ONLY` violation。**执法范围严格限于 checker 可见面**：源码扫描只遍历 `packages/*/departments/*/main.lua`（`scripts/check_repo_fanout_only.py:139-160,170-180`），对 `packages/consensus/` 之外的包只匹配 Lua string literal 中完整出现的 `consensus.proposal` / `consensus.consensus_reached` / `consensus.consensus_converge`，并对这些已知 reply string 配套识别既定 `proposal_id` origin-filter 形状（`:152-160`）；`packages/consensus/` 走独立的 local-queue 分支并提前返回，匹配**不带命名空间**的 `proposal` / `consensus_reached` / `consensus_converge`，且不做 origin-filter 识别（`:144-150`）；manifest 扫描只匹配 `[event_deps]` 段内带引号的 `consensus`（同文件 `:163-180`）。inventory 当前零条目，所以**在上述可见范围内**新增被识别的 surface 直接 CI 红；helper module、department-local 子模块、computed/concatenated queue name 均不在该 checker 的检测面内。
 - **zero-surface 已激活（terminal deletion 已完成）。** `libraries/consensus/` 是生产库；生产消费者 `autochrono` / `github-devloop` / `github-devloop-pr`，以及 `consensus-tests` 测试包，都在各自 manifest 的 `lib_deps` 中声明 `consensus`（`packages/autochrono/fkst.toml:8-9`、`packages/github-devloop/fkst.toml:8-9`、`packages/github-devloop-pr/fkst.toml:8-9`、`packages/consensus/fkst.toml:8-9`）；没有 package manifest 在 `[event_deps]` 中声明 `consensus`。known-dialogue inventory 随之 ratchet 到 zero。`product-outcome parity` 固定指 caller-observable outcome equality：迁移前后返回相同 reply value，并产生相同 saga transitions/markers；delivery form 从 queue→call 是被明确授权的变化，不拿 delivery-form equality冒充 product parity。
 - **不得虚构 general audience-independence checker。** 现有 `output_obligation` / lineage声明不含 requester identity、response-to relation或 admission 前后 identity use，无法推出 request-reply。未来 general checker必须先新增 typed evidence：每条 cross-boundary message声明是否携带 requester provenance，且 producer/consumer contract声明 consumer acceptance与该 provenance无关；这些证据当前不存在，故只列 future work，不能由 same-lineage return声称已机械证明。任意未 inventory 的 Lua origin-filter继续由上述 doctrine/review lens识别，并作为待纳入 ratchet 的违规，不是合法替代。
 

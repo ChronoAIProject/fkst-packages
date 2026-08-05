@@ -15,6 +15,8 @@ local M = {}
 
 -- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
 local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
+local WORKTREE_MISSING_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING"
+local WORKTREE_ENTERED_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED"
 
 local local_iteration_failure_reasons = {
   CONFIGURATION_FAIL = "local-iteration-configuration-failed",
@@ -91,12 +93,58 @@ end
 
 M.impl_failed_outcome = impl_failed_outcome
 
+local function worktree_unavailable_outcome(ready, worktree, reason, attempt, started_at, exec_ref, base_sha)
+  return {
+    kind = reason,
+    ready = ready,
+    worktree = worktree,
+    reason = reason,
+    terminal = false,
+    attempt = attempt,
+    started_at = started_at,
+    exec_ref = exec_ref,
+    finished_at = now(),
+    base_sha = base_sha,
+    outcome = "retry: " .. tostring(reason),
+  }
+end
+
+local function worktree_unavailable_reason(worktree, branch)
+  local result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(worktree), timeout = 30 })
+  if result.exit_code ~= 0 and result.exit_code ~= 1 then
+    error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
+      .. tostring(result.stderr))
+  end
+  if result.exit_code == 1 then
+    return "worktree-missing"
+  end
+  local list = devloop_commands.git_worktree_list(30)
+  if list.exit_code ~= 0 then
+    error("github-devloop: worktree-list-failed: implementation worktree registration check failed: "
+      .. tostring(list.stderr))
+  end
+  if not devloop_commands.worktree_registered_for_branch(list.stdout, worktree, branch) then
+    return "worktree-unregistered"
+  end
+  return nil
+end
+
+function M.worktree_unavailable_outcome(ready, worktree, branch, attempt, started_at, exec_ref, base_sha)
+  local reason = worktree_unavailable_reason(worktree, branch)
+  if reason == nil then
+    return nil
+  end
+  return worktree_unavailable_outcome(
+    ready, worktree, reason, attempt, started_at, exec_ref, base_sha)
+end
+
 function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, exec_ref, base_sha)
   return {
     kind = "implementation-refusal",
     ready = ready,
     reason = receipt.reason,
     evidence = receipt.evidence,
+    blocker = receipt.blocker,
     receipt = receipt,
     attempt = attempt,
     started_at = started_at,
@@ -107,8 +155,19 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
   }
 end
 
-local function execute_local_iteration_check(worktree, base_head)
-  local command = "cd " .. devloop_base._shell_single_quote(worktree) .. " && "
+local function execute_local_iteration_check(worktree, base_head, observe_worktree)
+  local quoted_worktree = devloop_base._shell_single_quote(worktree)
+  local command = "cd " .. quoted_worktree
+  if observe_worktree then
+    command = command
+      .. " || { if [ ! -d " .. quoted_worktree .. " ]; then printf '%s\\n' "
+      .. devloop_base._shell_single_quote(WORKTREE_MISSING_MARKER)
+      .. " >&2; fi; exit 1; }\nprintf '%s\\n' "
+      .. devloop_base._shell_single_quote(WORKTREE_ENTERED_MARKER)
+      .. " >&2\n"
+  else
+    command = command .. " && "
+  end
   if base_head ~= nil then
     command = command .. "export BASE=" .. devloop_base._shell_single_quote(base_head) .. " && "
   end
@@ -120,7 +179,28 @@ function M.local_iteration_check(worktree, base_head)
   if base_head == nil or tostring(base_head) == "" then
     error("github-devloop: local-iteration-base-missing: candidate base head is required")
   end
-  return execute_local_iteration_check(worktree, base_head)
+  return execute_local_iteration_check(worktree, base_head, true)
+end
+
+local function worktree_unavailability_from_command(result)
+  if type(result) ~= "table" or tonumber(result.exit_code) == 0 then
+    return nil
+  end
+  local missing = false
+  local entered = false
+  for _, text in ipairs({ result.stdout, result.stderr }) do
+    for line in (tostring(text or "") .. "\n"):gmatch("([^\n]*)\n") do
+      if line == WORKTREE_MISSING_MARKER then
+        missing = true
+      elseif line == WORKTREE_ENTERED_MARKER then
+        entered = true
+      end
+    end
+  end
+  if missing and not entered then
+    return "worktree-missing"
+  end
+  return nil
 end
 
 local function command_detail(result)
@@ -175,7 +255,7 @@ local function run_base_probe(worktree, base_sha)
   end
 
   -- A raw-base probe has no candidate diff and must not inherit candidate comparison context.
-  local check = execute_local_iteration_check(plan.worktree, nil)
+  local check = execute_local_iteration_check(plan.worktree, nil, true)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
   local result = local_iteration_result.from_command(check)
   if exit_code == nil then
@@ -247,6 +327,7 @@ end
 
 local function run_local_iteration_check(ready, worktree, base_head)
   local check = M.local_iteration_check(worktree, base_head)
+  local unavailable_reason = worktree_unavailability_from_command(check)
   local result = local_iteration_result.from_command(check)
   devloop_logging.log_line(result.kind == "PASS" and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
@@ -254,18 +335,18 @@ local function run_local_iteration_check(ready, worktree, base_head)
     "result_reason=" .. tostring(result.reason),
     "reason=pre-handoff-local-iteration",
   })
-  return result.kind == "PASS", command_detail(check), result
+  return result.kind == "PASS", command_detail(check), result, unavailable_reason
 end
 
 local function run_candidate_local_iteration_check(ready, worktree, base_head)
-  local green, detail, result
+  local green, detail, result, unavailable_reason
   for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
-    green, detail, result = run_local_iteration_check(ready, worktree, base_head)
-    if result.kind ~= "UNKNOWN" then
-      return green, detail, result, verification_attempt
+    green, detail, result, unavailable_reason = run_local_iteration_check(ready, worktree, base_head)
+    if unavailable_reason ~= nil or result.kind ~= "UNKNOWN" then
+      return green, detail, result, verification_attempt, unavailable_reason
     end
   end
-  return green, detail, result, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS
+  return green, detail, result, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS, unavailable_reason
 end
 
 local function base_probe_detail(probe)
@@ -346,8 +427,17 @@ local function verification_checkpoint_outcome(repo, issue_number, ready, integr
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail, candidate_result, candidate_verification_attempt =
+  local unavailable = M.worktree_unavailable_outcome(
+    ready, worktree, branch, attempt, started_at, exec_ref, base_head)
+  if unavailable ~= nil then
+    return unavailable
+  end
+  local green, verify_detail, candidate_result, candidate_verification_attempt, verify_unavailable_reason =
     run_candidate_local_iteration_check(ready, worktree, base_head)
+  if verify_unavailable_reason ~= nil then
+    return worktree_unavailable_outcome(ready, worktree, verify_unavailable_reason,
+      attempt, started_at, exec_ref, base_head)
+  end
   if not green then
     local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
     if typed_failure_reason ~= nil then
@@ -413,6 +503,11 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
 end
 
 function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)
+  local unavailable = M.worktree_unavailable_outcome(
+    ready, worktree, branch, attempt, started_at, exec_ref, base_head)
+  if unavailable ~= nil then
+    return unavailable
+  end
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then
     error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
@@ -424,7 +519,13 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   local green = false
   local verify_detail = ""
   if progress_head ~= nil then
-    green, verify_detail = run_local_iteration_check(ready, worktree, base_head)
+    local ignored_result, verify_unavailable_reason
+    green, verify_detail, ignored_result, verify_unavailable_reason =
+      run_local_iteration_check(ready, worktree, base_head)
+    if verify_unavailable_reason ~= nil then
+      return worktree_unavailable_outcome(ready, worktree, verify_unavailable_reason,
+        attempt, started_at, exec_ref, base_head)
+    end
   end
   if green and progress_head ~= nil then
     return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)

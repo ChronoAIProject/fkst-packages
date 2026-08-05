@@ -15,7 +15,7 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
   local fields = ""
   if action ~= nil then
     if not devloop_base._is_review_meta_action(action) then
-      error("github-devloop: invalid review-meta action")
+      error("github-devloop: review-meta-action-invalid: invalid review-meta action")
     end
     fields = fields .. '" action="' .. tostring(action)
   end
@@ -25,7 +25,7 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
   if action == "fix" then
     local gap = safe_marker_attr(blocking_gap, devloop_base._max_blocking_gap_len)
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
-      error("github-devloop: invalid review-meta gap")
+      error("github-devloop: blocking-gap-invalid: invalid review-meta gap")
     end
     fields = fields .. '" gap="' .. gap
     if feedback == nil then
@@ -59,7 +59,7 @@ function C.fix_reflection_marker(issue_proposal_id, dedup_key, verdict, version,
   end
   local n = valid_round(fix_round)
   if n == nil then
-    error("github-devloop: fix-reflection-round-invalid: invalid fix reflection round")
+    error("github-devloop: fix-round-invalid: invalid fix reflection round")
   end
   local version_field = ""
   if version ~= nil then
@@ -75,7 +75,7 @@ end
 
 function C.fix_marker(issue_proposal_id, review_proposal_id, review_dedup_key, old_head_sha, new_head_sha)
   if not forge_validators.is_git_sha(old_head_sha) or not forge_validators.is_git_sha(new_head_sha) then
-    error("github-devloop: invalid fix head sha")
+    error("github-devloop: git-sha-invalid: invalid fix head sha")
   end
   return '<!-- fkst:github-devloop:fix:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" review_proposal="' .. tostring(review_proposal_id)
@@ -87,26 +87,26 @@ end
 
 function C.merge_gate_marker(issue_proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha, gate_baseline_sha, reason, predecessor_set, ci_failure_key)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid merge-gate marker")
+    error("github-devloop: pr-head-identity-invalid: invalid merge-gate marker")
   end
   local baseline_field = ""
   if gate_baseline_sha ~= nil then
     if not forge_validators.is_git_sha(gate_baseline_sha) then
-      error("github-devloop: merge-gate-marker-invalid: invalid merge-gate marker")
+      error("github-devloop: git-sha-invalid: invalid merge-gate marker")
     end
     baseline_field = '" gate_baseline_sha="' .. tostring(gate_baseline_sha)
   end
   local predecessor_field = ""
   if predecessor_set ~= nil then
     if not strings.is_path_safe_key(predecessor_set, devloop_base._max_dedup_len) then
-      error("github-devloop: merge-gate-predecessor-set-invalid: invalid merge-gate predecessor set")
+      error("github-devloop: predecessor-set-invalid: invalid merge-gate predecessor set")
     end
     predecessor_field = '" predecessor_set="' .. tostring(predecessor_set)
   end
   local ci_failure_field = ""
   if ci_failure_key ~= nil then
     if not ci_failure_keys.is_valid(ci_failure_key, devloop_base._max_dedup_len) then
-      error("github-devloop: merge-gate-ci-failure-key-invalid: invalid merge-gate ci failure key")
+      error("github-devloop: ci-failure-key-invalid: invalid merge-gate ci failure key")
     end
     ci_failure_field = '" ci_failure_key="' .. tostring(ci_failure_key)
   end
@@ -125,16 +125,16 @@ end
 
 function C.implementing_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: implementing-branch-invalid: invalid branch")
+    error("github-devloop: git-ref-invalid: invalid branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: implementing-head-sha-invalid: invalid head sha")
+    error("github-devloop: git-sha-invalid: invalid head sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: implementing-base-branch-invalid: invalid base branch")
+    error("github-devloop: git-ref-invalid: invalid base branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: implementing-base-sha-invalid: invalid base sha")
+    error("github-devloop: git-sha-invalid: invalid base sha")
   end
   return '<!-- fkst:github-devloop:implementing:v1 proposal="' .. tostring(proposal_id)
     .. '" dedup="' .. tostring(dedup_key)
@@ -147,16 +147,16 @@ end
 
 function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt, reason)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: checkpoint-branch-invalid: invalid checkpoint branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: checkpoint-head-sha-invalid: invalid checkpoint head sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint head sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: checkpoint-base-branch-invalid: invalid checkpoint base branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint base branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: checkpoint-base-sha-invalid: invalid checkpoint base sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint base sha")
   end
   local n = tonumber(attempt)
   if n == nil or n < 1 or n ~= math.floor(n) then
@@ -177,13 +177,13 @@ end
 
 function C.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_branch)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: pr-link-pr-number-invalid: invalid pr number")
+    error("github-devloop: invalid-pr-number: invalid pr number")
   end
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: pr-link-branch-invalid: invalid branch")
+    error("github-devloop: git-ref-invalid: invalid branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid base branch")
+    error("github-devloop: git-ref-invalid: invalid base branch")
   end
   return '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. tostring(proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -195,10 +195,10 @@ end
 
 function C.pr_link_marker_template(proposal_id, branch, impl_version, base_branch)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: pr-link-branch-invalid: invalid branch")
+    error("github-devloop: git-ref-invalid: invalid branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid base branch")
+    error("github-devloop: git-ref-invalid: invalid base branch")
   end
   return '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. tostring(proposal_id)
     .. '" pr="{{pr_number}}"'
@@ -210,13 +210,13 @@ end
 
 function C.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, version, delegation)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: pr-delegation-pr-number-invalid: invalid pr-delegation pr number")
+    error("github-devloop: invalid-pr-number: invalid pr-delegation pr number")
   end
   if not strings.is_bounded_string(issue_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(pr_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(version, devloop_base._max_dedup_len)
     or not strings.is_path_safe_key(delegation, devloop_base._max_dedup_len) then
-    error("github-devloop: invalid pr-delegation marker")
+    error("github-devloop: pr-delegation-fields-invalid: invalid pr-delegation marker")
   end
   return '<!-- fkst:github-devloop:pr-delegation:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr_proposal="' .. tostring(pr_proposal_id)
@@ -228,10 +228,10 @@ end
 
 function C.pr_origin_marker(proposal_id, issue_number, branch, impl_version, base_branch)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: pr-origin-branch-invalid: invalid branch")
+    error("github-devloop: git-ref-invalid: invalid branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid base branch")
+    error("github-devloop: git-ref-invalid: invalid base branch")
   end
   return '<!-- fkst:github-devloop:pr-origin:v1 proposal="' .. tostring(proposal_id)
     .. '" issue="' .. tostring(issue_number)
@@ -243,7 +243,7 @@ end
 
 function C.review_result_marker(review_proposal_id, issue_proposal_id, decision, dedup_key, fix_round, blocking_gap)
   if decision ~= "approve" and decision ~= "reject" then
-    error("github-devloop: review-decision-invalid: invalid review decision")
+    error("github-devloop: decision-invalid: invalid review decision")
   end
   local fix_round_field = ""
   local gap_field = ""
@@ -251,13 +251,13 @@ function C.review_result_marker(review_proposal_id, issue_proposal_id, decision,
     if fix_round ~= nil then
       local n = valid_round(fix_round)
       if n == nil then
-        error("github-devloop: review-reject-fix-round-invalid: invalid review reject fix round")
+        error("github-devloop: fix-round-invalid: invalid review reject fix round")
       end
       fix_round_field = '" fix_round="' .. tostring(n)
     end
     local gap = safe_marker_attr(blocking_gap, devloop_base._max_blocking_gap_len)
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
-      error("github-devloop: review-reject-gap-invalid: invalid review reject gap")
+      error("github-devloop: blocking-gap-invalid: invalid review reject gap")
     end
     gap_field = '" gap="' .. gap
   end
@@ -272,15 +272,15 @@ end
 
 function C.merge_ready_marker(issue_proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: merge-ready-pr-number-invalid: invalid merge-ready pr number")
+    error("github-devloop: invalid-pr-number: invalid merge-ready pr number")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: merge-ready-head-sha-invalid: invalid merge-ready head sha")
+    error("github-devloop: git-sha-invalid: invalid merge-ready head sha")
   end
   if not strings.is_bounded_string(version, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(review_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(review_dedup_key, devloop_base._max_dedup_len) then
-    error("github-devloop: merge-ready-marker-invalid: invalid merge-ready marker")
+    error("github-devloop: merge-ready-review-binding-invalid: invalid merge-ready marker")
   end
   return '<!-- fkst:github-devloop:merge-ready:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -293,14 +293,14 @@ end
 
 function C.high_risk_review_evidence_marker(issue_proposal_id, version, pr_number, head_sha, review_proposal_id, review_dedup_key, paths_digest, angle_digest)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: high-risk-review-evidence-marker-invalid: invalid high-risk review evidence marker")
+    error("github-devloop: pr-head-identity-invalid: invalid high-risk review evidence marker")
   end
   if not strings.is_bounded_string(version, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(review_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(review_dedup_key, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(paths_digest, devloop_base._max_key_len)
     or not strings.is_bounded_string(angle_digest, devloop_base._max_key_len) then
-    error("github-devloop: high-risk-review-evidence-marker-invalid: invalid high-risk review evidence marker")
+    error("github-devloop: high-risk-review-evidence-fields-invalid: invalid high-risk review evidence marker")
   end
   return '<!-- fkst:github-devloop:high-risk-review-evidence:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" version="' .. tostring(version)
@@ -317,14 +317,14 @@ function C.review_carry_over_marker(issue_proposal_id, version, old_review_propo
   if not forge_validators.is_git_sha(approved_head_sha)
     or not forge_validators.is_git_sha(new_head_sha)
     or not forge_validators.is_git_sha(base_head_sha) then
-    error("github-devloop: review-carry-over-marker-invalid: invalid review carry-over marker")
+    error("github-devloop: git-sha-invalid: invalid review carry-over marker")
   end
   if not strings.is_bounded_string(version, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(old_review_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(old_review_dedup_key, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(new_review_proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(new_review_dedup_key, devloop_base._max_dedup_len) then
-    error("github-devloop: review-carry-over-marker-invalid: invalid review carry-over marker")
+    error("github-devloop: review-carry-over-fields-invalid: invalid review carry-over marker")
   end
   return '<!-- fkst:github-devloop:review-carry-over:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" version="' .. tostring(version)
@@ -340,7 +340,7 @@ end
 
 function C.merged_marker(M, issue_proposal_id, pr_number, version, head_sha, autonomy_record)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: merged-marker-invalid: invalid merged marker")
+    error("github-devloop: pr-head-identity-invalid: invalid merged marker")
   end
   local autonomy_attrs = autonomy_record ~= nil and (' autonomy_result="v1"' .. autonomy_ledger.autonomy_result_marker_attrs(autonomy_record)) or ""
   return '<!-- fkst:github-devloop:merged:v1 proposal="' .. tostring(issue_proposal_id)
@@ -351,7 +351,7 @@ end
 
 function C.merging_marker(issue_proposal_id, pr_number, version, head_sha)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: merging-marker-invalid: invalid merging marker")
+    error("github-devloop: pr-head-identity-invalid: invalid merging marker")
   end
   return '<!-- fkst:github-devloop:merging:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -365,7 +365,7 @@ function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, servic
     error("github-devloop: intake-decision-invalid: invalid intake decision")
   end
   if not strings.is_bounded_string(dedup_key, devloop_base._max_dedup_len) then
-    error("github-devloop: intake-dedup-invalid: invalid intake dedup")
+    error("github-devloop: dedup-key-invalid: invalid intake dedup")
   end
   if not shared.is_intake_service_class(service_class) then
     error("github-devloop: intake-service-class-invalid: invalid intake service class")
@@ -387,7 +387,7 @@ end
 
 function C.orphan_reaped_marker(proposal_id, pr_number, reason)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: orphan-reaped-pr-number-invalid: invalid orphan reaped pr number")
+    error("github-devloop: invalid-pr-number: invalid orphan reaped pr number")
   end
   local safe_reason = strings.sanitize_key(reason or "parent-terminal", false):gsub("/", "-")
   return '<!-- fkst:github-devloop:orphan-reaped:v1 proposal="' .. tostring(proposal_id)
@@ -398,10 +398,10 @@ end
 
 function C.pr_base_unmanaged_marker(proposal_id, pr_number, pr_base, integration_branch)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: unmanaged-base-pr-number-invalid: invalid unmanaged-base pr number")
+    error("github-devloop: invalid-pr-number: invalid unmanaged-base pr number")
   end
   if not forge_validators.is_git_ref_safe(pr_base) or not forge_validators.is_git_ref_safe(integration_branch) then
-    error("github-devloop: invalid unmanaged-base branch")
+    error("github-devloop: git-ref-invalid: invalid unmanaged-base branch")
   end
   return '<!-- fkst:github-devloop:pr-base-unmanaged:v1 proposal="' .. tostring(proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -413,13 +413,13 @@ end
 
 function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logical_identity, framing)
   if decision ~= "approve" and decision ~= "reject" then
-    error("github-devloop: invalid decision")
+    error("github-devloop: decision-invalid: invalid decision")
   end
   if decision == "reject" and decision_reason ~= "premise-refuted" then
-    error("github-devloop: reject-decision-reason-invalid: invalid reject decision reason")
+    error("github-devloop: decision-reason-invalid: invalid reject decision reason")
   end
   if decision == "approve" and decision_reason ~= nil then
-    error("github-devloop: approve-decision-reason-unexpected: unexpected approve decision reason")
+    error("github-devloop: decision-reason-invalid: unexpected approve decision reason")
   end
   local reason_attr = decision_reason and ('" reason="' .. decision_reason) or ""
   local framing_attr = ""

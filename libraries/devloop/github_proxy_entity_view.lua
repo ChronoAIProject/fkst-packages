@@ -1,5 +1,5 @@
 local C = {}
-local devloop_commands = require("devloop.commands")
+local issue_reads = require("devloop.commands.issue_reads")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
@@ -106,12 +106,12 @@ local function decode_json(stdout)
   if ok and type(decoded) == "table" then
     return decoded
   end
-  error("github-devloop: REST response is not valid JSON")
+  error("github-devloop: rest-json-invalid: REST response is not valid JSON")
 end
 
 local function decode_entity_json(stdout)
   if stdout == nil or stdout == "" then
-    error("github-devloop: REST entity response is empty")
+    error("github-devloop: rest-entity-empty: REST entity response is empty")
   end
   return decode_json(stdout)
 end
@@ -177,7 +177,7 @@ local function rest_pr_to_view_json(pr_stdout, comments_stdout)
   local head_name_with_owner = repo_name_with_owner(head_repo)
   local base_name_with_owner = repo_name_with_owner(base_repo)
   if head_name_with_owner == nil or base_name_with_owner == nil then
-    error("github-devloop: REST PR view missing repository facts")
+    error("github-devloop: rest-pr-repository-facts-missing: REST PR view missing repository facts")
   end
   local is_cross_repository = tostring(head_name_with_owner):lower() ~= tostring(base_name_with_owner):lower()
   local comment_source = comments_stdout
@@ -381,7 +381,7 @@ local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opt
     end
   end
 
-  local result = devloop_commands.gh_issue_view_intake_judge(
+  local result = issue_reads.gh_issue_view_intake_judge(
     repo,
     issue_number,
     tonumber(options.timeout) or 30

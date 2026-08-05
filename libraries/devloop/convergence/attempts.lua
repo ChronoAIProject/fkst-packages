@@ -14,7 +14,7 @@ local attr = shared.attr
 function C.timeout_attempt_marker(proposal_id, issue_version, state_name, round, source_ref)
   local n = valid_round(round)
   if n == nil or n <= 0 then
-    error("github-devloop: invalid timeout attempt round")
+    error("github-devloop: timeout-attempt-round-invalid: invalid timeout attempt round")
   end
   local normalized = base_ids.normalize_source_ref(source_ref)
   local lineage_version = transition_version.strip_suffixes(issue_version)
@@ -31,7 +31,7 @@ end
 function C.timeout_attempt_v2_marker(proposal_id, state_name, liveness_class_id, generation_key, round, source_ref)
   local n = valid_round(round)
   if n == nil or n <= 0 then
-    error("github-devloop: invalid timeout attempt round")
+    error("github-devloop: timeout-attempt-round-invalid: invalid timeout attempt round")
   end
   local normalized = base_ids.normalize_source_ref(source_ref)
   return '<!-- fkst:github-devloop:timeout-attempt:v2 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
@@ -105,7 +105,7 @@ end
 function C.decompose_exhausted_marker(proposal_id, issue_version, round, source_ref)
   local n = valid_round(round)
   if n == nil or n <= 0 then
-    error("github-devloop: invalid decompose exhausted round")
+    error("github-devloop: decompose-exhausted-round-invalid: invalid decompose exhausted round")
   end
   local normalized = base_ids.normalize_source_ref(source_ref)
   local lineage_version = transition_version.strip_suffixes(issue_version)

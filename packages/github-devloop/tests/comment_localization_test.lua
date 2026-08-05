@@ -187,7 +187,7 @@ return {
     local issue_comments = {
       {
         body = "lorem ipsum " .. cjk_probe .. "\n"
-          .. core.state_marker(issue_proposal_id, "ready", issue_version)
+          .. h.projected_state_comment(issue_proposal_id, "ready", issue_version)
           .. "\n" .. m_builders.result_marker(issue_proposal_id, "approve", "consensus:v1")
           .. "\n" .. core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }),
         author_login = devloop_base.trusted_bot_login(),

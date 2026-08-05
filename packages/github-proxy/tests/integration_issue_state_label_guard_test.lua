@@ -1,5 +1,6 @@
 local h = require("tests.proxy_integration_helpers")
 local devloop_state = require("devloop.state")
+local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(devloop_state)
 local t = h.t
 local opts = h.opts
 local mock_write_env = h.mock_write_env
@@ -189,7 +190,7 @@ return {
 
   test_issue_ready_projection_with_dependency_label_applies_as_one_guarded_request = function()
     mock_issue_comment_view({
-      devloop_state.state_marker(proposal_id, "ready", stale_version),
+      projected_state_comment(proposal_id, "ready", stale_version),
     })
     mock_label_apply({
       "fkst-dev:ready",
@@ -209,7 +210,7 @@ return {
     t.eq(count_calls("gh issue edit"), 0)
 
     mock_issue_comment_view({
-      devloop_state.state_marker(proposal_id, "dependency_wait", fresh_version),
+      projected_state_comment(proposal_id, "dependency_wait", fresh_version),
     })
     local result = run_label(event, "issue-ready-dependency-label-guard-retry-current")
 

@@ -725,7 +725,7 @@ M.error_fingerprint = error_facts.error_fingerprint
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  return text:match("github%-external%-pr%-intake: ([%w%-]+):") or "caught-failure"
+  return error_facts.error_class_from_message(text)
 end
 
 function M.log_line(level, dept, proposal_id, tag, fields)
