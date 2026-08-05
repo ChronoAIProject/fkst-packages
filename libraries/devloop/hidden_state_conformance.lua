@@ -43,14 +43,14 @@ local function production_replay_dept(core)
   local package = package_name(core)
   local dept = ({ ["github-devloop"] = "observe_issue", ["github-devloop-pr"] = "observe_pr" })[package]
   if dept == nil then
-    error("devloop: hidden-state conformance has no production replay department for package " .. package)
+    error("devloop: hidden-state-replay-department-package-unsupported: hidden-state conformance has no production replay department for package " .. package)
   end
   for _, source in ipairs(core.restart_consumer_sources or {}) do
     if tostring(source or ""):match("departments/" .. dept .. "/main%.lua$") then
       return dept
     end
   end
-  error("devloop: hidden-state conformance production replay department is not declared in restart_consumer_sources: " .. dept)
+  error("devloop: hidden-state-replay-department-source-undeclared: hidden-state conformance production replay department is not declared in restart_consumer_sources: " .. dept)
 end
 
 local function marker_author(core)
@@ -151,9 +151,37 @@ local function state_for(row)
   }
 end
 
+local function state_comment_body(core, proposal_id, state, version, effects)
+  if state ~= "ready" and state ~= "dependency_wait" then
+    return devloop_state.state_marker(proposal_id, state, version, effects)
+  end
+  return devloop_state.build_projected_state_comment_request({
+    repo = REPO,
+    issue_number = ISSUE_NUMBER,
+    proposal_id = proposal_id,
+    state = state,
+    marker_version = version,
+    handoff_version = version,
+    effects = effects,
+    body_before_marker = "",
+    body_after_marker = "",
+    comment_dedup_key = "hidden-state-fixture/comment/" .. state,
+    label_policy = {
+      dedup_key = "hidden-state-fixture/label/" .. state,
+    },
+    source_ref = SOURCE_REF,
+  }).body
+end
+
 local function base_entity(core, row, source_ref)
   local state = state_for(row)
-  local body = devloop_state.state_marker(ISSUE_PROPOSAL, row.from_state, state.version, "result-marker,ready-label,devloop-ready")
+  local body = state_comment_body(
+    core,
+    ISSUE_PROPOSAL,
+    row.from_state,
+    state.version,
+    "result-marker,ready-label,devloop-ready"
+  )
   local labels = { "fkst-dev:enabled", devloop_state.state_label(row.from_state) }
   return {
     schema = "github-proxy.v1",

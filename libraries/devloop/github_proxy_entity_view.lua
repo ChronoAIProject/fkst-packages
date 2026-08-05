@@ -1,4 +1,6 @@
 local C = {}
+local issue_reads = require("devloop.commands.issue_reads")
+local entity_list_cache = require("devloop.entity_list_cache")
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
 
@@ -16,6 +18,7 @@ local repo_owner_login = github_view.repo_owner_login
 local decode_comments_json = function(stdout) return github_view.decode_comments_json(stdout, "github-devloop: REST") end
 
 local max_cache_key_segment_len = 120
+local intake_issue_view_cache_kind = "issue-intake-judge"
 
 local function github()
   if type(exec_argv) ~= "function" then
@@ -103,12 +106,12 @@ local function decode_json(stdout)
   if ok and type(decoded) == "table" then
     return decoded
   end
-  error("github-devloop: REST response is not valid JSON")
+  error("github-devloop: rest-json-invalid: REST response is not valid JSON")
 end
 
 local function decode_entity_json(stdout)
   if stdout == nil or stdout == "" then
-    error("github-devloop: REST entity response is empty")
+    error("github-devloop: rest-entity-empty: REST entity response is empty")
   end
   return decode_json(stdout)
 end
@@ -174,7 +177,7 @@ local function rest_pr_to_view_json(pr_stdout, comments_stdout)
   local head_name_with_owner = repo_name_with_owner(head_repo)
   local base_name_with_owner = repo_name_with_owner(base_repo)
   if head_name_with_owner == nil or base_name_with_owner == nil then
-    error("github-devloop: REST PR view missing repository facts")
+    error("github-devloop: rest-pr-repository-facts-missing: REST PR view missing repository facts")
   end
   local is_cross_repository = tostring(head_name_with_owner):lower() ~= tostring(base_name_with_owner):lower()
   local comment_source = comments_stdout
@@ -360,6 +363,33 @@ local function cache_successful_view(key, result, producer)
   end
 end
 
+local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  local options = opts or {}
+  local validator = tostring(updated_at or "")
+  local coalesce_scope = tostring(options.coalesce_scope or "")
+  local key = entity_view_cache_key(repo, intake_issue_view_cache_kind, issue_number)
+  if validator ~= "" and coalesce_scope ~= "" then
+    local cached_result = nil
+    local epoch_current = entity_list_cache.with_current_poll_epoch(repo, coalesce_scope, function()
+      local cached = decode_cached_view(cache_get(key))
+      if cached ~= nil and cached.updated_at == validator then
+        cached_result = success_from_cache(cached)
+      end
+    end)
+    if epoch_current and cached_result ~= nil then
+      return cached_result
+    end
+  end
+
+  local result = issue_reads.gh_issue_view_intake_judge(
+    repo,
+    issue_number,
+    tonumber(options.timeout) or 30
+  )
+  cache_successful_view(key, result, options.consumer or "admission")
+  return result
+end
+
 local function fetch_entity_view(repo, kind, number, updated_at, opts)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
@@ -423,6 +453,9 @@ function C.invalidate_entity_after_write(repo, kind, number)
   with_lock(entity_key, function()
     cache_set(entity_key, "")
     cache_set(view_key, "")
+    if selected_kind == "issue" then
+      cache_set(entity_view_cache_key(repo, intake_issue_view_cache_kind, number), "")
+    end
   end)
 end
 
@@ -444,6 +477,10 @@ end
 
 function C.fetch_issue_view(repo, issue_number, updated_at, opts)
   return fetch_entity_view(repo, "issue", issue_number, updated_at, opts)
+end
+
+function C.fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  return fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
 end
 
 function C.fetch_pr_view(repo, pr_number, updated_at, opts)

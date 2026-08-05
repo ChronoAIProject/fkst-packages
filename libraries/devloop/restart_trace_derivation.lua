@@ -6,7 +6,7 @@ local NULL = restart_trace.null
 local ARRAY_TAG = getmetatable(json.decode("[]"))
 
 local function fail(message)
-  error("devloop.restart_trace_derivation: " .. message, 0)
+  error("devloop.restart_trace_derivation: restart-trace-derivation-invalid: " .. message, 0)
 end
 
 local function require_nonempty_string(value, field)

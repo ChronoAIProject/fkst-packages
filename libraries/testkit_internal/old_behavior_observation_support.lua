@@ -94,13 +94,13 @@ function M.canonical_json(value)
     return tostring(value)
   end
   if kind ~= "table" then
-    error("OLD observation canonical JSON cannot encode " .. kind)
+    error("testkit-internal: canonical-json-value-unsupported: OLD observation canonical JSON cannot encode " .. kind)
   end
 
   if json_container_kind(value) == "array" then
     local length = array_length(value)
     if length == nil then
-      error("OLD observation canonical JSON array must be a contiguous sequence")
+      error("testkit-internal: canonical-json-array-nondense: OLD observation canonical JSON array must be a contiguous sequence")
     end
     local items = {}
     for index = 1, length do
@@ -112,7 +112,7 @@ function M.canonical_json(value)
   local keys = {}
   for key, _ in pairs(value) do
     if type(key) ~= "string" then
-      error("OLD observation canonical JSON object key must be a string")
+      error("testkit-internal: canonical-json-object-key-invalid: OLD observation canonical JSON object key must be a string")
     end
     table.insert(keys, key)
   end
@@ -165,8 +165,8 @@ function M.first_difference(actual, expected, path)
 end
 
 function M.observe_department(opts)
-  local config = opts.config or error("OLD observation config dependency is required")
-  local devloop_logging = opts.devloop_logging or error("OLD observation logging dependency is required")
+  local config = opts.config or error("testkit-internal: fixture-dependency-missing: OLD observation config dependency is required")
+  local devloop_logging = opts.devloop_logging or error("testkit-internal: fixture-dependency-missing: OLD observation logging dependency is required")
   local captured = {
     probes = M.json_array(),
     decisions = M.json_array(),
@@ -328,23 +328,23 @@ end
 
 function M.protected_admission_fixture(path, fixture_id)
   if type(path) ~= "string" or path == "" then
-    error("protected admission corpus path is required", 0)
+    error("testkit-internal: protected-admission-input-invalid: protected admission corpus path is required", 0)
   end
   if type(fixture_id) ~= "string" or fixture_id == "" then
-    error("protected admission fixture_id is required", 0)
+    error("testkit-internal: protected-admission-input-invalid: protected admission fixture_id is required", 0)
   end
   local artifact = json.decode(file.read(path))
   local match = nil
   for _, fixture in ipairs(artifact.fixtures or {}) do
     if fixture.fixture_id == fixture_id then
       if match ~= nil then
-        error("protected admission fixture is ambiguous: " .. fixture_id, 0)
+        error("testkit-internal: protected-admission-fixture-ambiguous: protected admission fixture is ambiguous: " .. fixture_id, 0)
       end
       match = fixture
     end
   end
   if match == nil then
-    error("protected admission fixture is missing: " .. fixture_id, 0)
+    error("testkit-internal: protected-admission-fixture-missing: protected admission fixture is missing: " .. fixture_id, 0)
   end
   return M.copy_value(match)
 end
@@ -423,59 +423,59 @@ end
 
 local function delivery_authorizations(manifest)
   if type(manifest) ~= "table" or manifest.cause ~= R11_CAUSE then
-    error("testkit-internal: r11-observation-manifest-invalid: R11 OLD observation comparison requires the committed R11 manifest", 0)
+    error("testkit-internal: r11-manifest-cause-invalid: R11 OLD observation comparison requires the committed R11 manifest", 0)
   end
   local changed = {}
   for _, field in ipairs({ "changed_row_ids", "changed_edge_ids", "changed_policy_ids" }) do
     local ids = sorted_unique_strings(manifest[field], "R11 manifest " .. field)
     for observation_id in pairs(ids) do
       if changed[observation_id] then
-        error("testkit-internal: r11-changed-observation-id-duplicate: R11 manifest observation ID appears in multiple changed-ID sets: " .. observation_id, 0)
+        error("testkit-internal: r11-changed-id-set-overlap: R11 manifest observation ID appears in multiple changed-ID sets: " .. observation_id, 0)
       end
       changed[observation_id] = true
     end
   end
 
   if not M.is_json_array(manifest.authorized_delivery_atoms) then
-    error("testkit-internal: r11-delivery-authorization-list-invalid: R11 manifest authorized_delivery_atoms must be a JSON array", 0)
+    error("testkit-internal: r11-authorized-delivery-atoms-not-array: R11 manifest authorized_delivery_atoms must be a JSON array", 0)
   end
   local authorizations = {}
   local prior = nil
   for index, entry in ipairs(manifest.authorized_delivery_atoms) do
     if type(entry) ~= "table" then
-      error("testkit-internal: r11-delivery-authorization-type-invalid: R11 delivery authorization must be an object at index " .. tostring(index), 0)
+      error("testkit-internal: r11-delivery-authorization-schema-invalid: R11 delivery authorization must be an object at index " .. tostring(index), 0)
     end
     local keys = {}
     for key in pairs(entry) do keys[key] = true end
     if not keys.observation_id or not keys.remove or not keys.add then
-      error("R11 delivery authorization requires observation_id/remove/add", 0)
+      error("testkit-internal: r11-delivery-authorization-schema-invalid: R11 delivery authorization requires observation_id/remove/add", 0)
     end
     for key in pairs(keys) do
       if key ~= "observation_id" and key ~= "remove" and key ~= "add" then
-        error("testkit-internal: r11-delivery-authorization-field-unsupported: R11 delivery authorization has unsupported field: " .. tostring(key), 0)
+        error("testkit-internal: r11-delivery-authorization-schema-invalid: R11 delivery authorization has unsupported field: " .. tostring(key), 0)
       end
     end
     local observation_id = entry.observation_id
     if type(observation_id) ~= "string" or observation_id == "" then
-      error("R11 delivery authorization observation_id must be a non-empty string", 0)
+      error("testkit-internal: r11-delivery-authorization-schema-invalid: R11 delivery authorization observation_id must be a non-empty string", 0)
     end
     if prior ~= nil and prior > observation_id then
-      error("testkit-internal: r11-delivery-authorizations-unsorted: R11 delivery authorizations must be byte-sorted by observation_id", 0)
+      error("testkit-internal: r11-delivery-authorization-order-invalid: R11 delivery authorizations must be byte-sorted by observation_id", 0)
     end
     if authorizations[observation_id] then
-      error("R11 delivery authorization is duplicated: " .. observation_id, 0)
+      error("testkit-internal: r11-delivery-authorization-duplicate: R11 delivery authorization is duplicated: " .. observation_id, 0)
     end
     local removed = sorted_unique_strings(entry.remove, observation_id .. " remove")
     local added = sorted_unique_strings(entry.add, observation_id .. " add")
     for atom in pairs(removed) do
       if not R11_DELIVERY_ATOMS[atom] or atom:sub(1, 6) ~= "queue:" then
-        error("testkit-internal: r11-removed-delivery-atom-invalid: R11 manifest cannot authorize removed non-delivery atom: " .. atom, 0)
+        error("testkit-internal: r11-delivery-authorization-atom-invalid: R11 manifest cannot authorize removed non-delivery atom: " .. atom, 0)
       end
     end
     for atom in pairs(added) do
       if not R11_DELIVERY_ATOMS[atom]
         or (atom:sub(1, 6) ~= "raise:" and atom:sub(1, 5) ~= "call:") then
-        error("testkit-internal: r11-added-delivery-atom-invalid: R11 manifest cannot authorize added non-delivery atom: " .. atom, 0)
+        error("testkit-internal: r11-delivery-authorization-atom-invalid: R11 manifest cannot authorize added non-delivery atom: " .. atom, 0)
       end
     end
     if removed["queue:consensus.consensus_converge"]
@@ -495,12 +495,12 @@ local function delivery_authorizations(manifest)
   end
   for observation_id in pairs(changed) do
     if not authorizations[observation_id] then
-      error("testkit-internal: r11-delivery-authorization-missing: R11 changed observation lacks delivery authorization: " .. observation_id, 0)
+      error("testkit-internal: r11-delivery-authorization-coverage-mismatch: R11 changed observation lacks delivery authorization: " .. observation_id, 0)
     end
   end
   for observation_id in pairs(authorizations) do
     if not changed[observation_id] then
-      error("testkit-internal: r11-delivery-authorization-unmatched: R11 delivery authorization is not listed in changed-ID sets: " .. observation_id, 0)
+      error("testkit-internal: r11-delivery-authorization-coverage-mismatch: R11 delivery authorization is not listed in changed-ID sets: " .. observation_id, 0)
     end
   end
   return authorizations

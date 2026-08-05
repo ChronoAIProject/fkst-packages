@@ -1,9 +1,11 @@
 local function effect_entitlements(row_id, semantic_variant)
   local id = "github-devloop/" .. row_id .. "/canonicalization/" .. semantic_variant
+  local effect_ids = { "github-proxy.github_issue_comment_request" }
+  if row_id == "awaiting-pr" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
   return {
-    apply = { id = id .. "/apply", effect_ids = {
-      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
-    } },
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
     idempotent = { id = id .. "/idempotent", effect_ids = {} },
   }
 end

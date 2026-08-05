@@ -8,6 +8,8 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local base_ids = require("devloop.base_ids")
 local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
+local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state"))
+local state_comment = require("testkit_internal.projected_state_fixture").bind_state_comment(require("devloop.state"))
 gh_argv.install(t, core)
 
 local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
@@ -378,7 +380,7 @@ local function mock_origin_dependency(blocker_state)
       origin_blocker_issue,
       "Workflow origin blocker",
       { "fkst-dev:" .. blocker_milestone },
-      { { body = core.state_marker(blocker_proposal, blocker_milestone, "blocker-version") } },
+      { { body = state_comment(blocker_proposal, blocker_milestone, "blocker-version") } },
       blocker_state
     ),
     stderr = "",
@@ -813,7 +815,7 @@ return {
     local ready_version = "consensus:" .. created_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
-      body = core.state_marker(
+      body = projected_state_comment(
         created_child,
         "ready",
         ready_version,
@@ -842,7 +844,7 @@ return {
       ready_version .. "/redrive/ready/1",
     })
     implement_fixtures.mock_fresh_implement_worktree({
-      runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child",
+      durable_root = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child-durable",
       repo = repo,
       issue_number = created_child_issue,
       impl_version = implementation_version,

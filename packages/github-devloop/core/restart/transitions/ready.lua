@@ -82,7 +82,6 @@ return function(M, h)
               id = "github-devloop/ready/guard_boundary/blocker_reappeared/apply",
               effect_ids = {
                 "github-proxy.github_issue_comment_request",
-                "github-proxy.github_issue_label_request",
               },
             },
             idempotent = {

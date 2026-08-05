@@ -71,11 +71,6 @@ local function mock_child_issue_list_from_bodies(event, bodies)
   })
 end
 
-local function mock_child_issue_list_repeated(event, indexes, times)
-  for _ = 1, times do
-    mock_child_issue_list(event, indexes)
-  end
-end
 
 local function mock_pr_view(event, comments)
   local selected = {

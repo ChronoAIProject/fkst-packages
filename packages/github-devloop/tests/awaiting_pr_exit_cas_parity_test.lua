@@ -164,6 +164,17 @@ local function frozen_old_writes(fixture)
       for _, write in ipairs(record.old_outcome.observable_writes or {}) do
         table.insert(writes, { queue = write.queue, payload = write.payload })
       end
+      if fixture.target == "ready" then
+        local comment = writes[1]
+        local label = writes[2]
+        if type(comment) ~= "table" or type(comment.payload) ~= "table"
+          or type(comment.payload.handoff) ~= "table"
+          or type(label) ~= "table" or type(label.payload) ~= "table" then
+          error("frozen OLD awaiting-pr ready projection is malformed", 0)
+        end
+        comment.payload.handoff.label_request = label.payload
+        table.remove(writes, 2)
+      end
       return writes
     end
   end
@@ -218,7 +229,8 @@ local function run_apply(fixture)
   config.branch_config = original_branch_config
   if not ok then error(result, 0) end
 
-  t.eq(#result.raises, 2, fixture.name .. ": comment then label")
+  local expected_effect_count = fixture.target == "ready" and 1 or 2
+  t.eq(#result.raises, expected_effect_count, fixture.name .. ": canonical effect count")
   t.eq(
     h.count_calls("gh issue close 42 --repo owner/repo") - close_calls_before,
     fixture.closes_issue and 1 or 0,
