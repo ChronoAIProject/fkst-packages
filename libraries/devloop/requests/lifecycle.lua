@@ -4,7 +4,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local premise_correction = require("devloop.premise_correction")
-local C = {}
+local C, attach_declined_label_handoff = {}, nil
 local forge_validators = require("devloop.forge_validators")
 local comment_strings = require("devloop.strings")
 local shared = require("devloop.requests.shared")
@@ -73,14 +73,14 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       source_ref = reached.source_ref, framing = reached.framing,
     })
   end
-  return m_claims.attach_issue_claim({
+  local request = m_claims.attach_issue_claim({
     schema = "github-proxy.v1", repo = repo, issue_number = issue_number,
-    body = body
-      .. M.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
+    body = body .. M.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
       .. "\n" .. marker
       .. "\n" .. ai_sentinel,
     dedup_key = comment_dedup_key, source_ref = base_ids.normalize_source_ref(reached.source_ref),
   }, reached.source_ref)
+  return attach_declined_label_handoff(request, repo, issue_number, reached, canonical_state, marker_version)
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
@@ -483,6 +483,21 @@ function C.build_queue_starvation_reconcile_comment_request(repo, merge_ready, c
     tostring(merge_ready.reviewed_head_sha),
     tostring(attempt_key),
   }), entity_lib.pr_source_ref(repo, merge_ready.pr_number))
+end
+
+attach_declined_label_handoff = function(request, repo, issue_number, reached, state, marker_version)
+  if state ~= "declined" then return request end
+  request.handoff = {
+    kind = "github-devloop.declined-label",
+    proposal_id = reached.proposal_id,
+    version = tostring(reached.dedup_key),
+    marker_version = marker_version,
+    label_request = require("devloop.requests.labels").build_result_state_label_request(
+      repo, issue_number, reached, state
+    ),
+    source_ref = base_ids.normalize_source_ref(reached.source_ref),
+  }
+  return request
 end
 
 return C

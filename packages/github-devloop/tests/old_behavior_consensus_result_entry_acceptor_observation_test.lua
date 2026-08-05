@@ -93,7 +93,7 @@ local FIXTURES = ra.json_array({
     gate_kind = "release", effects = ra.json_array({ RESULT_COMMENT, RELEASE_COMMENT }) },
   { disposition = "admitted-declined", status = "admitted", reason = "premise-refuted",
     cas = "applied", target = "declined", source_line = 243, decision = "reject",
-    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "admitted-dependency-wait", status = "admitted", reason = "dependency-waiting",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "waiting",
     current_state = "thinking", current_version = VERSION,
@@ -110,7 +110,7 @@ local FIXTURES = ra.json_array({
 
 local function transform_projected_handoff_record(record)
   local target = record.typed_intent and record.typed_intent.target
-  if target ~= "ready" and target ~= "dependency_wait" then
+  if target ~= "ready" and target ~= "dependency_wait" and target ~= "declined" then
     return record
   end
   local outcome = record.old_outcome
@@ -126,9 +126,9 @@ local function transform_projected_handoff_record(record)
   for _, write in ipairs(outcome.observable_writes or {}) do
     if write.effect_id ~= RESULT_LABEL then
       if write.effect_id == RESULT_COMMENT then
-        write.payload.handoff_kind = target == "ready"
-          and "github-devloop.ready"
-          or "github-devloop.ready-split-label"
+        write.payload.handoff_kind = target == "ready" and "github-devloop.ready"
+          or target == "dependency_wait" and "github-devloop.ready-split-label"
+          or "github-devloop.declined-label"
       end
       table.insert(writes, write)
     end

@@ -7,6 +7,7 @@ local reached = h.reached
 local run_result = h.run_result
 local mock_issue_result = h.mock_issue_result
 local find_raise = h.find_raise
+local run_comment_handoff_from_request = h.run_comment_handoff_from_request
 
 local function fold_by_engine_dedup(raised_batches)
   local seen = {}
@@ -22,6 +23,25 @@ local function fold_by_engine_dedup(raised_batches)
     end
   end
   return folded
+end
+
+local function apply_label_requests(initial_labels, raises)
+  local labels = {}
+  for _, label in ipairs(initial_labels or {}) do
+    labels[tostring(label)] = true
+  end
+  for _, raised in ipairs(raises) do
+    if raised.queue == "github-proxy.github_issue_label_request" then
+      local payload = raised.payload or {}
+      for _, label in ipairs(payload.remove_labels or {}) do
+        labels[tostring(label)] = nil
+      end
+      for _, label in ipairs(payload.add_labels or {}) do
+        labels[tostring(label)] = true
+      end
+    end
+  end
+  return labels
 end
 
 local function bodies_for_comments(raises)
@@ -58,14 +78,14 @@ return {
 
     local raced = run_result(reject, opts("visibility-race-second-reject-no-visible-first-result"))
     t.eq(raced.exit_code, 0)
-    t.eq(#raced.raises, 2)
+    t.eq(#raced.raises, 1)
     local rejected_comment = find_raise(raced.raises, "github-proxy.github_issue_comment_request")
-    local rejected_label = find_raise(raced.raises, "github-proxy.github_issue_label_request")
+    local rejected_label = rejected_comment.payload.handoff.label_request
     t.is_true(rejected_comment ~= nil)
-    t.is_true(rejected_label ~= nil)
+    t.eq(find_raise(raced.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(rejected_comment.payload.dedup_key, approved_comment.payload.dedup_key)
-    t.eq(rejected_label.payload.dedup_key, approved_label.dedup_key)
-    t.eq(rejected_label.payload.add_labels[1], "fkst-dev:declined")
+    t.eq(rejected_label.dedup_key, approved_label.dedup_key)
+    t.eq(rejected_label.add_labels[1], "fkst-dev:declined")
     t.is_true(rejected_comment.payload.body:find('state="declined"', 1, true) ~= nil)
     t.is_true(rejected_comment.payload.body:find("fkst:github-devloop:result-divergence:v1", 1, true) == nil)
 
@@ -76,7 +96,18 @@ return {
     -- longer claims full closure; the next level poll re-derives from visible
     -- markers and labels.
     local folded = fold_by_engine_dedup({ applied.raises, raced.raises })
+    local winning_comment = find_raise(folded, "github-proxy.github_issue_comment_request")
+    local acknowledged = run_comment_handoff_from_request(
+      winning_comment.payload,
+      "IC_visibility_race_winner",
+      "visibility-race-winning-comment-handoff"
+    )
+    t.eq(acknowledged.exit_code, 0)
+    local delivered = fold_by_engine_dedup({ applied.raises, raced.raises, acknowledged.raises })
+    local labels = apply_label_requests({ "fkst-dev:thinking" }, delivered)
+
     t.eq(core.current_state(bodies_for_comments(folded), approve.proposal_id).state, "ready")
-    t.eq(approved_label.add_labels[1], "fkst-dev:ready")
+    t.eq(labels["fkst-dev:ready"], true)
+    t.is_nil(labels["fkst-dev:declined"])
   end,
 }

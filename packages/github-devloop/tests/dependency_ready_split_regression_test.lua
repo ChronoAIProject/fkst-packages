@@ -242,13 +242,13 @@ local function assert_result_projection(raises, to_state, to_version)
   local comment = state_comment_request(raises, to_state, to_version)
   t.is_true(comment ~= nil)
   local direct_label = state_label_request(raises, to_state, to_version)
-  local projected = to_state == "ready" or to_state == "dependency_wait"
+  local handoff = comment.payload.handoff
+  local projected = type(handoff) == "table" and type(handoff.label_request) == "table"
   if projected then
     t.eq(direct_label, nil)
   else
     t.is_true(direct_label ~= nil)
   end
-  local handoff = comment.payload.handoff
   local label = projected and handoff and handoff.label_request or direct_label.payload
   t.is_true(type(label) == "table")
   t.eq(label.marker_guard.expected.state, to_state)

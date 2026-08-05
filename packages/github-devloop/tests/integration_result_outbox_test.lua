@@ -118,6 +118,11 @@ return {
     })
     local fresh = run_result(fresh_reject, opts("result-new-generation-reject"))
     t.eq(fresh.exit_code, 0)
-    t.eq(find_raise(fresh.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:declined")
+    local comment = find_raise(fresh.raises, "github-proxy.github_issue_comment_request")
+    local handoff = h.run_comment_handoff_from_request(
+      comment.payload, "IC_fresh_declined", "result-new-generation-reject-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    t.eq(find_raise(handoff.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:declined")
   end,
 }

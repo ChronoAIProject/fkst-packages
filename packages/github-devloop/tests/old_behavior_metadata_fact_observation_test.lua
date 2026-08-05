@@ -32,11 +32,11 @@ local CURRENT_SINK_FAMILIES = {
   ["comment:issue:consensus-result"] =
     "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
   ["label:issue:consensus-result"] =
-    "state-label:declined|visible-marker-repair:ready|dependency_wait;dedup=proposal/label/logical-result",
+    "state-label:visible-marker-repair:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
   ["comment:issue:dependency-canonicalization"] =
     "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
   ["label:issue:dependency-canonicalization"] =
-    "state-label:ready|dependency_wait+label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
+    "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
   ["label:issue:awaiting-pr-terminal"] =
     "state-label:merged|blocked;dedup=awaiting-pr/label",
 }

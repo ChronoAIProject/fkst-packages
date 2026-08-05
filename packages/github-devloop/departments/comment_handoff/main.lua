@@ -87,6 +87,14 @@ local function supported_handoff(payload)
     and projected_state_label_request(payload, handoff, "dependency_wait") ~= nil then
     return handoff
   end
+  if handoff.kind == "github-devloop.declined-label"
+    and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.version)
+    and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
+    and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
+    and projected_state_label_request(payload, handoff, "declined") ~= nil then
+    return handoff
+  end
   if handoff.kind == "github-devloop.reconcile"
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.base_version)
     and strings.is_bounded_string(handoff.base_version, devloop_base._max_dedup_len)
@@ -136,6 +144,16 @@ local function act_handoff(event)
       { state = "dependency_wait", version = handoff.marker_version },
       "comment-written", "github-proxy.github_issue_label_request",
       "applied(own-write-comment-id)", "ready split marker comment write was acknowledged")
+    devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
+      "github-proxy.github_issue_label_request", handoff.label_request)
+    return
+  end
+
+  if handoff.kind == "github-devloop.declined-label" then
+    devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id,
+      { state = "declined", version = handoff.marker_version },
+      "comment-written", "github-proxy.github_issue_label_request",
+      "applied(own-write-comment-id)", "declined marker comment write was acknowledged")
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
       "github-proxy.github_issue_label_request", handoff.label_request)
     return

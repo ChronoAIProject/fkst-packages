@@ -191,14 +191,19 @@ return {
 
     local result = run_result(event, opts("result-premise-refuted"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 1)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.is_true(comment.payload.body:find("decline: premise-refuted", 1, true) ~= nil)
     local declined_state = core.current_state({ comment.payload.body }, event.proposal_id)
     t.eq(declined_state.state, "declined")
     t.eq(declined_state.version, event.dedup_key)
     t.is_true(comment.payload.body:find(m_builders.result_marker(event.proposal_id, "reject", event.dedup_key, "premise-refuted", nil, event.framing), 1, true) ~= nil)
+    local handoff = h.run_comment_handoff_from_request(
+      comment.payload, "IC_declined_result", "result-premise-refuted-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    local label = find_raise(handoff.raises, "github-proxy.github_issue_label_request")
     t.eq(label.payload.add_labels[1], "fkst-dev:declined")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
