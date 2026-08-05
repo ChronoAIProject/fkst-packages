@@ -156,6 +156,11 @@ local function mock_common_env()
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command(devloop_base.read_env_command("FKST_PROJECT_ROOT"), {
+      stdout = "/tmp/fkst-project",
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 
@@ -212,6 +217,12 @@ local function mock_rollup_merge_success()
     comments = rollup_observe_sample_comments(),
     status_check_rollup_json = status_rollup_success(),
   }, entity_mocks.pr_merge_selector)
+  t.mock_command("retire_spent_intent_diffs.py", {
+    stdout = '{"head":"' .. rollup_head_sha
+      .. '","paths":[],"retired":0,"schema":"fkst.intent-diff-retirement.v1"}\n',
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command(
     "gh pr merge '" .. tostring(rollup_pr_number) .. "' --repo '" .. repo .. "' --merge --match-head-commit '" .. rollup_head_sha .. "'",
     {

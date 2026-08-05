@@ -10,6 +10,9 @@ local strings = require("contract.strings")
 local rollup_health = require("core" .. ".rollup_health")
 local devloop_base = require("devloop.base")
 
+local retirement_result_schema = "fkst.intent-diff-retirement.v1"
+local retirement_helper = "/.claude/skills/dogfood-github-devloop/retire_spent_intent_diffs.py"
+
 local spec = {
   consumes = { "devloop_rollup_ready" },
   produces = { "github-devloop.devloop_liveness_tick" },
@@ -105,6 +108,60 @@ local function runtime_stability_gate(payload, pr)
   return true, "runtime-stable"
 end
 
+local function retire_spent_intent_diffs(payload, pr)
+  local project_root = strings.trim(config.project_root() or ""):gsub("/+$", "")
+  if project_root:sub(1, 1) ~= "/" or project_root:find("[\r\n]") ~= nil then
+    error("github-devloop: intent-diff-retirement-project-root-invalid: FKST_PROJECT_ROOT must be absolute")
+  end
+  local result = exec_argv({
+    argv = {
+      "python3",
+      project_root .. retirement_helper,
+      "--repo-root",
+      project_root,
+      "--github-repo",
+      payload.repo,
+      "--protected-ref",
+      pr.head_sha,
+      "--promote-branch",
+      payload.integration_branch,
+    },
+    timeout = 120,
+  })
+  if type(result) ~= "table" or result.exit_code ~= 0 then
+    local detail = strings.trim(type(result) == "table" and result.stderr or "")
+    if detail == "" then
+      detail = strings.trim(type(result) == "table" and result.stdout or "")
+    end
+    error("github-devloop: intent-diff-retirement-failed: " .. (detail ~= "" and detail or "missing command result"))
+  end
+
+  local decoded_ok, retirement = pcall(json.decode, result.stdout or "")
+  local retired = decoded_ok and type(retirement) == "table" and retirement.retired or nil
+  if not decoded_ok
+    or type(retirement) ~= "table"
+    or retirement.schema ~= retirement_result_schema
+    or type(retired) ~= "number"
+    or retired < 0
+    or retired ~= math.floor(retired)
+    or type(retirement.head) ~= "string" then
+    error("github-devloop: intent-diff-retirement-result-invalid: helper returned an invalid result")
+  end
+  if retired == 0 and retirement.head ~= pr.head_sha then
+    error("github-devloop: intent-diff-retirement-result-invalid: unchanged retirement head does not match the reviewed head")
+  end
+  if retired > 0 then
+    if retirement.head == pr.head_sha then
+      error("github-devloop: intent-diff-retirement-result-invalid: changed retirement did not advance the reviewed head")
+    end
+    return false, {
+      reason = "intent-diff-retired",
+      detail = "retired=" .. tostring(retired) .. " head=" .. retirement.head,
+    }
+  end
+  return true
+end
+
 local function act(event)
   local payload = event.payload or {}
   local supported, unsupported_reason = core.validate_rollup_ready(payload)
@@ -166,6 +223,10 @@ local function act(event)
             reason = stability_reason or "runtime-stability-gate",
             detail = stability_detail,
           }
+        end
+        local retirement_ok, retirement_reason = retire_spent_intent_diffs(payload, rechecked_pr)
+        if not retirement_ok then
+          return false, retirement_reason
         end
         return true, "runtime-stable"
       end,

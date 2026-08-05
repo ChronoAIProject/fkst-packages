@@ -186,27 +186,99 @@ print(json.dumps(fact))
         return relative
 
     def run_retirement(
-        self, facts: dict[str, object], *, check: bool = True
+        self,
+        facts: dict[str, object],
+        *,
+        protected_ref: str = "HEAD",
+        promote_branch: str | None = None,
+        check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = str(self.bin_dir) + os.pathsep + env.get("PATH", "")
         env["RETIREMENT_TEST_FACTS"] = json.dumps(facts)
+        argv = [
+            "python3",
+            str(RETIREMENT_HELPER),
+            "--repo-root",
+            str(self.repo),
+            "--github-repo",
+            "owner/repo",
+            "--protected-ref",
+            protected_ref,
+        ]
+        if promote_branch is not None:
+            argv.extend(["--promote-branch", promote_branch])
         return subprocess.run(
-            [
-                "python3",
-                str(RETIREMENT_HELPER),
-                "--repo-root",
-                str(self.repo),
-                "--github-repo",
-                "owner/repo",
-                "--protected-ref",
-                "HEAD",
-            ],
+            argv,
             cwd=self.repo,
             env=env,
             check=check,
             capture_output=True,
             text=True,
+        )
+
+    def test_promotion_retires_before_advancing_the_integration_head(self) -> None:
+        git(self.repo, "checkout", "-q", "integration")
+        relative = self.add_manifest(123)
+        expected_head = commit(self.repo, "add manifest to integration")
+        remote = self.root / "remote.git"
+        git(self.root, "init", "--bare", "-q", str(remote))
+        git(self.repo, "remote", "add", "origin", str(remote))
+        git(self.repo, "push", "-q", "-u", "origin", "integration")
+
+        result = self.run_retirement(
+            {
+                "123": {
+                    "state": "MERGED",
+                    "mergeCommit": {"oid": expected_head},
+                }
+            },
+            protected_ref=expected_head,
+            promote_branch="integration",
+        )
+
+        retirement = json.loads(result.stdout)
+        published_head = retirement["head"]
+        self.assertEqual(retirement["retired"], 1)
+        self.assertEqual(retirement["paths"], [relative])
+        self.assertNotEqual(published_head, expected_head)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), expected_head)
+        self.assertEqual(git(self.repo, "branch", "--show-current"), "integration")
+        self.assertTrue((self.repo / relative).is_file())
+        remote_head = git(
+            self.repo, "ls-remote", "--heads", "origin", "refs/heads/integration"
+        ).split()[0]
+        self.assertEqual(remote_head, published_head)
+        self.assertEqual(
+            git(
+                self.repo,
+                "show",
+                f"{published_head}:migration/intent-bounded-replay.allowlist",
+            ),
+            "# protected allowlist",
+        )
+        manifest = subprocess.run(
+            ["git", "cat-file", "-e", f"{published_head}:{relative}"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(manifest.returncode, 0)
+        git(self.repo, "merge-base", "--is-ancestor", expected_head, published_head)
+
+        second = self.run_retirement(
+            {}, protected_ref=published_head, promote_branch="integration"
+        )
+        self.assertEqual(json.loads(second.stdout)["retired"], 0)
+        self.assertEqual(
+            git(
+                self.repo,
+                "ls-remote",
+                "--heads",
+                "origin",
+                "refs/heads/integration",
+            ).split()[0],
+            published_head,
         )
 
     def test_spent_manifest_is_retired_after_feature_merge_and_baseline_advance(self) -> None:

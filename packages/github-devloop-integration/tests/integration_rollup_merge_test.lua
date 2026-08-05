@@ -9,6 +9,7 @@ local function opts(name, write_mode)
       FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
       FKST_GITHUB_WRITE = write_mode or "1",
       FKST_DEVLOOP_ROLLUP_RUNTIME_SOAK_MINUTES = "30",
+      FKST_PROJECT_ROOT = "/tmp/fkst-project",
     },
   }
 end
@@ -117,16 +118,49 @@ local function mock_merge_command(head_sha, result)
   t.mock_command("gh pr merge '9' --repo 'owner/repo' --merge --match-head-commit '" .. tostring(head_sha or "def456") .. "'", command_result)
 end
 
+local function mock_intent_diff_retirement(retired, head_sha, times)
+  t.mock_command('printf %s "$FKST_PROJECT_ROOT"', {
+    stdout = "/tmp/fkst-project",
+    stderr = "",
+    exit_code = 0,
+  }, times or 1)
+  t.mock_command("retire_spent_intent_diffs.py", {
+    stdout = '{"head":"' .. tostring(head_sha or "def456")
+      .. '","paths":' .. ((retired or 0) > 0 and '["migration/intent-diffs/123.json"]' or "[]")
+      .. ',"retired":' .. tostring(retired or 0)
+      .. ',"schema":"fkst.intent-diff-retirement.v1"}\n',
+    stderr = "",
+    exit_code = 0,
+  }, times or 1)
+end
+
 local function mock_successful_merge()
   mock_write_mode("1")
   mock_pr()
   mock_runtime_gate(observe_clean())
   mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
+  mock_intent_diff_retirement(0, "def456")
   mock_merge_command()
   mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
 end
 
 return {
+  test_rollup_merge_retires_spent_manifest_instead_of_promoting_stale_head = function()
+    mock_write_mode("1")
+    mock_pr()
+    mock_runtime_gate(observe_clean())
+    mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", {
+      mature_clean_sample("def456"),
+    })
+    mock_intent_diff_retirement(1, "aaaa1111")
+
+    local result = run_merge(event(), opts("rollup-merge-retires-spent-intent", "1"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("retire_spent_intent_diffs.py"), 1)
+    t.eq(h.count_calls("gh pr merge"), 0)
+  end,
+
   test_rollup_merge_green_mergeable_identity_match_merges = function()
     mock_successful_merge()
     local result = run_merge(event(), opts("rollup-merge-success", "1"))
@@ -172,6 +206,7 @@ return {
     mock_pr("def456")
     mock_runtime_gate(observe_clean(), "aaaa1111")
     mock_pr("aaaa1111", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("aaaa1111") })
+    mock_intent_diff_retirement(0, "aaaa1111")
     mock_merge_command("aaaa1111")
     mock_pr("aaaa1111", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-fresh-head", "1"))
@@ -186,6 +221,7 @@ return {
     mock_pr("def456")
     mock_runtime_gate(observe_clean(), "def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command("def456", {
       stdout = "",
       stderr = "GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)",
@@ -193,6 +229,7 @@ return {
     })
     mock_runtime_gate(observe_clean(), "aaaa1111")
     mock_pr("aaaa1111", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("aaaa1111") })
+    mock_intent_diff_retirement(0, "aaaa1111")
     mock_merge_command("aaaa1111")
     mock_pr("aaaa1111", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-head-modified-retry", "1"))
@@ -207,6 +244,7 @@ return {
     mock_pr("def456")
     mock_runtime_gate(observe_clean(), "def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command("def456", {
       stdout = "",
       stderr = "GraphQL: Repository rule violation",
@@ -234,6 +272,7 @@ return {
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", {
       observe_sample_comment("def456", "clean", 31 * 60, prod_bot),
     })
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local run_opts = opts("rollup-merge-prod-bot-soak", "1")
@@ -287,6 +326,7 @@ return {
         },
       },
     }, "def456")
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-stale-dead-letter-audit", "1"))
@@ -421,6 +461,7 @@ return {
       dead_letters = json.decode("[]"),
     }, "def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-transients-clean", "1"))

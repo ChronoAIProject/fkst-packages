@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 
@@ -19,6 +20,8 @@ MANIFEST_RE = re.compile(r"(?P<pr>[1-9][0-9]*)\.json\Z")
 GIT_SHA_RE = re.compile(r"[0-9a-f]{40,64}\Z")
 REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*\Z")
 REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+RETIREMENT_COMMIT_MESSAGE = "chore(migration): retire spent intent-diff manifests"
+RETIREMENT_RESULT_SCHEMA = "fkst.intent-diff-retirement.v1"
 
 
 class RetirementError(RuntimeError):
@@ -37,6 +40,41 @@ def _run(argv: list[str], root: Path) -> subprocess.CompletedProcess[str]:
         )
     except OSError as error:
         raise RetirementError(f"cannot execute {argv[0]}: {error}") from error
+
+
+def _run_required(
+    argv: list[str], root: Path, operation: str
+) -> subprocess.CompletedProcess[str]:
+    result = _run(argv, root)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "no error detail"
+        raise RetirementError(f"{operation} failed: {detail}")
+    return result
+
+
+def _git_commit(root: Path, ref: str) -> str:
+    result = _run_required(
+        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        root,
+        f"cannot resolve {ref}",
+    )
+    commit = result.stdout.strip()
+    if GIT_SHA_RE.fullmatch(commit) is None:
+        raise RetirementError(f"{ref} did not resolve to a commit SHA")
+    return commit
+
+
+def _remote_branch_head(root: Path, branch: str) -> str:
+    ref = f"refs/heads/{branch}"
+    result = _run_required(
+        ["git", "ls-remote", "--heads", "origin", ref],
+        root,
+        f"cannot read remote branch {branch}",
+    )
+    fields = result.stdout.split()
+    if len(fields) != 2 or fields[1] != ref or GIT_SHA_RE.fullmatch(fields[0]) is None:
+        raise RetirementError(f"remote branch {branch} did not resolve to one commit")
+    return fields[0]
 
 
 def _manifest_pr(path: Path) -> int:
@@ -189,16 +227,103 @@ def apply_retirement(root: Path, spent: list[Path]) -> None:
             pass
 
 
+def _commit_retirement(root: Path) -> str:
+    _run_required(
+        [
+            "git",
+            "add",
+            "-A",
+            "--",
+            MANIFEST_DIR.as_posix(),
+            ALLOWLIST.as_posix(),
+        ],
+        root,
+        "cannot stage intent-diff retirement",
+    )
+    _run_required(
+        ["git", "commit", "-m", RETIREMENT_COMMIT_MESSAGE],
+        root,
+        "cannot commit intent-diff retirement",
+    )
+    return _git_commit(root, "HEAD")
+
+
+def promote_retirement(
+    root: Path, github_repo: str, branch: str, expected_head: str
+) -> tuple[list[str], str]:
+    _run_required(
+        ["git", "fetch", "--no-tags", "origin", f"refs/heads/{branch}"],
+        root,
+        f"cannot fetch integration branch {branch}",
+    )
+    fetched_head = _git_commit(root, "FETCH_HEAD")
+    if fetched_head != expected_head:
+        raise RetirementError(
+            f"integration branch {branch} head changed: expected {expected_head}, got {fetched_head}"
+        )
+
+    relative_paths: list[str] = []
+    published_head = expected_head
+    with tempfile.TemporaryDirectory(prefix="fkst-intent-retirement-") as temporary_root:
+        worktree = Path(temporary_root) / "checkout"
+        _run_required(
+            ["git", "worktree", "add", "--detach", str(worktree), expected_head],
+            root,
+            "cannot create intent-diff retirement worktree",
+        )
+        try:
+            spent = retirement_plan(worktree, github_repo, "HEAD")
+            relative_paths = [path.relative_to(worktree).as_posix() for path in spent]
+            apply_retirement(worktree, spent)
+            if spent:
+                published_head = _commit_retirement(worktree)
+                branch_ref = f"refs/heads/{branch}"
+                _run_required(
+                    [
+                        "git",
+                        "push",
+                        f"--force-with-lease={branch_ref}:{expected_head}",
+                        "origin",
+                        f"{published_head}:{branch_ref}",
+                    ],
+                    root,
+                    "cannot publish intent-diff retirement",
+                )
+                if _remote_branch_head(root, branch) != published_head:
+                    raise RetirementError("published intent-diff retirement head was not observable")
+        finally:
+            cleanup = _run(
+                ["git", "worktree", "remove", "--force", str(worktree)], root
+            )
+            if cleanup.returncode != 0:
+                detail = cleanup.stderr.strip() or "no error detail"
+                if sys.exc_info()[0] is None:
+                    raise RetirementError(
+                        f"cannot remove intent-diff retirement worktree: {detail}"
+                    )
+                print(
+                    f"intent-diff-retirement: worktree cleanup failed: {detail}",
+                    file=sys.stderr,
+                )
+    return relative_paths, published_head
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", required=True, type=Path)
     parser.add_argument("--github-repo", required=True)
     parser.add_argument("--protected-ref", required=True)
+    parser.add_argument("--promote-branch")
     args = parser.parse_args(argv)
     if REPO_RE.fullmatch(args.github_repo) is None:
         parser.error("--github-repo must be owner/repo")
     if REF_RE.fullmatch(args.protected_ref) is None or ".." in args.protected_ref:
         parser.error("--protected-ref must be a safe git ref")
+    if args.promote_branch is not None:
+        if REF_RE.fullmatch(args.promote_branch) is None or ".." in args.promote_branch:
+            parser.error("--promote-branch must be a safe git branch")
+        if GIT_SHA_RE.fullmatch(args.protected_ref) is None:
+            parser.error("--protected-ref must be an exact commit in promotion mode")
     return args
 
 
@@ -206,6 +331,23 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     root = args.repo_root.resolve()
     try:
+        if args.promote_branch is not None:
+            paths, head = promote_retirement(
+                root, args.github_repo, args.promote_branch, args.protected_ref
+            )
+            print(
+                json.dumps(
+                    {
+                        "schema": RETIREMENT_RESULT_SCHEMA,
+                        "retired": len(paths),
+                        "paths": paths,
+                        "head": head,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+            return 0
         spent = retirement_plan(root, args.github_repo, args.protected_ref)
         apply_retirement(root, spent)
     except (RetirementError, OSError, UnicodeError) as error:
