@@ -21,6 +21,13 @@ from host_run_test_support import run_bounded
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_PATH = REPO_ROOT / "scripts" / "host_run_equivalence_golden.json"
+DOGFOOD_SKILL_ROOT = REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop"
+DOGFOOD_SUPPORT_FILES = (
+    "dogfood_board.sh",
+    "dogfood_sync.sh",
+    "retire_spent_intent_diffs.py",
+    "workspace_manifest.py",
+)
 TARGETS = ("packages", "substrate", "website")
 WEBSITE_PLATFORM_PACKAGES = " ".join(
     (
@@ -61,6 +68,11 @@ ALL_PLATFORM_PACKAGES = sorted(set(PLATFORM_PACKAGES.split()) | set(WEBSITE_PLAT
 def write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def copy_dogfood_support_files(skill_dir: Path) -> None:
+    for name in DOGFOOD_SUPPORT_FILES:
+        shutil.copy2(DOGFOOD_SKILL_ROOT / name, skill_dir / name)
 
 
 def wait_for_process_exit(pid: int, timeout: float = 5.0) -> bool:
@@ -178,10 +190,7 @@ class DogfoodLayout:
         make_fake_tools(self.bin_dir)
         make_fake_bin(self.fake_bin)
         write_executable(self.script, dogfood_script)
-        shutil.copy2(
-            REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "workspace_manifest.py",
-            self.skill_dir / "workspace_manifest.py",
-        )
+        copy_dogfood_support_files(self.skill_dir)
         self.stale_website_manifest = stale_website_manifest
         self.platform_revs: dict[Path, str] = {}
         self._populate_repos()
@@ -691,7 +700,7 @@ class HostRunEquivalenceTest(unittest.TestCase):
             result = self._run_dogfood_sync(script, root, "substrate")
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertIn("merged + pushed", result.stdout)
+            self.assertIn("synced + pushed", result.stdout)
             self.assertNotIn("does not merge cleanly", result.stdout)
             dev_head = git_stdout(["rev-parse", "origin/dev"], cwd=host, env=env)
             integration_head = git_stdout(["rev-parse", "origin/integration-test"], cwd=host, env=env)
@@ -742,12 +751,9 @@ class HostRunEquivalenceTest(unittest.TestCase):
         skill_dir = root / "skill"
         skill_dir.mkdir()
         script = skill_dir / "dogfood.sh"
-        shutil.copy2(REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "dogfood.sh", script)
+        shutil.copy2(DOGFOOD_SKILL_ROOT / "dogfood.sh", script)
         script.chmod(0o755)
-        shutil.copy2(
-            REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "workspace_manifest.py",
-            skill_dir / "workspace_manifest.py",
-        )
+        copy_dogfood_support_files(skill_dir)
         return script
 
     def _run_dogfood_sync(self, script: Path, root: Path, target: str) -> subprocess.CompletedProcess[str]:
