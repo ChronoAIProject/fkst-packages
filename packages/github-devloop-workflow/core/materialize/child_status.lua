@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
 local commands = require("devloop.commands")
 local impl_failure = require("devloop.impl_failure")
@@ -55,7 +56,14 @@ local function pr_is_merged(current_pr)
   return type(current_pr.merged_at) == "string" and current_pr.merged_at ~= ""
 end
 
-local function production_child_status_deps(core, repo)
+local function receipt_store(deps)
+  if type(deps.child_disposition_receipt_store) == "table" then
+    return deps.child_disposition_receipt_store
+  end
+  return child_disposition_receipt.new()
+end
+
+local function production_child_status_deps(core, deps, repo)
   local issue_cache = {}
   local pr_cache = {}
   local impl_failure_cache = {}
@@ -102,6 +110,21 @@ local function production_child_status_deps(core, repo)
   end
 
   return {
+    child_disposition_receipt = function(child_ref)
+      if type(child_ref) ~= "table"
+        or child_ref.origin == nil
+        or child_ref.blueprint_digest == nil
+        or child_ref.slot == nil then
+        return nil
+      end
+      return receipt_store(deps).read({
+        repo = child_ref.repo or repo,
+        origin = child_ref.origin,
+        blueprint_digest = child_ref.blueprint_digest,
+        slot = child_ref.slot,
+        child_issue = child_ref.issue_number or child_ref.number,
+      })
+    end,
     has_merged_marker = function(child_ref)
       local link = linked_pr(child_ref)
       if link == nil then
@@ -181,7 +204,7 @@ function M.reader(core, deps, repo)
       return deps.child_status(core, child_ref)
     end
   end
-  local child_deps = production_child_status_deps(core, repo)
+  local child_deps = production_child_status_deps(core, deps, repo)
   return function(child_ref)
     return child_result.child_result_status(child_deps, child_ref)
   end

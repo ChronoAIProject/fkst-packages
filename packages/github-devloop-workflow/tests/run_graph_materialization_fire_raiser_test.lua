@@ -387,6 +387,9 @@ local function mock_origin_dependency(blocker_state)
 end
 
 local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout, blocker_state)
+  for _ = 1, 4 do
+    t.mock_command("git ls-remote", { stdout = "", stderr = "", exit_code = 0 })
+  end
   mock_origin_dependency(blocker_state)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
