@@ -410,32 +410,103 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   }, ready.source_ref)
 end
 
+function C.build_expected_dependency_edge_request(
+    repo, issue_number, proposal_id, version, blocker_number, source_ref)
+  return {
+    schema = "github-proxy.issue-blocked-by.v1",
+    repo = repo,
+    blocked_issue_number = tonumber(issue_number),
+    blocking_issue_number = tonumber(blocker_number),
+    dedup_key = base_ids.dedup_key({
+      "dependency",
+      "expected-edge",
+      "blocked-by",
+      tostring(proposal_id),
+      tostring(version),
+      tostring(blocker_number),
+    }),
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }
+end
+
 function C.build_implementation_refusal_comment_request(
-    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref)
+    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref, blocker)
   local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
   local marker = M.implementation_refusal_marker(
     ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
-  local state_marker = M.state_marker(ready.proposal_id, "blocked", ready.dedup_key)
+  local target_state = "blocked"
+  local target_version = ready.dedup_key
+  local dependency_marker = nil
+  if rendered_reason == "precursor-missing" then
+    if type(blocker) ~= "table"
+      or blocker.repo ~= repo
+      or type(blocker.issue_number) ~= "number"
+      or blocker.issue_number ~= math.floor(blocker.issue_number)
+      or not base_ids.issue_ref_round_trips(blocker.repo, blocker.issue_number) then
+      error("github-devloop: invalid-precursor-blocker: precursor-missing requires a same-repository IssueRef")
+    end
+    target_state = "dependency_wait"
+    target_version = M.ready_split_version(ready.dedup_key)
+    dependency_marker = M.dependency_wait_marker(
+      ready.proposal_id,
+      target_version,
+      { blocker.issue_number },
+      "expected-edge",
+      "precursor-edge-not-visible"
+    )
+  elseif blocker ~= nil then
+    error("github-devloop: invalid-precursor-blocker: blocker is supported only for precursor-missing")
+  end
   local attempt_marker = M.implement_attempt_marker(
     ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
   local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
+  local dependency_suffix = dependency_marker == nil and "" or ("\n" .. dependency_marker)
+  local body_before_marker = "github-devloop implementation blocked: " .. rendered_reason
+    .. "\n\nEvidence:\n" .. safe_evidence
+    .. "\n\n"
+  local body_after_marker = dependency_suffix
+    .. "\n" .. attempt_marker
+    .. "\n" .. marker
+  local comment_dedup_key = base_ids.dedup_key({
+    "implement",
+    "comment",
+    "implementation-refusal",
+    tostring(rendered_reason),
+    tostring(attempt),
+    tostring(ready.dedup_key),
+  })
+  if target_state == "dependency_wait" then
+    return devloop_state.build_projected_state_comment_request({
+      repo = repo,
+      issue_number = issue_number,
+      proposal_id = ready.proposal_id,
+      state = target_state,
+      marker_version = target_version,
+      handoff_version = target_version,
+      body_before_marker = body_before_marker,
+      body_after_marker = body_after_marker,
+      comment_dedup_key = comment_dedup_key,
+      label_policy = {
+        dedup_key = base_ids.dedup_key({
+          "implement",
+          "label",
+          "implementation-refusal",
+          tostring(rendered_reason),
+          tostring(attempt),
+          tostring(ready.dedup_key),
+        }),
+        add_labels = { M._blocked_on_dependency_label },
+      },
+      source_ref = ready.source_ref,
+    })
+  end
+  local state_marker = M.state_marker(ready.proposal_id, target_state, target_version)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop implementation blocked: " .. rendered_reason
-      .. "\n\nEvidence:\n" .. safe_evidence
-      .. "\n\n" .. state_marker
-      .. "\n" .. attempt_marker
-      .. "\n" .. marker,
-    dedup_key = base_ids.dedup_key({
-      "implement",
-      "comment",
-      "implementation-refusal",
-      tostring(rendered_reason),
-      tostring(attempt),
-      tostring(ready.dedup_key),
-    }),
+    body = body_before_marker .. state_marker .. body_after_marker,
+    dedup_key = comment_dedup_key,
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)
 end

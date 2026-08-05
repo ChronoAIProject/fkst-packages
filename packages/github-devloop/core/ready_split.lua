@@ -192,6 +192,18 @@ local function raise_dependency_wait_hold(M, dept, issue, proposal_id, state, cu
       or M.dependency_wait_marker(proposal_id, state.version, gate.unmet, gate.kind, gate.reason))
   devloop_logging.log_cas_decision(dept, proposal_id, state, "dependency_wait", "dependency_wait", "retry-pending(dependency-hold)", gate.reason)
   local raised = {}
+  local expected_edge_requests = {}
+  for _, blocker_number in ipairs(gate.missing_expected_edges or {}) do
+    table.insert(expected_edge_requests, requests_lifecycle.build_expected_dependency_edge_request(
+      issue.repo,
+      issue.number,
+      proposal_id,
+      state.version,
+      blocker_number,
+      issue.source_ref
+    ))
+    table.insert(raised, "github-proxy.github_issue_blocked_by_request")
+  end
   if dependency_hold == nil then
     table.insert(raised, "github-proxy.github_issue_comment_request")
     table.insert(raised, "github-proxy.github_issue_label_request")
@@ -202,7 +214,8 @@ local function raise_dependency_wait_hold(M, dept, issue, proposal_id, state, cu
     table.insert(raised, "github-proxy.github_issue_comment_request")
   end
   if #raised > 0 then
-    devloop_logging.log_apply(dept, proposal_id, "dependency_wait", state.version, { add = { M._blocked_on_dependency_label }, remove = {} }, raised)
+    local add_labels = dependency_hold == nil and { M._blocked_on_dependency_label } or {}
+    devloop_logging.log_apply(dept, proposal_id, "dependency_wait", state.version, { add = add_labels, remove = {} }, raised)
   end
   if command_comment_request ~= nil then
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
@@ -212,6 +225,10 @@ local function raise_dependency_wait_hold(M, dept, issue, proposal_id, state, cu
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo, issue.number, { M._blocked_on_dependency_label }, {},
       base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(state.version), tostring(gate.kind) }), issue.source_ref
     ))
+  end
+  for _, request in ipairs(expected_edge_requests) do
+    devloop_logging.log_raise(
+      dept, proposal_id, "github-proxy.github_issue_blocked_by_request", request)
   end
   return #raised > 0
 end

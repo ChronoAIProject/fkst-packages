@@ -96,6 +96,37 @@ local function decode_dependency_attr(value)
   return value
 end
 
+local function expected_edge_numbers(context)
+  if type(context) ~= "table"
+    or type(context.comments) ~= "table"
+    or context.proposal_id == nil
+    or context.version == nil then
+    return {}
+  end
+  local numbers = {}
+  local seen = {}
+  local marker_pattern = "<!%-%- fkst:github%-devloop:dependency%-wait:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(context.comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      if marker_attr(marker, "proposal") == tostring(context.proposal_id)
+        and marker_attr(marker, "version") == tostring(context.version)
+        and marker_attr(marker, "hold_kind") == "expected-edge" then
+        local encoded = marker_attr(marker, "unmet")
+        if type(encoded) ~= "string" or encoded == "" then
+          return nil, "expected-edge-intent-malformed"
+        end
+        for segment in encoded:gmatch("[^,]+") do
+          if not forge_validators.is_positive_pr_number(segment) then
+            return nil, "expected-edge-intent-malformed"
+          end
+          add_unmet(numbers, seen, segment)
+        end
+      end
+    end
+  end
+  return numbers, nil
+end
+
 local function parse_dependency_issue(node, include_duplicate)
   if type(node) ~= "table" or not forge_validators.is_positive_pr_number(node.number) then
     return nil
@@ -528,6 +559,30 @@ function M.new(core)
       return gate("unresolvable", fetch_reason or "gh-failed", unmet)
     end
 
+    if depth == 0 and type(context.expected_edge_numbers) == "table" then
+      local visible = {}
+      for _, blocker in ipairs(blockers) do
+        if tostring(blocker.repo or "") == tostring(repo) then
+          visible[tonumber(blocker.number)] = true
+        end
+      end
+      local missing_expected_edge = false
+      local missing_expected_edges = {}
+      for _, expected_number in ipairs(context.expected_edge_numbers) do
+        if visible[tonumber(expected_number)] ~= true then
+          add_unmet(unmet, unmet_seen, expected_number)
+          table.insert(missing_expected_edges, tonumber(expected_number))
+          missing_expected_edge = true
+        end
+      end
+      if missing_expected_edge then
+        stack[key] = nil
+        local result = gate("waiting", "dependency-edge-not-visible", unmet)
+        result.missing_expected_edges = missing_expected_edges
+        return result
+      end
+    end
+
     for _, blocker in ipairs(blockers) do
       if tostring(blocker.repo or "") ~= tostring(repo) then
         if not managed_sibling_repo(repo, blocker.repo, context and context.managed_sibling_repos) then
@@ -617,6 +672,11 @@ function M.new(core)
     end
     local gate_context = type(context) == "table" and context or {}
     gate_context.managed_sibling_repos = config.managed_sibling_repos()
+    local expected_numbers, expected_reason = expected_edge_numbers(gate_context)
+    if expected_numbers == nil then
+      return gate("unresolvable", expected_reason, {})
+    end
+    gate_context.expected_edge_numbers = expected_numbers
     local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {})
     if not ok or type(result) ~= "table" then
       return gate("unresolvable", "dependency-gate-exception", {})
