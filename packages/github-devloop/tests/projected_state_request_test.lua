@@ -1,5 +1,6 @@
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
+local requests_labels = require("devloop.requests.labels")
 local h = require("tests.devloop_helpers")
 
 local t = h.t
@@ -36,6 +37,13 @@ local function has_value(values, expected)
     if value == expected then return true end
   end
   return false
+end
+
+local function copy(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for key, item in pairs(value) do out[copy(key)] = copy(item) end
+  return out
 end
 
 return {
@@ -77,6 +85,27 @@ return {
       for _, expected in ipairs(fixture.remove) do
         t.is_true(has_value(label.remove_labels, expected))
       end
+    end
+  end,
+
+  test_projected_state_guard_requires_the_canonical_marker_family = function()
+    local guard = build_request("ready").handoff.label_request.marker_guard
+    t.eq(requests_labels.is_canonical_state_marker_guard(guard), true)
+
+    local mutations = {
+      function(value) value.namespace = "other" end,
+      function(value) value.marker = "result" end,
+      function(value) value.version = "v2" end,
+      function(value) value.order_by = { "version_order_key", "marker_order_key", "stage_rank" } end,
+      function(value) value.order_by = { "marker_order_key", "version_order_key" } end,
+      function(value)
+        value.order_by = { "marker_order_key", "version_order_key", "stage_rank", "comment_id" }
+      end,
+    }
+    for _, mutate in ipairs(mutations) do
+      local noncanonical = copy(guard)
+      mutate(noncanonical)
+      t.eq(requests_labels.is_canonical_state_marker_guard(noncanonical), false)
     end
   end,
 }
