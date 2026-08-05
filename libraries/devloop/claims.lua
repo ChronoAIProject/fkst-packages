@@ -399,23 +399,27 @@ function C.issue_claim_state(assignees, owner, labels)
   return "other"
 end
 
-function C.is_self_owned_issue(ownership, owner)
+local function issue_ownership_decision(ownership, owner)
   if type(ownership) ~= "table" then
-    return false
+    return { owned = false, claim_state = nil }
   end
   local claim_state = C.issue_claim_state(ownership.assignees, owner, ownership.labels)
   if claim_state == "self" then
-    return true
+    return { owned = true, claim_state = claim_state }
   end
   if claim_state ~= "unassigned" then
-    return false
+    return { owned = false, claim_state = claim_state }
   end
   -- Unassigned+self-author is intentional for fork-and-block isolation: a different bot login sees author!=self and skips.
   local author = C.issue_author_login(ownership)
   if author == nil then
-    return false
+    return { owned = false, claim_state = claim_state }
   end
-  return devloop_base.strip_bot_login_suffix(author) == tostring(owner or "")
+  return { owned = devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state = claim_state }
+end
+
+function C.is_self_owned_issue(ownership, owner)
+  return issue_ownership_decision(ownership, owner).owned
 end
 
 function C.read_current_issue_assignees(repo, issue_number)
@@ -473,10 +477,10 @@ local function issue_source_ref(repo, issue_number)
   }
 end
 
-function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue, proposal_id)
+function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id)
   if issue_number == nil then
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is absent")
-    return false
+    return { owned = false, claim_state = nil }
   end
   local owner = C.claim_owner()
   local ownership = nil
@@ -494,16 +498,20 @@ function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue,
   else
     ownership = C.read_current_issue_ownership(repo, issue_number)
   end
-  if C.is_self_owned_issue(ownership, owner) then
-    return true
+  local decision = issue_ownership_decision(ownership, owner)
+  if decision.owned then
+    return decision
   end
-  local status = C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels)
-  if status == "other" then
+  if decision.claim_state == "other" then
     log_claim(dept, proposal_id, "skip-claimed-by-other", "backing issue assignee claim is held by another login")
   else
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is not self-owned")
   end
-  return false
+  return decision
+end
+
+function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue, proposal_id)
+  return C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id).owned
 end
 
 function C.fork_grace_seconds(exec)
