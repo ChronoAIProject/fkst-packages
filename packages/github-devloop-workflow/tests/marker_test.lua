@@ -422,6 +422,20 @@ local tests = {
     t.eq(err.path, "predecessor_source_ref")
     t.eq(err.code, "invalid_issue_source_ref")
   end,
+
+  test_transfer_accept_marker_rejects_a_self_transfer = function()
+    local built, err = marker.build_transfer_accept_marker({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      predecessor_source_ref = predecessor_source_ref,
+      successor_source_ref = predecessor_source_ref,
+    })
+
+    t.is_nil(built)
+    t.eq(err.path, "successor_source_ref")
+    t.eq(err.code, "same_as_predecessor")
+  end,
 }
 
 return tests

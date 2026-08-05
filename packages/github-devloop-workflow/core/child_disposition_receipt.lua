@@ -115,7 +115,11 @@ local function normalize_disposition(value, identity)
     return "satisfied", nil
   end
   if value.disposition == "transferred" then
-    return "transferred", normalize_successor_source_ref(value.successor_source_ref, identity.repo)
+    local successor = normalize_successor_source_ref(value.successor_source_ref, identity.repo)
+    if successor.ref == identity.repo .. "#issue/" .. identity.child_issue then
+      fail("receipt-successor-invalid", "transferred successor must differ from child_issue")
+    end
+    return "transferred", successor
   end
   fail("receipt-disposition-invalid", "disposition must be satisfied or transferred")
 end

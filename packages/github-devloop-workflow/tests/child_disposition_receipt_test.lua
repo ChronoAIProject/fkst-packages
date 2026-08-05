@@ -256,6 +256,24 @@ local tests = {
     t.eq(#model.calls, 0)
   end,
 
+  test_put_once_rejects_a_transfer_to_the_same_child = function()
+    local model, commands = new_git_process()
+    local store = receipt.new({ commands = commands })
+
+    local ok, err = pcall(function()
+      store.put_once(transferred_fact({
+        successor_source_ref = {
+          kind = "external",
+          ref = "owner/repo#issue/788438",
+        },
+      }))
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
+    t.eq(#model.calls, 0)
+  end,
+
   test_put_once_accepts_only_the_matching_source_visible_race_winner = function()
     local model, commands = new_git_process()
     model.before_push_result = function(current, candidate_sha, ref)

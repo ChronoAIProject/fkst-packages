@@ -188,6 +188,13 @@ local function validate_transfer_accept_identity(value)
   local successor
   ok, err, successor = validate_issue_source_ref(value.successor_source_ref, "successor_source_ref")
   if not ok then return false, err end
+  if source_refs.same(predecessor, successor) then
+    return false, fail(
+      "successor_source_ref",
+      "same_as_predecessor",
+      "must be distinct from predecessor_source_ref"
+    )
+  end
   return true, nil, {
     origin = value.origin,
     blueprint_digest = value.blueprint_digest,
