@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local requests_review = require("devloop.requests.review")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
@@ -526,6 +527,60 @@ return {
     t.is_true(proposal.body:find("Last named blocking gap: missing rollback guard", 1, true) ~= nil)
     t.is_true(proposal.body:find("Latest fix-round summary: Closed gap: missing rollback guard.", 1, true) ~= nil)
     t.is_true(proposal.body:find("Judge whether THE NAMED GAP is closed", 1, true) ~= nil)
+  end,
+
+  test_fix_marker_write_uses_redrive_delivery_identity_only_for_redrives = function()
+    local fix = h.fixing()
+    local forward = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      fix,
+      "def456",
+      "feedface",
+      core.next_fix_version(fix.version)
+    )
+    local expected_forward_key = base_ids.dedup_key({
+      "fix",
+      "comment",
+      fix.proposal_id,
+      fix.review_dedup_key,
+      "feedface",
+    })
+    t.eq(forward.dedup_key, expected_forward_key)
+
+    local first = h.fixing({
+      dedup_key = "fixing/redrive/generation-1/attempt-1",
+      redrive_delivery = {
+        generation_key = "generation-1",
+        attempt = 1,
+      },
+    })
+    local second = h.fixing({
+      dedup_key = "fixing/redrive/generation-1/attempt-2",
+      redrive_delivery = {
+        generation_key = "generation-1",
+        attempt = 2,
+      },
+    })
+    local first_request = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      first,
+      "def456",
+      "feedface",
+      core.next_fix_version(first.version)
+    )
+    local second_request = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      second,
+      "def456",
+      "feedface",
+      core.next_fix_version(second.version)
+    )
+    t.eq(first_request.dedup_key, first.dedup_key)
+    t.eq(second_request.dedup_key, second.dedup_key)
+    t.is_true(first_request.dedup_key ~= second_request.dedup_key)
   end,
 
   test_review_result_gap_marker_is_structured_and_sanitized = function()
