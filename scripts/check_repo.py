@@ -22,6 +22,7 @@ import check_repo_github_content_ingress
 import check_repo_ingress
 import check_repo_integration_coverage
 import check_repo_library_layering
+import check_repo_lua
 import check_repo_namespaced_queue
 import check_repo_ownership_gate
 import check_repo_pagination
@@ -112,17 +113,12 @@ def line_count(path: Path) -> int:
     return len(read_text(path).splitlines())
 def add(violations: list[str], rule: str, message: str) -> None: violations.append(f"{rule}: {message}")
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
 def bracket_test_assignment_key_string_end(text: str, quote_start: int) -> int | None:
-    quote = text[quote_start]
-    string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
-    if string_end > len(text) or text[string_end - 1] != quote:
+    literal = check_repo_lua.literal_span_at(text, quote_start, include_line_metadata=False)
+    if literal is None or literal.kind != check_repo_lua.SHORT_STRING or not literal.terminated:
         return None
-    if not TEST_NAME_RE.fullmatch(text[quote_start + 1 : string_end - 1]):
+    string_end = literal.end
+    if not TEST_NAME_RE.fullmatch(literal.content(text)):
         return None
 
     cursor = quote_start - 1
@@ -145,87 +141,20 @@ def bracket_test_assignment_key_string_end(text: str, quote_start: int) -> int |
 
 
 def strip_lua_comments_and_strings(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-
-        char = text[cursor]
-        if char in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            if bracket_test_assignment_key_string_end(text, cursor) is None:
-                mask_span(chars, cursor, end)
-            cursor = end
-            continue
-
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-                mask_span(chars, cursor, end)
-                cursor = end
-                continue
-
-        cursor += 1
-    return "".join(chars)
+    return check_repo_lua.code_mask(
+        text,
+        preserve=lambda span: (
+            span.kind == check_repo_lua.SHORT_STRING
+            and bracket_test_assignment_key_string_end(text, span.start) is not None
+        ),
+    )
 
 
 def lua_string_literals(text: str) -> list[LuaStringLiteral]:
-    literals: list[LuaStringLiteral] = []
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                cursor = len(text) if newline == -1 else newline
-            continue
-
-        char = text[cursor]
-        if char in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            content_end = end - 1 if end <= len(text) and text[end - 1] == char else end
-            literals.append(
-                LuaStringLiteral(
-                    line=text.count("\n", 0, cursor) + 1,
-                    content=text[cursor + 1 : content_end],
-                )
-            )
-            cursor = end
-            continue
-
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                body_start = cursor + opener_len
-                close_start = text.find(closer, body_start)
-                body_end = len(text) if close_start == -1 else close_start
-                literals.append(
-                    LuaStringLiteral(
-                        line=text.count("\n", 0, cursor) + 1,
-                        content=text[body_start:body_end],
-                    )
-                )
-                cursor = len(text) if close_start == -1 else close_start + len(closer)
-                continue
-
-        cursor += 1
-    return literals
+    return [
+        LuaStringLiteral(line=span.line, content=span.content(text))
+        for span in check_repo_lua.literal_spans(text)
+    ]
 
 
 def unguarded_graphql_first_connection_lines(text: str) -> list[int]:
@@ -343,9 +272,10 @@ def hidden_text_encoded_literal_lines(text: str) -> list[int]:
         quote_start = match.start("quote")
         if not is_unmasked_range(text, stripped, match.start(), quote_start):
             continue
-        string_end = check_repo_config.lua_quoted_string_end(text, quote_start)
-        if string_end > len(text) or text[string_end - 1] != match.group("quote"):
+        literal = check_repo_lua.literal_span_at(text, quote_start, include_line_metadata=False)
+        if literal is None or literal.kind != check_repo_lua.SHORT_STRING or not literal.terminated:
             continue
+        string_end = literal.end
         if not looks_like_decode_helper(match.group("func")):
             continue
         content = text[quote_start + 1 : string_end - 1]

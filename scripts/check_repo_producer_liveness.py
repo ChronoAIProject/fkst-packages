@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
+import check_repo_lua
 
 
 ALLOWLIST = "migration/producer-liveness.allowlist"
@@ -33,7 +34,6 @@ IF_ASSERTION_ACTION_RE = re.compile(r"\b(?:error|fail)\s*\(|\breturn\s+false\b")
 FIRE_RAISER_CHILD_PREFIX_RE = re.compile(
     r"\b(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?fire_raiser_child\s*\(\s*$"
 )
-LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
 @dataclass(frozen=True, order=True)
@@ -59,85 +59,12 @@ class ProducerLivenessContract:
     runtime_gate: str
     adversarial_fixture: str
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, min(end, len(chars))):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
 def strip_lua_comments(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        char = text[cursor]
-        if char in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(text, cursor)
-            continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-                continue
-        cursor += 1
-    return "".join(chars)
+    return check_repo_lua.code_mask(text, kinds=check_repo_lua.COMMENT_KINDS)
 
 
 def mask_lua_comments_and_strings(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        char = text[cursor]
-        if char in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-                mask_span(chars, cursor, end)
-                cursor = end
-                continue
-        cursor += 1
-    return "".join(chars)
-
-
-def block_delta(line: str) -> int:
-    tokens = LUA_WORD_RE.findall(line)
-    delta = 0
-    for index, token in enumerate(tokens):
-        if token in {"function", "do", "repeat"}:
-            delta += 1
-        elif token == "then" and (index == 0 or tokens[index - 1] != "elseif"):
-            delta += 1
-        elif token in {"end", "until"}:
-            delta -= 1
-    return delta
+    return check_repo_lua.code_mask(text)
 
 
 def test_blocks(source: str) -> list[str]:
@@ -149,11 +76,11 @@ def test_blocks(source: str) -> list[str]:
         if TEST_START_RE.search(masked_lines[index]) is None:
             index += 1
             continue
-        depth = block_delta(masked_lines[index])
+        depth = check_repo_lua.block_delta(masked_lines[index])
         end = index
         while depth > 0 and end + 1 < len(masked_lines):
             end += 1
-            depth += block_delta(masked_lines[end])
+            depth += check_repo_lua.block_delta(masked_lines[end])
         blocks.append("\n".join(original_lines[index : end + 1]))
         index = end + 1
     return blocks
@@ -254,35 +181,12 @@ def call_asserts_trace(block: str, match: re.Match[str]) -> bool:
 
 def embedded_fire_raiser_child_sources(source: str) -> list[str]:
     bodies: list[str] = []
-    cursor = 0
-    while cursor < len(source):
-        if source.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(source, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(source, cursor + 2 + opener_len, closer)
-            else:
-                newline = source.find("\n", cursor)
-                cursor = len(source) if newline == -1 else newline
+    for span in check_repo_lua.literal_spans(source):
+        if span.kind != check_repo_lua.LONG_STRING:
             continue
-        char = source[cursor]
-        if char in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
-            continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                body_start = cursor + opener_len
-                close_start = source.find(closer, body_start)
-                body_end = len(source) if close_start == -1 else close_start
-                end = len(source) if close_start == -1 else close_start + len(closer)
-                prefix = source[max(0, cursor - 160) : cursor]
-                if FIRE_RAISER_CHILD_PREFIX_RE.search(prefix) is not None:
-                    bodies.append(source[body_start:body_end])
-                cursor = end
-                continue
-        cursor += 1
+        prefix = source[max(0, span.start - 160) : span.start]
+        if FIRE_RAISER_CHILD_PREFIX_RE.search(prefix) is not None:
+            bodies.append(span.content(source))
     return bodies
 
 
@@ -346,16 +250,11 @@ def bracket_body(source: str, start: int) -> str | None:
     depth = 0
     body_start = cursor + 1
     while cursor < len(source):
-        char = source[cursor]
-        if char in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
+        literal = check_repo_lua.literal_span_at(source, cursor, include_line_metadata=False)
+        if literal is not None:
+            cursor = literal.end
             continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(source, cursor + opener_len, closer)
-                continue
+        char = source[cursor]
         if char == "{":
             depth += 1
         elif char == "}":
@@ -370,16 +269,11 @@ def top_level_table_bodies(source: str) -> list[str]:
     bodies: list[str] = []
     cursor = 0
     while cursor < len(source):
-        char = source[cursor]
-        if char in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(source, cursor)
+        literal = check_repo_lua.literal_span_at(source, cursor, include_line_metadata=False)
+        if literal is not None:
+            cursor = literal.end
             continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(source, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(source, cursor + opener_len, closer)
-                continue
+        char = source[cursor]
         if char != "{":
             cursor += 1
             continue
