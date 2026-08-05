@@ -28,6 +28,13 @@ local TIMEOUT_RECONCILE_LABEL_SINK = {
   authority_class = "lifecycle-authoritative",
   family = "state-label:blocked;dedup=timeout-reconcile/label",
 }
+local PRECURSOR_BLOCKED_BY_ADAPTER_SINK = {
+  effect_id = "adapter:github.issue-blocked-by",
+  department = "implement",
+  sink_kind = "adapter",
+  authority_class = "lifecycle-authoritative",
+  family = "issue-blocked-by/precursor/proposal+version+blocker",
+}
 
 local SITES = {
   current_state = {
@@ -315,7 +322,8 @@ local function committed_records()
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
-      record.old_inputs.current_fact.record_count = 84
+      record.old_inputs.current_fact.record_count = 85
+      table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)

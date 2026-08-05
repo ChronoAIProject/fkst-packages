@@ -75,6 +75,7 @@ local department_names = {
 }
 
 local request_surface_kinds = {
+  ["github-proxy.github_issue_blocked_by_request"] = "adapter",
   ["github-proxy.github_issue_comment_request"] = "comment",
   ["github-proxy.github_issue_create_request"] = "adapter",
   ["github-proxy.github_issue_label_request"] = "label",
@@ -115,6 +116,7 @@ local semantic_specs = {
   { "comment:issue:implementation-progress", "implement", "raise_implementing.comment", "comment", "lifecycle-authoritative", "implementing:v1+implement-attempt:v1;dedup=implement/comment/implementing", "packages/github-devloop/departments/implement/main.lua", { "build_implementing_comment_request", "raise_implementing" } },
   { "comment:issue:implementation-attempt", "implement", "raise_implement_attempt.comment", "comment", "lifecycle-authoritative", "implement-attempt:v1;dedup=implement/comment/attempt", "packages/github-devloop/departments/implement/main.lua", { "build_implement_attempt_comment_request", "raise_implement_attempt" } },
   { "comment:issue:implementation-version-mismatch", "implement", "raise_implement_version_mismatch.comment", "comment", "lifecycle-authoritative", "implement-version-mismatch:v1;dedup=implement/comment/version-mismatch", "packages/github-devloop/departments/implement/main.lua", { "build_implement_version_mismatch_comment_request", "raise_implement_version_mismatch" } },
+  { "adapter:github.issue-blocked-by", "implement", "refusal_publication.blocked_by_request", "adapter", "lifecycle-authoritative", "issue-blocked-by/precursor/proposal+version+blocker", "packages/github-devloop/departments/implement/refusal_publication.lua", { "schema = \"github-proxy.issue-blocked-by.v1\"", "github-proxy.github_issue_blocked_by_request" } },
   { "comment:issue:dependency-canonicalization", "implement", "ready_split.raise_ready_split_effects.comment", "comment", "lifecycle-authoritative", "state:v1/dependency_wait+ready-split-canonicalized:v1", "packages/github-devloop/core/ready_split.lua", { "function M.raise_ready_split_effects", "build_ready_split_canonicalized_comment_request", "github-proxy.github_issue_comment_request" } },
   { "label:issue:dependency-canonicalization", "comment_handoff", "act_handoff.ready_split_label", "label", "lifecycle-authoritative", "state-label:dependency_wait+label:fkst-dev:blocked-on-dependency;dedup=dependency/label/hold", "packages/github-devloop/departments/comment_handoff/main.lua", { "ready_split_label_request", "handoff.label_request", "github-proxy.github_issue_label_request" } },
   { "comment:pr:pr-child-open", "implement", "pr_child_handoff.child_start_comment", "comment", "lifecycle-authoritative", "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open", "packages/github-devloop/core/pr_delegation.lua", { "build_pr_open_comment_request", "pr_origin_marker" } },

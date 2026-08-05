@@ -411,14 +411,38 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
 end
 
 function C.build_implementation_refusal_comment_request(
-    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref)
+    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref, blocker)
   local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
   local marker = M.implementation_refusal_marker(
     ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
-  local state_marker = M.state_marker(ready.proposal_id, "blocked", ready.dedup_key)
+  local target_state = "blocked"
+  local target_version = ready.dedup_key
+  local dependency_marker = nil
+  if rendered_reason == "precursor-missing" then
+    if type(blocker) ~= "table"
+      or blocker.repo ~= repo
+      or type(blocker.issue_number) ~= "number"
+      or blocker.issue_number ~= math.floor(blocker.issue_number)
+      or not base_ids.issue_ref_round_trips(blocker.repo, blocker.issue_number) then
+      error("github-devloop: invalid-precursor-blocker: precursor-missing requires a same-repository IssueRef")
+    end
+    target_state = "dependency_wait"
+    target_version = M.ready_split_version(ready.dedup_key)
+    dependency_marker = M.dependency_wait_marker(
+      ready.proposal_id,
+      target_version,
+      { blocker.issue_number },
+      "expected-edge",
+      "precursor-edge-not-visible"
+    )
+  elseif blocker ~= nil then
+    error("github-devloop: invalid-precursor-blocker: blocker is supported only for precursor-missing")
+  end
+  local state_marker = M.state_marker(ready.proposal_id, target_state, target_version)
   local attempt_marker = M.implement_attempt_marker(
     ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
   local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
+  local dependency_suffix = dependency_marker == nil and "" or ("\n" .. dependency_marker)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
@@ -426,6 +450,7 @@ function C.build_implementation_refusal_comment_request(
     body = "github-devloop implementation blocked: " .. rendered_reason
       .. "\n\nEvidence:\n" .. safe_evidence
       .. "\n\n" .. state_marker
+      .. dependency_suffix
       .. "\n" .. attempt_marker
       .. "\n" .. marker,
     dedup_key = base_ids.dedup_key({

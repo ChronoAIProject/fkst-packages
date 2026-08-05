@@ -62,7 +62,9 @@ function M.prompt_contract()
     table.insert(lines, "  - `" .. spec.reason .. "`: " .. spec.condition .. ".")
   end
   table.insert(lines,
-    '- Every `cannot-implement-here` result must also include exactly `reason` and a non-empty bounded `evidence` string. The evidence reports the worker\'s basis; it is not independently verified by the receipt.')
+    '- Every `cannot-implement-here` result must also include `reason` and a non-empty bounded `evidence` string. The evidence reports the worker\'s basis; it is not independently verified by the receipt.')
+  table.insert(lines,
+    '- A `precursor-missing` result must additionally include exactly `blocker={"repo":"owner/repo","issue_number":123}` naming a same-repository issue. The other reasons must not include `blocker`.')
   table.insert(lines,
     '- Do not use `cannot-implement-here` for any other reason and do not add unsupported fields.')
   return table.concat(lines, "\n")

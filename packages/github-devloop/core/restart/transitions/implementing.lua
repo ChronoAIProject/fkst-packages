@@ -7,6 +7,8 @@ local function effect_entitlements(semantic_variant)
   }
   if semantic_variant == "revision_published" then
     table.insert(effect_ids, "git.push:implementation-branch")
+  elseif semantic_variant == "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
   end
   return {
     apply = { id = id .. "/apply", effect_ids = effect_ids },
@@ -46,12 +48,12 @@ return function(M, h)
       redrive_opens_generation = true,
     },
     terminal = false,
-    to_states = { "awaiting-pr", "blocked", "impl-failed" },
+    to_states = { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" },
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation(
-      { "state:v1 awaiting-pr", "state:v1 blocked", "state:v1 impl-failed" },
-      { "awaiting-pr", "blocked", "impl-failed" }),
+      { "state:v1 awaiting-pr", "state:v1 dependency_wait", "state:v1 blocked", "state:v1 impl-failed" },
+      { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" }),
     temporal_obligations = {
       {
         obligation_id = "github-devloop/issue/implementing/response-with-deadline",
@@ -99,6 +101,15 @@ return function(M, h)
           pending_order = { participates = true, predecessor_state = "implementing" },
           postcondition_family = "implementation_attempt_result",
           monotonic = true,
+        },
+        {
+          state = "dependency_wait",
+          output_variant = "precursor_waiting",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("precursor_waiting"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
+          bump = true,
         },
         {
           state = "blocked",
