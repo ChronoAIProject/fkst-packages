@@ -1,5 +1,6 @@
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
 local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
@@ -31,6 +32,7 @@ end
 M = {
   blueprint = blueprint,
   catalog = catalog,
+  child_disposition_receipt = child_disposition_receipt,
   child_result = child_result,
   default_catalog = default_catalog,
   digest = digest,
@@ -145,6 +147,7 @@ M._test_bot_login = devloop_base._test_bot_login
 function M.install(target)
   blueprint.install(target)
   catalog.install(target)
+  child_disposition_receipt.install(target)
   child_result.install(target)
   default_catalog.install(target)
   digest.install(target)
