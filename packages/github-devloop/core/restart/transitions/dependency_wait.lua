@@ -6,6 +6,9 @@ local function effect_entitlements(semantic_variant)
   if semantic_variant ~= "blockers_released" then
     table.insert(effect_ids, "github-proxy.github_issue_label_request")
   end
+  if semantic_variant == "blockers_still_open" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
+  end
   return {
     apply = { id = id .. "/apply", effect_ids = effect_ids },
     idempotent = { id = id .. "/idempotent", effect_ids = {} },

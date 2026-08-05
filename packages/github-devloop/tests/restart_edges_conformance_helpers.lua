@@ -26,6 +26,7 @@ local expected_successor_kinds = {
   ["dependency_wait/blockers_released"] = "guard_boundary",
   ["dependency_wait/dependency_resolver_stale"] = "guard_boundary",
   ["implementing/revision_published"] = "autonomous",
+  ["implementing/precursor_waiting"] = "autonomous",
   ["implementing/implementation_refused"] = "autonomous",
   ["implementing/revision_failed"] = "autonomous",
   ["ready/blocker_reappeared"] = "guard_boundary",
