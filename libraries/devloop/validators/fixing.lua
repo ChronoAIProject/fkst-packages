@@ -9,18 +9,6 @@ local ci_failure_keys = require("devloop.ci_failure_keys")
 local payloads_shared = require("devloop.payloads.shared")
 
 local C = {}
-local function is_supported_redrive_delivery(payload)
-  if payload.redrive_delivery == nil then
-    return true
-  end
-  local ok, expected = pcall(
-    payloads_shared.issue_redrive_delivery_dedup_key,
-    payload.proposal_id,
-    payload.version,
-    payload.redrive_delivery
-  )
-  return ok and payload.dedup_key == expected
-end
 
 function C.is_supported_fixing(payload)
   if type(payload) ~= "table"
@@ -44,9 +32,6 @@ function C.is_supported_fixing(payload)
   if not entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key) then
     return false
   end
-  if not is_supported_redrive_delivery(payload) then
-    return false
-  end
   local repair_input = payload.repair_input or "review-feedback"
   if repair_input == "ci-failure" and payload.ci_failure_key == nil then
     return false
@@ -57,6 +42,19 @@ function C.is_supported_fixing(payload)
   local expected_work_unit = require("devloop.payloads.builders").fixing_work_unit_key(payload)
   if expected_work_unit == nil or tostring(payload.work_unit_key or "") ~= expected_work_unit then
     return false
+  end
+  if payload.redrive_delivery ~= nil then
+    local logical = require("devloop.payloads.builders").build_replayed_fixing_payload({
+      proposal_id = payload.proposal_id,
+      impl_version = payload.version,
+    }, payload.pr_number, payload, payload.source_ref)
+    local ok, expected = pcall(
+      payloads_shared.issue_redrive_delivery_dedup_key,
+      payload.proposal_id,
+      logical.dedup_key,
+      payload.redrive_delivery
+    )
+    return ok and tostring(payload.dedup_key) == expected
   end
   if tostring(payload.dedup_key):sub(1, #"fixing/replay/") ~= "fixing/replay/" then
     return true

@@ -276,8 +276,7 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
     local fix_payload = payloads_builders.build_replayed_fixing_payload({
       proposal_id = fields.proposal_id,
       impl_version = fields.version,
-      redrive_delivery = facts.redrive_delivery,
-    }, fields.pr_number, feedback, fields.source_ref)
+    }, fields.pr_number, feedback, fields.source_ref, facts.redrive_delivery)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "trusted feedback fact is visible")
     if dept == "observe_pr" then
       local comment_request = fixing_replay_comment_request(M, issue, fields.pr_number, fix_payload, feedback, fields.source_ref)

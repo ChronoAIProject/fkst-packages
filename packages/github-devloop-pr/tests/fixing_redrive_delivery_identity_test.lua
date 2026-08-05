@@ -185,13 +185,17 @@ return {
     local first = payloads_builders.build_replayed_fixing_payload({
       proposal_id = event.proposal_id,
       impl_version = event.version,
-      redrive_delivery = { generation_key = generation, attempt = 1 },
-    }, event.pr_number, feedback(event), event.source_ref)
+    }, event.pr_number, feedback(event), event.source_ref, {
+      generation_key = generation,
+      attempt = 1,
+    })
     local second = payloads_builders.build_replayed_fixing_payload({
       proposal_id = event.proposal_id,
       impl_version = event.version,
-      redrive_delivery = { generation_key = generation, attempt = 2 },
-    }, event.pr_number, feedback(event), event.source_ref)
+    }, event.pr_number, feedback(event), event.source_ref, {
+      generation_key = generation,
+      attempt = 2,
+    })
 
     t.eq(first.redrive_delivery.generation_key, generation)
     t.eq(first.redrive_delivery.attempt, 1)
