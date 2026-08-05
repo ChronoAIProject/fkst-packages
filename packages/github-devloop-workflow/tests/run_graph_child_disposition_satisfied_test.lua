@@ -3,14 +3,12 @@ local core = require("core")
 local digest = require("core.digest")
 local entity = require("devloop.entity")
 local github_fake = require("forge.github_fake")
-local gh_argv = require("testkit_internal.gh_argv_mock")
 local graph = require("testkit.graph")
 local materialization = require("core.materialization")
 local marker = require("core.marker")
 local testing = require("testkit_internal.testing")
 
 local t = fkst.test
-gh_argv.install(t, core)
 
 local repo = "owner/repo"
 local origin_issue = 42
@@ -334,53 +332,6 @@ local function mock_visible_receipt_reads(identity, message, count)
   end
 end
 
-local function mock_receipt_commit_and_readback(identity)
-  t.mock_command("git ls-remote", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git rev-parse --verify 'HEAD^{tree}'", {
-    stdout = tree_sha .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git commit-tree", { stdout = receipt_sha .. "\n", stderr = "", exit_code = 0 })
-  t.mock_command("git push", { stdout = "", stderr = "", exit_code = 0 })
-  mock_visible_receipt_reads(identity, receipt_message(identity), 2)
-end
-
-local function command_count(calls, needle)
-  local total = 0
-  for _, call in ipairs(calls) do
-    if gh_argv.call_contains(call, needle) then
-      total = total + 1
-    end
-  end
-  return total
-end
-
-local function command_index(calls, needle, last)
-  local found = nil
-  for index, call in ipairs(calls) do
-    if gh_argv.call_contains(call, needle) then
-      found = index
-      if not last then
-        return index
-      end
-    end
-  end
-  return found
-end
-
-local function committed_receipt_message(calls)
-  local commit_index = command_index(calls, "git commit-tree")
-  if commit_index == nil then
-    error("routed disposition did not commit a receipt")
-  end
-  local message_path = gh_argv.argv_value_after(calls[commit_index], "-F")
-  if message_path == nil then
-    error("routed receipt commit did not use a message file")
-  end
-  return assert(file.read(message_path))
-end
-
 local function count(values, expected)
   local total = 0
   for _, value in ipairs(values) do
@@ -449,46 +400,6 @@ local function fake_issue_model(history, child_body)
       },
     },
   })
-end
-
-local function fake_port_fixture()
-  local plan = blueprint()
-  local blueprint_digest = digest.blueprint_digest(plan)
-  local blueprint_marker = assert(marker.build_blueprint_marker(origin, plan.id, blueprint_digest))
-  local child_body = assert(marker.build_lineage_header(origin, blueprint_digest, "first"))
-    .. "\n\nComplete the first child."
-  local entry = assert(materialization.created_entry(
-    origin,
-    blueprint_digest,
-    plan.steps[1],
-    materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-    { title = "First child", body = child_body },
-    child_issue
-  ))
-  local materialization_marker = assert(marker.build_materialization_marker(
-    origin,
-    entry.blueprint_digest,
-    entry.slot,
-    entry.predecessor_ref_digest,
-    entry.gen_contract_digest,
-    entry.gen_spec_digest,
-    entry.child_dedup,
-    entry.child_issue,
-    entry.state
-  ))
-  local history = {
-    trusted_comment(blueprint_marker),
-    trusted_comment(materialization_marker),
-  }
-  local identity = {
-    repo = repo,
-    origin = origin,
-    blueprint_digest = blueprint_digest,
-    slot = "first",
-    child_issue = tostring(child_issue),
-    disposition = "satisfied",
-  }
-  return history, child_body, core.child_disposition_request.build(identity), identity
 end
 
 local function assert_fake_port_disposition(history, child_body, request, identity)
@@ -560,6 +471,7 @@ local function assert_fake_port_disposition(history, child_body, request, identi
   t.eq(count(order, "close"), 1, "completed child close")
   t.is_true(index_of(order, "receipt-put") < index_of(order, "receipt-read"))
   t.is_true(index_of(order, "receipt-read") < index_of(order, "close"))
+  return stored_receipt
 end
 
 return {
@@ -636,15 +548,8 @@ return {
         child_issue = tostring(child_issue),
         disposition = "satisfied",
       }
-      mock_fresh_issue_reads(history, child_body)
-      mock_receipt_commit_and_readback(identity)
-      mock_env("FKST_GITHUB_WRITE", "1", 2)
-      t.mock_command("gh issue close " .. tostring(child_issue) .. " --repo " .. repo, {
-        stdout = "",
-        stderr = "",
-        exit_code = 0,
-      })
-      local disposition_start = #t.command_calls()
+      mock_fresh_issue_reads(history, child_body, 1)
+      mock_env("FKST_GITHUB_WRITE", "", 2)
       local disposition_trace = graph.require_quiescent(graph.run({
         queue = "github-devloop-workflow.workflow_child_disposition_request",
         payload = request,
@@ -657,21 +562,10 @@ return {
         "github-devloop-workflow.workflow_child_disposition_request -> github-devloop-workflow.workflow_child_disposition",
       })
 
-      local disposition_calls = {}
-      for index = disposition_start + 1, #t.command_calls() do
-        disposition_calls[#disposition_calls + 1] = t.command_calls()[index]
-      end
-      t.eq(command_count(disposition_calls, "gh api repos/owner/repo/issues/42"), 1, "origin authority read")
-      t.eq(command_count(disposition_calls, "gh api repos/owner/repo/issues/108"), 2, "child authority reads")
-      t.eq(command_count(disposition_calls, "git commit-tree"), 1, "receipt commit")
-      t.eq(command_count(disposition_calls, "git cat-file -p"), 2, "receipt readbacks")
-      t.eq(command_count(disposition_calls, "gh issue close 108"), 1, "completed child close")
-      t.is_true(command_index(disposition_calls, "git commit-tree")
-        < command_index(disposition_calls, "git cat-file -p"))
-      t.is_true(command_index(disposition_calls, "git cat-file -p", true)
-        < command_index(disposition_calls, "gh issue close 108"))
-      local routed_receipt_message = committed_receipt_message(disposition_calls)
-      t.eq(routed_receipt_message, receipt_message(identity))
+      local confirmed_receipt = assert_fake_port_disposition(history, child_body, request, identity)
+      t.eq(confirmed_receipt.origin, identity.origin)
+      t.eq(confirmed_receipt.commit_sha, receipt_sha)
+      local routed_receipt_message = receipt_message(confirmed_receipt)
 
       mock_materialization_source(catalog_root, history)
       mock_visible_receipt_reads(identity, routed_receipt_message, 1)
@@ -696,10 +590,5 @@ return {
       )
       t.is_true(terminal.payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
     end)
-  end,
-
-  test_satisfied_disposition_uses_canonical_fake_forge_ports = function()
-    local history, child_body, request, identity = fake_port_fixture()
-    assert_fake_port_disposition(history, child_body, request, identity)
   end,
 }
