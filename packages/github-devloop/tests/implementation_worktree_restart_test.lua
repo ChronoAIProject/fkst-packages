@@ -393,7 +393,7 @@ return {
       exit_code = 1,
     })
 
-    harvest.local_iteration_check(worktree)
+    harvest.local_iteration_check(worktree, "abc123")
     local rendered = nil
     for _, call in ipairs(t.command_calls()) do
       if tostring(call.rendered or ""):find("scripts/run.sh test-affected", 1, true) ~= nil then

@@ -74,8 +74,8 @@ local function gate_baseline_sha_from_pr(pr)
   end
   return baseline_sha
 end
-local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason)
-  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason)
+local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason, proposal_id)
+  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason, proposal_id)
 end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position, classification)
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
@@ -501,10 +501,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       end
       local mergeable, mergeable_reason = check_runs.pr_mergeable(current_pr)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+          current_pr, branches, mergeable_reason, merge_ready.proposal_id)
         if stale_mergeability then
           log_gate(merge_ready, "dry-run", stale_reason)
-          error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+          error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
         end
         if not write_enabled then
           log_gate(merge_ready, "dry-run", "speculative fix requires FKST_GITHUB_WRITE=1")
@@ -569,10 +570,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       log_gate(merge_ready, "dry-run", mergeable_reason)
       error("github-devloop: merge-gate-wait: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
     end
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      current_pr, branches, mergeable_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+      error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
     end
     log_gate(merge_ready, "fixing", mergeable_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason, queue_position)
@@ -734,10 +736,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and check_runs.is_not_mergeable_reason(merge_reason) then
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(merge_rechecked_pr, branches, merge_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      merge_rechecked_pr, branches, merge_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: write-time-mergeability-stale: merge wait on write-time stale " .. tostring(merge_reason) .. "; retrying")
+      error("github-devloop: write-time-mergeability-stale: merge wait on write-time " .. tostring(stale_reason) .. "; retrying")
     end
     log_gate(merge_ready, "fixing", merge_reason)
     raise_fixing(repo, issue_number, merge_ready, rechecked_state, merge_rechecked_pr, merge_reason, queue_position)

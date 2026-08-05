@@ -613,4 +613,26 @@ function C.build_review_carry_over_comment_request(repo, pr_number, issue_propos
   return request
 end
 
+function C.build_fix_feedback_recovery_reviewing_comment_request(repo, proposal_id,
+    pr_number, version, current_head_sha, source_ref)
+  local state_marker = devloop_state.state_marker(proposal_id, "reviewing", version)
+  local request = entity_lib.build_entity_comment_request({
+    kind = "pr",
+    repo = repo,
+    number = pr_number,
+  }, "github-devloop rejected invalid fix feedback and re-entered review"
+    .. "\nCurrent head: " .. tostring(current_head_sha)
+    .. "\n\n" .. state_marker
+    .. "\n" .. ai_sentinel, base_ids.dedup_key({
+    "fix-feedback-recovery",
+    "comment",
+    tostring(proposal_id),
+    tostring(version),
+    tostring(pr_number),
+    tostring(current_head_sha),
+  }), source_ref)
+  return C.attach_reviewing_handoff(
+    request, proposal_id, pr_number, version, source_ref)
+end
+
 return C

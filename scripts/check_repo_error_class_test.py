@@ -102,8 +102,8 @@ class ErrorEnvelopeGrammarTest(unittest.TestCase):
     def test_checker_loads_grammar_from_contract_owner(self) -> None:
         expected = Path(__file__).resolve().parents[1] / "libraries/contract/error_facts.lua"
 
-        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR_SOURCE, expected)
-        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR, check_repo.load_error_envelope_grammar())
+        self.assertEqual(error_class.ERROR_ENVELOPE_GRAMMAR_SOURCE, expected)
+        self.assertEqual(error_class.ERROR_ENVELOPE_GRAMMAR, error_class.load_error_envelope_grammar())
 
     def test_allows_hierarchical_subsystem_with_underscore(self) -> None:
         source = """

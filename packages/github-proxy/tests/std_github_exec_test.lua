@@ -577,6 +577,25 @@ return {
     end
   end,
 
+  test_github_issue_updated_at_list_builds_one_exact_graphql_call = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = '{"data":{"repository":{}}}', stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_list_updated_at("owner/repo", { 43, 42, 42 }, 30)
+
+    assert(#calls == 1, "issue_list_updated_at must use one GraphQL call")
+    assert_argv_equal(calls[1].argv, {
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      'query=query{repository(owner:"owner",name:"repo"){i42:issue(number:42){number updatedAt}i43:issue(number:43){number updatedAt}}}',
+    }, "issue_list_updated_at")
+  end,
+
   test_github_comment_methods_build_argv = function()
     local calls = {}
     local handle = gh.new(function(opts)

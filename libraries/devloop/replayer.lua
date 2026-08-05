@@ -252,7 +252,9 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
 
   local feedback = facts.feedback or M.fixing_replay_feedback_fact(facts.snapshot.comments, proposal_id, state.version)
   if feedback ~= nil then
-    feedback = m_facts.parse_fix_feedback_fact(feedback)
+    if feedback.review_proposal_id == nil or feedback.reviewed_head_sha == nil then
+      return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-foreign(fix-feedback-binding)", "trusted fix feedback marker lacks review binding")
+    end
     if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
       return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number))
     end

@@ -161,7 +161,8 @@ function M.install(target)
   target.github_graphql_queries = devloop_dependency_gate.github_graphql_queries
   target.render_github_graphql_query = devloop_dependency_gate.render_github_graphql_query
   target.github_graphql = devloop_dependency_gate.github_graphql
-  target.dependency_gate = devloop_dependency_gate.new(target).dependency_gate
+  local dependency_resolver = devloop_dependency_gate.new(target)
+  target.dependency_gate = dependency_resolver.dependency_gate
 end
 
 M.install(M)

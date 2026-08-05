@@ -34,7 +34,9 @@ local implement_department = require("departments.implement.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local IMPLEMENT_ACTIVATION_CORPUS_PATH = "migration/intent_bounded_replay/corpus/implement-activation.json"
-local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = ".fkst/run/r9-implement-activation-new-trace.json"
+local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-implement-activation-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"
@@ -392,7 +394,8 @@ local function fixture_comments(fixture, event)
     table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
-    table.insert(comments, core.impl_failure_marker(PROPOSAL_ID, event.dedup_key, "codex-failed", 1))
+    table.insert(comments, core.impl_failure_marker(
+      PROPOSAL_ID, event.dedup_key, "codex-failed", 1, "UNKNOWN", true))
   end
   if fixture.blocked_version ~= nil or fixture.current_target_link then
     table.insert(comments, m_builders.pr_link_marker(

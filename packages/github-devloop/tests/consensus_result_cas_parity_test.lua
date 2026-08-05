@@ -25,7 +25,9 @@ local projection = owner_pending_projection.derive(core.restart_package_name, co
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local THINKING_CORPUS_PATH = "migration/intent_bounded_replay/corpus/thinking.json"
-local THINKING_NEW_TRACE_PATH = ".fkst/run/r9-thinking-new-trace.json"
+local THINKING_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-thinking-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_consensus_result_v1"

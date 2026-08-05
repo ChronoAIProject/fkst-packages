@@ -289,11 +289,7 @@ local function capture(fixture)
     if fixture.feedback == "review-meta" then
       table.insert(comments, m_builders.review_meta_marker(
         PROPOSAL_ID, fix.review_dedup_key, "fix", fix.version,
-        "missing OLD entry observation evidence", nil, {
-          review_proposal_id = fix.review_proposal_id,
-          review_dedup_key = fix.review_dedup_key,
-          reviewed_head_sha = fix.reviewed_head_sha,
-        }
+        "missing OLD entry observation evidence"
       ))
     else
       table.insert(comments, reject_comment(fix))

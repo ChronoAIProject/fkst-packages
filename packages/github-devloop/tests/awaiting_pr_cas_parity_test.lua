@@ -31,7 +31,9 @@ local json_array = observation_support.json_array
 local AWAITING_PR_CORPUS_PATH = "migration/intent_bounded_replay/corpus/awaiting-pr.json"
 local RESTART_INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local OLD_APPLY_OBSERVATION_ID = "writer:github-devloop:awaiting-pr-enter/merged-delegated-pr-canonicalized/awaiting-pr/apply/applied(merged-delegated-pr-canonicalized)/awaiting-pr"
-local AWAITING_PR_NEW_TRACE_PATH = ".fkst/run/r9-awaiting-pr-new-trace.json"
+local AWAITING_PR_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-awaiting-pr-new-trace.json"
+)
 local OWNER = core.restart_package_name
 local IMPLEMENTING_SHADOW_VARIANT = "implementing_terminal_delegated_pr"
 
