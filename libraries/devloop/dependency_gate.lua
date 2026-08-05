@@ -1,10 +1,11 @@
 local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local devloop_commands = require("devloop.commands")
+local dependency_graphql = require("devloop.dependency_graphql")
 local devloop_state = require("devloop.state")
+local devloop_logging = require("devloop.logging")
 local entity = require("devloop.entity")
 local forge_validators = require("devloop.forge_validators")
-local github_factory = require("devloop.github_factory")
 local marker_facts = require("devloop.markers.facts")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_misc = require("devloop.parsers.misc")
@@ -15,45 +16,9 @@ local M = {}
 
 local max_dependency_depth = 32
 
-M.github_graphql_queries = {
-  dependency_blocked_by = '{repository(owner:"{{owner}}",name:"{{name}}"){issue(number:{{issue_number}}){number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}} blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}}}}}',
-}
-
-local function github_result(fn)
-  local ok, result_or_error = pcall(fn)
-  if ok then
-    return result_or_error
-  end
-  if type(result_or_error) == "table" and result_or_error.result ~= nil then
-    return result_or_error.result
-  end
-  error(result_or_error)
-end
-
-function M.render_github_graphql_query(name, fields)
-  local template = M.github_graphql_queries[name]
-  if template == nil then
-    error("github-devloop: graphql-template-unknown-query: " .. tostring(name))
-  end
-  return tostring(template):gsub("{{([%w_]+)}}", function(field_name)
-    local value = fields and fields[field_name]
-    if value == nil then
-      error("github-devloop: graphql-template-missing-field: " .. tostring(field_name))
-    end
-    return tostring(value)
-  end)
-end
-
-function M.github_graphql(name, fields, timeout, exec)
-  local query = M.render_github_graphql_query(name, fields)
-  local run = exec or exec_argv
-  if type(run) ~= "function" then
-    error("github-devloop: adapter-unavailable: GitHub GraphQL adapter requires exec_argv")
-  end
-  return github_result(function()
-    return github_factory.new(run, exec_sync).graphql(query, nil, timeout or 30)
-  end)
-end
+M.github_graphql_queries = dependency_graphql.queries
+M.render_github_graphql_query = dependency_graphql.render_query
+M.github_graphql = dependency_graphql.execute
 
 local function split_repo(repo)
   local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
@@ -172,80 +137,41 @@ local function decode_dependency_attr(value)
   return value
 end
 
-local function parse_dependency_issue(node, include_duplicate)
-  if type(node) ~= "table" or not forge_validators.is_positive_pr_number(node.number) then
-    return nil
-  end
-  local issue_repo = node.repository and node.repository.nameWithOwner
-  if type(issue_repo) ~= "string" or issue_repo == "" then
-    return nil
-  end
-  local issue = {
-    number = tonumber(node.number),
-    state = tostring(node.state or ""),
-    state_reason = tostring(node.stateReason or node.state_reason or ""),
-    repo = issue_repo,
-    duplicate_projection_complete = include_duplicate == true,
-  }
-  local duplicate_of = node.duplicateOf or node.duplicate_of
-  if include_duplicate and type(duplicate_of) == "table" then
-    issue.duplicate_of = parse_dependency_issue(duplicate_of, false)
-    if issue.duplicate_of == nil then
-      return nil
-    end
-  elseif include_duplicate and duplicate_of ~= nil and type(duplicate_of) ~= "userdata" then
-    return nil
-  end
-  return issue
-end
-
-local function parse_blocked_by(stdout)
-  local ok, decoded = pcall(json.decode, stdout or "")
-  if not ok or type(decoded) ~= "table" then
-    return nil
-  end
-  local issue = decoded.data
-    and decoded.data.repository
-    and decoded.data.repository.issue
-  if issue == nil then
-    return nil, nil, nil, "missing-issue"
-  end
-  if type(issue) ~= "table" then
-    return nil
-  end
-  local blocked_by = issue.blockedBy
-  local nodes = blocked_by and blocked_by.nodes
-  if type(nodes) ~= "table" then
-    return nil
-  end
-
-  local blockers = {}
-  for _, node in ipairs(nodes) do
-    local blocker = parse_dependency_issue(node, true)
-    if blocker == nil then
-      return nil
-    end
-    table.insert(blockers, blocker)
-  end
-
-  local issue_projection = nil
-  if issue.number ~= nil then
-    issue_projection = parse_dependency_issue(issue, true)
-    if issue_projection == nil then
-      return nil
-    end
-  end
-
-  local total = blocked_by.totalCount
-  local page = blocked_by.pageInfo
-  local truncated = (type(total) == "number" and total > #blockers)
-    or (type(page) == "table" and page.hasNextPage == true)
-  return blockers, truncated, issue_projection, nil
-end
-
 local function normalized_state_reason(value)
   local text = tostring(value or ""):lower():gsub("_", "-")
   return text:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function dependency_query_key(repo, issue_number)
+  return tostring(repo) .. "#" .. tostring(issue_number)
+end
+
+local function log_dependency_query(resolver, repo, batch_size, reason)
+  local outcome = reason == nil and "success" or "failure"
+  local fields = {
+    "operation=dependency_blocked_by",
+    "repo=" .. tostring(repo or ""),
+    "batch_size=" .. tostring(batch_size or 0),
+    "outcome=" .. outcome,
+  }
+  if reason ~= nil then
+    table.insert(fields, "reason=" .. tostring(reason))
+  end
+  devloop_logging.log_line(
+    outcome == "success" and "info" or "error",
+    "dependency_resolver",
+    resolver and resolver.proposal_id or "unknown",
+    "GITHUB_GRAPHQL",
+    fields
+  )
+end
+
+local function memo_blocked_by(resolver, repo, issue_number, blockers, reason, issue)
+  resolver.blocked_by[dependency_query_key(repo, issue_number)] = {
+    blockers = blockers,
+    reason = reason,
+    issue = issue,
+  }
 end
 
 local function managed_sibling_repo(current_repo, blocker_repo, managed_repos)
@@ -259,7 +185,7 @@ end
 
 function M.new(core)
   if type(core) ~= "table" then
-    error("github-devloop: dependency-gate-core-type-invalid: dependency gate requires a core table")
+    error("github-devloop: dependency-gate-core-invalid: dependency gate requires a core table")
   end
 
   local function gh_blocked_by(repo, issue_number, timeout, exec)
@@ -275,20 +201,77 @@ function M.new(core)
     }, timeout, exec)
   end
 
-  local function fetch_blocked_by(repo, issue_number)
+  local function gh_blocked_by_batch(repo, issue_numbers, timeout, exec)
+    local owner, name = split_repo(repo)
+    if owner == nil or type(issue_numbers) ~= "table" or #issue_numbers == 0 then
+      error("github-devloop: invalid-dependency-target: invalid dependency batch query target")
+    end
+    local numbers = {}
+    for _, issue_number in ipairs(issue_numbers) do
+      if not forge_validators.is_positive_pr_number(issue_number) then
+        error("github-devloop: invalid-dependency-target: invalid dependency batch query target")
+      end
+      table.insert(numbers, math.floor(tonumber(issue_number)))
+    end
+    return dependency_graphql.execute_batch(
+      "dependency_blocked_by",
+      { owner = owner, name = name },
+      numbers,
+      timeout,
+      exec
+    )
+  end
+
+  local function fetch_blocked_by(resolver, repo, issue_number)
+    local cached = resolver.blocked_by[dependency_query_key(repo, issue_number)]
+    if cached ~= nil then
+      return cached.blockers, cached.reason, cached.issue
+    end
     local read_blocked_by = type(core.gh_blocked_by) == "function" and core.gh_blocked_by or gh_blocked_by
     local result = read_blocked_by(repo, issue_number, 30)
     if type(result) ~= "table" or result.exit_code ~= 0 then
+      memo_blocked_by(resolver, repo, issue_number, nil, "gh-failed")
+      log_dependency_query(resolver, repo, 1, "gh-failed")
       return nil, "gh-failed"
     end
-    local blockers, truncated, issue, parse_reason = parse_blocked_by(result.stdout)
+    local blockers, truncated, issue, parse_reason = dependency_graphql.parse(result.stdout)
     if blockers == nil then
-      return nil, parse_reason or "malformed-json"
+      local reason = parse_reason or "malformed-json"
+      memo_blocked_by(resolver, repo, issue_number, nil, reason)
+      log_dependency_query(resolver, repo, 1, reason)
+      return nil, reason
     end
     if truncated then
+      memo_blocked_by(resolver, repo, issue_number, nil, "blockedby-truncated")
+      log_dependency_query(resolver, repo, 1, "blockedby-truncated")
       return nil, "blockedby-truncated"
     end
+    memo_blocked_by(resolver, repo, issue_number, blockers, nil, issue)
+    log_dependency_query(resolver, repo, 1, nil)
     return blockers, nil, issue
+  end
+
+  local function prefetch_blocked_by(resolver, repo, issue_numbers)
+    if #issue_numbers < 2 then
+      return
+    end
+    local result = gh_blocked_by_batch(repo, issue_numbers, 30)
+    if type(result) ~= "table" or result.exit_code ~= 0 then
+      for _, issue_number in ipairs(issue_numbers) do
+        memo_blocked_by(resolver, repo, issue_number, nil, "gh-failed")
+      end
+      log_dependency_query(resolver, repo, #issue_numbers, "gh-failed")
+      return
+    end
+
+    local entries = dependency_graphql.parse_batch(result.stdout, issue_numbers)
+    local first_failure = entries == nil and "malformed-json" or nil
+    for _, issue_number in ipairs(issue_numbers) do
+      local entry = entries and entries[tonumber(issue_number)] or { reason = "malformed-json" }
+      memo_blocked_by(resolver, repo, issue_number, entry.blockers, entry.reason, entry.issue)
+      first_failure = first_failure or entry.reason
+    end
+    log_dependency_query(resolver, repo, #issue_numbers, first_failure)
   end
 
   local function merged_blocker_cache_key(repo, blocker_number)
@@ -311,6 +294,26 @@ function M.new(core)
 
   local function cache_blocker_merged(repo, blocker_number)
     cache_set(merged_blocker_cache_key(repo, blocker_number), "1")
+  end
+
+  local function prefetch_open_sibling_dependencies(repo, blockers, stack, visited, resolver)
+    local issue_numbers = {}
+    local seen = {}
+    for _, blocker in ipairs(blockers or {}) do
+      local number = tonumber(blocker.number)
+      local key = dependency_query_key(repo, number)
+      if tostring(blocker.repo or "") == tostring(repo)
+        and blocker.state ~= "CLOSED"
+        and not cached_blocker_merged(repo, number)
+        and not stack[key]
+        and not visited[key]
+        and resolver.blocked_by[key] == nil
+        and not seen[number] then
+        seen[number] = true
+        table.insert(issue_numbers, number)
+      end
+    end
+    return prefetch_blocked_by(resolver, repo, issue_numbers)
   end
 
   local function dependency_waiver_fact(comments, proposal_id, version, blocker_number)
@@ -487,7 +490,7 @@ function M.new(core)
 
     local current = blocker
     if current.duplicate_of == nil and current.duplicate_projection_complete ~= true then
-      local _, fetch_reason, projected = fetch_blocked_by(repo, current.number)
+      local _, fetch_reason, projected = fetch_blocked_by(traversal.resolver, repo, current.number)
       if projected == nil then
         stack[key] = nil
         local reason = fetch_reason == "missing-issue"
@@ -519,7 +522,7 @@ function M.new(core)
       target,
       context,
       notes,
-      { stack = stack, depth = depth + 1 }
+      { stack = stack, depth = depth + 1, resolver = traversal.resolver }
     )
     stack[key] = nil
     if satisfied == nil and kind == nil then
@@ -544,7 +547,7 @@ function M.new(core)
 
     local merged, merged_reason = prove_blocker_merged(repo, blocker.number)
     if merged == nil then
-      return nil, merged_reason or "unknown-blocker"
+      return nil, merged_reason or "unknown-blocker", merged_reason ~= nil and blocker.number or nil
     end
     if merged then
       return true, nil
@@ -588,7 +591,8 @@ function M.new(core)
     context,
     notes,
     target_repo,
-    target_issue_number
+    target_issue_number,
+    resolver
   )
     if depth > max_dependency_depth then
       return gate("unavailable", "depth-cap-exceeded", unmet)
@@ -610,11 +614,13 @@ function M.new(core)
     end
 
     stack[key] = true
-    local blockers, fetch_reason = fetch_blocked_by(repo, issue_number)
+    local blockers, fetch_reason = fetch_blocked_by(resolver, repo, issue_number)
     if blockers == nil then
       stack[key] = nil
       return gate("unavailable", fetch_reason or "gh-failed", unmet)
     end
+
+    prefetch_open_sibling_dependencies(repo, blockers, stack, visited, resolver)
 
     for _, blocker in ipairs(blockers) do
       if tostring(blocker.repo or "") ~= tostring(repo) then
@@ -645,7 +651,7 @@ function M.new(core)
           blocker,
           context,
           notes,
-          { stack = stack, depth = depth + 1 }
+          { stack = stack, depth = depth + 1, resolver = resolver }
         )
         if satisfied == nil then
           stack[key] = nil
@@ -673,9 +679,15 @@ function M.new(core)
         local prefer_terminal_proof = blocker.state == "CLOSED"
         local satisfied = nil
         local satisfied_reason = nil
+        local observed_blocker_number = nil
 
         if prefer_terminal_proof then
-          satisfied, satisfied_reason = evaluate_terminal_blocker(repo, blocker, context, notes)
+          satisfied, satisfied_reason, observed_blocker_number = evaluate_terminal_blocker(
+            repo,
+            blocker,
+            context,
+            notes
+          )
         end
         if not prefer_terminal_proof
           or (satisfied == false and satisfied_reason ~= "dependency-waiver-required") then
@@ -690,7 +702,8 @@ function M.new(core)
             context,
             notes,
             target_repo,
-            target_issue_number
+            target_issue_number,
+            resolver
           )
           if nested.kind == "verified_cannot_proceed" or nested.kind == "unavailable" then
             stack[key] = nil
@@ -698,9 +711,15 @@ function M.new(core)
           end
         end
         if not prefer_terminal_proof then
-          satisfied, satisfied_reason = evaluate_terminal_blocker(repo, blocker, context, notes)
+          satisfied, satisfied_reason, observed_blocker_number = evaluate_terminal_blocker(
+            repo,
+            blocker,
+            context,
+            notes
+          )
         end
         if satisfied == nil then
+          add_unmet(unmet, unmet_seen, observed_blocker_number)
           stack[key] = nil
           return gate("unavailable", satisfied_reason or "unknown-blocker", unmet)
         end
@@ -733,6 +752,10 @@ function M.new(core)
     end
     local gate_context = type(context) == "table" and context or {}
     gate_context.managed_sibling_repos = config.managed_sibling_repos()
+    local resolver = {
+      blocked_by = {},
+      proposal_id = base_ids.proposal_id(repo, issue_number),
+    }
     local ok, result = pcall(
       visit,
       repo,
@@ -745,7 +768,8 @@ function M.new(core)
       gate_context,
       {},
       repo,
-      issue_number
+      issue_number,
+      resolver
     )
     if not ok or type(result) ~= "table" then
       return gate("unavailable", "dependency-gate-exception", {})

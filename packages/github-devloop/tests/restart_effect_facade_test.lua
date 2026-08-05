@@ -48,7 +48,7 @@ local function sealed_snapshot()
     owner = OWNER,
     entity = { kind = "issue", repo = "owner/repo", number = 42 },
     proposal_id = "github-devloop/issue/owner/repo/42",
-    current = { state = "thinking", version = VERSION },
+    current = { state = nil, version = VERSION },
     snapshot_fingerprint = "snapshot:issue:42:v1",
     lock_epoch = "lock:issue:42:epoch:7",
     generation = "generation:7",
@@ -57,7 +57,9 @@ end
 
 local function real_grant(snapshot)
   local decided = restart_effects.decide_transition(snapshot, {
-    semantic_variant = "consensus-reached",
+    semantic_variant = "unmanaged_issue",
+    source_boundary = "github-proxy.github_entity_changed",
+    target = "thinking",
     incoming_version = VERSION,
   })
   t.eq(decided.status, "apply")

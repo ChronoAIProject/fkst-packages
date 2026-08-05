@@ -84,3 +84,42 @@ change). **Genuine ambient-M god-lib coupling is eliminated; the residual is mea
 as the proven floor above.
 
 ⟦AI:FKST⟧
+
+## The `install(M)` removal condition (measured 2026-08-05 — read this before deleting a scaffold)
+
+`libraries/devloop/{commands,logging,state}.lua` each expose an `S.install(M)` migration scaffold.
+Their comments used to say the scaffold is deleted "once the G-DEVLOOP-INSTALLER ratchet shows zero
+reads through the ambient M". **That condition is wrong and following it breaks the library at
+runtime.**
+
+`scripts/check_repo_devloop_installer.py` scans `root/packages/<pkg>` only. It never looks at
+`libraries/`. But `libraries/devloop` reads those ambient symbols itself — measured: one read each
+for `gh_issue_list_observe_opts`, `gh_pr_view_freshness`, `gh_pr_view_observe`, `log_raise`,
+`log_line`, `log_error_fact`. Removing `require("devloop.commands").install(M)` from a package core
+whose ratchet count was already zero produced:
+
+```
+libraries/devloop/entity_list_cache.lua:302: attempt to call a nil value (field 'gh_issue_list_observe_opts')
+libraries/devloop/entity.lua:143:            attempt to call a nil value (field 'gh_pr_view_freshness')
+```
+
+`check_repo` stays green through all of it; only the full Lua suite catches it.
+
+**The real removal condition** is therefore: the ratchet is zero for **every** package **and** an
+exhaustive grep of `libraries/` finds no `M.<symbol>` / `core.<symbol>` read of anything that
+installer provides.
+
+This is the third scoping defect found in that one ledger, each surfaced only by trying to *act* on
+its number — #3162 removed 25 cross-package false attributions, #3178 stopped counting function
+definitions as reads, and this one is the library-side blind spot. A gate's number is only validated
+when someone tries to use it.
+
+### A note on why these two comments are exactly as long as they were
+
+`migration/library-error-class.allowlist` keys debt by `path:line`, and the gate is shrink-only
+against dev. Adding even one comment line above an `error()` moves it, the old entry goes stale, and
+updating the entry is then reported as *growing* the allowlist. So a comment edit in a library file
+carrying ledger entries must preserve the line count — which is why the corrected comments are
+one-for-one replacements and the detail lives here instead. The campaign spec rejected re-keying that
+ledger on cost grounds (§1.3 of `docs/superpowers/specs/2026-08-04-refactor-campaign-spec.md`); this
+is what paying that cost looks like in practice.

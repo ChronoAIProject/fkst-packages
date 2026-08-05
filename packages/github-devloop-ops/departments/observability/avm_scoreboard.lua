@@ -8,7 +8,7 @@ local contract_time = require("contract.time")
 local no_revert_reopen = require("devloop.autonomy.no_revert_reopen")
 local autonomy_projection = require("devloop.autonomy.projection")
 local autonomy_ledger = require("devloop.autonomy_ledger")
-
+local issue_commands, pr_commands = require("devloop.commands.issue_reads"), require("devloop.commands.prs")
 function M.install_avm_scoreboard(core)
 local task_levels = { "L0", "L1", "L2", "L3", "L4", "unclassified" }
 local task_level_set = { L0 = true, L1 = true, L2 = true, L3 = true, L4 = true }
@@ -367,7 +367,7 @@ function core.collect_recent_merged_prs(repo, limits, deadline)
   local limit = math.max(1, math.floor(tonumber(limits and limits.entity_cap) or 25))
   local listed = core.observability_display_read_cmd({
     run = function(timeout)
-      return core.gh_pr_list_recent_merged(repo, limit, timeout)
+      return pr_commands.gh_pr_list_recent_merged(repo, limit, timeout)
     end,
     read_coalesce = {
       key = recent_merged_pr_cache_key(repo),
@@ -385,7 +385,7 @@ function core.collect_recent_merged_prs(repo, limits, deadline)
     end
     local view = core.observability_display_read_cmd({
       run = function(timeout)
-        return core.gh_pr_view_observe(repo, item.number, timeout)
+        return pr_commands.gh_pr_view_observe(repo, item.number, timeout)
       end,
     }, limits, deadline, "recent merged PR view")
     if core.observability_result_deferred(view) then
@@ -401,7 +401,7 @@ function core.collect_recent_merged_issues(repo, limits, deadline)
   local limit = math.max(1, math.floor(tonumber(limits and limits.entity_cap) or 25))
   local listed = core.observability_display_read_cmd({
     run = function(timeout)
-      return core.gh_issue_list_recent_closed(repo, limit, timeout)
+      return issue_commands.gh_issue_list_recent_closed(repo, limit, timeout)
     end,
     read_coalesce = {
       key = recent_merged_issue_cache_key(repo),
@@ -419,7 +419,7 @@ function core.collect_recent_merged_issues(repo, limits, deadline)
     end
     local view = core.observability_display_read_cmd({
       run = function(timeout)
-        return core.gh_issue_view_observe(repo, item.number, timeout)
+        return issue_commands.gh_issue_view_observe(repo, item.number, timeout)
       end,
     }, limits, deadline, "recent merged issue view")
     if core.observability_result_deferred(view) then

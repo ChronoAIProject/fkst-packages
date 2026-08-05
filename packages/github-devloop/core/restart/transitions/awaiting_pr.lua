@@ -2,13 +2,14 @@ local devloop_state = require("devloop.state")
 
 local function transition_effect_entitlements(semantic_variant)
   local id = "github-devloop/awaiting-pr/guard_boundary/" .. semantic_variant
+  local effect_ids = { "github-proxy.github_issue_comment_request" }
+  if semantic_variant ~= "awaiting_pr_to_ready" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
   return {
     apply = {
       id = id .. "/apply",
-      effect_ids = {
-        "github-proxy.github_issue_comment_request",
-        "github-proxy.github_issue_label_request",
-      },
+      effect_ids = effect_ids,
     },
     idempotent = {
       id = id .. "/idempotent",

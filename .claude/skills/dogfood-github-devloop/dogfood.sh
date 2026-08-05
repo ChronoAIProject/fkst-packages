@@ -754,8 +754,17 @@ _sync_checkout() {
   if ! git -C "$co" merge-base --is-ancestor HEAD "origin/$UPSTREAM_BRANCH" 2>/dev/null; then
     echo "  $co: $before not an ancestor of origin/$UPSTREAM_BRANCH — skip (feature branch / diverged; not a pinned dev mirror)"; return
   fi
-  git -C "$co" reset --hard "origin/$UPSTREAM_BRANCH" -q 2>/dev/null
+  # Verify the end state. A failed reset leaves HEAD unmoved, which otherwise looks
+  # identical to an already-current checkout when only before and after are compared.
+  local reset_err reset_rc target
+  reset_err=$(git -C "$co" reset -q --hard "origin/$UPSTREAM_BRANCH" 2>&1); reset_rc=$?
   after=$(git -C "$co" rev-parse --short HEAD 2>/dev/null)
+  target=$(git -C "$co" rev-parse --short "origin/$UPSTREAM_BRANCH" 2>/dev/null)
+  if [ "$reset_rc" -ne 0 ] || [ "$after" != "$target" ]; then
+    echo "  $co: SYNC FAILED -- still at $after, origin/$UPSTREAM_BRANCH is $target (rc=$reset_rc)${reset_err:+ -- $reset_err}"
+    echo "  $co: the pinned checkout is STALE; skill/tooling loaded from it may be out of date"
+    return 1
+  fi
   [ "$before" = "$after" ] && echo "  $co: current ($after)" || echo "  $co: $before -> $after"
 }
 
@@ -766,8 +775,9 @@ _sync_checkout() {
 # left running — a restart would only churn in-flight codex for no code change.
 cmd_sync() {
   echo "operator checkouts -> origin/$UPSTREAM_BRANCH:"
-  _sync_checkout "$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null)"  # repo this skill lives in
-  _sync_checkout "$SUBSTRATE_SRC"                                                # engine BIN source
+  local co_failed=0
+  _sync_checkout "$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null)" || co_failed=1  # repo this skill lives in
+  _sync_checkout "$SUBSTRATE_SRC" || co_failed=1                                                # engine BIN source
   echo "engine BIN:"; bin_ensure_fresh | sed 's/^/  /'
   echo "supervises (auto-restart only on real code change):"
   local n st failed=0
@@ -785,6 +795,7 @@ cmd_sync() {
       *)                      echo "  $n: $st (no restart needed)" ;;
     esac
   done
+  [ "$co_failed" -eq 0 ] || failed=1
   return "$failed"
 }
 

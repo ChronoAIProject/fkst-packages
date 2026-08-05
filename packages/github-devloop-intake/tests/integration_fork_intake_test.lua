@@ -7,8 +7,10 @@ local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
 local entity_list_cache = require("devloop.entity_list_cache")
+local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local testing = require("testkit_internal.testing")
 local admission_department = require("departments.admission.main")
+local poll_sequence = 0
 
 local function mock_repo_env()
   h.mock_bot_env()
@@ -40,10 +42,11 @@ end
 
 local function event(updated_at)
   local selected_updated_at = updated_at or "2026-06-03T01:02:03Z"
+  poll_sequence = poll_sequence + 1
   cache_set(entity_list_cache.poll_epoch_cache_key("owner/repo"), "")
   local recorded, poll_epoch = entity_list_cache.record_poll_epoch(
     "owner/repo",
-    "integration-fork-intake-" .. selected_updated_at
+    "integration-fork-intake-" .. selected_updated_at .. "-" .. tostring(poll_sequence)
   )
   t.is_true(recorded)
   return {
@@ -67,6 +70,7 @@ end
 
 local function mock_admission_view(fields)
   local f = fields or {}
+  github_proxy_entity_view.invalidate_entity_after_write("owner/repo", "issue", f.number or 42)
   entity_read_mocks.mock_issue_view_selector(t, {
     number = f.number or 42,
     title = "External request",

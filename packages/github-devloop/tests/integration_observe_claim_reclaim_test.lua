@@ -43,13 +43,6 @@ local function mock_add_self()
   })
 end
 
-local function mock_remove_self()
-  t.mock_command("gh issue edit '42' --repo 'owner/repo' --remove-assignee 'fkst-test-bot'", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 local function mock_claim_view(logins)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {

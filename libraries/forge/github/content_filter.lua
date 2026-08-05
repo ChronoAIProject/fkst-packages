@@ -65,7 +65,7 @@ local function lua_json_value(value, key_hint)
     return value and "true" or "false"
   end
   if value_type ~= "table" then
-    error("forge.github.content_filter: cannot encode " .. value_type)
+    error("forge.github.content_filter: json-value-type-unsupported: cannot encode " .. value_type)
   end
   if lua_is_array(value, key_hint) then
     local parts = {}
@@ -132,7 +132,7 @@ end
 
 function Parser:expect(text)
   if self.source:sub(self.index, self.index + #text - 1) ~= text then
-    error("expected " .. text)
+    error("forge.github.content_filter: json-token-mismatch: expected " .. text)
   end
   self.index = self.index + #text
 end
@@ -171,7 +171,7 @@ function Parser:parse_string()
         self.index = self.index + 1
         local raw = self.source:sub(self.index, self.index + 3)
         if not raw:match("^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$") then
-          error("invalid unicode escape")
+          error("forge.github.content_filter: json-unicode-escape-invalid: invalid unicode escape")
         end
         self.index = self.index + 4
         local codepoint = tonumber(raw, 16)
@@ -179,28 +179,28 @@ function Parser:parse_string()
           self.index = self.index + 2
           local low_raw = self.source:sub(self.index, self.index + 3)
           if not low_raw:match("^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$") then
-            error("invalid unicode surrogate escape")
+            error("forge.github.content_filter: json-unicode-surrogate-escape-invalid: invalid unicode surrogate escape")
           end
           self.index = self.index + 4
           local low = tonumber(low_raw, 16)
           if low < 0xDC00 or low > 0xDFFF then
-            error("invalid unicode surrogate pair")
+            error("forge.github.content_filter: json-unicode-surrogate-pair-invalid: invalid unicode surrogate pair")
           end
           codepoint = 0x10000 + ((codepoint - 0xD800) * 0x400) + (low - 0xDC00)
         end
         parts[#parts + 1] = utf8_char(codepoint)
       else
-        error("invalid string escape")
+        error("forge.github.content_filter: json-string-escape-invalid: invalid string escape")
       end
     else
       if string.byte(char) < 0x20 then
-        error("invalid raw control character in string")
+        error("forge.github.content_filter: json-string-control-character-invalid: invalid raw control character in string")
       end
       parts[#parts + 1] = char
       self.index = self.index + 1
     end
   end
-  error("unterminated string")
+  error("forge.github.content_filter: json-string-unterminated: unterminated string")
 end
 
 function Parser:parse_number()
@@ -216,12 +216,12 @@ function Parser:parse_number()
       self.index = self.index + 1
     until self.index > #self.source or self:peek():match("%d") == nil
   else
-    error("invalid number")
+    error("forge.github.content_filter: json-number-integer-invalid: invalid number")
   end
   if self:peek() == "." then
     self.index = self.index + 1
     if self:peek():match("%d") == nil then
-      error("invalid number fraction")
+      error("forge.github.content_filter: json-number-fraction-invalid: invalid number fraction")
     end
     repeat
       self.index = self.index + 1
@@ -235,7 +235,7 @@ function Parser:parse_number()
       self.index = self.index + 1
     end
     if self:peek():match("%d") == nil then
-      error("invalid number exponent")
+      error("forge.github.content_filter: json-number-exponent-invalid: invalid number exponent")
     end
     repeat
       self.index = self.index + 1
@@ -261,7 +261,7 @@ function Parser:parse_array()
       return { kind = "array", items = items }
     end
     if char ~= "," then
-      error("expected array comma")
+      error("forge.github.content_filter: json-array-separator-invalid: expected array comma")
     end
     self.index = self.index + 1
   end
@@ -288,7 +288,7 @@ function Parser:parse_object()
       return { kind = "object", members = members }
     end
     if char ~= "," then
-      error("expected object comma")
+      error("forge.github.content_filter: json-object-separator-invalid: expected object comma")
     end
     self.index = self.index + 1
   end
@@ -326,7 +326,7 @@ local function parse_json_document(source)
   local root = parser:parse_value()
   parser:skip_ws()
   if parser.index <= #parser.source then
-    error("trailing content")
+    error("forge.github.content_filter: json-trailing-content: trailing content")
   end
   return root
 end
@@ -417,7 +417,7 @@ function M.policy_whitelist(policy)
     policy = policy()
   end
   if type(policy) ~= "table" or policy.kind ~= "forge.github.author_policy.v1" or type(policy.whitelist) ~= "table" then
-    error("forge.github.content_filter: missing trusted author policy")
+    error("forge.github.content_filter: trusted-author-policy-invalid: missing trusted author policy")
   end
   if policy.disabled == true then
     return nil
@@ -719,7 +719,7 @@ local function node_json_value(node)
     end
     return "{" .. table.concat(parts, ",") .. "}"
   end
-  error("forge.github.content_filter: cannot encode JSON node")
+  error("forge.github.content_filter: json-node-kind-unsupported: cannot encode JSON node")
 end
 
 function M.filter_gh_content_json(json_string, kind_or_whitelist, whitelist_or_records, maybe_records)
@@ -731,13 +731,13 @@ function M.filter_gh_content_json(json_string, kind_or_whitelist, whitelist_or_r
   elseif type(kind_or_whitelist) == "string" and kind_or_whitelist ~= "" then
     local kind = kind_or_whitelist
     if kind ~= "issue" and kind ~= "pr" and kind ~= "content" then
-      error("forge.github.content_filter: invalid content kind")
+      error("forge.github.content_filter: content-kind-invalid: invalid content kind")
     end
   end
 
   local ok, decoded = pcall(parse_json_document, json_string or "")
   if not ok or type(decoded) ~= "table" then
-    error("forge.github.content_filter: JSON decode failed")
+    error("forge.github.content_filter: json-document-invalid: JSON decode failed")
   end
   local found = {}
   walk(decoded, whitelist, found)
@@ -762,7 +762,7 @@ local function split_included_headers(stdout)
     start_pos, end_pos = text:find("\n\n", 1, true)
   end
   if start_pos == nil then
-    error("forge.github.content_filter: included HTTP response is missing a JSON body separator")
+    error("forge.github.content_filter: http-json-body-separator-missing: included HTTP response is missing a JSON body separator")
   end
   return text:sub(1, end_pos), text:sub(end_pos + 1)
 end

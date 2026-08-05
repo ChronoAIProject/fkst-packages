@@ -297,6 +297,13 @@ local function mock_stale_implementation_progress()
 end
 
 local function mock_stale_worker_recovery()
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+  local worktree = devloop_base.implement_worktree_path(
+    devloop_base.implementation_worktree_root(durable_root),
+    repo,
+    stale_issue_number,
+    stale_version
+  )
   h.mock_context_bundle({
     proposal_id = stale_proposal_id,
     dedup_key = stale_version,
@@ -319,7 +326,12 @@ local function mock_stale_worker_recovery()
       exit_code = 1,
     })
   end
-  h.mock_force_clean("stale-worker-recovery-worktree")
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  h.mock_force_clean(worktree)
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
@@ -366,6 +378,19 @@ local function mock_stale_worker_recovery()
     exit_code = 0,
   })
   h.mock_implement_codex(0, "recovered committed implementation")
+  for _ = 1, 2 do
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD " .. stale_head_sha
+        .. "\nbranch refs/heads/" .. stale_branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
   h.mock_git_status("")
   t.mock_command("git rev-list --count " .. stale_base_sha .. "..refs/heads/" .. stale_branch, {
     stdout = "1\n",

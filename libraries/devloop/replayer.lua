@@ -111,7 +111,7 @@ local function log_defer(M, ...) return log_decline(M, "deferred", ...) end
 function C.replay_log_decline(M, disposition, ...)
   if disposition == "deferred" then return log_defer(M, ...) end
   if disposition == "stuck" then return log_skip(M, ...) end
-  error("github-devloop: invalid typed replay disposition")
+  error("github-devloop: typed-replay-disposition-invalid: invalid typed replay disposition")
 end
 
 function C.build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
@@ -197,7 +197,7 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
   local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
   if intended_head_sha == nil then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "retry-pending(head-advanced)", "PR head changed and deterministic branch head is not readable")
-    error("github-devloop: PR head changed before fix replay and deterministic branch head is not readable")
+    error("github-devloop: deterministic-branch-head-read-failed: PR head changed before fix replay and deterministic branch head is not readable")
   end
   if tostring(current_pr.head_sha or "") ~= intended_head_sha then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
