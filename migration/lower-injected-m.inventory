@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 13,
     "workflow_injected_m_unique_symbols": 6,
-    "forge_injected_m_reads": 7,
-    "forge_injected_m_unique_symbols": 2,
-    "total_injected_m_reads": 20,
-    "total_injected_m_unique_symbols": 8
+    "forge_injected_m_reads": 0,
+    "forge_injected_m_unique_symbols": 0,
+    "total_injected_m_reads": 13,
+    "total_injected_m_unique_symbols": 6
   },
   "manifest": {
     "workflow": {
@@ -35,15 +35,6 @@
         "owner": "devloop-seam-dissolution"
       }
     },
-    "forge": {
-      "invalidate_entity_after_write": {
-        "route": "typed_port",
-        "owner": "devloop-seam-dissolution"
-      },
-      "log_line": {
-        "route": "typed_port",
-        "owner": "devloop-seam-dissolution"
-      }
-    }
+    "forge": {}
   }
 }

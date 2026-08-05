@@ -24,6 +24,7 @@ local merge_gate_reason_class_entries = {
 
 function S.install(M, opts)
 local github = opts.github_handle
+local log_info = opts.log_info
 local is_open_pr = check_runs.is_open_pr
 local check_run_id = check_runs.check_run_id
 local check_run_head_sha = check_runs.check_run_head_sha
@@ -38,11 +39,8 @@ for _, name in ipairs(check_runs.required_check_run_names or {}) do
   table.insert(required_check_run_names, name)
 end
 
-local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
-  if type(M.log_line) ~= "function" then
-    return
-  end
-  M.log_line("info", tostring(opts and opts.dept or "merge"), tostring(opts and opts.proposal_id or "merge-gate"), "CI_FALLBACK", {
+local function log_check_runs_fallback(opts, repo, head_sha, runs, reason)
+  log_info(tostring(opts and opts.dept or "merge"), tostring(opts and opts.proposal_id or "merge-gate"), "CI_FALLBACK", {
     "repo=" .. tostring(repo),
     "head_sha=" .. tostring(head_sha),
     "source=commit-check-runs",

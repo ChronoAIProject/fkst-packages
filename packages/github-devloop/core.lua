@@ -79,6 +79,12 @@ require("forge.merge").install(M, {
   github_handle = require("devloop.github_factory").production_handle,
   read_runtime_root_cmd = base.read_runtime_root_cmd,
   mkdir_p_cmd = base.mkdir_p_cmd,
+  log_info = function(dept, proposal_id, tag, fields)
+    return require("devloop.logging").log_line("info", dept, proposal_id, tag, fields)
+  end,
+  invalidate_pr_after_write = function(repo, pr_number)
+    return github_proxy_entity_view.invalidate_entity_after_write(repo, "pr", pr_number)
+  end,
   pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
 local git_mechanics = require("devloop.git_mechanics")

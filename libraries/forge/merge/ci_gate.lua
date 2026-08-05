@@ -57,7 +57,7 @@ local function commit_check_runs_merge_gate(repo, head_sha, opts)
   end
   local runs = parse_commit_check_runs(result.stdout)
   local green, reason = commit_check_runs_green(runs)
-  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
+  log_check_runs_fallback(opts, repo, head_sha, runs, reason)
   return green, reason, runs
 end
 
@@ -87,7 +87,7 @@ local function classify_pr_ci_gate(pr, opts)
     end
     return ci_classification("CI_UNKNOWN", fetch_reason or "ci-unknown")
   end
-  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
+  log_check_runs_fallback(opts, repo, head_sha, runs, reason)
   local head_status = required_head_check_run_status(runs, head_sha)
   if head_status == "pending" then
     return ci_classification("CHECKS_PENDING", "checks-pending", { check_runs = runs })
