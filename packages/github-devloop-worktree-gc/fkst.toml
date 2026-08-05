@@ -1,0 +1,12 @@
+kind = "package"
+name = "github-devloop-worktree-gc"
+persistence_class = "stateless_adapter"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "workflow_internal", "testkit", "testkit_internal", "forge", "devloop"]
+
+[conformance]
+pack = "conformance/pack.toml"

@@ -1,0 +1,872 @@
+local h = require("tests.devloop_helpers")
+local t = h.t
+local core = h.core
+local gh_argv = require("testkit_internal.gh_argv_mock")
+local rollup_health = require("core.rollup_health")
+local zh_summary = string.char(228, 184, 173, 230, 150, 135, 230, 145, 152, 232, 166, 129)
+
+local function opts(name, extra)
+  local env = {
+    FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
+    FKST_GITHUB_REPO = "owner/repo",
+    FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+    FKST_DEVLOOP_INTEGRATION_BRANCH = "integration/dev",
+    FKST_DEVLOOP_ROLLUP_MERGE = "auto",
+    FKST_DEVLOOP_RELEASE_NOTES_FALLBACK = "",
+    FKST_GITHUB_WRITE = "",
+  }
+  for key, value in pairs(extra or {}) do
+    env[key] = value
+  end
+  return { env = env }
+end
+
+local function mock_env(write_mode, rollup_merge, integration, release_notes_fallback)
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = integration or "integration/dev", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = integration or "integration/dev", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', { stdout = rollup_merge or "auto", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_RELEASE_NOTES_FALLBACK"', {
+    stdout = release_notes_fallback or "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_scan(run_opts)
+  return h.run_department("departments/rollup_scan/main.lua", {
+    queue = "devloop_branch_tick",
+    payload = { schema = "github-devloop.branch-tick.v1" },
+  }, run_opts or opts("rollup-scan"))
+end
+
+local function mock_fetches()
+  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+end
+
+local function mock_missing_integration_fetch()
+  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'integration/dev'", {
+    stdout = "",
+    stderr = "fatal: couldn't find remote ref integration/dev\n",
+    exit_code = 128,
+  })
+end
+
+local function mock_fetches_for(integration)
+  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '" .. tostring(integration) .. "'", { stdout = "", stderr = "", exit_code = 0 })
+end
+
+local function mock_ahead(count)
+  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'integration/dev'", {
+    stdout = tostring(count) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_ahead_for(integration, count)
+  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'" .. tostring(integration) .. "'", {
+    stdout = tostring(count) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_content_diff(has_diff)
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/integration/dev", {
+    stdout = "",
+    stderr = "",
+    exit_code = has_diff and 1 or 0,
+  })
+end
+
+local function mock_content_diff_for(integration, has_diff)
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/" .. tostring(integration), {
+    stdout = "",
+    stderr = "",
+    exit_code = has_diff and 1 or 0,
+  })
+end
+
+local function mock_pr_list(pr)
+  local stdout = "[]\n"
+  if pr ~= nil then
+    stdout = string.format(
+      '[[{"number":%d,"head":{"sha":"%s","ref":"integration/dev"},"base":{"ref":"dev"},"state":"open"}]]\n',
+      pr.number or 9,
+      h.json_string(pr.head_sha or "def456")
+    )
+  end
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&per_page=100&base=dev'", {
+    stdout = stdout,
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_pr_list_for(integration, pr)
+  local stdout = "[]\n"
+  if pr ~= nil then
+    stdout = string.format(
+      '[[{"number":%d,"head":{"sha":"%s","ref":"%s"},"base":{"ref":"dev"},"state":"open"}]]\n',
+      pr.number or 9,
+      h.json_string(pr.head_sha or "def456"),
+      h.json_string(integration)
+    )
+  end
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3A" .. tostring(integration) .. "&per_page=100&base=dev'", {
+    stdout = stdout,
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function comments_json(comments)
+  local rendered = {}
+  for _, comment in ipairs(comments or {}) do
+    table.insert(rendered, string.format(
+      '{"body":"%s","author":{"login":"%s"},"createdAt":"%s"}',
+      h.json_string(comment.body or ""),
+      h.json_string(comment.author_login or core._test_bot_login),
+      h.json_string(comment.created_at or "2026-06-14T01:02:03Z")
+    ))
+  end
+  return table.concat(rendered, ",")
+end
+
+local function mock_integration_head(head)
+  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", {
+    stdout = (head or "def456") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_integration_head_for(integration, head)
+  t.mock_command("refs/remotes/'origin'/'" .. tostring(integration) .. "'^{commit}", {
+    stdout = (head or "def456") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_rollup_pr_view(fields)
+  fields = fields or {}
+  local status = fields.status or "green"
+  local state = "COMPLETED"
+  local conclusion = "SUCCESS"
+  if status == "red" then
+    conclusion = "FAILURE"
+  elseif status == "pending" then
+    state = "IN_PROGRESS"
+    conclusion = ""
+  end
+  local updated_at = fields.updated_at or "2026-06-14T01:02:03Z"
+  local completed_at = fields.completed_at or updated_at
+  t.mock_command("gh pr view '" .. tostring(fields.pr_number or 9) .. "'", {
+    stdout = string.format(
+      '{"number":%d,"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"headRepositoryOwner":{"login":"owner"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"test","state":"%s","conclusion":"%s","headSha":"%s","completedAt":"%s"}]}\n',
+      fields.pr_number or 9,
+      h.json_string(fields.head_ref or "integration/dev"),
+      h.json_string(fields.head_sha or "def456"),
+      h.json_string(updated_at),
+      comments_json(fields.comments),
+      h.json_string(state),
+      h.json_string(conclusion),
+      h.json_string(fields.check_head_sha or fields.head_sha or "def456"),
+      h.json_string(completed_at)
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function observe_clean()
+  return {
+    schema_version = 1,
+    generated_at_ms = now() * 1000,
+    truncated = { deliveries = false, dead_letters = false },
+    dead_letters = json.decode("[]"),
+  }
+end
+
+local function mock_release_notes(body)
+  t.mock_command("git log", {
+    stdout = "abc123\tRollup change\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("codex exec", {
+    stdout = body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function find_call(needle)
+  for _, call in ipairs(t.command_calls()) do
+    if gh_argv.call_contains(call, needle) then
+      return call
+    end
+  end
+  return nil
+end
+
+local function argv_option(call, name)
+  local argv = { call.program }
+  for _, arg in ipairs(call.args or {}) do
+    table.insert(argv, arg)
+  end
+  for index, value in ipairs(argv) do
+    if value == name then
+      return argv[index + 1]
+    end
+  end
+  return nil
+end
+
+return {
+  test_rollup_scan_integration_equal_upstream_noops = function()
+    mock_env("", "auto", "dev")
+    local result = run_scan(opts("rollup-same", { FKST_DEVLOOP_INTEGRATION_BRANCH = "dev" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("git fetch"), 0)
+  end,
+
+  test_rollup_scan_not_ahead_noops = function()
+    mock_env()
+    mock_fetches()
+    mock_ahead(0)
+    local result = run_scan()
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 0)
+  end,
+
+  test_rollup_scan_missing_integration_branch_holds_without_dlq = function()
+    mock_env()
+    mock_missing_integration_fetch()
+    local result = run_scan(opts("rollup-missing-integration"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("git rev-list --count"), 0)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 0)
+    t.eq(h.count_calls("git push"), 0)
+  end,
+
+  test_rollup_scan_ahead_no_open_pr_real_creates_with_head_and_base = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(3)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/9\n", stderr = "", exit_code = 0 })
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local result = run_scan(opts("rollup-create", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("gh pr create"), 1)
+    t.eq(h.count_calls("codex exec"), 1)
+    local saw_prompt_history = false
+    local saw_prompt_filtered_context = false
+    local saw_prompt_issue_fetch = false
+    for _, call in ipairs(t.command_calls()) do
+      if call.rendered:find("codex exec", 1, true) ~= nil then
+        saw_prompt_history = call.stdin:find("abc123\tRollup change", 1, true) ~= nil
+        saw_prompt_filtered_context = call.stdin:find("Filtered referenced GitHub context", 1, true) ~= nil
+        saw_prompt_issue_fetch = call.stdin:find("gh issue view <referenced-number> --repo owner/repo --json title,body,comments,labels,state", 1, true) ~= nil
+      end
+    end
+    t.is_true(saw_prompt_history)
+    t.is_true(saw_prompt_filtered_context)
+    t.is_true(not saw_prompt_issue_fetch)
+    t.is_true(h.has_call("--head integration/dev"))
+    t.is_true(h.has_call("--base dev"))
+    local create_call = find_call("gh pr create")
+    local body = argv_option(create_call, "--body")
+    t.is_true(body:find("Release highlights", 1, true) ~= nil)
+    t.is_true(body:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
+    t.eq(h.count_calls("mktemp '/tmp/fkst-github-devloop-rollup.XXXXXX'"), 0)
+    t.eq(h.count_calls("rm -f --"), 0)
+  end,
+
+  test_rollup_scan_codex_failure_fails_closed_before_create = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(3)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", { stdout = "", stderr = "model unavailable", exit_code = 1 })
+    local result = run_scan(opts("rollup-codex-fail", { FKST_GITHUB_WRITE = "1" }))
+    t.is_true(result.exit_code ~= 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_empty_codex_output_fails_closed_before_create = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(3)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", { stdout = "\n" .. core._release_notes_ai_sentinel .. "\n", stderr = "", exit_code = 0 })
+    local result = run_scan(opts("rollup-codex-empty", { FKST_GITHUB_WRITE = "1" }))
+    t.is_true(result.exit_code ~= 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_explicit_release_notes_fallback_allows_create = function()
+    mock_env("1", "auto", nil, "1")
+    mock_fetches()
+    mock_ahead(3)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", { stdout = "", stderr = "model unavailable", exit_code = 1 })
+    t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/9\n", stderr = "", exit_code = 0 })
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local result = run_scan(opts("rollup-fallback", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_RELEASE_NOTES_FALLBACK = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("gh pr create"), 1)
+    local create_call = find_call("gh pr create")
+    local body = argv_option(create_call, "--body")
+    t.is_true(body:find("Automated rollup", 1, true) ~= nil)
+    t.is_true(body:find("Zh: zi dong", 1, true) == nil)
+    t.is_true(body:find(zh_summary, 1, true) ~= nil)
+    t.is_true(body:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
+    t.eq(h.count_calls("rm -f --"), 0)
+  end,
+
+  test_rollup_scan_create_failure_has_no_release_notes_body_file = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(3)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    t.mock_command("gh pr create", { stdout = "", stderr = "create failed", exit_code = 1 })
+    local result = run_scan(opts("rollup-create-fail", { FKST_GITHUB_WRITE = "1" }))
+    t.is_true(result.exit_code ~= 0)
+    t.eq(h.count_calls("gh pr create"), 1)
+    t.eq(h.count_calls("mktemp '/tmp/fkst-github-devloop-rollup.XXXXXX'"), 0)
+    t.eq(h.count_calls("rm -f --"), 0)
+  end,
+
+  test_rollup_scan_no_commits_between_create_failure_noops = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(1)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    mock_integration_head("def456")
+    mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    t.mock_command("gh pr create", {
+      stdout = "",
+      stderr = "pull request create failed: GraphQL: No commits between dev and integration/dev",
+      exit_code = 1,
+    })
+    local result = run_scan(opts("rollup-no-commits-between", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh pr create"), 1)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 1)
+  end,
+
+  test_rollup_scan_no_commits_between_unslashed_integration_noops = function()
+    mock_env("1", "auto", "integration")
+    mock_fetches_for("integration")
+    mock_ahead_for("integration", 1)
+    mock_content_diff_for("integration", true)
+    mock_pr_list_for("integration", nil)
+    mock_integration_head_for("integration", "def456")
+    mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    t.mock_command("gh pr create", {
+      stdout = "",
+      stderr = "pull request create failed: GraphQL: No commits between dev and integration",
+      exit_code = 1,
+    })
+    local result = run_scan(opts("rollup-no-commits-between-unslashed", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh pr create"), 1)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 1)
+  end,
+
+  test_rollup_scan_ahead_without_content_diff_skips_pr = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(1)
+    mock_content_diff(false)
+    local result = run_scan(opts("rollup-empty-diff", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_existing_pr_never_duplicates_create = function()
+    mock_env("1")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local result = run_scan(opts("rollup-existing", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_manual_posture_no_ready_event = function()
+    mock_env("1", "manual")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local result = run_scan(opts("rollup-manual", { FKST_GITHUB_WRITE = "1", FKST_DEVLOOP_ROLLUP_MERGE = "manual" }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.find_raise(result.raises, "devloop_rollup_ready"), nil)
+    t.is_true(h.find_raise(result.raises, "github-proxy.github_pr_comment_request") ~= nil)
+  end,
+
+  test_rollup_scan_auto_raises_ready_payload = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local result = run_scan(opts("rollup-auto", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local raised = h.find_raise(result.raises, "devloop_rollup_ready")
+    t.is_true(raised ~= nil)
+    t.eq(raised.payload.schema, "github-devloop.v1")
+    t.eq(raised.payload.repo, "owner/repo")
+    t.eq(raised.payload.pr_number, 9)
+    t.eq(raised.payload.upstream_branch, "dev")
+    t.eq(raised.payload.integration_branch, "integration/dev")
+    t.eq(raised.payload.head_sha, "def456")
+    t.eq(raised.payload.source_ref.ref, "owner/repo#pr/9")
+    t.eq(raised.payload.dedup_key, core.rollup_dedup_key("owner/repo", "dev", "integration/dev", 9, "def456"))
+  end,
+
+  test_rollup_scan_records_head_bound_clean_observe_sample = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    t.mock_observe(observe_clean())
+    local result = run_scan(opts("rollup-observe-sample", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local sample = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(sample ~= nil)
+    t.eq(sample.payload.schema, "github-proxy.v1")
+    t.eq(sample.payload.repo, "owner/repo")
+    t.eq(sample.payload.pr_number, 9)
+    t.is_true(tostring(sample.payload.body):find("fkst:github-devloop-integration:rollup-observe-sample:v1", 1, true) ~= nil)
+    t.is_true(tostring(sample.payload.body):find('head_sha="def456"', 1, true) ~= nil)
+    t.is_true(tostring(sample.payload.body):find('status="clean"', 1, true) ~= nil)
+    t.is_true(tostring(sample.payload.body):find('first_clean_observed_at_ms=', 1, true) ~= nil)
+    t.is_true(tostring(sample.payload.body):find('sampled_at_ms=', 1, true) ~= nil)
+    t.eq(sample.payload.dedup_key, "rollup-observe-sample/owner/repo/9")
+    t.eq(sample.payload.replace_marker, "<!-- fkst:github-devloop-integration:rollup-observe-sample:v1")
+    t.is_true(h.find_raise(result.raises, "devloop_rollup_ready") ~= nil)
+  end,
+
+  test_rollup_scan_uses_env_bot_identity_to_preserve_clean_soak_start = function()
+    local prod_bot = "prod-bot"
+    local first_clean_ms = (now() - 31 * 60) * 1000
+    local previous_sampled_ms = (now() - 60) * 1000
+    h.mock_author_policy_configure(core._test_bot_login)
+    mock_env("1", "auto")
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = prod_bot, stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = prod_bot, stderr = "", exit_code = 0 })
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      comments = {
+        {
+          body = rollup_health.observe_sample_marker("def456", "clean", first_clean_ms, previous_sampled_ms),
+          author_login = prod_bot,
+        },
+      },
+    })
+    local snapshot = observe_clean()
+    t.mock_observe(snapshot)
+    local run_opts = opts("rollup-observe-prod-bot", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = prod_bot,
+    })
+    local result = t.run_department("departments/rollup_scan/main.lua", {
+      queue = "devloop_branch_tick",
+      payload = { schema = "github-devloop.branch-tick.v1" },
+    }, run_opts)
+    t.eq(result.exit_code, 0)
+    local sample = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(sample ~= nil)
+    t.is_true(tostring(sample.payload.body):find(
+      'first_clean_observed_at_ms="' .. tostring(first_clean_ms) .. '"',
+      1,
+      true
+    ) ~= nil)
+    t.is_true(tostring(sample.payload.body):find(
+      'sampled_at_ms="' .. tostring(snapshot.generated_at_ms) .. '"',
+      1,
+      true
+    ) ~= nil)
+  end,
+
+  test_rollup_scan_stale_dead_letter_audit_starts_clean_head_soak = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local snapshot = observe_clean()
+    snapshot.queues = {
+      { queue = "devloop_ready", dlq = 1 },
+    }
+    snapshot.dead_letters = {
+      {
+        delivery_id = "dead-1",
+        queue = "devloop_ready",
+        dead_at_ms = snapshot.generated_at_ms - 1,
+        permanent = true,
+      },
+    }
+    t.mock_observe(snapshot)
+    local result = run_scan(opts("rollup-observe-stale-dead-letter", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local sample = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(sample ~= nil)
+    t.is_true(tostring(sample.payload.body):find('status="clean"', 1, true) ~= nil)
+  end,
+
+  test_rollup_scan_snapshot_boundary_blocks_dead_letter_before_sampling_clock = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view()
+    local first_snapshot = observe_clean()
+    first_snapshot.generated_at_ms = now() * 1000 - 2000
+    t.mock_observe(first_snapshot)
+    local first = run_scan(opts("rollup-observe-snapshot-boundary-first", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(first.exit_code, 0)
+    local first_sample = h.find_raise(first.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(first_sample ~= nil)
+    t.is_true(tostring(first_sample.payload.body):find(
+      'first_clean_observed_at_ms="' .. tostring(first_snapshot.generated_at_ms) .. '"',
+      1,
+      true
+    ) ~= nil)
+
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      comments = {
+        { body = first_sample.payload.body, author_login = core._test_bot_login },
+      },
+    })
+    local second_snapshot = observe_clean()
+    second_snapshot.queues = {
+      { queue = "devloop_ready", dlq = 1 },
+    }
+    second_snapshot.dead_letters = {
+      {
+        delivery_id = "dead-1",
+        queue = "devloop_ready",
+        dead_at_ms = first_snapshot.generated_at_ms + 1000,
+        permanent = true,
+      },
+    }
+    t.mock_observe(second_snapshot)
+    local second = run_scan(opts("rollup-observe-snapshot-boundary-second", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(second.exit_code, 0)
+    local second_sample = h.find_raise(second.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(second_sample ~= nil)
+    t.is_true(tostring(second_sample.payload.body):find('status="dirty"', 1, true) ~= nil)
+    t.is_true(tostring(second_sample.payload.body):find('reason=dead-letter:devloop_ready', 1, true) ~= nil)
+  end,
+
+  test_rollup_scan_observe_sample_request_is_stable_replace_in_place_across_polls = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9, head_sha = "def456" })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({ head_sha = "def456" })
+    t.mock_observe(observe_clean())
+    local first = run_scan(opts("rollup-observe-sample-first", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(first.exit_code, 0)
+    local first_sample = h.find_raise(first.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(first_sample ~= nil)
+
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9, head_sha = "aaaa1111" })
+    mock_integration_head("aaaa1111")
+    mock_rollup_pr_view({
+      head_sha = "aaaa1111",
+      comments = {
+        { body = first_sample.payload.body, author_login = core._test_bot_login },
+      },
+    })
+    t.mock_observe(observe_clean())
+    local second = run_scan(opts("rollup-observe-sample-second", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(second.exit_code, 0)
+    local second_sample = h.find_raise(second.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(second_sample ~= nil)
+
+    t.eq(first_sample.payload.dedup_key, second_sample.payload.dedup_key)
+    t.eq(second_sample.payload.dedup_key, "rollup-observe-sample/owner/repo/9")
+    t.eq(first_sample.payload.replace_marker, second_sample.payload.replace_marker)
+    t.eq(second_sample.payload.replace_marker, "<!-- fkst:github-devloop-integration:rollup-observe-sample:v1")
+    t.is_true(tostring(second_sample.payload.body):find('head_sha="aaaa1111"', 1, true) ~= nil)
+    t.is_true(tostring(second_sample.payload.body):find('head_sha="def456"', 1, true) == nil)
+  end,
+
+  test_rollup_scan_surfaces_stale_red_rollup_as_deduped_issue = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      status = "red",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60),
+    })
+    local result = run_scan(opts("rollup-red-health", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+    }))
+    t.eq(result.exit_code, 0)
+    local create = h.find_raise(result.raises, "github-proxy.github_issue_create_request")
+    t.is_true(create ~= nil)
+    t.eq(create.payload.schema, "github-proxy.issue-create.v1")
+    t.eq(create.payload.repo, "owner/repo")
+    t.eq(create.payload.dedup_key, core.rollup_health_dedup_key(
+      "owner/repo",
+      "test: COMPLETED/FAILURE",
+      "def456"
+    ))
+    t.eq(create.payload.parent_comment_target.issue_number, "9")
+    t.is_true(create.payload.body:find("Rollup PR: #9", 1, true) ~= nil)
+    t.is_true(create.payload.body:find("Failing check: `test: COMPLETED/FAILURE`", 1, true) ~= nil)
+    local snapshot = create.payload.body:match("Evidence snapshot: `([^`]+)`")
+    t.is_true(snapshot ~= nil)
+    local written = file.read(snapshot)
+    t.is_true(written:find('"detector":"rollup-health"', 1, true) ~= nil)
+    t.is_true(written:find('"failing_check":"test: COMPLETED/FAILURE"', 1, true) ~= nil)
+    t.is_true(written:find('"red_started_at"', 1, true) ~= nil)
+    t.is_true(h.find_raise(result.raises, "devloop_rollup_ready") ~= nil)
+  end,
+
+  test_rollup_scan_scopes_red_alert_dedup_to_rollup_head = function()
+    local completed_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60)
+
+    local function observe(head_sha, name)
+      mock_env("1", "auto")
+      mock_fetches()
+      mock_ahead(2)
+      mock_content_diff(true)
+      mock_pr_list({ number = 9, head_sha = head_sha })
+      mock_integration_head(head_sha)
+      mock_rollup_pr_view({
+        status = "red",
+        head_sha = head_sha,
+        updated_at = completed_at,
+        completed_at = completed_at,
+      })
+      local result = run_scan(opts(name, {
+        FKST_GITHUB_WRITE = "1",
+        FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+      }))
+      t.eq(result.exit_code, 0)
+      local create = h.find_raise(result.raises, "github-proxy.github_issue_create_request")
+      t.is_true(create ~= nil)
+      return create.payload.dedup_key
+    end
+
+    local head_a = "aaaa1111"
+    local head_b = "bbbb2222"
+    local first = observe(head_a, "rollup-health-head-a")
+    local replay = observe(head_a, "rollup-health-head-a-replay")
+    local next_head = observe(head_b, "rollup-health-head-b")
+
+    t.eq(first, replay)
+    t.is_true(first ~= next_head)
+    t.eq(first, core.rollup_health_dedup_key("owner/repo", "test: COMPLETED/FAILURE", head_a))
+    t.eq(next_head, core.rollup_health_dedup_key("owner/repo", "test: COMPLETED/FAILURE", head_b))
+  end,
+
+  test_rollup_scan_rejects_red_check_evidence_from_another_head = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9, head_sha = "aaaa1111" })
+    mock_integration_head("aaaa1111")
+    mock_rollup_pr_view({
+      status = "red",
+      head_sha = "aaaa1111",
+      check_head_sha = "bbbb2222",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60),
+    })
+
+    local result = run_scan(opts("rollup-health-check-head-mismatch", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(h.find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
+  end,
+
+  test_rollup_scan_red_window_uses_failed_check_time_not_pr_update_time = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      status = "red",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 5 * 60),
+      completed_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60),
+    })
+    local result = run_scan(opts("rollup-red-check-age", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+    }))
+    t.eq(result.exit_code, 0)
+    local create = h.find_raise(result.raises, "github-proxy.github_issue_create_request")
+    t.is_true(create ~= nil)
+    local snapshot = create.payload.body:match("Evidence snapshot: `([^`]+)`")
+    t.is_true(snapshot ~= nil)
+    local written = file.read(snapshot)
+    t.is_true(written:find('"age_minutes":45', 1, true) ~= nil)
+  end,
+
+  test_rollup_scan_suppresses_red_rollup_inside_window = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      status = "red",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 5 * 60),
+    })
+    local result = run_scan(opts("rollup-red-window", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
+    t.is_true(h.find_raise(result.raises, "devloop_rollup_ready") ~= nil)
+  end,
+
+  test_rollup_scan_pending_rollup_does_not_alert = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      status = "pending",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 120 * 60),
+    })
+    local result = run_scan(opts("rollup-pending-health", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
+    t.is_true(h.find_raise(result.raises, "devloop_rollup_ready") ~= nil)
+  end,
+
+  test_rollup_health_has_no_repair_side_effects = function()
+    mock_env("1", "auto")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list({ number = 9 })
+    mock_integration_head("def456")
+    mock_rollup_pr_view({
+      status = "red",
+      updated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60),
+    })
+    local result = run_scan(opts("rollup-red-no-repair", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+    }))
+    t.eq(result.exit_code, 0)
+    t.is_true(h.find_raise(result.raises, "github-proxy.github_issue_create_request") ~= nil)
+    t.eq(h.count_calls("gh issue edit"), 0)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    t.eq(h.count_calls("gh pr close"), 0)
+    t.eq(h.count_calls("gh issue comment"), 0)
+  end,
+
+  test_rollup_scan_dry_run_never_creates_pr = function()
+    mock_env("")
+    mock_fetches()
+    mock_ahead(2)
+    mock_content_diff(true)
+    mock_pr_list(nil)
+    local result = run_scan()
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+}

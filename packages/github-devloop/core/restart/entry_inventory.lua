@@ -1,0 +1,74 @@
+return {
+  {
+    semantic_variant = "unmanaged_issue",
+    owner = "github-devloop",
+    row_id = "thinking",
+    kind = "entry",
+    source = {
+      state = nil,
+      boundary = "github-proxy.github_entity_changed",
+    },
+    target = "thinking",
+    pending_order = { participates = true, predecessor_state = "unmanaged" },
+    cas_policy_id = "cas.legacy_observe_issue_entry_v1",
+    cas_variant = "unmanaged_to_thinking",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/thinking/entry/unmanaged_issue/apply",
+        effect_ids = {
+          "devloop_consensus_request",
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/thinking/entry/unmanaged_issue/idempotent",
+        effect_ids = {
+          "devloop_consensus_request",
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+    },
+    provenance = {
+      owner = "github-devloop",
+      row = "thinking",
+      field = "entry_inventory.unmanaged_issue",
+    },
+  },
+  {
+    semantic_variant = "execute_request",
+    owner = "github-devloop",
+    row_id = "thinking",
+    kind = "entry",
+    source = {
+      state = nil,
+      boundary = "github-devloop.devloop_execute_request",
+    },
+    target = "thinking",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/thinking/entry/execute_request/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "devloop_consensus_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/thinking/entry/execute_request/idempotent",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "devloop_consensus_request",
+        },
+      },
+    },
+    pending_order = { participates = false },
+    provenance = {
+      owner = "github-devloop",
+      row = "thinking",
+      field = "entry_inventory.execute_request",
+    },
+  },
+}
