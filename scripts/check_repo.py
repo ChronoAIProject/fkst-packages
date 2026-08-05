@@ -65,8 +65,6 @@ GRAPHQL_FIRST_CONNECTION_RE = re.compile(
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
 HIDDEN_TEXT_STRING_CHAR_ARG_MIN = 6
-ERROR_CALL_STRING_RE = re.compile(r"\berror\s*\(\s*(?P<quote>['\"])(?P<message>[^'\"]*)(?P=quote)")
-ERROR_CLASS_PREFIX_RE = re.compile(r"^[a-z0-9][a-z0-9-]*: [a-z0-9][a-z0-9-]*:")
 HELPER_STRING_ARG_RE = re.compile(
     r"\b(?P<func>(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*)"
     r"\s*\(\s*(?P<quote>[\"'])"
@@ -335,16 +333,12 @@ def hidden_text_string_char_lines(text: str) -> list[int]:
     return lines
 
 
+def unclassified_error_calls(text: str) -> list[tuple[int, str]]:
+    return check_repo_error_class.unclassified_error_calls(text, strip_lua_comments_and_strings, is_unmasked_range)
+
+
 def unclassified_error_call_lines(text: str) -> list[int]:
-    stripped = strip_lua_comments_and_strings(text)
-    lines: list[int] = []
-    for match in ERROR_CALL_STRING_RE.finditer(text):
-        if not is_unmasked_range(text, stripped, match.start(), match.start("quote")):
-            continue
-        message = match.group("message")
-        if not ERROR_CLASS_PREFIX_RE.match(message):
-            lines.append(text.count("\n", 0, match.start()) + 1)
-    return lines
+    return [line for line, _message in unclassified_error_calls(text)]
 
 
 def looks_like_decode_helper(func: str) -> bool:
