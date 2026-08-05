@@ -287,13 +287,16 @@ function M.new(deps)
         })
       end
 
-      successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":pre-close-successor")
-      if matching_acceptance(successor_current, identity) == nil then
-        fail("transfer-acceptance-missing", "exact acceptance disappeared before predecessor close")
-      end
       predecessor_current = read_fresh(github, identity.predecessor_source_ref, M.DEPT .. ":pre-close-predecessor")
       local predecessor_state = tostring(predecessor_current.state or ""):upper()
       if predecessor_state == "OPEN" then
+        successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":pre-close-successor")
+        if tostring(successor_current.state or ""):upper() ~= "OPEN" then
+          fail("transfer-successor-not-open", "successor closed before predecessor close")
+        end
+        if matching_acceptance(successor_current, identity) == nil then
+          fail("transfer-acceptance-missing", "exact acceptance disappeared before predecessor close")
+        end
         close_predecessor(github, identity)
       elseif predecessor_state ~= "CLOSED" then
         fail("transfer-predecessor-state-invalid", "predecessor state is neither open nor closed")

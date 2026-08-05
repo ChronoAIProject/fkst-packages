@@ -162,6 +162,9 @@ local function install_receipt_git_fake(events)
     model.refs[ref] = sha
     model.successful_pushes = model.successful_pushes + 1
     events[#events + 1] = "receipt"
+    if type(model.after_successful_push) == "function" then
+      model.after_successful_push()
+    end
     return result()
   end
 
@@ -432,6 +435,20 @@ local tests = {
     t.eq(count_writes(state.github_model, "issue_comment_create"), 1)
     t.eq(state.git_model.successful_pushes, 1)
     t.eq(state.github_model.successful_closes, 1)
+  end,
+
+  test_successor_must_still_be_open_immediately_before_predecessor_close = function()
+    local state = fixture()
+    state.git_model.after_successful_push = function()
+      state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref].state = "CLOSED"
+    end
+
+    local outcome = run_transfer(state, true)
+
+    t.is_true(tostring(outcome.failure.error):find("transfer-successor-not-open", 1, true) ~= nil)
+    t.eq(table.concat(state.events, ","), "acceptance,receipt")
+    t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "OPEN")
+    t.eq(state.github_model.successful_closes, 0)
   end,
 
   test_malformed_identity_fails_before_any_external_effect = function()
