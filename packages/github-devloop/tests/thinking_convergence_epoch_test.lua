@@ -21,13 +21,14 @@ end
 
 return {
   test_observe_replay_ignores_prior_thinking_epoch_true_stall = function()
-    local current_epoch = proposal_id .. "/2026-06-03T01-02-05Z/reimplement/2"
+    local current_created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now())
+    local current_epoch = proposal_id .. "/" .. current_created_at:gsub(":", "-") .. "/reimplement/2"
     local previous_epoch = proposal_id .. "/2026-06-03T01-02-03Z/reimplement/1"
     local source_digest = convergence_shared.source_ref_digest(source_ref)
     local comments = {
       {
         body = core.state_marker(proposal_id, "thinking", current_epoch),
-        created_at = "2026-06-03T01:02:05Z",
+        created_at = current_created_at,
       },
     }
     for round = 1, 3 do
@@ -51,9 +52,9 @@ return {
     )
 
     local result = run_observe(issue({
-      updated_at = "2026-06-03T01:02:05Z",
+      updated_at = current_created_at,
       labels = { "fkst-dev:enabled", "fkst-dev:thinking" },
-    }), opts("observe-fresh-thinking-epoch"))
+    }), opts("observe-fresh-thinking-epoch"), current_created_at)
 
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
