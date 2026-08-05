@@ -94,6 +94,27 @@ local function synthesis_output_with_findings_bytes(byte_length, token)
   return table.concat(lines, "\n")
 end
 
+local function verified_settled_findings_output()
+  local citations = {
+    "verified source one",
+    "verified source two",
+    "verified source three",
+  }
+  local finding_text_bytes = { 465, 465, 464 }
+  local lines = {
+    "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+  }
+  for index, citation in ipairs(citations) do
+    local suffix = ", by refutation of " .. citation
+    local finding = string.rep("x", finding_text_bytes[index] - #suffix) .. suffix
+    table.insert(lines, "settled: " .. finding)
+  end
+  for _, citation in ipairs(citations) do
+    table.insert(lines, "verified-move: angle=fidelity phase=P1 citation=" .. citation)
+  end
+  return table.concat(lines, "\n"), citations, finding_text_bytes
+end
+
 return {
   test_findings_record_budget_matches_approved_contract = function()
     t.eq(synthesis_contract.findings_record_max_bytes, 1500)
@@ -354,6 +375,54 @@ return {
     t.eq(call_count, 1)
     t.eq(repair_prompt_requested, false)
     t.eq(#parsed.findings_record, synthesis_contract.findings_record_max_bytes)
+  end,
+
+  test_parse_or_retry_budgets_findings_after_citation_verification = function()
+    local output, citations, finding_text_bytes = verified_settled_findings_output()
+    local total_text_bytes = 0
+    for _, byte_length in ipairs(finding_text_bytes) do
+      total_text_bytes = total_text_bytes + byte_length
+    end
+    local provisional_bytes = total_text_bytes
+      + #citations * #"settled-by-agreement (unverified):\n"
+      + (#citations - 1) * #"\n"
+    local verified_bytes = total_text_bytes
+      + #citations * #"settled:\n"
+      + (#citations - 1) * #"\n"
+
+    local unverified, unverified_failure = synthesis.parse_output(output)
+
+    t.eq(total_text_bytes, 1394)
+    t.eq(provisional_bytes, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(verified_bytes, 1423)
+    t.is_nil(unverified)
+    t.eq(unverified_failure.reason, "findings-record-overlong")
+    t.eq(unverified_failure.actual_bytes, provisional_bytes)
+
+    local call_count = 0
+    local repair_prompt_requested = false
+    local parsed = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {
+        { angle = "fidelity", stdout = table.concat(citations, "\n") },
+      },
+      p2_results = {},
+      build_prompt = function(repair)
+        repair_prompt_requested = repair_prompt_requested or repair
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        return { stdout = output, stderr = "", exit_code = 0 }
+      end,
+    })
+
+    t.eq(call_count, 1)
+    t.eq(repair_prompt_requested, false)
+    t.eq(parsed.verified_moves, #citations)
+    t.eq(#parsed.findings_record, verified_bytes)
+    t.is_true(parsed.findings_record:find("settled:\n", 1, true) == 1)
+    t.is_nil(parsed.findings_record:find("settled-by-agreement (unverified):", 1, true))
   end,
 
   test_parse_or_retry_passes_worker_exit_diagnostic_to_repair = function()

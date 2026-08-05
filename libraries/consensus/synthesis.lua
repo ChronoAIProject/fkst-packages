@@ -161,6 +161,19 @@ local function combine_findings_records(records, verified_citations)
   return text
 end
 
+local function apply_findings_record(parsed, verified_citations)
+  if parsed ~= nil and parsed.findings_entries ~= nil then
+    local findings_record, failure = combine_findings_records(parsed.findings_entries, verified_citations)
+    if failure ~= nil then
+      return nil, failure
+    end
+    if findings_record ~= nil then
+      parsed.findings_record = findings_record
+    end
+  end
+  return parsed
+end
+
 local function parse_reached(value, verdict_mode, gap_count, gap, outcome_index, gap_index)
   local first, framing = trim(value):match("^(%S+)%s+(.+)$")
   local decision = first and first:lower() or nil
@@ -339,15 +352,8 @@ local function parse_output(stdout, verdict_mode)
   elseif gap_count ~= 0 then
     return nil
   end
-  local findings_record, findings_failure = combine_findings_records(findings)
-  if findings_failure ~= nil then
-    return nil, findings_failure
-  end
-  if parsed.kind == "converge" and parsed.essence_stall ~= true and findings_record == nil then
+  if parsed.kind == "converge" and parsed.essence_stall ~= true and #findings == 0 then
     return nil
-  end
-  if findings_record ~= nil then
-    parsed.findings_record = findings_record
   end
   parsed.findings_entries = findings
   parsed.verified_moves = #verified_moves
@@ -357,6 +363,9 @@ end
 
 function M.parse_output(stdout, verdict_mode)
   local parsed, failure = parse_output(stdout, verdict_mode)
+  if parsed ~= nil then
+    parsed, failure = apply_findings_record(parsed)
+  end
   if parsed == nil and failure == nil then
     failure = parse_failure("response-contract-invalid")
   end
@@ -419,9 +428,7 @@ local function stamp_verified_count(parsed, p1_results, p2_results)
   if parsed ~= nil then
     local citations, count = verified_move_citations(parsed.verified_move_records, p1_results, p2_results)
     parsed.verified_moves = count
-    if parsed.findings_entries ~= nil then
-      parsed.findings_record = combine_findings_records(parsed.findings_entries, citations)
-    end
+    return apply_findings_record(parsed, citations)
   end
   return parsed
 end
@@ -447,11 +454,14 @@ local function has_matching_reject_gap(parsed, verdict_mode, p2_results)
 end
 
 local function parse_attempt(stdout, ctx)
-  local parsed, failure = M.parse_output(stdout, ctx.verdict_mode)
+  local parsed, failure = parse_output(stdout, ctx.verdict_mode)
+  if parsed == nil then
+    return nil, failure or parse_failure("response-contract-invalid")
+  end
+  parsed, failure = stamp_verified_count(parsed, ctx.p1_results, ctx.p2_results)
   if parsed == nil then
     return nil, failure
   end
-  parsed = stamp_verified_count(parsed, ctx.p1_results, ctx.p2_results)
   if not has_matching_reject_gap(parsed, ctx.verdict_mode, ctx.p2_results) then
     return nil, parse_failure("reject-gap-not-grounded")
   end
