@@ -513,9 +513,15 @@ class HostRunTest(unittest.TestCase):
 
     def test_supervise_contract_uses_trusted_platform_root_for_launch_args(self) -> None:
         h = HostRunHarness()
-        fake_bin = h.root / "fake-framework"
         capture = h.root / "capture.json"
         try:
+            substrate_repo, _ = create_git_source(
+                h.root,
+                "fkst-substrate",
+                {"Cargo.toml": "[workspace]\n"},
+            )
+            fake_bin = substrate_repo / "target" / "debug" / "fkst-framework"
+            fake_bin.parent.mkdir(parents=True)
             source_repo, source_rev = create_git_source(
                 h.root,
                 "source",
@@ -552,7 +558,10 @@ class HostRunTest(unittest.TestCase):
                     f"""\
                     set -euo pipefail
                     source scripts/host_run.sh
+                    source scripts/run_bin.sh
                     BIN={shell_quote(fake_bin)}
+                    export CI=1
+                    ensure_fresh_bin
                     export FKST_PROJECT_ROOT=/untrusted/launch-directory
                     export FKST_CODEX_REPOSITORY_ROOTS=/untrusted/ambient-repository
                     host_run_supervise_contract --project-root {shell_quote(h.website_host)} --platform-root {shell_quote(source_repo)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)}
@@ -580,7 +589,74 @@ class HostRunTest(unittest.TestCase):
             self.assertEqual(Path(payload["project_root"]).resolve(), h.website_host.resolve())
             self.assertEqual(
                 payload["repository_roots"].splitlines(),
-                [str(h.website_host.resolve()), str(source_repo.resolve())],
+                [
+                    str(h.website_host.resolve()),
+                    str(source_repo.resolve()),
+                    str(substrate_repo.resolve()),
+                ],
+            )
+        finally:
+            h.close()
+
+    def test_package_local_supervise_carries_traceable_framework_checkout(self) -> None:
+        h = HostRunHarness()
+        capture = h.root / "package-local-capture.json"
+        try:
+            package_repo = h.root / "package-repository"
+            package_root = package_repo / "packages" / "example"
+            package_root.mkdir(parents=True)
+            (package_root / "fkst.toml").write_text(
+                'kind = "package"\nname = "example"\n',
+                encoding="utf-8",
+            )
+            substrate_repo, _ = create_git_source(
+                h.root,
+                "package-local-fkst-substrate",
+                {"Cargo.toml": "[workspace]\n"},
+            )
+            fake_bin = substrate_repo / "target" / "debug" / "fkst-framework"
+            fake_bin.parent.mkdir(parents=True)
+            fake_bin.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    import pathlib
+                    import sys
+
+                    pathlib.Path({json.dumps(str(capture))}).write_text(json.dumps({{"argv": sys.argv, "repository_roots": os.environ.get("FKST_CODEX_REPOSITORY_ROOTS")}}, sort_keys=True) + "\\n", encoding="utf-8")
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_bin.chmod(0o755)
+
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    source scripts/run.sh
+                    ROOT={shell_quote(package_repo)}
+                    FKST_DIR="$ROOT/.fkst"
+                    SOURCE_PACKAGES_ROOT="$ROOT/packages"
+                    LOCAL_PACKAGES_ROOT="$FKST_DIR/local-packages"
+                    EXTERNAL_PACKAGES_ROOT="$FKST_DIR/packages"
+                    DEFAULT_RUNTIME_ROOT="$FKST_DIR/run/runtime"
+                    DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
+                    BIN={shell_quote(fake_bin)}
+                    export BIN CI=1 FKST_RATE_POOL_ROOT={shell_quote(str(h.root / "rate-pool"))}
+                    unset FKST_PROJECT_ROOT FKST_RUNTIME_ROOT FKST_DURABLE_ROOT FKST_CODEX_REPOSITORY_ROOTS
+                    ensure_fresh_bin
+                    cmd_supervise_old example
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(capture.read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["repository_roots"].splitlines(),
+                [str(package_repo.resolve()), str(substrate_repo.resolve())],
             )
         finally:
             h.close()

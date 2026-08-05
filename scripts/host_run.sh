@@ -675,7 +675,11 @@ host_run_supervise_contract() {
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
   export FKST_PROJECT_ROOT="$HOST_RUN_PROJECT_ROOT"
-  host_run_export_codex_repository_roots "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_ROOT" || return $?
+  local repository_roots=("$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_ROOT")
+  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
+    repository_roots+=("$BIN_REPOSITORY_ROOT")
+  fi
+  host_run_export_codex_repository_roots "${repository_roots[@]}" || return $?
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")

@@ -751,7 +751,11 @@ cmd_supervise_old() {
   export FKST_RUNTIME_ROOT="$rt"
   export FKST_DURABLE_ROOT="$durable"
   export FKST_PROJECT_ROOT="$project_root"
-  host_run_export_codex_repository_roots "$ROOT" || exit $?
+  local repository_roots=("$ROOT")
+  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
+    repository_roots+=("$BIN_REPOSITORY_ROOT")
+  fi
+  host_run_export_codex_repository_roots "${repository_roots[@]}" || exit $?
   export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
 
   echo "BIN=$BIN"
