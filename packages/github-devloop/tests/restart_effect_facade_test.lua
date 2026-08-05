@@ -57,8 +57,8 @@ end
 
 local function real_grant(snapshot)
   local decided = restart_effects.decide_transition(snapshot, {
-    semantic_variant = "execute_request",
-    source_boundary = "github-devloop.devloop_execute_request",
+    semantic_variant = "unmanaged_issue",
+    source_boundary = "github-proxy.github_entity_changed",
     target = "thinking",
     incoming_version = VERSION,
   })

@@ -10,5 +10,6 @@ return {
   core = core,
   t = t,
   projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
+  state_comment = require("testkit_internal.projected_state_fixture").bind_state_comment(require("devloop.state")),
   argv_rendered = gh_argv.argv_rendered,
 }

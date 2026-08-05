@@ -9,6 +9,7 @@ local base_ids = require("devloop.base_ids")
 local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
 local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state"))
+local state_comment = require("testkit_internal.projected_state_fixture").bind_state_comment(require("devloop.state"))
 gh_argv.install(t, core)
 
 local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
@@ -379,7 +380,7 @@ local function mock_origin_dependency(blocker_state)
       origin_blocker_issue,
       "Workflow origin blocker",
       { "fkst-dev:" .. blocker_milestone },
-      { { body = core.state_marker(blocker_proposal, blocker_milestone, "blocker-version") } },
+      { { body = state_comment(blocker_proposal, blocker_milestone, "blocker-version") } },
       blocker_state
     ),
     stderr = "",

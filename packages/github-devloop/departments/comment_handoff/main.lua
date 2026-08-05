@@ -5,6 +5,7 @@ local saga = require("workflow.saga")
 local source_refs = require("contract.source_ref")
 local valid_round = require("devloop.rounds").valid_round
 local handoff_helpers = require("devloop.comment_handoff")
+local requests_labels = require("devloop.requests.labels")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -44,6 +45,7 @@ local function projected_state_label_request(payload, handoff, expected_state)
     or not same_value(request.expected_proposal_id, handoff.proposal_id)
     or not same_value(request.expected_state, expected_state)
     or not same_value(request.expected_version, handoff.marker_version)
+    or not requests_labels.is_canonical_state_marker_guard(guard)
     or type(guard_expected) ~= "table"
     or type(guard_match) ~= "table"
     or type(guard_target) ~= "table"

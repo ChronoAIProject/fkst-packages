@@ -31,6 +31,13 @@ local function ready_handoff(source_ref, handoff_version, marker_version)
   }).handoff
 end
 
+local function copy(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for key, item in pairs(value) do out[copy(key)] = copy(item) end
+  return out
+end
+
 return {
   test_comment_written_ready_ack_raises_durable_ready_with_verifiable_hand_off = function()
     local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
@@ -117,6 +124,40 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+  end,
+
+  test_comment_written_ready_ack_rejects_noncanonical_marker_guard_family = function()
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local mutations = {
+      function(guard) guard.namespace = "other" end,
+      function(guard) guard.marker = "result" end,
+      function(guard) guard.version = "v2" end,
+      function(guard) guard.order_by = { "version_order_key", "marker_order_key", "stage_rank" } end,
+      function(guard) guard.order_by = { "marker_order_key", "version_order_key" } end,
+      function(guard)
+        guard.order_by = { "marker_order_key", "version_order_key", "stage_rank", "comment_id" }
+      end,
+    }
+
+    for index, mutate in ipairs(mutations) do
+      local handoff = copy(ready_handoff(source_ref, version, version))
+      mutate(handoff.label_request.marker_guard)
+      local result = run_handoff({
+        schema = "github-proxy.comment-written.v1",
+        repo = "owner/repo",
+        target = "issue",
+        issue_number = 42,
+        comment_id = "IC_ready_noncanonical_guard_" .. tostring(index),
+        request_dedup_key = "projected-state/comment/ready",
+        dedup_key = "projected-state/comment/ready/written/noncanonical-guard-" .. tostring(index),
+        source_ref = source_ref,
+        handoff = handoff,
+      }, "comment-handoff-ready-noncanonical-guard-" .. tostring(index))
+
+      t.eq(result.exit_code, 0)
+      t.eq(#result.raises, 0)
+    end
   end,
 
 }

@@ -1,9 +1,9 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local m_claims = require("devloop.claims")
+local restart_metadata = require("devloop.restart_metadata")
 local state_labels = require("devloop.state_labels")
 local C = {}
-
 local function label_colors_for(add_labels)
   local colors = {}
   local has_color = false
@@ -90,6 +90,16 @@ function C.build_state_label_request(repo, issue_number, to_state, proposal_id, 
     dedup_key = dedup_key_value,
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
+end
+
+local canonical_state_marker_guard = state_marker_guard(nil, nil, nil)
+
+function C.is_canonical_state_marker_guard(guard)
+  return type(guard) == "table"
+    and guard.namespace == canonical_state_marker_guard.namespace
+    and guard.marker == canonical_state_marker_guard.marker
+    and guard.version == canonical_state_marker_guard.version
+    and restart_metadata.arrays_equal(guard.order_by, canonical_state_marker_guard.order_by)
 end
 
 function C.build_thinking_label_request(issue, proposal)
