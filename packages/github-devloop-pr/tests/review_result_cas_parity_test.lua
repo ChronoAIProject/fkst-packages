@@ -1,0 +1,889 @@
+-- Non-circularity contract: production truth comes from the real review_result
+-- department's owner decision. OLD admission truth comes from the protected R9
+-- corpus or a frozen literal probe outcome on each additional edge case.
+
+local catalog = require("devloop.restart_cas_catalog")
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
+local inventories = {
+  canonicalization = require("core.restart.canonicalization_inventory"),
+  entry = require("core.restart.entry_inventory"),
+  operator_reentry = require("core.restart.operator_reentry_inventory"),
+}
+local devloop_base = require("devloop.base")
+local config = require("devloop.config")
+local devloop_logging = require("devloop.logging")
+local m_builders = require("devloop.markers.builders")
+local requests_review = require("devloop.requests.review")
+local devloop_state = require("devloop.state")
+local transition_version = require("contract.transition_version")
+local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
+local restart_effects = require("core.restart_effects")
+local review_result_trace = require("tests.review_result_trace_helpers")
+local consensus_call = require("devloop.consensus_call")
+local t = h.t
+local core = h.core
+local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
+local review_result_department = require("departments.review_result.main")
+
+local OWNER = core.restart_package_name
+local POLICY_ID = "cas.legacy_review_result_v1"
+local V_OLDER = "2026-06-02T01-02-03Z"
+local V_EQUAL = "2026-06-03T01-02-03Z"
+local V_NEWER = "2026-06-04T01-02-03Z"
+local V_ORDERING_EQUAL_CURRENT = "v-loop-01"
+local V_ORDERING_EQUAL_INCOMING = "v-loop-1"
+local REVIEW_RESULT_CORPUS_PATH =
+  "migration/intent_bounded_replay/corpus/pr-review-result.json"
+
+local function version_at_fix_round(round)
+  local version = V_EQUAL
+  for _ = 1, round do
+    version = core.next_fix_version(version)
+  end
+  return version
+end
+
+local function mock_branch_config()
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function observe_department(run)
+  local probes = {}
+  local decisions = {}
+  local comment_builders = {}
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
+  local original_log_cas = devloop_logging.log_cas_decision
+  local original_build_review_result = requests_review.build_review_result_comment_request
+  local owner_decisions = {}
+  local grant_mints = {}
+
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    table.insert(owner_decisions, {
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
+    })
+    local legacy_current = {
+      state = snapshot.current.state,
+      version = transition_version.safe_version_segment(snapshot.current.version or ""),
+      stage_rank = snapshot.current.stage_rank,
+    }
+    table.insert(probes, {
+      current = legacy_current,
+      from_states = { "reviewing" },
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      decision = decision,
+    })
+    return decision
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    table.insert(grant_mints, {
+      snapshot = snapshot,
+      decision = decision,
+      sink_id = sink_id,
+    })
+    return original_mint_grant(snapshot, decision, sink_id)
+  end
+  devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
+    table.insert(decisions, {
+      dept = dept,
+      proposal_id = proposal_id,
+      current = current,
+      from_state = from_state,
+      to_state = to_state,
+      outcome = outcome,
+      reason = reason,
+    })
+    return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
+  end
+  requests_review.build_review_result_comment_request = function(
+    package_core,
+    repo,
+    issue_number,
+    issue_proposal_id,
+    issue_version,
+    reached,
+    source_ref
+  )
+    table.insert(comment_builders, {
+      repo = repo,
+      issue_number = issue_number,
+      issue_proposal_id = issue_proposal_id,
+      issue_version = issue_version,
+      reached = reached,
+      source_ref = source_ref,
+    })
+    return original_build_review_result(
+      package_core,
+      repo,
+      issue_number,
+      issue_proposal_id,
+      issue_version,
+      reached,
+      source_ref
+    )
+  end
+
+  local ok, result = pcall(run)
+  requests_review.build_review_result_comment_request = original_build_review_result
+  devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
+  if not ok then
+    error(result, 0)
+  end
+  return result, probes, decisions, comment_builders, owner_decisions, grant_mints
+end
+
+local PROBE_VARIANTS = {
+  ["reviewing->merge-ready"] = "reviewing_to_merge_ready",
+  ["reviewing->fixing"] = "reviewing_to_fixing",
+  ["reviewing->review-meta"] = "reviewing_to_review_meta",
+}
+
+local function evidence_from_probe(probe)
+  local source_states = table.concat(probe.from_states, ",")
+  local variant = PROBE_VARIANTS[source_states .. "->" .. tostring(probe.to_state)]
+  if variant == nil then
+    error("review-result CAS probe has no catalog variant: " .. source_states .. "->" .. tostring(probe.to_state))
+  end
+  return {
+    current = probe.current,
+    source_states = probe.from_states,
+    to_state = probe.to_state,
+    variant = variant,
+    incoming_version = probe.incoming_version,
+    target_version = probe.target_version,
+    overlay_version = probe.incoming_version,
+  }
+end
+
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
+end
+
+local function review_event(fixture)
+  local proposal_id = devloop_base.pr_review_proposal_id(
+    "owner/repo",
+    7,
+    fixture.incoming_version,
+    "def456"
+  )
+  local decision = fixture.decision or "reject"
+  return h.review_reached({
+    proposal_id = proposal_id,
+    dedup_key = "consensus:" .. proposal_id .. "/review",
+    decision = decision,
+    body = decision == "approve"
+      and "Review consensus approves the diff."
+      or "Review consensus rejects the diff.",
+    blocking_gap = decision == "reject" and "missing CAS admission parity guard" or nil,
+  })
+end
+
+local function emitted_state(result)
+  for _, raised in ipairs(result.raises or {}) do
+    if raised.queue == "github-proxy.github_pr_comment_request" then
+      return tostring(raised.payload and raised.payload.body or ""):match('state="([^"]+)"')
+    end
+  end
+  return nil
+end
+
+local function protected_probe_outcome(fixture)
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      REVIEW_RESULT_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  if fixture.probe_outcome == nil then
+    error("review-result fixture is missing its frozen OLD probe outcome: "
+      .. tostring(fixture.name), 0)
+  end
+  return fixture.probe_outcome
+end
+
+local function observed_admission(probe_outcome, probe)
+  if probe_outcome == "pending" then
+    return { status = "pending", reason_code = "source-marker-not-visible" }
+  end
+  if probe_outcome == "idempotent" then
+    return { status = "idempotent", reason_code = "already-at-target" }
+  end
+  if probe_outcome == "stale" then
+    if transition_version.compare(probe.incoming_version, probe.current.version) < 0 then
+      return { status = "stale", reason_code = "incoming-version-older" }
+    end
+    return { status = "stale", reason_code = "advanced-or-diverged" }
+  end
+  if probe_outcome ~= "apply" then
+    error("review-result protected admission probe returned an unknown outcome: "
+      .. tostring(probe_outcome))
+  end
+
+  -- The probe receives current_review_version after production's safe projection.
+  if tostring(probe.current.version) ~= tostring(probe.incoming_version) then
+    return { status = "stale", reason_code = "version-mismatch" }
+  end
+  return { status = "apply", reason_code = "apply" }
+end
+
+local function post_admission_disposition(result, admitted, comment_builder_reached)
+  if not admitted then
+    return "not-admitted"
+  end
+  if not comment_builder_reached then
+    return "comment-builder-not-reached"
+  end
+  local state = emitted_state(result)
+  if state ~= nil then
+    return "effect-emitted(" .. state .. ")"
+  end
+  return "effect-not-emitted"
+end
+
+local function run_real_department(event)
+  local raises = {}
+  local original_raise = raise
+  local original_reach = consensus_call.reach
+  raise = function(queue, payload)
+    table.insert(raises, { queue = queue, payload = payload })
+  end
+  consensus_call.reach = function() return event end
+  local ok, failure = pcall(review_result_department.pipeline, {
+    queue = "devloop_review_request",
+    payload = event,
+  })
+  consensus_call.reach = original_reach
+  raise = original_raise
+  return {
+    exit_code = ok and 0 or 1,
+    error = ok and nil or tostring(failure),
+    raises = raises,
+  }
+end
+
+local function prepare_valid_fixture(fixture, event)
+  mock_branch_config()
+  h.mock_default_issue_claim()
+  local comments = {
+    m_builders.pr_origin_marker(
+      "github-devloop/issue/owner/repo/42",
+      "42",
+      "devloop-owner-repo-42-01HY",
+      fixture.incoming_version,
+      "dev"
+    ),
+  }
+  if fixture.current_state ~= nil then
+    table.insert(comments, core.state_marker(
+      "github-devloop/issue/owner/repo/42",
+      fixture.current_state,
+      fixture.current_version
+    ))
+  end
+  if fixture.current_state == nil then
+    h.mock_pr_origin_for({
+      comments = comments,
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = "def456",
+      state = "OPEN",
+      base_branch = "dev",
+    })
+  else
+    h.mock_pr_origin(comments, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
+  end
+  if event.decision == "approve" then
+    h.mock_pr_normal_risk_diff_name_only()
+  end
+end
+
+local function assert_catalog_matches_observed_decision(fixture)
+  local event = review_event(fixture)
+  prepare_valid_fixture(fixture, event)
+
+  local result, probes, decisions, comment_builders, owner_decisions, grant_mints = observe_department(function()
+    return run_real_department(event)
+  end)
+
+  if #probes == 0 then
+    t.eq(#comment_builders, 0, fixture.name .. ": pre-CAS input must not reach comment builder")
+    t.eq(post_admission_disposition(result, false, false), "not-admitted", fixture.name .. ": pre-CAS disposition")
+    t.eq(#result.raises, 0, fixture.name .. ": pre-CAS input must emit no effects")
+    return "pre-cas"
+  end
+
+  t.eq(#probes, 1, fixture.name .. ": real department CAS probe count")
+  local probe = probes[1]
+  t.eq(probe.current.state, fixture.current_state, fixture.name .. ": probe current state")
+  t.eq(probe.from_states[1], "reviewing", fixture.name .. ": probe source state")
+  t.eq(#probe.from_states, 1, fixture.name .. ": probe source state count")
+  if fixture.target_state ~= nil then
+    t.eq(probe.to_state, fixture.target_state, fixture.name .. ": probe target state")
+  end
+  t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
+
+  t.eq(#owner_decisions, 1, fixture.name .. ": owner decision count")
+  t.eq(owner_decisions[1].intent.target, probe.to_state, fixture.name .. ": owner decision target")
+  local expected_variant = ({
+    ["merge-ready"] = "approved",
+    fixing = "changes_requested",
+    ["review-meta"] = "needs_review_meta",
+  })[probe.to_state]
+  t.eq(owner_decisions[1].intent.semantic_variant, expected_variant,
+    fixture.name .. ": owner decision variant")
+
+  t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
+  local decision = decisions[1]
+  t.eq(decision.dept, "review_result", fixture.name .. ": CAS decision department")
+  t.eq(decision.from_state, "reviewing", fixture.name .. ": logged source state")
+  t.eq(decision.to_state, fixture.logged_target_state or probe.to_state, fixture.name .. ": logged target state")
+  t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
+  t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
+
+  local comment_builder_reached = #comment_builders > 0
+  local old_probe_outcome = protected_probe_outcome(fixture)
+  t.eq(
+    #comment_builders,
+    fixture.comment_builder_reached and 1 or 0,
+    fixture.name .. ": post-admission comment builder reach"
+  )
+  if comment_builder_reached then
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": comment builder requires an applied OLD probe")
+    local boundary = comment_builders[1]
+    t.eq(boundary.repo, "owner/repo", fixture.name .. ": boundary repo")
+    t.eq(boundary.issue_number, "42", fixture.name .. ": boundary issue")
+    t.eq(
+      boundary.issue_proposal_id,
+      "github-devloop/issue/owner/repo/42",
+      fixture.name .. ": boundary issue proposal"
+    )
+    t.eq(boundary.reached.proposal_id, event.proposal_id, fixture.name .. ": boundary review proposal")
+  end
+
+  local observed = observed_admission(old_probe_outcome, probe)
+  local disposition = post_admission_disposition(result, observed.status == "apply", comment_builder_reached)
+  t.eq(disposition, fixture.post_admission_disposition or "not-admitted", fixture.name .. ": post-admission disposition")
+  local expected_queues = fixture.expected_queues or {}
+  t.eq(#result.raises, #expected_queues, fixture.name .. ": captured effect count")
+  for index, expected_queue in ipairs(expected_queues) do
+    t.eq(result.raises[index].queue, expected_queue, fixture.name .. ": captured effect queue " .. tostring(index))
+  end
+  if fixture.effect_state ~= nil then
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": effect follows an applied OLD probe")
+    t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
+    t.eq(#grant_mints, 1, fixture.name .. ": exactly one review-result grant minted")
+    t.eq(grant_mints[1].sink_id, "comment:pr:review-result", fixture.name .. ": review-result grant sink")
+    t.eq(grant_mints[1].decision.edge_id,
+      OWNER .. "/reviewing/autonomous/" .. expected_variant,
+      fixture.name .. ": review-result grant edge")
+  else
+    t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
+    t.eq(#grant_mints, 0, fixture.name .. ": non-effect path minted no grant")
+  end
+
+  local evidence = evidence_from_probe(probe)
+  t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
+  t.eq(evidence.source_states, probe.from_states, fixture.name .. ": catalog source states come from probe")
+  t.eq(evidence.to_state, probe.to_state, fixture.name .. ": catalog target state comes from probe")
+  t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
+  t.eq(evidence.target_version, probe.target_version, fixture.name .. ": catalog target version comes from probe")
+  local actual = catalog.resolve(POLICY_ID, evidence, projection)
+  t.eq(owner_decisions[1].decision.status, observed.status,
+    fixture.name .. ": production owner status vs protected OLD")
+  t.eq(owner_decisions[1].decision.reason_code, observed.reason_code,
+    fixture.name .. ": production owner reason vs protected OLD")
+  t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
+  t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
+  if fixture.probe_outcome ~= nil then
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
+  end
+  if fixture.admission_status ~= nil then
+    t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
+    t.eq(actual.status, fixture.admission_status, fixture.name .. ": catalog admission status")
+  end
+  if fixture.admission_reason_code ~= nil then
+    t.eq(observed.reason_code, fixture.admission_reason_code, fixture.name .. ": observed admission reason")
+    t.eq(actual.reason_code, fixture.admission_reason_code, fixture.name .. ": catalog admission reason")
+  end
+  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
+  if fixture.legacy_log_outcome ~= nil then
+    t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+  end
+  if fixture.legacy_log_reason ~= nil then
+    t.eq(decision.reason, fixture.legacy_log_reason, fixture.name .. ": legacy log reason")
+  end
+  return {
+    result = result,
+    probe = probe,
+    decision = decision,
+    observed = observed,
+    actual = actual,
+    comment_builders = comment_builders,
+    owner_decisions = owner_decisions,
+    grant_mints = grant_mints,
+  }
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_fixing_shadow_case(fixture)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = "changes_requested",
+    target = "fixing",
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  }
+  t.eq(intent.source_boundary, nil, fixture.name .. ": nil boundary is omitted from shadow intent")
+
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local observed = {
+    status = production.observed.status,
+    reason_code = production.observed.reason_code,
+    cas_outcome = production.decision.outcome,
+  }
+
+  assert_bidirectional(shadow, observed, "status", fixture.name)
+  assert_bidirectional(shadow, observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, observed, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, "github-devloop-pr/reviewing/autonomous/changes_requested", fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version or "", fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, "reviewing_to_fixing", fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
+end
+
+local function assert_review_meta_shadow_case(fixture)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = "needs_review_meta",
+    target = "review-meta",
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  }
+  t.eq(intent.source_boundary, nil, fixture.name .. ": nil boundary is omitted from shadow intent")
+
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local observed = {
+    status = production.observed.status,
+    reason_code = production.observed.reason_code,
+    cas_outcome = production.decision.outcome,
+  }
+
+  assert_bidirectional(shadow, observed, "status", fixture.name)
+  assert_bidirectional(shadow, observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, observed, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, "github-devloop-pr/reviewing/autonomous/needs_review_meta", fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version or "", fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, "reviewing_to_review_meta", fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
+end
+
+local function assert_skipped_before_cas(name, payload)
+  local result, probes, decisions, comment_builders = observe_department(function()
+    return run_real_department(payload)
+  end)
+  t.eq(#probes, 0, name .. ": invalid production input must not reach CAS")
+  t.eq(#comment_builders, 0, name .. ": invalid production input must not reach comment builder")
+  t.eq(result.exit_code, 0, name .. ": production skips foreign malformed input")
+  t.eq(#result.raises, 0, name .. ": malformed production input must emit no effects")
+  t.eq(#decisions, 1, name .. ": malformed production input logs one skip decision")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", name .. ": base skip disposition")
+  t.eq(post_admission_disposition(result, false, false), "not-admitted", name .. ": pre-CAS disposition")
+end
+
+return {
+  test_shadow_review_result_changes_requested_matches_reachable_cas_outcomes = function()
+    local fixtures = {
+      {
+        name = "shadow-review-result-fixing-apply",
+        current_state = "reviewing",
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        target_state = "fixing",
+        probe_outcome = "apply",
+        comment_builder_reached = true,
+        effect_state = "fixing",
+        post_admission_disposition = "effect-emitted(fixing)",
+        expected_queues = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+        legacy_log_outcome = "applied",
+      },
+      {
+        name = "shadow-review-result-fixing-idempotent",
+        current_state = "fixing",
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        target_state = "fixing",
+        probe_outcome = "idempotent",
+        legacy_log_outcome = "skip-idempotent(already at to_state)",
+      },
+      {
+        name = "shadow-review-result-fixing-pending",
+        current_state = nil,
+        current_version = nil,
+        incoming_version = V_EQUAL,
+        target_state = "fixing",
+        probe_outcome = "pending",
+        expected_exit_code = 1,
+        legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+      },
+      {
+        name = "shadow-review-result-fixing-safe-overlay-stale",
+        current_state = "reviewing",
+        current_version = V_ORDERING_EQUAL_CURRENT,
+        incoming_version = V_ORDERING_EQUAL_INCOMING,
+        target_state = "fixing",
+        probe_outcome = "apply",
+        admission_status = "stale",
+        admission_reason_code = "version-mismatch",
+        legacy_log_outcome = "skip-stale(version-mismatch)",
+        legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
+      },
+    }
+    for _, fixture in ipairs(fixtures) do
+      assert_fixing_shadow_case(fixture)
+    end
+  end,
+
+  test_shadow_review_result_needs_review_meta_matches_reachable_cas_outcomes = function()
+    local reflection_version = core.next_fix_version(core.next_fix_version(V_EQUAL))
+    local safe_mismatch_current = core.next_fix_version(core.next_fix_version(V_ORDERING_EQUAL_CURRENT))
+    local safe_mismatch_incoming = core.next_fix_version(core.next_fix_version(V_ORDERING_EQUAL_INCOMING))
+    t.is_true(
+      transition_version.safe_version_segment(safe_mismatch_current)
+        ~= transition_version.safe_version_segment(safe_mismatch_incoming),
+      "shadow-review-result-review-meta-safe-overlay-stale: safe versions must be byte-different"
+    )
+    t.eq(
+      transition_version.compare(
+        transition_version.safe_version_segment(safe_mismatch_current),
+        transition_version.safe_version_segment(safe_mismatch_incoming)
+      ),
+      0,
+      "shadow-review-result-review-meta-safe-overlay-stale: safe versions must be ordering-equal"
+    )
+    local fixtures = {
+      {
+        name = "shadow-review-result-review-meta-apply",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = reflection_version,
+        target_state = "review-meta",
+        probe_outcome = "apply",
+        comment_builder_reached = true,
+        effect_state = "review-meta",
+        post_admission_disposition = "effect-emitted(review-meta)",
+        expected_queues = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+        legacy_log_outcome = "applied",
+      },
+      {
+        name = "shadow-review-result-review-meta-source-older",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = V_OLDER,
+        target_state = "review-meta",
+        probe_outcome = "stale",
+        legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+      },
+      {
+        name = "shadow-review-result-review-meta-source-newer",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = V_NEWER,
+        target_state = "review-meta",
+        probe_outcome = "pending",
+        expected_exit_code = 1,
+        legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+      },
+      {
+        name = "shadow-review-result-review-meta-idempotent",
+        current_state = "review-meta",
+        current_version = reflection_version,
+        incoming_version = reflection_version,
+        target_state = "review-meta",
+        probe_outcome = "idempotent",
+        legacy_log_outcome = "skip-idempotent(already at to_state)",
+      },
+      {
+        name = "shadow-review-result-review-meta-missing-pending",
+        decision = "approve",
+        current_state = nil,
+        current_version = nil,
+        incoming_version = V_EQUAL,
+        target_state = "merge-ready",
+        probe_outcome = "pending",
+        expected_exit_code = 1,
+        legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+      },
+      {
+        name = "shadow-review-result-review-meta-safe-overlay-stale",
+        current_state = "reviewing",
+        current_version = safe_mismatch_current,
+        incoming_version = safe_mismatch_incoming,
+        target_state = "review-meta",
+        probe_outcome = "apply",
+        admission_status = "stale",
+        admission_reason_code = "version-mismatch",
+        legacy_log_outcome = "skip-stale(version-mismatch)",
+        legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
+      },
+    }
+    for _, fixture in ipairs(fixtures) do
+      assert_review_meta_shadow_case(fixture)
+    end
+  end,
+
+  test_review_result_source_older_is_stale = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-source-older",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      incoming_version = V_OLDER,
+      target_state = "fixing",
+      probe_outcome = "stale",
+    })
+  end,
+
+  test_review_result_source_equal_reject_applies_to_fixing = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-source-equal-reject",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "fixing",
+      probe_outcome = "apply",
+      comment_builder_reached = true,
+      effect_state = "fixing",
+      post_admission_disposition = "effect-emitted(fixing)",
+      expected_queues = {
+        "github-proxy.github_pr_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
+    })
+  end,
+
+  test_review_result_source_equal_approve_applies_to_merge_ready = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-source-equal-approve",
+      decision = "approve",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "merge-ready",
+      probe_outcome = "apply",
+      comment_builder_reached = true,
+      effect_state = "merge-ready",
+      post_admission_disposition = "effect-emitted(merge-ready)",
+      expected_queues = {
+        "github-proxy.github_pr_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
+    })
+  end,
+
+  test_review_result_source_equal_reflection_applies_to_review_meta = function()
+    local reflection_review_version = core.next_fix_version(core.next_fix_version(V_EQUAL))
+    assert_catalog_matches_observed_decision({
+      name = "review-result-source-equal-reflection",
+      target_state = "review-meta",
+      current_state = "reviewing",
+      current_version = reflection_review_version,
+      incoming_version = reflection_review_version,
+      probe_outcome = "apply",
+      comment_builder_reached = true,
+      effect_state = "review-meta",
+      post_admission_disposition = "effect-emitted(review-meta)",
+      expected_queues = {
+        "github-proxy.github_pr_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
+    })
+  end,
+
+  test_review_result_ordering_equal_safe_different_is_stale_version_mismatch = function()
+    local current_safe = transition_version.safe_version_segment(V_ORDERING_EQUAL_CURRENT)
+    local incoming_safe = transition_version.safe_version_segment(V_ORDERING_EQUAL_INCOMING)
+    t.is_true(
+      current_safe ~= incoming_safe,
+      "review-result-ordering-equal-safe-different: fixture safe versions must be byte-different"
+    )
+    t.eq(
+      transition_version.compare(current_safe, incoming_safe),
+      0,
+      "review-result-ordering-equal-safe-different: fixture versions must be ordering-equal"
+    )
+    assert_catalog_matches_observed_decision({
+      name = "review-result-ordering-equal-safe-different",
+      current_state = "reviewing",
+      current_version = V_ORDERING_EQUAL_CURRENT,
+      incoming_version = V_ORDERING_EQUAL_INCOMING,
+      target_state = "fixing",
+      probe_outcome = "apply",
+      admission_status = "stale",
+      admission_reason_code = "version-mismatch",
+      legacy_log_outcome = "skip-stale(version-mismatch)",
+      legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
+    })
+  end,
+
+  test_review_result_source_newer_is_pending = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-source-newer",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      incoming_version = V_NEWER,
+      target_state = "fixing",
+      probe_outcome = "pending",
+      expected_exit_code = 1,
+    })
+  end,
+
+  test_review_result_missing_current_marker_is_pending = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-current-missing",
+      decision = "approve",
+      current_state = nil,
+      current_version = nil,
+      incoming_version = V_EQUAL,
+      target_state = "merge-ready",
+      probe_outcome = "pending",
+      expected_exit_code = 1,
+    })
+  end,
+
+  test_review_result_target_state_is_idempotent = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-target-idempotent",
+      current_state = "fixing",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "fixing",
+      probe_outcome = "idempotent",
+    })
+  end,
+
+  test_review_result_unrelated_state_is_stale = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-unrelated-stale",
+      current_state = "blocked",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "fixing",
+      probe_outcome = "stale",
+    })
+  end,
+
+  test_review_result_predecessor_equal_probe_apply_matches_from_state_overlay = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-predecessor-equal-overlay",
+      current_state = "pr-open",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "fixing",
+      probe_outcome = "apply",
+      comment_builder_reached = true,
+      effect_state = "fixing",
+      post_admission_disposition = "effect-emitted(fixing)",
+      expected_queues = {
+        "github-proxy.github_pr_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
+    })
+  end,
+
+  test_review_result_capped_reject_is_admitted_before_comment_builder = function()
+    local capped_version = version_at_fix_round(config.max_fix_rounds())
+    assert_catalog_matches_observed_decision({
+      name = "review-result-capped-reject",
+      current_state = "reviewing",
+      current_version = capped_version,
+      incoming_version = capped_version,
+      target_state = "fixing",
+      logged_target_state = "blocked",
+      probe_outcome = "apply",
+      admission_status = "apply",
+      admission_reason_code = "apply",
+      post_admission_disposition = "comment-builder-not-reached",
+      expected_queues = {
+        "devloop_fix_reconcile",
+        "github-devloop-decompose.devloop_decompose",
+      },
+      legacy_log_outcome = "applied(fix-loop-max-rounds)",
+    })
+  end,
+
+  test_r9_pr_review_result_old_equals_new_normalized_trace = function()
+    review_result_trace.assert_equality(assert_catalog_matches_observed_decision)
+  end,
+
+  test_review_result_malformed_evidence_and_payload_skip_before_cas = function()
+    local payload = h.review_reached()
+    payload.proposal_id = 42
+    payload.dedup_key = 42
+    assert_skipped_before_cas("review-result-malformed-version-source", payload)
+  end,
+}

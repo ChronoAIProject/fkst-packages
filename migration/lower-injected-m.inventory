@@ -1,0 +1,85 @@
+{
+  "_comment": "G-LOWER-INJECTED-M shrink-only baseline. Counts = lower-library member reads/calls from the injected composed M table inside any libraries/workflow_internal or libraries/forge function body whose parameter list contains bare M. CI fails on growth above these counts, and on current M symbols without a route/owner manifest entry. Baseline raises are review-visible inventory diffs, matching the repo's shrink-only ratchet convention; CI prevents silent growth. Progress means lowering counts and pruning manifest entries as seams dissolve. See docs/superpowers/specs/2026-06-29-devloop-godpattern-dissolution-design.md.",
+  "counts": {
+    "workflow_injected_m_reads": 15,
+    "workflow_injected_m_unique_symbols": 7,
+    "forge_injected_m_reads": 15,
+    "forge_injected_m_unique_symbols": 10,
+    "total_injected_m_reads": 30,
+    "total_injected_m_unique_symbols": 17
+  },
+  "manifest": {
+    "workflow": {
+      "actionable_epoch_resolve": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "is_state": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "lifecycle_state_set": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "restart_durable_marker_fields": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "restart_lifecycle_states": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "restart_responsibility_inventory_errors": {
+        "route": "workflow",
+        "owner": "workflow-liveness"
+      },
+      "restart_transition_table": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      }
+    },
+    "forge": {
+      "ci_missing_status_first_observed_key": {
+        "route": "forge",
+        "owner": "forge-merge"
+      },
+      "ci_selfheal_once_key": {
+        "route": "forge",
+        "owner": "forge-merge"
+      },
+      "git_worktree_remove_if_present": {
+        "route": "forge",
+        "owner": "forge-git"
+      },
+      "invalidate_entity_after_write": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "log_line": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      },
+      "mkdir_p_cmd": {
+        "route": "workflow",
+        "owner": "workflow-env"
+      },
+      "parse_pr_view_merge": {
+        "route": "forge",
+        "owner": "forge-github"
+      },
+      "read_env": {
+        "route": "workflow",
+        "owner": "workflow-env"
+      },
+      "read_runtime_root_cmd": {
+        "route": "workflow",
+        "owner": "workflow-env"
+      },
+      "rollup_failure_gate_sha": {
+        "route": "typed_port",
+        "owner": "devloop-seam-dissolution"
+      }
+    }
+  }
+}

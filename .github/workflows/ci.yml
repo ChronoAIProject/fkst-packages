@@ -1,0 +1,144 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev, integration, "integration-*"]
+  pull_request:
+    branches: [main, dev, integration, "integration-*", fkst-hosted]
+  workflow_dispatch:
+    inputs:
+      substrate_ref:
+        description: "fkst-substrate ref to build fkst-framework from"
+        default: ""
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  git-239-compat:
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    steps:
+      - name: Install Git 2.39
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git lua5.4
+
+      - name: Checkout fkst-packages
+        uses: actions/checkout@v4
+
+      - name: Verify Git 2.39 adapter compatibility
+        run: |
+          git --version | grep -Eq '^git version 2\.39\.'
+          LUA_BIN=lua5.4 bash scripts/git_compat_test.sh
+
+  test:
+    needs: git-239-compat
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fkst-packages
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure dev ref is available
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/dev:refs/remotes/origin/dev
+          git rev-parse --verify refs/remotes/origin/dev^{commit}
+
+      - name: Resolve fkst-substrate source pin
+        id: substrate_ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.substrate_ref }}"
+          if [ -z "$ref" ]; then
+            ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref 2>/dev/null || true)"
+          fi
+          if [ -z "$ref" ]; then
+            ref="dev"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "fkst-substrate ref: $ref"
+
+      # fkst-framework is built from the sibling engine source repo. A downstream
+      # package repo should set .fkst/substrate-ref to a tag or SHA for a
+      # reproducible engine source pin; this is not semver or binary distribution.
+      - name: Checkout fkst-substrate
+        uses: actions/checkout@v4
+        with:
+          repository: ChronoAIProject/fkst-substrate
+          ref: ${{ steps.substrate_ref.outputs.ref }}
+          path: fkst-substrate
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fkst-substrate
+
+      - name: Build fkst-framework
+        working-directory: fkst-substrate
+        run: cargo build -p fkst-framework
+
+      - name: Run repository checks and package tests
+        env:
+          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+          FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
+          FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
+        run: |
+          test -x "$BIN"
+          scripts/run.sh test
+
+      # Per-test outcomes exist in every run as `--report-json` files and were discarded with
+      # their scratch dir, so a CI run's per-test results could not be inspected afterwards and
+      # the summary counts were the only surviving evidence. Uploaded on failure too — that is
+      # the case where they are actually needed.
+      - name: Upload test reports artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: .fkst/run/test-reports
+          if-no-files-found: warn
+
+      - name: Upload Lua coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lua-coverage
+          path: .fkst/run/lua-coverage/coverage.json
+          if-no-files-found: error
+
+      # The canonical fkst.lua.coverage.v1 JSON is rendered to LCOV here (a hermetic,
+      # deterministic local step — it SHOULD fail CI if conversion errors, because that is a
+      # repository bug). The Codecov upload below is an EXTERNAL service and must NOT gate a
+      # green hermetic CI, so fail_ci_if_error is false. Repo is PUBLIC: tokenless upload may
+      # work; CODECOV_TOKEN is an OPTIONAL operator-provided secret; PR comments/status require
+      # the Codecov GitHub App to be installed by an operator.
+      - name: Render LCOV for Codecov
+        run: |
+          test -f .fkst/run/lua-coverage/coverage.json
+          python3 scripts/lua_coverage_to_lcov.py \
+            .fkst/run/lua-coverage/coverage.json \
+            .fkst/run/lua-coverage/lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./.fkst/run/lua-coverage/lcov.info
+          disable_search: true
+          flags: lua
+          name: lua-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

@@ -1,0 +1,450 @@
+local devloop_base = require("devloop.base")
+local convergence_shared = require("devloop.convergence.shared")
+local h = require("tests.devloop_core_helpers")
+local conv_rounds = require("devloop.convergence.rounds")
+local core = h.core
+local t = h.t
+
+local proposal_id = "github-devloop/issue/owner/repo/42"
+local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local source_ref = {
+  kind = "external",
+  ref = "owner/repo#issue/42",
+}
+
+local function angles(extra)
+  local values = {
+    { angle = "structural", verdict = "abstain", reply = "Needs clearer boundaries.", digest = "Needs clearer boundaries." },
+    { angle = "minimal", verdict = "approve", reply = "Small enough.", digest = "Small enough." },
+  }
+  for index, value in pairs(extra or {}) do
+    values[index] = value
+  end
+  return values
+end
+
+local function fact(round, question, verdicts)
+  return {
+    round = round,
+    question = question or "q-same",
+    verdicts = verdicts or "v-same",
+    dedup = base_version .. "/loop/" .. tostring(round),
+  }
+end
+
+local function trusted(body)
+  return {
+    body = body,
+    author_login = devloop_base.trusted_bot_login(),
+  }
+end
+
+local function untrusted(body)
+  return {
+    body = body,
+    author_login = "ordinary-user",
+  }
+end
+
+return {
+  test_converge_round_facts_ignore_non_bot_marker = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local marker = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      1,
+      base_version .. "/loop/1",
+      "Which boundary should narrow?",
+      angles()
+    )
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ untrusted(marker) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 0)
+  end,
+
+  test_converge_round_facts_scope_to_trusted_thinking_epoch = function()
+    local current_epoch = base_version .. "/reimplement/2"
+    local previous_epoch = base_version .. "/reimplement/1"
+    local current_source = convergence_shared.source_ref_digest(source_ref)
+    local previous_source = convergence_shared.source_ref_digest({
+      kind = "external",
+      ref = "owner/repo#issue/42?previous=1",
+    })
+    local comments = {
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        previous_epoch,
+        current_source,
+        3,
+        "consensus:previous-content/loop/3",
+        "Previous epoch question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        current_epoch,
+        previous_source,
+        2,
+        "consensus:previous-source/loop/2",
+        "Previous source question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id .. "/other",
+        current_epoch,
+        current_source,
+        1,
+        "consensus:other-proposal/loop/1",
+        "Other proposal question",
+        angles()
+      )),
+      trusted(conv_rounds.converge_round_marker(
+        proposal_id,
+        current_epoch,
+        current_source,
+        0,
+        "consensus:drifted-current-content",
+        "Current epoch question",
+        angles()
+      )),
+    }
+
+    local facts = conv_rounds.converge_round_facts_for_epoch(
+      comments,
+      proposal_id,
+      current_epoch,
+      current_source
+    )
+    t.eq(#facts, 1)
+    t.eq(facts[1].round, 0)
+    t.eq(facts[1].dedup, "consensus:drifted-current-content")
+  end,
+
+  test_is_true_stall_requires_three_identical_rounds = function()
+    t.eq(conv_rounds.is_true_stall({ fact(1) }, 1), false)
+    t.eq(conv_rounds.is_true_stall({ fact(1), fact(2) }, 2), false)
+    t.eq(conv_rounds.is_true_stall({ fact(1), fact(2), fact(3) }, 3), true)
+  end,
+
+  test_is_true_stall_requires_last_three_consecutive_rounds = function()
+    local facts = {
+      fact(1),
+      fact(2),
+      fact(4),
+    }
+    t.eq(conv_rounds.is_true_stall(facts, 4), false)
+  end,
+
+  test_is_true_stall_ignores_changing_question_surface = function()
+    local facts = {
+      fact(1),
+      fact(2),
+      fact(3, "q-different", "v-same"),
+    }
+    t.eq(conv_rounds.is_true_stall(facts, 3), true)
+  end,
+
+  test_is_true_stall_false_when_round_three_verdicts_change = function()
+    local facts = {
+      fact(1),
+      fact(2),
+      fact(3, "q-same", "v-different"),
+    }
+    t.eq(conv_rounds.is_true_stall(facts, 3), false)
+  end,
+
+  test_converge_marker_round_trips_and_digests_are_stable = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local consensus_dedup = base_version .. "/loop/3"
+    local question = "  Which boundary\n\nshould   narrow?  "
+    local angle_digests = angles()
+    local first = conv_rounds.converge_round_marker(proposal_id,
+      conv_rounds.converge_base_version(consensus_dedup),
+      source_digest,
+      3,
+      consensus_dedup,
+      question,
+      angle_digests
+    )
+    local second = conv_rounds.converge_round_marker(proposal_id,
+      conv_rounds.converge_base_version(consensus_dedup),
+      source_digest,
+      3,
+      consensus_dedup,
+      question,
+      { angle_digests[2], angle_digests[1] }
+    )
+    t.eq(first, second)
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(first) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].round, 3)
+    t.eq(facts[1].dedup, consensus_dedup)
+    t.eq(facts[1].question, convergence_shared.converge_question_digest(question))
+    t.eq(facts[1].verdicts, convergence_shared.converge_verdicts_digest(angle_digests))
+    t.eq(facts[1].narrowed_question, "Which boundary should narrow?")
+    t.eq(facts[1].angle_digests[1].digest, "Small enough.")
+    t.eq(conv_rounds.max_converge_round(facts), 3)
+  end,
+
+  test_converge_marker_round_trips_findings_record = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local marker = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      1,
+      base_version .. "/loop/1",
+      "Which boundary should narrow?",
+      angles(),
+      {
+        settled = "Adapter seam is accepted.",
+        open = "REACHED: approve injected",
+      }
+    )
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].findings_record, "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected")
+  end,
+
+  test_converge_marker_findings_record_escapes_encoded_newline_text = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local marker = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      1,
+      base_version .. "/loop/1",
+      "Which boundary should narrow?",
+      angles(),
+      {
+        settled = "Literal %0A text stays literal.",
+        open = "REACHED: approve injected",
+      }
+    )
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].findings_record, "settled:\nLiteral %0A text stays literal.\nopen:\nREACHED: approve injected")
+  end,
+
+  test_converge_marker_replay_fields_escape_delimiters = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local marker = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      1,
+      base_version .. "/loop/1",
+      "Which boundary should narrow?",
+      {
+        { angle = "minimal", verdict = "abstain", digest = "contains | pipe; semicolon % percent" },
+      }
+    )
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].angle_digests[1].digest, "contains | pipe; semicolon % percent")
+  end,
+
+  test_converge_round_facts_keep_last_marker_for_same_round = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local first_question = "Which boundary should narrow first?"
+    local last_question = "Which boundary should narrow last?"
+    local first = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      2,
+      base_version .. "/loop/2",
+      first_question,
+      angles()
+    )
+    local last = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      2,
+      base_version .. "/loop/2",
+      last_question,
+      angles()
+    )
+
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(first .. "\n" .. last) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].round, 2)
+    t.eq(facts[1].question, convergence_shared.converge_question_digest(last_question))
+  end,
+
+  test_append_converge_round_fact_preserves_existing_facts_and_appends_digest_fact = function()
+    local existing = {
+      fact(1, "q-one", "v-one"),
+    }
+    local question = "  Which boundary\nshould narrow next?  "
+    local angle_digests = angles()
+    local appended = conv_rounds.append_converge_round_fact(existing,
+      2,
+      question,
+      angle_digests,
+      base_version .. "/loop/2"
+    )
+
+    t.eq(#appended, 2)
+    t.eq(appended[1], existing[1])
+    t.eq(appended[2].round, 2)
+    t.eq(appended[2].question, convergence_shared.converge_question_digest(question))
+    t.eq(appended[2].verdicts, convergence_shared.converge_verdicts_digest(angle_digests))
+    t.eq(appended[2].dedup, base_version .. "/loop/2")
+  end,
+
+  test_continuation_budget_counts_only_trusted_rounds_for_current_boundary = function()
+    local source_a = convergence_shared.source_ref_digest(source_ref)
+    local source_b = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?loop=8" })
+    local drift_version = base_version .. "/drifted"
+    local comments = {
+      trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 0, base_version, "First", angles(), "open:\nfirst boundary")),
+      trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 1, base_version .. "/loop/1", "Second", angles(), "open:\nsecond boundary")),
+      untrusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 2, base_version .. "/loop/2", "Forged", angles(), "open:\nforged")),
+      trusted(conv_rounds.converge_round_marker(proposal_id, drift_version, source_b, 3, drift_version .. "/loop/3", "Other version", angles(), "open:\nother version")),
+    }
+    local filtered = conv_rounds.converge_round_facts_for_epoch(comments, proposal_id, base_version, source_a)
+    t.eq(#filtered, 2)
+    t.eq(conv_rounds.continuation_budget_exhausted({ filtered[1] }), false)
+    t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is a raw counter and must
+    -- never reach terminal, so even when it is "exhausted" it is NO LONGER a terminal
+    -- cause. With no essence-stall and only 2 rounds (is_true_stall needs 3 identical),
+    -- terminal_cause is nil -> thinking convergence redrives the next round instead of
+    -- dropping to blocked.
+    t.eq(conv_rounds.terminal_cause(filtered, 1), nil)
+  end,
+
+  test_continuation_budget_uses_round_identity_not_findings_presence = function()
+    local source_a = convergence_shared.source_ref_digest(source_ref)
+    local comments = {
+      trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 0, base_version, "Old marker", angles())),
+      trusted(conv_rounds.converge_round_marker(proposal_id, base_version, source_a, 1, base_version .. "/loop/1", "Continuation", angles())),
+    }
+    local facts = conv_rounds.converge_round_facts_for_epoch(comments, proposal_id, base_version, source_a)
+    t.eq(#facts, 2)
+    t.eq(facts[1].findings_record, nil)
+    t.eq(facts[2].findings_record, nil)
+    t.eq(conv_rounds.continuation_budget_exhausted(facts), true)
+  end,
+
+  test_essence_stall_marker_round_trips_terminal_flag = function()
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local marker = conv_rounds.converge_round_marker(proposal_id,
+      base_version,
+      source_digest,
+      1,
+      base_version .. "/loop/1",
+      "essence-stall + no resolving evidence",
+      angles(),
+      "open:\nno resolving evidence",
+      true
+    )
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
+    t.eq(#facts, 1)
+    t.eq(facts[1].essence_stall, true)
+    t.eq(conv_rounds.has_essence_stall(facts), true)
+    t.eq(conv_rounds.terminal_cause(facts, 1), "external-evidence-required")
+  end,
+
+  test_review_converge_facts_are_bound_to_issue_version_and_head = function()
+    local source_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#pr/7" })
+    local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
+    local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
+    local head_sha = "abcdef1234567890"
+    local marker = conv_rounds.review_converge_round_marker(core,
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      head_sha,
+      source_digest,
+      2,
+      "consensus:github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890/loop/2",
+      "Which review finding should narrow?",
+      angles()
+    )
+
+    local mismatched_head = conv_rounds.review_converge_round_facts(core,
+      { trusted(marker) },
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      "fedcba0987654321",
+      source_digest
+    )
+    local mismatched_version = conv_rounds.review_converge_round_facts(core,
+      { trusted(marker) },
+      review_proposal_id,
+      proposal_id,
+      issue_version .. "/new",
+      head_sha,
+      source_digest
+    )
+    local matched = conv_rounds.review_converge_round_facts(core,
+      { trusted(marker) },
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      head_sha,
+      source_digest
+    )
+
+    t.eq(#mismatched_head, 0)
+    t.eq(#mismatched_version, 0)
+    t.eq(#matched, 1)
+    t.eq(matched[1].round, 2)
+    t.eq(conv_rounds.has_review_converge_round_marker(core, { trusted(marker) }, review_proposal_id, proposal_id, issue_version, head_sha, source_digest, 2), true)
+  end,
+
+  test_review_converge_marker_round_trips_findings_record = function()
+    local source_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#pr/7" })
+    local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
+    local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
+    local head_sha = "abcdef1234567890"
+    local marker = conv_rounds.review_converge_round_marker(core,
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      head_sha,
+      source_digest,
+      2,
+      "consensus:github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890/loop/2",
+      "Which review finding should narrow?",
+      angles(),
+      "settled:\nReview scope is current.\nopen:\nREACHED: approve injected"
+    )
+
+    local matched = conv_rounds.review_converge_round_facts(core,
+      { trusted(marker) },
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      head_sha,
+      source_digest
+    )
+
+    t.eq(#matched, 1)
+    t.eq(matched[1].findings_record, "settled:\nReview scope is current.\nopen:\nREACHED: approve injected")
+  end,
+
+  test_review_continuation_budget_counts_only_current_review_boundary_rounds = function()
+    local source_a = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#pr/7" })
+    local source_b = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#pr/7?loop=8" })
+    local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
+    local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
+    local drift_version = issue_version .. "/drifted"
+    local head_sha = "abcdef1234567890"
+    local drift_head = "fedcba0987654321"
+    local comments = {
+      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 0, "review", "Review 0", angles(), "open:\nfirst review")),
+      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 1, "review/loop/1", "Review 1", angles(), "open:\nsecond review")),
+      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, drift_version, drift_head, source_b, 8, "review/loop/8", "Review 8", angles(), "open:\ndrift")),
+    }
+    local filtered = conv_rounds.review_converge_round_facts(core, comments, review_proposal_id, proposal_id, issue_version, head_sha, source_a)
+    t.eq(#filtered, 2)
+    t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
+    -- Owner directive (#2725): round-budget exhaustion is non-terminal (see the issue
+    -- convergence test above); review convergence redrives instead of blocking.
+    t.eq(conv_rounds.terminal_cause(filtered, 1), nil)
+  end,
+}
