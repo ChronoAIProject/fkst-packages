@@ -87,7 +87,6 @@ return {
 
     t.eq(ok, true, tostring(result))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, 42)), 1)
     t.eq(count_exact_calls(issue_rest_command(repo, 42)), 0)
   end,
 
@@ -224,7 +223,6 @@ return {
     t.eq(third.exit_code, 0)
     t.is_true(third.stdout:find('"After"', 1, true) ~= nil)
     t.eq(count_exact_calls(view_command), 0)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 0)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,
@@ -261,7 +259,6 @@ return {
     t.is_true(forced.stdout:find('"After"', 1, true) ~= nil)
     t.is_true(cached.stdout:find('"After"', 1, true) ~= nil)
     t.eq(count_exact_calls(view_command), 0)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 0)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,

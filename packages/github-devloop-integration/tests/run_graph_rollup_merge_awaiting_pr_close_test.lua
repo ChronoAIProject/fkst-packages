@@ -243,7 +243,7 @@ local function mock_liveness_scan_inputs(child_state)
       labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
     },
   })
-  entity_mocks.mock_issue_view_selector(t, {
+  entity_mocks.mock_issue_read_forms(t, {
     repo = repo,
     number = issue_number,
     title = "Awaiting delegated PR",
@@ -253,7 +253,8 @@ local function mock_liveness_scan_inputs(child_state)
     comments = parent_comments(),
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    times = 1,
+  })
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = child_pr_number,
@@ -303,7 +304,7 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
     stderr = "",
     exit_code = 0,
   })
-  entity_mocks.mock_issue_view_selector(t, {
+  entity_mocks.mock_issue_read_forms(t, {
     repo = repo,
     number = issue_number,
     title = "Awaiting delegated PR",
@@ -313,7 +314,8 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
     comments = parent_comments(current_issue_state),
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    times = 1,
+  })
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = child_pr_number,

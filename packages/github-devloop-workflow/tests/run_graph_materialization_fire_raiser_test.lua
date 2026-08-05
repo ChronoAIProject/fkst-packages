@@ -496,6 +496,9 @@ local function mock_native_merge_observation()
   t.mock_command("gh api 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "'", {
     stdout = issue_rest_json(), stderr = "", exit_code = 0,
   })
+  t.mock_command(core.gh_issue_view_state_cmd(repo, revived_child_issue), {
+    stdout = revived_child_history("OPEN"), stderr = "", exit_code = 0,
+  })
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "/comments?per_page=100'", {
     stdout = rest_comments_json({ { body = revived_child_body() } }),
     stderr = "",

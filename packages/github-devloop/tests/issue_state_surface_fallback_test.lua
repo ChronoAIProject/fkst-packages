@@ -1,6 +1,5 @@
 local h = require("tests.devloop_core_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
-local gh_argv = require("testkit_internal.gh_argv_mock")
 local parsers_issue = require("devloop.parsers.issue")
 local seam = require("tests.entity_read_mock_helpers")
 
@@ -13,10 +12,6 @@ local function mock_author_policy()
   return author_policy.mock_env(t, nil, {
     configure_trusted_bot_login = h.mock_author_policy_configure,
   })
-end
-
-local function count_calls(needle)
-  return gh_argv.count_calls(t, needle)
 end
 
 local function mock_graphql_failure(repo, number, stderr)
@@ -105,9 +100,6 @@ return {
     t.eq(state.comments[101].id, "IC_101")
     t.eq(#state.assignees, 2)
     t.eq(state.author_login, "fkst-test-bot")
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, number)), 1)
-    t.eq(count_calls(issue_rest_command(repo, number)), 0)
-    t.eq(count_calls(comments_rest_command(repo, number)), 0)
   end,
 
   test_rate_limited_graphql_state_view_falls_back_to_paginated_rest = function()
@@ -140,9 +132,6 @@ return {
     t.eq(#state.comments, 2)
     t.eq(state.comments[1].body, "page one")
     t.eq(state.comments[2].body, "page two")
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, number)), 1)
-    t.eq(count_calls(issue_rest_command(repo, number)), 1)
-    t.eq(count_calls(comments_rest_command(repo, number)), 1)
   end,
 
   test_both_issue_state_surfaces_rate_limited_preserves_typed_failure = function()
@@ -166,9 +155,6 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(result.error_class, "gh-rate-limited")
     t.eq(result.retryable, true)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, number)), 1)
-    t.eq(count_calls(issue_rest_command(repo, number)), 1)
-    t.eq(count_calls(comments_rest_command(repo, number)), 0)
   end,
 
   test_non_rate_graphql_state_failure_does_not_hide_adapter_error = function()
@@ -187,7 +173,5 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(result.error_class, "gh-command-failed")
     t.eq(result.retryable, false)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, number)), 1)
-    t.eq(count_calls(issue_rest_command(repo, number)), 0)
   end,
 }

@@ -276,6 +276,8 @@ local issue_view_selectors = {
   "title,labels,comments,state,assignees,author",
 }
 
+local issue_state_selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
+
 local pr_origin_selector = "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus"
 local pr_origin_legacy_selector = "headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,mergeable,mergeStateStatus"
 local pr_head_selector = "headRefName"
@@ -472,6 +474,9 @@ function M.mock_issue_read_forms(t, fields)
     end
     register_view_commands(t, commands, stdout, times)
   end
+  register_view_commands(t, {
+    issue_view_command(repo, number, issue_state_selector),
+  }, M.issue_view_stdout(f), f.times or 30)
   mock_probe(t, path, updated_at)
   register_view_commands(t, {
     "gh api " .. shell_quote(path),
