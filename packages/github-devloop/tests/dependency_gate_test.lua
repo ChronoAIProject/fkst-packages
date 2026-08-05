@@ -87,6 +87,7 @@ return {
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "dependency-edge-not-visible")
     t.eq(gate.unmet[1], 99)
+    t.eq(gate.missing_expected_edges[1], 99)
   end,
 
   test_dependency_markers_are_versioned_and_bounded = function()

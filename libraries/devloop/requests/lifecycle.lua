@@ -410,6 +410,25 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   }, ready.source_ref)
 end
 
+function C.build_expected_dependency_edge_request(
+    repo, issue_number, proposal_id, version, blocker_number, source_ref)
+  return {
+    schema = "github-proxy.issue-blocked-by.v1",
+    repo = repo,
+    blocked_issue_number = tonumber(issue_number),
+    blocking_issue_number = tonumber(blocker_number),
+    dedup_key = base_ids.dedup_key({
+      "dependency",
+      "expected-edge",
+      "blocked-by",
+      tostring(proposal_id),
+      tostring(version),
+      tostring(blocker_number),
+    }),
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }
+end
+
 function C.build_implementation_refusal_comment_request(
     M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref, blocker)
   local rendered_reason = M.require_supported_implementation_refusal_reason(reason)

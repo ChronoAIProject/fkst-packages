@@ -23,6 +23,7 @@ local expected_new_apply_effects = {
   },
   ["github-devloop/dependency_wait/guard_boundary/blockers_still_open"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_blocked_by_request",
   },
   ["github-devloop/dependency_wait/guard_boundary/dependency_resolver_stale"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",

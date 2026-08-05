@@ -50,21 +50,14 @@ function M.publish(core, repo, issue_number, outcome)
   end
   local blocked_by_request = nil
   if precursor_missing then
-    blocked_by_request = {
-      schema = "github-proxy.issue-blocked-by.v1",
-      repo = repo,
-      blocked_issue_number = tonumber(issue_number),
-      blocking_issue_number = outcome.blocker.issue_number,
-      dedup_key = base_ids.dedup_key({
-        "implement",
-        "precursor",
-        "blocked-by",
-        tostring(outcome.ready.proposal_id),
-        tostring(outcome.ready.dedup_key),
-        tostring(outcome.blocker.issue_number),
-      }),
-      source_ref = base_ids.normalize_source_ref(outcome.ready.source_ref),
-    }
+    blocked_by_request = requests_lifecycle.build_expected_dependency_edge_request(
+      repo,
+      issue_number,
+      outcome.ready.proposal_id,
+      target_version,
+      outcome.blocker.issue_number,
+      outcome.ready.source_ref
+    )
     table.insert(raised, "github-proxy.github_issue_blocked_by_request")
   end
   devloop_logging.log_apply("implement", outcome.ready.proposal_id, target_state, target_version,

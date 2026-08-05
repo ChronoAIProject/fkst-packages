@@ -713,7 +713,7 @@ return {
     t.eq(count_calls("git -C"), 0)
   end,
 
-  test_precursor_missing_refusal_waits_for_source_visible_merged_blocker_then_releases_fresh_ready = function()
+  test_precursor_missing_refusal_replays_dropped_edge_request_until_visible_then_releases_fresh_ready = function()
     local blocker = { repo = "owner/repo", issue_number = 99 }
     local refused, event, ready = run_precursor_refusal(blocker)
 
@@ -755,6 +755,13 @@ return {
     local edge_absent = run_observe_direct("precursor-edge-absent")
     t.eq(edge_absent.exit_code, 0)
     t.eq(state_comment(edge_absent.raises, "ready"), nil)
+    local replayed_edge_request = find_raise(
+      edge_absent.raises, "github-proxy.github_issue_blocked_by_request")
+    t.is_true(replayed_edge_request ~= nil)
+    t.eq(replayed_edge_request.payload.repo, edge_request.payload.repo)
+    t.eq(replayed_edge_request.payload.blocked_issue_number, edge_request.payload.blocked_issue_number)
+    t.eq(replayed_edge_request.payload.blocking_issue_number, edge_request.payload.blocking_issue_number)
+    t.eq(replayed_edge_request.payload.dedup_key, edge_request.payload.dedup_key)
 
     mock_precursor_observation(refusal_comments, { blocker }, "ready")
     local blocker_open = run_observe_direct("precursor-edge-visible-blocker-open")

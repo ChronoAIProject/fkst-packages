@@ -567,15 +567,19 @@ function M.new(core)
         end
       end
       local missing_expected_edge = false
+      local missing_expected_edges = {}
       for _, expected_number in ipairs(context.expected_edge_numbers) do
         if visible[tonumber(expected_number)] ~= true then
           add_unmet(unmet, unmet_seen, expected_number)
+          table.insert(missing_expected_edges, tonumber(expected_number))
           missing_expected_edge = true
         end
       end
       if missing_expected_edge then
         stack[key] = nil
-        return gate("waiting", "dependency-edge-not-visible", unmet)
+        local result = gate("waiting", "dependency-edge-not-visible", unmet)
+        result.missing_expected_edges = missing_expected_edges
+        return result
       end
     end
 

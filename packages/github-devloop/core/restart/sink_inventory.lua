@@ -62,6 +62,7 @@ add("comment:issue:implementation-progress", "implement", "raise_implementing.co
 add("comment:issue:implementation-attempt", "implement", "raise_implement_attempt.comment", "comment", "lifecycle-authoritative", "implement-attempt:v1;dedup=implement/comment/attempt")
 add("comment:issue:implementation-version-mismatch", "implement", "raise_implement_version_mismatch.comment", "comment", "lifecycle-authoritative", "implement-version-mismatch:v1;dedup=implement/comment/version-mismatch")
 add("adapter:github.issue-blocked-by", "implement", "refusal_publication.blocked_by_request", "adapter", "lifecycle-authoritative", "issue-blocked-by/precursor/proposal+version+blocker")
+add("adapter:github.issue-blocked-by-replay", "observe_issue", "ready_split.expected_edge_request", "adapter", "lifecycle-authoritative", "issue-blocked-by/precursor/proposal+version+blocker")
 add("comment:issue:dependency-canonicalization", "implement", "ready_split.raise_ready_split_effects.comment", "comment", "lifecycle-authoritative", "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff")
 add("label:issue:dependency-canonicalization", "comment_handoff", "act_handoff.projected_state_label", "label", "lifecycle-authoritative", "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request")
 add("comment:pr:pr-child-open", "implement", "pr_child_handoff.child_start_comment", "comment", "lifecycle-authoritative", "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open")
