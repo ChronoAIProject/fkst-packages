@@ -291,15 +291,15 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_consensus_result_raises_label_when_result_marker_present_without_terminal_label = function()
+  test_consensus_result_reprojects_state_before_label_when_only_result_marker_is_visible = function()
     local current = reached()
     local marker = m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key)
     mock_issue_result({ "fkst-dev:thinking" }, { marker })
 
     local result = run_result(current, opts("result-marker"))
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.expected_state, "ready")
+    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request") ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 

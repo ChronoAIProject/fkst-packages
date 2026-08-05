@@ -62,10 +62,12 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
     reached.dedup_key,
     reached.decision_reason
   )
+  local authoritative_state_visible = type(state) == "table" and state.state == to_state
+  local result_projection_visible = result_marker_visible and authoritative_state_visible
   local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
     or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
   local label_request = nil
-  if result_marker_visible then
+  if result_projection_visible then
     label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
       or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
     if to_state == "ready" then
@@ -120,7 +122,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
     )
   end
   local raised = {}
-  if not result_marker_visible then
+  if not result_projection_visible then
     table.insert(raised, "github-proxy.github_issue_comment_request")
   end
   if label_request ~= nil and not devloop_state.state_label_hint_matches(current.labels, to_state) then
@@ -141,7 +143,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
   devloop_logging.log_apply("consensus_result", reached.proposal_id, to_state, version, { add = add_labels, remove = remove_labels }, raised)
 
-  if not result_marker_visible then
+  if not result_projection_visible then
     devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   end
   if label_request ~= nil and not devloop_state.state_label_hint_matches(current.labels, to_state) then
