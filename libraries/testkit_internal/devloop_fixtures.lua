@@ -27,18 +27,18 @@ end
 function M.new(deps)
   deps = deps or {}
   local t = deps.t or fkst.test
-  local core = deps.core or error("testkit_internal.devloop_fixtures: deps.core is required")
+  local core = deps.core or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.core is required")
   local entity_read_mocks = deps.entity_read_mocks
-    or error("testkit_internal.devloop_fixtures: deps.entity_read_mocks is required")
-  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: deps.devloop_base is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
+  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.devloop_base is required")
   local payloads_builders = deps.payloads_builders
-    or error("testkit_internal.devloop_fixtures: deps.payloads_builders is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.payloads_builders is required")
   local conv_reconcile = deps.conv_reconcile
-    or error("testkit_internal.devloop_fixtures: deps.conv_reconcile is required")
-  local m_builders = deps.m_builders or error("testkit_internal.devloop_fixtures: deps.m_builders is required")
-  local pr_safety = deps.pr_safety or error("testkit_internal.devloop_fixtures: deps.pr_safety is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.conv_reconcile is required")
+  local m_builders = deps.m_builders or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.m_builders is required")
+  local pr_safety = deps.pr_safety or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.pr_safety is required")
   local consensus_call = deps.consensus_call
-    or error("testkit_internal.devloop_fixtures: deps.consensus_call is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.consensus_call is required")
   local consensus_result_department = deps.consensus_result_department
   local loop_department = deps.loop_department
   local review_loop_department = deps.review_loop_department
@@ -56,7 +56,7 @@ function M.new(deps)
     entity_read_mocks = entity_read_mocks,
     m_builders = m_builders,
     pr_safety = pr_safety,
-    has_value = has_value,
+    has_value = has_value, projected_state_comment = deps.projected_state_comment,
     default_pr_origin_times = deps.default_pr_origin_times,
     pr_origin_view_times_enabled = deps.pr_origin_view_times_enabled == true,
     pending_result_issue = nil,
@@ -411,7 +411,7 @@ function M.new(deps)
 
   local function build_result_dept(missing_issue)
     if consensus_result_department == nil then
-      error("testkit_internal.devloop_fixtures: deps.consensus_result_department is required for run_result")
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.consensus_result_department is required for run_result")
     end
     local model = gh_fake.model({
       issues = missing_issue and {} or {
@@ -495,7 +495,7 @@ function M.new(deps)
 
   local function run_loop(payload, run_opts)
     if loop_department == nil then
-      error("testkit_internal.devloop_fixtures: deps.loop_department is required for run_loop")
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.loop_department is required for run_loop")
     end
     install_author_policy_env(run_opts)
     ctx.last_consensus_proposal = nil
@@ -607,7 +607,7 @@ function M.new(deps)
     mocks.mock_pr_origin_from_cached({ proposal_id = "github-devloop/issue/owner/repo/42", version = reviewing().version }, head_sha)
     local function run()
       if review_result_department == nil then
-        error("testkit_internal.devloop_fixtures: deps.review_result_department is required for run_review_result")
+        error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.review_result_department is required for run_review_result")
       end
       install_author_policy_env(run_opts)
       return run_fake_outcome(review_result_department, {
@@ -651,7 +651,7 @@ function M.new(deps)
 
   local function run_review_loop(payload, run_opts)
     if review_loop_department == nil then
-      error("testkit_internal.devloop_fixtures: deps.review_loop_department is required for run_review_loop")
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.review_loop_department is required for run_review_loop")
     end
     mock_branch_config_env()
     install_author_policy_env(run_opts)
@@ -706,6 +706,8 @@ function M.new(deps)
   return {
     t = t,
     core = core,
+    projected_state_comment = deps.projected_state_comment,
+    state_comment = deps.state_comment,
     action_label = deps.action_label or "⟦FKST:ACTION⟧",
     reason_label = deps.reason_label or "⟦FKST:REASON⟧",
     has_value = has_value,

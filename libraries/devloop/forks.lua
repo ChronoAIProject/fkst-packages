@@ -44,7 +44,7 @@ end
 
 function F.fork_issue_dedup_key(repo, issue_number)
   if not base_ids.issue_ref_round_trips(repo, issue_number) then
-    error("github-devloop: invalid fork issue target")
+    error("github-devloop: fork-issue-target-invalid: invalid fork issue target")
   end
   return base_ids.dedup_key({
     "github-devloop",
@@ -183,7 +183,7 @@ end
 function F.rederive_issue_state(core, repo, issue_number)
   local view = core.gh_issue_view_state(repo, issue_number, 30)
   if view.exit_code ~= 0 then
-    error("github-devloop: gh issue source_ref state recheck failed: " .. tostring(view.stderr))
+    error("github-devloop: fork-source-state-read-failed: gh issue source_ref state recheck failed: " .. tostring(view.stderr))
   end
   return parsers_issue.parse_issue_view_state(core, view.stdout)
 end

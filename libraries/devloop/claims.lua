@@ -27,7 +27,7 @@ local function github()
     return github_handle
   end
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   github_handle = github_factory.production_handle()
   return github_handle
@@ -277,7 +277,7 @@ end
 
 function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle, poll_key)
   if poll_key == nil or tostring(poll_key) == "" then
-    error("github-devloop: peer snapshot poll epoch must be non-empty")
+    error("github-devloop: peer-snapshot-poll-epoch-missing: peer snapshot poll epoch must be non-empty")
   end
   local logins = {}
   if type(trusted_author_policy) ~= "table" or repo == nil or tostring(repo) == "" then
@@ -514,7 +514,7 @@ function C.fork_grace_seconds(exec)
   end
   local hours = tonumber(raw)
   if hours == nil or hours <= 0 or hours > 168 then
-    error("github-devloop: invalid FKST_DEVLOOP_FORK_GRACE_HOURS")
+    error("github-devloop: fork-grace-hours-invalid: invalid FKST_DEVLOOP_FORK_GRACE_HOURS")
   end
   return math.floor(hours * 60 * 60)
 end
@@ -623,7 +623,7 @@ local function claim_admission_peer_snapshot_provenance(detail)
     or tostring(provenance.repo) == ""
     or provenance.poll_epoch == nil
     or tostring(provenance.poll_epoch) == "" then
-    error("github-devloop: peer snapshot provenance requires repo and poll epoch")
+    error("github-devloop: peer-snapshot-provenance-invalid: peer snapshot provenance requires repo and poll epoch")
   end
   return provenance
 end
@@ -641,7 +641,7 @@ end
 
 function C.with_current_claim_admission_epoch(detail, fn)
   if type(fn) ~= "function" then
-    error("github-devloop: claim admission epoch guard requires a function")
+    error("github-devloop: claim-admission-guard-invalid: claim admission epoch guard requires a function")
   end
   local provenance = claim_admission_peer_snapshot_provenance(detail)
   if provenance == nil then
@@ -731,7 +731,7 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     return false
   end
   if admission ~= "needs-claim" then
-    error("github-devloop: invalid claim admission decision")
+    error("github-devloop: claim-admission-decision-invalid: invalid claim admission decision")
   end
   if not C.claim_admission_epoch_is_current(detail) then
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")

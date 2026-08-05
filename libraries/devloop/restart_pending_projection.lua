@@ -6,28 +6,28 @@ end
 
 function M.derive_pending_projection(edges)
   if type(edges) ~= "table" then
-    error("devloop.restart_pending_projection: edges must be a table")
+    error("devloop.restart_pending_projection: edges-not-table: edges must be a table")
   end
 
   local projection = {}
   for _, edge in ipairs(edges) do
     if type(edge) ~= "table" then
-      error("devloop.restart_pending_projection: edge must be a table")
+      error("devloop.restart_pending_projection: edge-declaration-not-table: edge must be a table")
     end
     local pending_order = edge.pending_order
     if type(pending_order) ~= "table" then
-      error("devloop.restart_pending_projection: edge.pending_order must be a table")
+      error("devloop.restart_pending_projection: pending-order-not-table: edge.pending_order must be a table")
     end
     if type(pending_order.participates) ~= "boolean" then
-      error("devloop.restart_pending_projection: edge.pending_order.participates must be a boolean")
+      error("devloop.restart_pending_projection: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
     end
     if pending_order.participates then
       local predecessor = pending_order.predecessor_state
       if not is_nonempty_string(predecessor) then
-        error("devloop.restart_pending_projection: participating edge predecessor_state must be a non-empty string")
+        error("devloop.restart_pending_projection: pending-order-predecessor-invalid: participating edge predecessor_state must be a non-empty string")
       end
       if not is_nonempty_string(edge.target) then
-        error("devloop.restart_pending_projection: participating edge target must be a lifecycle state")
+        error("devloop.restart_pending_projection: edge-target-invalid: participating edge target must be a lifecycle state")
       end
       projection[predecessor] = projection[predecessor] or {}
       projection[predecessor][edge.target] = true
@@ -38,7 +38,7 @@ end
 
 function M.can_reach(projection, from_state, to_state)
   if type(projection) ~= "table" then
-    error("devloop.restart_pending_projection: projection must be a table")
+    error("devloop.restart_pending_projection: pending-projection-not-table: projection must be a table")
   end
 
   local function visit(current, seen)

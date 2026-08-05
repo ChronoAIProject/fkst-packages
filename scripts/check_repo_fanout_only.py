@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import check_repo_config
+import check_repo_lua
 import ratchet_base
 
 
@@ -68,41 +68,9 @@ class KnownDialogueEntry:
 
 
 def lua_strings_and_code(source: str) -> tuple[set[str], str]:
-    strings: set[str] = set()
-    code = list(source)
-    cursor = 0
-    while cursor < len(source):
-        if source.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(source, cursor + 2)
-            if bracket is None:
-                newline = source.find("\n", cursor)
-                end = len(source) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                close = source.find(closer, cursor + 2 + opener_len)
-                end = len(source) if close == -1 else close + len(closer)
-            for index in range(cursor, end):
-                if code[index] != "\n":
-                    code[index] = " "
-            cursor = end
-            continue
-        if source[cursor] in {"'", '"'}:
-            end = check_repo_config.lua_quoted_string_end(source, cursor)
-            content_end = end - 1 if end <= len(source) and source[end - 1] == source[cursor] else end
-            strings.add(source[cursor + 1 : content_end])
-            cursor = end
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(source, cursor)
-        if bracket is not None:
-            opener_len, closer = bracket
-            body_start = cursor + opener_len
-            close = source.find(closer, body_start)
-            body_end = len(source) if close == -1 else close
-            strings.add(source[body_start:body_end])
-            cursor = len(source) if close == -1 else close + len(closer)
-            continue
-        cursor += 1
-    return strings, "".join(code)
+    strings = {span.content(source) for span in check_repo_lua.literal_spans(source)}
+    code = check_repo_lua.code_mask(source, kinds=check_repo_lua.COMMENT_KINDS)
+    return strings, code
 
 
 def has_origin_filter(strings: set[str], code: str) -> bool:

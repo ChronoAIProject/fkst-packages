@@ -19,9 +19,9 @@ local function marker_attrs(marker)
   return attrs
 end
 
-function C.state_marker(proposal_id, state, version, effects)
+local function render_state_marker(proposal_id, state, version, effects)
   if not C.is_state(state) then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
   local effects_field = ""
   if effects ~= nil and tostring(effects) ~= "" then
@@ -141,7 +141,7 @@ end
 
 function C.route_current(comments, proposal_id, routes)
   if type(routes) ~= "table" then
-    error("github-devloop: invalid current state routes")
+    error("github-devloop: current-state-routes-invalid: invalid current state routes")
   end
   local current = derive_current_marker(comments, proposal_id) or {}
   return {
@@ -179,41 +179,12 @@ local function has_any_state_label(labels)
   return false
 end
 
-local function current_marker_allows_reintake(current)
-  if current == nil then
-    return false
-  end
-  if tostring(current.state or "") == "blocked" then
-    return true
-  end
-  local row = issue_observation_facts.transition_row(current.state)
-  return row ~= nil and row.terminal == true
-end
-
-function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
+function C.has_active_issue_state(labels, comments, proposal_id)
   local current = current_marker_state(comments, proposal_id)
   if current ~= nil then
-    return not current_marker_allows_reintake(current)
+    return tostring(current.state or "") ~= "blocked"
   end
   return devloop_base.is_opted_in(labels) or has_any_state_label(labels)
-end
-
-local function later_timestamp(left, right)
-  local l = tostring(left or "")
-  local r = tostring(right or "")
-  if r ~= "" and (l == "" or r > l) then
-    return r
-  end
-  return l ~= "" and l or nil
-end
-
-function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
-  local updated_at = (command and command.created_at) or (issue and issue.updated_at)
-  local current = current_marker_state(comments, proposal_id)
-  if command ~= nil and current_marker_allows_reintake(current) then
-    updated_at = later_timestamp(updated_at, current.marker_created_at)
-  end
-  return updated_at or (issue and issue.updated_at)
 end
 
 function C.reached(comments, proposal_id, milestone, opts)
@@ -222,7 +193,7 @@ function C.reached(comments, proposal_id, milestone, opts)
   end
   local options = opts or {}
   if not C.is_state(milestone) then
-    error("github-devloop: invalid milestone")
+    error("github-devloop: milestone-invalid: invalid milestone")
   end
   local domain = options.domain or options.milestone_domain
   restart_metadata._validate_milestone_domain(domain, milestone)
@@ -349,10 +320,65 @@ function C.has_result_marker(comments, proposal_id, decision, dedup_key, decisio
   return false
 end
 
+local projected_handoff_kinds = {
+  ready = "github-devloop.ready",
+  dependency_wait = "github-devloop.ready-split-label",
+}
 
+function C.state_marker(proposal_id, state, version, effects)
+  if projected_handoff_kinds[state] ~= nil then
+    error("github-devloop: projected-state-marker-raw-forbidden: use the canonical comment request")
+  end
+  return render_state_marker(proposal_id, state, version, effects)
+end
+
+local function append_labels(target, additions)
+  for _, label in ipairs(additions or {}) do table.insert(target, label) end
+end
+
+function C.build_projected_state_comment_request(args)
+  local handoff_kind = type(args) == "table" and projected_handoff_kinds[args.state] or nil
+  if handoff_kind == nil then
+    error("github-devloop: projected-state-comment-target-invalid: target must be ready or dependency_wait")
+  end
+  local marker_version = tostring(args.marker_version or "")
+  local label_policy = args.label_policy
+  if marker_version == "" or type(args.body_before_marker) ~= "string"
+    or type(args.body_after_marker) ~= "string" or type(label_policy) ~= "table"
+    or label_policy.dedup_key == nil or args.comment_dedup_key == nil then
+    error("github-devloop: projected-state-comment-incomplete: required request data is missing")
+  end
+  local label_request = requests_labels.build_state_label_request(args.repo, args.issue_number,
+    args.state, args.proposal_id, marker_version, label_policy.dedup_key, args.source_ref,
+    label_policy.current_labels)
+  append_labels(label_request.add_labels, label_policy.add_labels)
+  append_labels(label_request.remove_labels, label_policy.remove_labels)
+  for _, label in ipairs(label_policy.add_labels or {}) do
+    local color = devloop_base._label_colors and devloop_base._label_colors[tostring(label)]
+    if color ~= nil then
+      label_request.label_colors = label_request.label_colors or {}
+      label_request.label_colors[tostring(label)] = color
+    end
+  end
+  local normalized_source_ref = base_ids.normalize_source_ref(args.source_ref)
+  local request = require("devloop.claims").attach_issue_claim({
+    schema = "github-proxy.v1", repo = args.repo, issue_number = args.issue_number,
+    body = args.body_before_marker
+      .. render_state_marker(args.proposal_id, args.state, marker_version, args.effects)
+      .. args.body_after_marker,
+    dedup_key = args.comment_dedup_key, source_ref = normalized_source_ref,
+  }, args.source_ref)
+  request.handoff = {
+    kind = handoff_kind, proposal_id = args.proposal_id,
+    version = tostring(args.handoff_version or marker_version), marker_version = marker_version,
+    label_request = label_request, source_ref = normalized_source_ref,
+  }
+  if args.framing ~= nil then request.handoff.framing = args.framing end
+  return request
+end
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "lifecycle_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
 end
 C.install = S.install
 

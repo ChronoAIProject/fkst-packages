@@ -71,7 +71,7 @@ local function mock_census(comments, state)
   local empty = { stdout = "[]\n", stderr = "", exit_code = 0 }
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._hold_label, 1, true), empty)
-  for _, state_name in ipairs(core.issue_state_order()) do
+  for _, state_name in ipairs(core.lifecycle_state_order()) do
     if state_name == "declined" then
       entity_read_mocks.mock_issue_list_command(
         t,

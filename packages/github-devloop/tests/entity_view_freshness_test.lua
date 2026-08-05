@@ -4,6 +4,7 @@ local t = h.t
 local seam = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
+local entity_list_cache = require("devloop.entity_list_cache")
 local author_policy = require("testkit_internal.github_author_policy")
 
 local function count_calls(needle)
@@ -125,6 +126,53 @@ return {
     t.is_true(second.stdout:find('"Cached"', 1, true) ~= nil)
     t.eq(count_calls(view_command), 0)
     t.eq(count_calls(probe_command), 0)
+  end,
+
+  test_intake_issue_view_reuses_current_validator_but_refetches_superseded_poll_delivery = function()
+    mock_author_policy()
+    local repo = "owner/intake-cache-hit"
+    local issue_number = 4248
+    local updated_at = "2026-06-03T01:02:03Z"
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+    devloop_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
+    seam.mock_issue_view_selector(t, {
+      repo = repo,
+      number = issue_number,
+      title = "Cached intake poll 1",
+      updated_at = updated_at,
+    }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
+    seam.mock_issue_view_selector(t, {
+      repo = repo,
+      number = issue_number,
+      title = "Fresh superseded delivery",
+      updated_at = updated_at,
+    }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
+
+    local recorded_poll_1, poll_1 = entity_list_cache.record_poll_epoch(repo, "2026-06-03T01:05:00Z")
+    t.is_true(recorded_poll_1)
+    local first = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = poll_1,
+    })
+    local second = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = poll_1,
+    })
+    local recorded_poll_2, poll_2 = entity_list_cache.record_poll_epoch(repo, "2026-06-03T01:06:00Z")
+    t.is_true(recorded_poll_2)
+    local next_poll = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = poll_2,
+    })
+    local stale_retry = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = poll_1,
+    })
+
+    t.eq(first.exit_code, 0)
+    t.eq(second.exit_code, 0)
+    t.eq(next_poll.exit_code, 0)
+    t.eq(stale_retry.exit_code, 0)
+    t.is_true(first.stdout:find('"Cached intake poll 1"', 1, true) ~= nil)
+    t.is_true(second.stdout:find('"Cached intake poll 1"', 1, true) ~= nil)
+    t.is_true(next_poll.stdout:find('"Cached intake poll 1"', 1, true) ~= nil)
+    t.is_true(stale_retry.stdout:find('"Fresh superseded delivery"', 1, true) ~= nil)
   end,
 
   test_validator_match_can_coalesce_explicit_force_fresh = function()

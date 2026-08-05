@@ -6,7 +6,7 @@ local R = {}
 local label_by_state = label_defs.label_by_state
 local state_labels = label_defs.state_labels
 local state_graph = label_defs.state_graph
-local issue_state_order = label_defs.issue_state_order
+local lifecycle_state_order = label_defs.lifecycle_state_order
 local state_order = label_defs.state_order
 local state_stage_rank = label_defs.state_stage_rank
 local copy_array = label_defs.copy_array
@@ -67,7 +67,7 @@ function R.is_state(state) return label_by_state[state] ~= nil end
 function R.is_state_label(label) return state_labels[tostring(label)] == true end
 function R.state_label(state) return label_by_state[state] end
 function R.state_order() return copy_array(state_order) end
-function R.issue_state_order() return copy_array(issue_state_order) end
+function R.lifecycle_state_order() return copy_array(lifecycle_state_order) end
 function R.state_successors(state) return copy_array(state_graph[state]) end
 function R.lifecycle_state_set()
   local out = {}
@@ -229,10 +229,10 @@ local function validate_milestone_domain(domain, milestone)
     return
   end
   if milestone_domains[domain] == nil and domain ~= "github-devloop" then
-    error("github-devloop: unknown milestone domain")
+    error("github-devloop: milestone-domain-unknown: unknown milestone domain")
   end
   if not domain_allows_state(domain, milestone) then
-    error("github-devloop: milestone is outside milestone domain")
+    error("github-devloop: milestone-domain-state-invalid: milestone is outside milestone domain")
   end
 end
 
@@ -245,7 +245,7 @@ function R.compare_phase(left, right, opts)
   local right_state = type(right) == "table" and right.state or right
   local right_rank = R.stage_rank(right_state)
   if not R.is_state(right_state) then
-    error("github-devloop: invalid milestone")
+    error("github-devloop: milestone-invalid: invalid milestone")
   end
   validate_milestone_domain(options.domain or options.milestone_domain, right_state)
   local left_rank = type(left) == "table" and tonumber(left.stage_rank) or nil
@@ -387,7 +387,7 @@ local exported_names = {
   "is_loop_terminal",
   "is_state",
   "is_state_label",
-  "issue_state_order",
+  "lifecycle_state_order",
   "lifecycle_state_set",
   "marker_order_key",
   "next_fix_version",

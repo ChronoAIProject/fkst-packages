@@ -64,13 +64,6 @@ local decision_sources = {
   reimplement_blocked_implementing_timeout_without_pr = { state = "blocked", kind = "cyclic" },
 }
 
-local function source_state_names(expected_states)
-  local names = {}
-  for _, expected in ipairs(expected_states or {}) do
-    table.insert(names, type(expected) == "table" and expected.state or expected)
-  end
-  return names
-end
 
 local function probe_variant(from_states, to_state)
   if type(from_states) ~= "table" or #from_states ~= 1 then
@@ -398,7 +391,7 @@ end
 local function fixture_comments(fixture, event)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
     table.insert(comments, core.impl_failure_marker(
@@ -439,7 +432,7 @@ local function mock_case(fixture, event)
     mock_wip_stop()
   end
   if fixture.handoff_visible_version ~= nil then
-    local visible_marker = core.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
+    local visible_marker = h.projected_state_comment(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_implement_cas_handoff'", {
       stdout = '{"body":"' .. h.json_string(visible_marker) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",

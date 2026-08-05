@@ -1,7 +1,7 @@
 local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
-local dashboard_commands = require("devloop.commands.dashboard")
+local dashboard_commands = require("core.dashboard_commands")
 require("departments.observability.main")
 local unpack_results = table.unpack or unpack
 
@@ -52,9 +52,6 @@ local function dashboard_issue_list_stdout_many(bodies)
   return "[[" .. table.concat(items, ",") .. "]]\n"
 end
 
-local function command_input_path(command)
-  return tostring(command or ""):match("%-%-input '?([^'%s]+)'?")
-end
 
 local function dashboard_body_from_input(path)
   local raw = file.read(path)

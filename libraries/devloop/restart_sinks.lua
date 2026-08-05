@@ -45,12 +45,12 @@ end
 local function assert_exact_fields(value, expected, subject)
   for key in pairs(value) do
     if expected[key] ~= true then
-      error("devloop.restart_sinks: " .. subject .. " has unknown field " .. tostring(key))
+      error("devloop.restart_sinks: sink-schema-unknown-field: " .. subject .. " has unknown field " .. tostring(key))
     end
   end
   for key in pairs(expected) do
     if value[key] == nil then
-      error("devloop.restart_sinks: " .. subject .. " is missing field " .. tostring(key))
+      error("devloop.restart_sinks: sink-schema-field-missing: " .. subject .. " is missing field " .. tostring(key))
     end
   end
 end
@@ -60,13 +60,13 @@ local function array_length(value, subject)
   local maximum = 0
   for key in pairs(value) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
-      error("devloop.restart_sinks: " .. subject .. " must be an array")
+      error("devloop.restart_sinks: sink-inventory-index-invalid: " .. subject .. " must be an array")
     end
     count = count + 1
     maximum = math.max(maximum, key)
   end
   if maximum ~= count then
-    error("devloop.restart_sinks: " .. subject .. " must be a dense array")
+    error("devloop.restart_sinks: sink-inventory-not-dense: " .. subject .. " must be a dense array")
   end
   return count
 end
@@ -85,36 +85,36 @@ end
 
 local function validate_record(owner, record)
   if type(record) ~= "table" then
-    error("devloop.restart_sinks: sink record must be a table")
+    error("devloop.restart_sinks: sink-record-not-table: sink record must be a table")
   end
   assert_exact_fields(record, record_fields, "sink record")
   if not is_nonempty_string(record.id) then
-    error("devloop.restart_sinks: id must be a non-empty string")
+    error("devloop.restart_sinks: sink-id-invalid: id must be a non-empty string")
   end
   if record.owner ~= owner then
-    error("devloop.restart_sinks: sink owner must match extractor owner")
+    error("devloop.restart_sinks: sink-owner-mismatch: sink owner must match extractor owner")
   end
   if type(record.callsite) ~= "table" then
-    error("devloop.restart_sinks: callsite must be a table")
+    error("devloop.restart_sinks: sink-callsite-not-table: callsite must be a table")
   end
   assert_exact_fields(record.callsite, callsite_fields, "callsite")
   if not is_nonempty_string(record.callsite.department) then
-    error("devloop.restart_sinks: callsite.department must be a non-empty string")
+    error("devloop.restart_sinks: sink-callsite-department-invalid: callsite.department must be a non-empty string")
   end
   if not is_nonempty_string(record.callsite.site) then
-    error("devloop.restart_sinks: callsite.site must be a non-empty string")
+    error("devloop.restart_sinks: sink-callsite-site-invalid: callsite.site must be a non-empty string")
   end
   if effect_kinds[record.effect_kind] ~= true then
-    error("devloop.restart_sinks: unknown effect_kind " .. tostring(record.effect_kind))
+    error("devloop.restart_sinks: sink-effect-kind-invalid: unknown effect_kind " .. tostring(record.effect_kind))
   end
   if authority_classes[record.authority_class] ~= true then
-    error("devloop.restart_sinks: unknown authority_class " .. tostring(record.authority_class))
+    error("devloop.restart_sinks: sink-authority-class-invalid: unknown authority_class " .. tostring(record.authority_class))
   end
   if not is_nonempty_string(record.dedup_marker_family) then
-    error("devloop.restart_sinks: dedup_marker_family must be a non-empty string")
+    error("devloop.restart_sinks: sink-dedup-marker-family-invalid: dedup_marker_family must be a non-empty string")
   end
   if not id_matches_kind(record.id, record.effect_kind) then
-    error("devloop.restart_sinks: id does not match effect_kind")
+    error("devloop.restart_sinks: sink-id-kind-mismatch: id does not match effect_kind")
   end
 end
 
@@ -153,10 +153,10 @@ end
 
 function M.extract(owner, inventory)
   if not is_nonempty_string(owner) then
-    error("devloop.restart_sinks: owner must be a non-empty string")
+    error("devloop.restart_sinks: owner-invalid: owner must be a non-empty string")
   end
   if type(inventory) ~= "table" then
-    error("devloop.restart_sinks: inventory must be a table")
+    error("devloop.restart_sinks: sink-inventory-not-table: inventory must be a table")
   end
 
   local count = array_length(inventory, "inventory")
@@ -167,7 +167,7 @@ function M.extract(owner, inventory)
     validate_record(owner, record)
     local key = record_key(record)
     if seen[key] then
-      error("devloop.restart_sinks: duplicate sink record " .. key)
+      error("devloop.restart_sinks: duplicate-sink-record: duplicate sink record " .. key)
     end
     seen[key] = true
     table.insert(extracted, copy_record(record))
@@ -189,17 +189,17 @@ function M.assert_coverage(owner, inventory, observed, options)
     observed_by_key[key] = record
     local classified = authored_by_key[key]
     if classified == nil then
-      error("devloop.restart_sinks: unclassified sink " .. key)
+      error("devloop.restart_sinks: sink-classification-missing: unclassified sink " .. key)
     end
     if not records_equal(classified, record) then
-      error("devloop.restart_sinks: sink classification mismatch " .. key)
+      error("devloop.restart_sinks: sink-classification-mismatch: sink classification mismatch " .. key)
     end
   end
 
   if type(options) == "table" and options.symmetric == true then
     for key in pairs(authored_by_key) do
       if observed_by_key[key] == nil then
-        error("devloop.restart_sinks: authored sink not observed " .. key)
+        error("devloop.restart_sinks: sink-observation-missing: authored sink not observed " .. key)
       end
     end
   end

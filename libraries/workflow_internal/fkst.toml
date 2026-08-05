@@ -23,7 +23,6 @@ public = [
   "workflow_internal.liveness.contract",
   "workflow_internal.liveness.shared",
   "workflow_internal.logging",
-  "workflow_internal.oracle",
   "workflow_internal.ports",
   "workflow_internal.registry",
   "workflow_internal.restart_liveness_contract",

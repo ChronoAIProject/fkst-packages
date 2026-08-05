@@ -205,6 +205,17 @@ return {
         reason = "fix-feedback-missing-review-dedup-key",
       },
       {
+        source = "merge-gate",
+        body = '<!-- fkst:github-devloop:merge-gate:v1 proposal="' .. PROPOSAL_ID
+          .. '" pr="' .. PR_NUMBER
+          .. '" version="' .. FIXING_VERSION
+          .. '" review_proposal="' .. REVIEW_PROPOSAL_ID
+          .. '" review_dedup="consensus:foreign-review/review"'
+          .. ' head_sha="' .. HEAD_SHA
+          .. '" reason="mergeable-conflicting" -->',
+        reason = "fix-feedback-mismatched-review-dedup-key",
+      },
+      {
         source = "review-result",
         body = '<!-- fkst:github-devloop:review-result:v1 proposal="' .. REVIEW_PROPOSAL_ID
           .. '" issue_proposal="' .. PROPOSAL_ID
@@ -239,6 +250,27 @@ return {
     t.eq(observation.legacy_shape, nil)
     t.eq(m_fix_feedback_observation.legacy_review_meta_unbound(
       comments, PROPOSAL_ID, FIXING_VERSION), nil)
+  end,
+
+  test_strict_merge_gate_reader_still_rejects_mismatched_review_dedup = function()
+    local marker = m_builders.merge_gate_marker(
+      PROPOSAL_ID,
+      PR_NUMBER,
+      FIXING_VERSION,
+      REVIEW_PROPOSAL_ID,
+      "consensus:foreign-review/review",
+      HEAD_SHA,
+      nil,
+      "mergeable-conflicting"
+    )
+    local ok, failure = pcall(m_fix_feedback_observation.merge_gate_fix_fact,
+      { trusted_comment(marker) }, PROPOSAL_ID, FIXING_VERSION)
+    if ok then
+      error("strict merge-gate reader accepted a mismatched review dedup", 0)
+    end
+    t.eq(devloop_logging.error_class_from_message(failure),
+      "fix-feedback-mismatched-review-dedup-key",
+      tostring(failure))
   end,
 
   test_observe_pr_routes_legacy_fix_feedback_to_review_meta_before_replay = function()

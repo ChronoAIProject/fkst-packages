@@ -39,7 +39,7 @@ local function source_ref()
 end
 
 local function state_marker(state, version)
-  return core.state_marker(proposal_id, state, version)
+  return h.state_comment(proposal_id, state, version)
 end
 
 local function blocked_by_json()
@@ -375,7 +375,6 @@ return {
       source_ref = source_ref(),
     })
     h.mock_fresh_implement_worktree({
-      runtime = runtime_root,
       impl_version = lean_ready_version,
     })
     t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {

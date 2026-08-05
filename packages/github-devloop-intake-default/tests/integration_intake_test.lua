@@ -10,33 +10,6 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
 
-local function mock_repo_env(repo)
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_GITHUB_REPO"', {
-    stdout = repo or "owner/repo",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 local function mock_bot_env(value)
   h.mock_bot_env(value)
@@ -97,12 +70,12 @@ local function default_intake_current(extra)
   return { title = fields.title or "Add retry backoff to failed widget sync", body = fields.body or "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries." }
 end
 
-local function expected_decision_key(payload, extra, reintake_command, effective_updated_at)
-  return devloop_base.intake_decision_dedup_key(payload.proposal_id, default_intake_current(extra), reintake_command, effective_updated_at)
+local function expected_decision_key(payload, extra)
+  return devloop_base.intake_decision_dedup_key(payload.proposal_id, default_intake_current(extra))
 end
 
-local function assert_execution_request_chain(raises, payload, extra, reintake_command, service_class, effective_updated_at)
-  local expected_dedup = expected_decision_key(payload, extra, reintake_command, effective_updated_at or payload.reintake_effect_updated_at)
+local function assert_execution_request_chain(raises, payload, extra, service_class)
+  local expected_dedup = expected_decision_key(payload, extra)
   local request = find_raise(raises, "github-devloop.devloop_execute_request").payload
   t.eq(request.schema, "github-devloop.execution-request.v1")
   t.eq(request.proposal_id, payload.proposal_id)
@@ -336,7 +309,7 @@ return {
     t.eq(label.add_labels[2], "fkst-class:expedite")
     t.is_true(has_value(label.remove_labels, "fkst-class:standard"))
     t.is_true(has_value(label.remove_labels, "fkst-class:background"))
-    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
+    assert_execution_request_chain(result.raises, payload, nil, "expedite")
     assert_intake_judgment_call()
   end,
 
@@ -745,7 +718,7 @@ return {
     local result = run_judge(payload, opts("intake-seen-candidate-no-marker"))
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
-    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
+    assert_execution_request_chain(result.raises, payload, nil, "expedite")
   end,
 
   test_judge_replays_enable_successor_after_visible_intake_marker = function()
@@ -760,7 +733,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(count_calls("codex exec"), 0)
-    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
+    assert_execution_request_chain(result.raises, payload, nil, "expedite")
     local enabled_label = find_label_add(result.raises, "fkst-dev:enabled")
     t.eq(enabled_label.add_labels[1], "fkst-dev:enabled")
     t.eq(enabled_label.add_labels[2], "fkst-class:expedite")

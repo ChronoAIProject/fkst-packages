@@ -14,7 +14,7 @@ function M.github_author_options(read_env, owner, opts)
   local options = opts or {}
   local bot_login_env = options.bot_login_env
   if type(bot_login_env) ~= "string" or bot_login_env == "" then
-    error("forge.ports.github_author_options requires opts.bot_login_env", 2)
+    error("forge.ports: bot-login-env-option-required: forge.ports.github_author_options requires opts.bot_login_env", 2)
   end
   return require("forge.github.content_filter").github_author_options(read_env, owner or "forge.ports", options)
 end
@@ -24,7 +24,7 @@ local function production_exec_argv()
     return exec_argv
   end
   return function()
-    error("forge.ports: production ports require exec_argv")
+    error("forge.ports: exec-argv-unavailable: production ports require exec_argv")
   end
 end
 
@@ -32,7 +32,7 @@ local function github_from_options(run, github_options)
   if github_options.trusted_author_policy == nil then
     return setmetatable({}, {
       __index = function()
-        error("forge.ports: trusted_author_policy is required for production GitHub reads")
+        error("forge.ports: trusted-author-policy-required: trusted_author_policy is required for production GitHub reads")
       end,
     })
   end
@@ -52,7 +52,7 @@ end
 
 local function validate_department(department)
   if type(department) ~= "table" or type(department.spec) ~= "table" or type(department.pipeline) ~= "function" then
-    error("forge.ports.install: make_department must return a table with spec and pipeline", 2)
+    error("forge.ports.install: department-shape-invalid: make_department must return a table with spec and pipeline", 2)
   end
 end
 

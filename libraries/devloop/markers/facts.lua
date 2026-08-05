@@ -579,17 +579,6 @@ function C.has_any_review_result_marker(comments, review_proposal_id, issue_prop
   return false
 end
 
-local function has_versioned_marker(comments, marker)
-  if type(comments) ~= "table" then
-    return false
-  end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
 
 function C.has_implementing_marker(comments, proposal_id, dedup_key)
   if type(comments) ~= "table" then
