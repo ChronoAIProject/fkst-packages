@@ -2,6 +2,7 @@ local S = {}
 local check_runs = require("forge.github.check_runs")
 local forge_validators = require("forge.gitref")
 local git_adapter = require("forge.git")
+local self_heal_keys = require("forge.merge.self_heal_keys")
 local strings = require("contract.strings")
 
 function S.install(M, shared, ci_gate, opts)
@@ -131,7 +132,7 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
   end
   local head_sha = tostring(pr and pr.head_sha or "")
   local now_seconds = now()
-  local observed_key = M.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
+  local observed_key = self_heal_keys.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
   local first_observed_seconds = tonumber(cache_get(observed_key) or "")
   if first_observed_seconds == nil then
     first_observed_seconds = tonumber(now_seconds)
@@ -146,7 +147,7 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
   if not eligible then
     return false, reason
   end
-  local key = M.ci_selfheal_once_key(repo, pr_number, head_sha)
+  local key = self_heal_keys.ci_selfheal_once_key(repo, pr_number, head_sha)
   local ran = once(key, function()
     local rerequested, rerequest_reason = rerequest_head_check_runs(
       repo,
