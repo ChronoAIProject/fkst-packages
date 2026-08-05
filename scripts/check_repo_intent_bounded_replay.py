@@ -611,19 +611,14 @@ def _protected_base_sha(root: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
 
 
-def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[str] | None, list[str]]:
-    if base_sha is not None:
-        text = ratchet_base.show_file_at(root, base_sha, ALLOWLIST)
-        if text is None:
-            return "absent", set(), []
-        entries, messages = _parse_allowlist(f"protected-base:{ALLOWLIST}", text.splitlines())
-        return "present", entries, messages
-    status, text = ratchet_base.file_at_base(root, ALLOWLIST)
-    if status != "present":
-        return status, set() if status == "absent" else None, []
-    assert text is not None
+def _base_allowlist(root: Path, base_sha: str | None) -> tuple[str, set[str] | None, list[str]]:
+    if base_sha is None:
+        return "unresolved", None, []
+    text = ratchet_base.show_file_at(root, base_sha, ALLOWLIST)
+    if text is None:
+        return "absent", set(), []
     entries, messages = _parse_allowlist(f"protected-base:{ALLOWLIST}", text.splitlines())
-    return status, entries, messages
+    return "present", entries, messages
 
 
 def _head_sha(root: Path) -> str:

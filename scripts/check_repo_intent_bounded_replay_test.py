@@ -289,6 +289,42 @@ class ProtectedBaseSelectionTest(unittest.TestCase):
             ):
                 self.assertEqual(checker._protected_base_sha(root), integration_commit)
 
+    def test_unresolved_target_does_not_fall_back_to_dev(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git(root, "init", "-q")
+            git(root, "config", "user.email", "intent@example.invalid")
+            git(root, "config", "user.name", "Intent Test")
+            for relative in checker.PROTECTED_MODULES:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# protected fixture\n", encoding="utf-8")
+            allowlist = root / checker.ALLOWLIST
+            allowlist.parent.mkdir(parents=True, exist_ok=True)
+            allowlist.write_text(ALLOWLIST_HEADER, encoding="utf-8")
+            intent_diff_dir = root / checker.INTENT_DIFF_DIR
+            intent_diff_dir.mkdir(parents=True, exist_ok=True)
+            (intent_diff_dir / ".gitkeep").write_text("", encoding="utf-8")
+            git(root, "add", "-A")
+            git(root, "commit", "-qm", "dev")
+            dev_commit = git(root, "rev-parse", "HEAD")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+
+            with mock.patch.object(checker, "_admission_trace_messages", return_value=[]), mock.patch.dict(
+                os.environ,
+                {
+                    "FKST_RESTART_PREFLIGHT_BASE_REF": "",
+                    "FKST_RATCHET_TARGET_REF": "refs/remotes/origin/missing",
+                },
+                clear=False,
+            ):
+                messages = checker.repository_messages(root, enforce_base=True)
+
+            self.assertIn(
+                f"cannot resolve protected base {checker.ALLOWLIST} to enforce the shrink-only ratchet",
+                messages,
+            )
+
 
 class CompareTest(unittest.TestCase):
     def test_identical_artifacts_compare_equal(self) -> None:

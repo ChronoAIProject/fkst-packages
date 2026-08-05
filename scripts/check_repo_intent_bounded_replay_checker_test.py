@@ -842,7 +842,7 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         self.allow(relative_path)
         write_json(self.root, relative_path, manifest())
 
-        with mock.patch.object(checker.ratchet_base, "file_at_base", return_value=("present", HEADER)):
+        with mock.patch.object(checker, "_protected_base_sha", return_value="1" * 40), mock.patch.object(checker.ratchet_base, "show_file_at", return_value=HEADER):
             messages = checker.repository_messages(self.root, enforce_base=True)
 
         self.assertTrue(any("grows" in message and relative_path in message for message in messages))
