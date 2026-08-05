@@ -155,7 +155,7 @@ local function mock_authority_and_writes(markers)
     exit_code = 0,
   })
   t.mock_command("gh api --paginate --slurp '" .. child_path .. "/comments?per_page=100'", {
-    stdout = comments_rest_json({}),
+    stdout = comments_rest_json({ markers.disposition }),
     stderr = "",
     exit_code = 0,
   })

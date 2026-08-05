@@ -355,6 +355,56 @@ local tests = {
     t.eq(disposition_fact(entities[child_issue]).disposition, "satisfied")
   end,
 
+  test_stale_receipt_replay_waits_for_visibility_and_preserves_first_outcome = function()
+    local entities = {
+      [origin_issue] = origin_entity(),
+      [child_issue] = child_entity(child_issue),
+    }
+    local deps = fake_deps(entities)
+    local pending_comments = {}
+    local child_reads = 0
+    local read_issue = deps.read_issue
+    deps.read_issue = function(source_ref, ...)
+      local _repo, number = require("devloop.base").parse_issue_source_ref(source_ref)
+      if tonumber(number) == child_issue then
+        child_reads = child_reads + 1
+        if child_reads == 4 then
+          for _, comment in ipairs(pending_comments) do
+            entities[child_issue].comments[#entities[child_issue].comments + 1] = comment
+          end
+        end
+      end
+      return read_issue(source_ref, ...)
+    end
+    deps.write_receipt = function(request, body, timeout)
+      deps.receipts[#deps.receipts + 1] = {
+        request = request,
+        body = body,
+        timeout = timeout,
+      }
+      pending_comments[#pending_comments + 1] = trusted_comment(body)
+      return { exit_code = 0, stdout = "created" }
+    end
+
+    local first = run_request_failure(deps, request_payload("satisfied"))
+    t.is_true(tostring(first.failure.error):find("child-disposition-receipt-pending", 1, true) ~= nil)
+    t.eq(#deps.receipts, 1)
+    t.eq(#deps.closes, 0)
+
+    local competing = run_request_failure(deps, request_payload("undeliverable", {
+      reason_code = "premise-refuted",
+    }))
+    t.is_true(tostring(competing.failure.error):find("conflicting-child-disposition", 1, true) ~= nil)
+    t.eq(#deps.receipts, 2)
+    t.eq(#deps.closes, 0)
+    t.eq(disposition_fact(entities[child_issue]).disposition, "satisfied")
+
+    run_request(deps, request_payload("satisfied"))
+    t.eq(#deps.receipts, 2)
+    t.eq(#deps.closes, 1)
+    t.eq(entities[child_issue].state, "CLOSED")
+  end,
+
   test_request_rejects_transfer_after_trusted_child_merge = function()
     local entities = {
       [origin_issue] = origin_entity(),

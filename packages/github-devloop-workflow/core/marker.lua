@@ -1,4 +1,5 @@
 local strings = require("contract.strings")
+local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local fail = require("core.errors").fail
 
@@ -220,6 +221,18 @@ local function validate_child_disposition_fields(fields)
     return nil, fail("reason_code", "forbidden_for_disposition", "is only allowed for undeliverable")
   end
 
+  local dedup_key = base_ids.dedup_key({
+    "workflow",
+    "child-disposition",
+    fields.origin,
+    fields.blueprint_digest,
+    fields.slot,
+    child_issue,
+  })
+  if fields.dedup_key ~= nil and fields.dedup_key ~= dedup_key then
+    return nil, fail("dedup_key", "disposition_identity_mismatch", "must match the workflow slot receipt identity")
+  end
+
   return {
     origin = fields.origin,
     blueprint_digest = fields.blueprint_digest,
@@ -228,6 +241,7 @@ local function validate_child_disposition_fields(fields)
     disposition = fields.disposition,
     successor_source_ref = successor_source_ref,
     reason_code = reason_code,
+    dedup_key = dedup_key,
   }, nil
 end
 
@@ -610,6 +624,7 @@ function M.build_child_disposition_marker(fields)
     .. '" blueprint_digest="' .. fact.blueprint_digest
     .. '" slot="' .. fact.slot
     .. '" child_issue="' .. fact.child_issue
+    .. '" dedup="' .. fact.dedup_key
     .. '" disposition="' .. fact.disposition
     .. '" successor_kind="' .. tostring(successor.kind or "")
     .. '" successor_ref="' .. tostring(successor.ref or "")
@@ -619,6 +634,10 @@ function M.build_child_disposition_marker(fields)
 end
 
 local function child_disposition_fact_from_marker(disposition_marker)
+  local dedup_key = attr(disposition_marker, "dedup")
+  if dedup_key == nil or dedup_key == "" then
+    return nil
+  end
   local successor_kind = attr(disposition_marker, "successor_kind")
   local successor_ref = attr(disposition_marker, "successor_ref")
   local reason_code = attr(disposition_marker, "reason_code")
@@ -627,6 +646,7 @@ local function child_disposition_fact_from_marker(disposition_marker)
     blueprint_digest = attr(disposition_marker, "blueprint_digest"),
     slot = attr(disposition_marker, "slot"),
     child_issue = attr(disposition_marker, "child_issue"),
+    dedup_key = dedup_key,
     disposition = attr(disposition_marker, "disposition"),
     successor_source_ref = (successor_kind ~= "" or successor_ref ~= "") and {
       kind = successor_kind,
@@ -641,7 +661,6 @@ function M.parse_child_disposition_marker(text, origin, blueprint_digest, slot, 
   if type(text) ~= "string" then
     return nil
   end
-  local latest = nil
   for disposition_marker in text:gmatch(CHILD_DISPOSITION_MARKER_PATTERN) do
     local fact = child_disposition_fact_from_marker(disposition_marker)
     if fact ~= nil
@@ -649,10 +668,10 @@ function M.parse_child_disposition_marker(text, origin, blueprint_digest, slot, 
       and fact.blueprint_digest == tostring(blueprint_digest)
       and fact.slot == tostring(slot)
       and fact.child_issue == tostring(child_issue) then
-      latest = fact
+      return fact
     end
   end
-  return latest
+  return nil
 end
 
 function M.install(target)

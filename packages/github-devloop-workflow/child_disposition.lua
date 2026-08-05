@@ -124,7 +124,6 @@ local function trusted_lineage(issue)
 end
 
 local function trusted_disposition_fact(issue, expected)
-  local latest = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue and issue.comments or {})) do
     local fact = marker.parse_child_disposition_marker(
       parsers_misc.comment_body(comment),
@@ -134,10 +133,10 @@ local function trusted_disposition_fact(issue, expected)
       expected.child_issue
     )
     if fact ~= nil then
-      latest = fact
+      return fact
     end
   end
-  return latest
+  return nil
 end
 
 function M.current_fact(issue, expected)
@@ -236,6 +235,15 @@ local function expected_lineage(request)
   }
 end
 
+local function expected_disposition(request)
+  return {
+    origin = request.origin,
+    blueprint_digest = request.blueprint_digest,
+    slot = request.slot,
+    child_issue = tostring(request.child_issue_number),
+  }
+end
+
 local function assert_self_claim(child)
   local claim_state = devloop_claims.issue_claim_state(
     child.assignees,
@@ -281,12 +289,7 @@ local function assert_authority(deps, request)
   if not same_lineage(trusted_lineage(child), expected_lineage(request)) then
     fail("child-lineage-mismatch", "child does not carry trusted lineage for the created slot")
   end
-  local current_fact = trusted_disposition_fact(child, {
-    origin = request.origin,
-    blueprint_digest = request.blueprint_digest,
-    slot = request.slot,
-    child_issue = tostring(request.child_issue_number),
-  })
+  local current_fact = trusted_disposition_fact(child, expected_disposition(request))
   if current_fact ~= nil and not same_disposition(current_fact, request) then
     fail("conflicting-child-disposition", "child already has a different trusted disposition")
   end
@@ -398,6 +401,22 @@ local function invalidate(deps, request)
   devloop_entity_view.invalidate_entity_after_write(request.repo, "issue", request.child_issue_number)
 end
 
+local function confirm_receipt(deps, request)
+  local child = read_issue(
+    deps,
+    request.child_source_ref,
+    "github-devloop-workflow.child-disposition-receipt-confirm"
+  )
+  local fact = trusted_disposition_fact(child, expected_disposition(request))
+  if fact == nil then
+    fail("child-disposition-receipt-pending", "trusted disposition receipt is not source-visible after write")
+  end
+  if not same_disposition(fact, request) then
+    fail("conflicting-child-disposition", "the first trusted disposition receipt has a different outcome")
+  end
+  return child, fact
+end
+
 local function close_disposition(request)
   if request.disposition == "satisfied" then
     return { kind = "completed" }
@@ -437,6 +456,7 @@ function M.request_handlers(opts)
             fail("child-disposition-receipt-failed", tostring(receipt and receipt.stderr or "missing result"))
           end
           invalidate(deps, request)
+          confirm_receipt(deps, request)
         end
         local result = issue_close(deps, request, close_disposition(request))
         if type(result) ~= "table" or result.exit_code ~= 0 then
