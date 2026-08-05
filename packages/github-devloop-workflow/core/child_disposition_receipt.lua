@@ -229,6 +229,14 @@ function M.new(deps)
       "receipt-fetch-failed",
       "receipt fetch"
     )
+    local resolved = operation_result(
+      adapter.git_rev_parse_ref_commit(commit_sha, READ_TIMEOUT_SECONDS),
+      "receipt-object-not-commit",
+      "receipt commit verification"
+    )
+    if strings.trim(resolved.stdout) ~= commit_sha then
+      fail("receipt-object-not-commit", "receipt ref does not name the resolved commit directly")
+    end
     local committed = operation_result(
       adapter.git_cat_file_pretty(commit_sha, READ_TIMEOUT_SECONDS),
       "receipt-read-failed",

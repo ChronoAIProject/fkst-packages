@@ -48,6 +48,10 @@ local function new_git_process(seed)
   model.calls = {}
   model.next_sha = model.next_sha or FIRST_SHA
   model.fetched = {}
+  model.object_types = model.object_types or {}
+  for sha in pairs(model.commits) do
+    model.object_types[sha] = model.object_types[sha] or "commit"
+  end
 
   local git = forge_git.new(function(opts)
     local argv = opts.argv
@@ -59,8 +63,17 @@ local function new_git_process(seed)
       return result(remote_sha and (remote_sha .. "\t" .. ref .. "\n") or "")
     end
 
-    if argv[2] == "rev-parse" and argv[3] == "--verify" and argv[4] == "HEAD^{tree}" then
-      return result(TREE_SHA .. "\n")
+    if argv[2] == "rev-parse" and argv[3] == "--verify" then
+      if argv[4] == "HEAD^{tree}" then
+        return result(TREE_SHA .. "\n")
+      end
+      local object_sha = tostring(argv[4]):match("^(%x+)%^%{commit%}$")
+      if object_sha ~= nil then
+        if model.fetched[object_sha] and model.object_types[object_sha] == "commit" then
+          return result(object_sha .. "\n")
+        end
+        return result("", "expected commit object", 1)
+      end
     end
 
     if argv[2] == "commit-tree" then
@@ -69,6 +82,7 @@ local function new_git_process(seed)
       t.eq(argv[6], nil)
       local message = assert(file.read(argv[5]))
       model.commits[model.next_sha] = commit_stdout(message)
+      model.object_types[model.next_sha] = "commit"
       return result(model.next_sha .. "\n")
     end
 
@@ -111,6 +125,7 @@ local function new_git_process(seed)
     git_ls_remote_ref = function(...) return git.ls_remote_ref(...) end,
     git_fetch_ref = function(...) return git.fetch_ref(...) end,
     git_cat_file_pretty = function(...) return git.cat_file_pretty(...) end,
+    git_rev_parse_ref_commit = function(...) return git.rev_parse_ref_commit(...) end,
     git_rev_parse_ref_tree = function(...) return git.rev_parse_ref_tree(...) end,
     git_commit_tree = function(...) return git.commit_tree(...) end,
     git_push_ref_update = function(...) return git.push_ref_update(...) end,
@@ -191,6 +206,7 @@ local tests = {
     local model, commands = new_git_process()
     model.before_push_result = function(current, candidate_sha, ref)
       current.commits[RACE_SHA] = current.commits[candidate_sha]
+      current.object_types[RACE_SHA] = "commit"
       current.refs[ref] = RACE_SHA
       return result("", "non-fast-forward", 1)
     end
@@ -256,6 +272,24 @@ local tests = {
 
     t.eq(ok, false)
     t.is_true(tostring(err):find("receipt-commit-not-root", 1, true) ~= nil)
+  end,
+
+  test_read_fails_closed_for_a_non_commit_receipt_object = function()
+    local valid_model, valid_commands = new_git_process()
+    local committed = receipt.new({ commands = valid_commands }).put_once(fact())
+    local ref = receipt.receipt_ref(fact())
+    local _, commands = new_git_process({
+      refs = { [ref] = FIRST_SHA },
+      commits = { [FIRST_SHA] = valid_model.commits[committed.commit_sha] },
+      object_types = { [FIRST_SHA] = "blob" },
+    })
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).read(fact())
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-object-not-commit", 1, true) ~= nil)
   end,
 }
 
