@@ -297,6 +297,13 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(fix-feedback)", "trusted fix feedback marker is not visible")
   end
   feedback = m_facts.parse_fix_feedback_fact(feedback)
+  local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+  local payload = payloads_builders.build_replayed_fixing_payload({ proposal_id = proposal_id, impl_version = state.version },
+    link.pr_number, feedback, source_ref, facts.redrive_delivery)
+  if facts.redrive_delivery ~= nil and feedback.ci_failure_key == nil then
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "timeout-authorized fixing receiver redrive")
+    return tools.raise_effects(dept, proposal_id, "fixing", state.version, { add = {}, remove = {} }, { { queue = M.pr_package_queue("devloop_fixing"), payload = payload } })
+  end
   if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
     local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then
@@ -345,13 +352,13 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
       error("github-devloop: ci-repair-retry-decision-invalid: unsupported CI repair retry decision")
     end
   end
-  local payload = payloads_builders.build_replayed_fixing_payload({
-    proposal_id = proposal_id,
-    impl_version = state.version,
-  }, link.pr_number, feedback, entity_lib.pr_source_ref(issue.repo, link.pr_number))
+  if facts.redrive_delivery ~= nil then
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "timeout-authorized fixing receiver redrive")
+    return tools.raise_effects(dept, proposal_id, "fixing", state.version, { add = {}, remove = {} }, { { queue = M.pr_package_queue("devloop_fixing"), payload = payload } })
+  end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "trusted fix feedback fact is visible")
   if dept == "observe_pr" then
-    local request = fixing_replay_comment_request(issue, link.pr_number, payload, feedback, entity_lib.pr_source_ref(issue.repo, link.pr_number))
+    local request = fixing_replay_comment_request(issue, link.pr_number, payload, feedback, source_ref)
     return tools.raise_effects(dept, proposal_id, "fixing", state.version, { add = {}, remove = {} }, {
       { queue = "github-proxy.github_pr_comment_request", payload = request },
     })
