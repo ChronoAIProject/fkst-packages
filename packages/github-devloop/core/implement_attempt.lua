@@ -105,6 +105,46 @@ function M.implement_version_mismatch_attempt_count(comments, proposal_id, expec
   return fact and fact.attempt or 0
 end
 
+-- Single source of truth for the implement version-mismatch delivery budget. When the
+-- observed mismatch attempt count reaches (budget - 1) the NEXT implement delivery is a
+-- terminal fail-closed(version-mismatch-budget) (see departments/implement/main.lua
+-- handle_implementing_version_mismatch), so every further re-delivery is pure waste.
+M.max_implement_version_mismatch_deliveries = 3
+
+-- Anti-spin predicate for the implementing-lineage liveness re-drive. A codex-run-absent
+-- re-drive of `implementing@version` hands implement a re-derived ready whose version is
+-- implementation_attempt_version(version, impl_retry_attempt) — where impl_retry_attempt
+-- comes from the latest implement-attempt fact (see libraries/devloop/replayer.lua
+-- replay_implementing). When that re-derived version differs from the authoritative
+-- `version`, implement fails its version check; once that mismatch has spent its delivery
+-- budget the re-drive can NEVER converge and merely burns an implement slot each sweep
+-- (the-omega-institute/trureturing#383). Returns true iff a re-drive at `version` is such
+-- a guaranteed-terminal, budget-exhausted mismatch. Scoped to the exact `version`, so a
+-- lineage that later advances to a fresh implementing version re-drives normally.
+function M.implementing_version_mismatch_budget_exhausted(comments, proposal_id, version)
+  if version == nil then
+    return false
+  end
+  local attempt_fact = M.latest_implement_attempt_fact(comments, proposal_id, version)
+  local impl_retry_attempt = tonumber(attempt_fact and attempt_fact.attempt)
+  if impl_retry_attempt == nil then
+    -- Mirror replay_implementing's fallback, but only when it is well-defined: a
+    -- suffix-free lineage has no structured retry attempt (implementation_retry_attempt
+    -- errors on round 0), so there is no guaranteed mismatch to anti-spin.
+    local ok, derived = pcall(M.implementation_retry_attempt, version)
+    if not ok or type(derived) ~= "number" then
+      return false
+    end
+    impl_retry_attempt = derived
+  end
+  local ok, expected = pcall(M.implementation_attempt_version, version, impl_retry_attempt)
+  if not ok or expected == nil or tostring(expected) == tostring(version) then
+    return false
+  end
+  return M.implement_version_mismatch_attempt_count(comments, proposal_id, expected, version)
+    >= (M.max_implement_version_mismatch_deliveries - 1)
+end
+
 end
 
 return S

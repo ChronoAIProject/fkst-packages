@@ -1,4 +1,5 @@
 local identity = require("contract.convergence_identity")
+local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
 local t = fkst.test
 local reach_test_helper = require("tests.reach_test_helpers")
@@ -94,6 +95,21 @@ local function library_run_identity(value, angle_lane)
       .. ":g" .. tostring(generation)
       .. ":r" .. tostring(round)
       .. ":" .. tostring(angle_lane),
+  }
+end
+
+local function running_codex_record(run_identity)
+  return {
+    run_id = nonce(),
+    role = run_identity.role,
+    proposal_id = run_identity.invocation_id,
+    dedup_key = run_identity.dedup_key,
+    status = "running",
+    started_at = "2026-06-03T00:30:00Z",
+    started_at_ms = now() * 1000,
+    timeout_seconds = 3600,
+    log_path = "/tmp/fkst-packages-test/codex.log",
+    cmd_line = "codex exec -",
   }
 end
 
@@ -274,6 +290,14 @@ return {
       local result = workflow_codex.dispatch(run_identity, { prompt = "hello", worktree = "/tmp/worktree" })
       t.eq(result.deferred, true)
       t.eq(result.reason, "live-run-active")
+      t.eq(#codex_calls(), 0)
+    end)
+  end,
+
+  test_consensus_reach_returns_nil_when_same_identity_is_live = function()
+    local run_identity = library_run_identity(proposal(), "teleology")
+    with_codex_runs({ running_codex_record(run_identity) }, function()
+      t.is_nil(consensus.reach(proposal()))
       t.eq(#codex_calls(), 0)
     end)
   end,
@@ -468,30 +492,21 @@ return {
     end)
   end,
 
-  test_consensus_decide_defers_when_same_proposal_run_is_live = function()
+  test_consensus_decide_acknowledges_more_than_retry_budget_while_same_proposal_run_is_live = function()
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, {
-      run_id = nonce(),
-      role = run_identity.role,
-      proposal_id = run_identity.invocation_id,
-      dedup_key = run_identity.dedup_key,
-      status = "running",
-      started_at = "2026-06-03T00:30:00Z",
-      started_at_ms = now() * 1000,
-      timeout_seconds = 3600,
-      log_path = "/tmp/fkst-packages-test/codex.log",
-      cmd_line = "codex exec -",
-    })
+    seed_codex_run(run_opts, running_codex_record(run_identity))
 
-    local result = run_decide(proposal(), run_opts)
-    t.is_true(result.exit_code ~= 0)
+    for _ = 1, 13 do
+      local result = run_decide(proposal(), run_opts)
+      t.eq(result.exit_code, 0)
+      t.eq(#result.raises, 0)
+    end
     t.eq(#codex_calls(), 0)
-    t.eq(#result.raises, 0)
   end,
 
-  test_deferred_delivery_retries_when_live_run_disappears = function()
+  test_live_run_drop_preserves_fresh_redrive_after_run_disappears = function()
     mock_judgment_runtime()
     mock_angle("teleology", "approve", "Teleology approves.")
     mock_angle("parsimony", "approve", "Parsimony approves.")
@@ -499,20 +514,10 @@ return {
 
     local run_opts = opts("defer-then-redrive")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, {
-      run_id = nonce(),
-      role = run_identity.role,
-      proposal_id = run_identity.invocation_id,
-      dedup_key = run_identity.dedup_key,
-      status = "running",
-      started_at = "2026-06-03T00:30:00Z",
-      started_at_ms = now() * 1000,
-      timeout_seconds = 3600,
-      log_path = "/tmp/fkst-packages-test/codex.log",
-      cmd_line = "codex exec -",
-    })
+    seed_codex_run(run_opts, running_codex_record(run_identity))
     local deferred = run_decide(proposal(), run_opts)
-    t.is_true(deferred.exit_code ~= 0)
+    t.eq(deferred.exit_code, 0)
+    t.eq(#deferred.raises, 0)
     t.eq(#codex_calls(), 0)
 
     local retried = run_decide(proposal(), opts("redrive-after-live-run-missing"))

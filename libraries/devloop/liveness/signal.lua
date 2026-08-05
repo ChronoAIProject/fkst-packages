@@ -4,6 +4,7 @@ local error_facts = require("contract.error_facts")
 local parsers_misc = require("devloop.parsers.misc")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_facts = require("devloop.markers.facts")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local m_mgw = require("devloop.merge_gate_wait")
 local m_rae = require("devloop.restart_actionable_epoch")
 local S = {}
@@ -167,20 +168,18 @@ local function fixing_work_unit_from_trusted_facts(M, state, facts)
   end
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   for _, version in ipairs(unique_versions(state)) do
-    local merge_gate = m_facts.merge_gate_fix_fact(comments, proposal_id, version)
-    local from_merge_gate = fixing_work_unit_from_fact(merge_gate)
-    if from_merge_gate ~= nil then
-      return from_merge_gate
+    local observation = m_fix_feedback_observation.observe(
+      comments, proposal_id, version)
+    if observation.status ~= "absent" and type(facts) == "table" then
+      facts.fix_feedback_observation = observation
     end
-    local reject = m_facts.review_reject_fact(comments, proposal_id, version)
-    local from_reject = fixing_work_unit_from_fact(reject)
-    if from_reject ~= nil then
-      return from_reject
-    end
-    local review_meta = m_facts.review_meta_fix_fact(comments, proposal_id, version)
-    local from_review_meta = fixing_work_unit_from_fact(review_meta)
-    if from_review_meta ~= nil then
-      return from_review_meta
+    if observation.status == "valid" then
+      local work_unit = fixing_work_unit_from_fact(observation.fact)
+      if work_unit ~= nil then
+        return work_unit
+      end
+    elseif observation.status == "invalid" then
+      return nil
     end
   end
   return nil
@@ -297,6 +296,22 @@ local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
   local expected_role = real_execution_expected_value(M, match, "role", state, facts)
   local expected_proposal_id = real_execution_expected_value(M, match, "proposal_id", state, facts)
   local expected_dedup_key = real_execution_expected_value(M, match, "dedup_key", state, facts)
+  local fix_feedback_observation = facts and facts.fix_feedback_observation or nil
+  if type(fix_feedback_observation) == "table"
+    and fix_feedback_observation.status == "invalid" then
+    return {
+      live = false,
+      indeterminate = true,
+      reason = "fix-feedback-observation-invalid",
+      family = "fix-feedback",
+      resolver = "devloop.markers.fix_feedback_observation",
+      source = fix_feedback_observation.source,
+      reason_code = fix_feedback_observation.reason_code,
+      legacy_shape = fix_feedback_observation.legacy_shape,
+      expected_role = expected_role,
+      expected_proposal_id = expected_proposal_id,
+    }
+  end
   local expected_status = real_execution.status or "running"
   local status = codex_run_status(M)
   local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil

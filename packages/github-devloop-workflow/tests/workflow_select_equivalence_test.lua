@@ -1,8 +1,7 @@
 local core = require("core")
-local base_ids = require("devloop.base_ids")
-local default_intake = require("core.default_intake")
+local devloop_base = require("devloop.base")
+local marker_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
-local saga = require("workflow.saga")
 local testing = require("testkit_internal.testing")
 local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
@@ -233,39 +232,16 @@ local function mock_workflow_select_path(case, current)
   end
 end
 
-local function mock_default_path(case, current)
-  mock_env()
-  mock_issue_view(current, 2)
-  mock_codex(case.codex, current)
-  if case.class_siblings ~= nil then
-    mock_class_escalation_lists(case.class_siblings)
-  end
-end
-
 local function candidate()
   return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
 end
 
-local spec = {
-  consumes = { candidate_queue },
-  produces = {
-    "github-devloop.devloop_execute_request",
-    "github-proxy.github_issue_comment_request",
-    "github-proxy.github_issue_create_request",
-    "github-proxy.github_issue_label_request",
-    "github-proxy.github_pr_comment_request",
-  },
-  stall_window = "2m",
-}
-
-local intake_judge_equivalent = saga.department(spec, {
-  done = function(_event) return false end,
-  act = function(event)
-    return default_intake.act(core, event, { dept = "intake_judge" })
-  end,
-  wrap = core.wrap_pipeline_failure,
-  name = "intake_judge",
-})
+local function expected_decision_key(payload)
+  return devloop_base.intake_decision_dedup_key(payload.proposal_id, {
+    title = "Repair retry backoff for failed widget sync",
+    body = "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries.",
+  })
+end
 
 local function event(payload)
   return {
@@ -280,57 +256,19 @@ local function run_workflow_select(payload, name)
   return testing.run_fake(require("departments.workflow_select.main"), event(payload))
 end
 
-local function run_intake_judge_equivalent(payload)
-  return testing.run_fake(intake_judge_equivalent, event(payload))
-end
-
-local function normalized_raises(raises)
-  local normalized = {}
-  for index, raised in ipairs(raises or {}) do
-    normalized[index] = {
-      queue = raised.queue,
-      payload = raised.payload,
-    }
-  end
-  return normalized
-end
-
-local function canonical(value)
-  if value == nil then
-    return "null"
-  end
-  if type(value) == "boolean" or type(value) == "number" then
-    return tostring(value)
-  end
-  if type(value) == "string" then
-    return string.format("%q", value)
-  end
-  local keys = {}
-  for key in pairs(value) do
-    table.insert(keys, key)
-  end
-  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-  local parts = {}
-  for _, key in ipairs(keys) do
-    table.insert(parts, "[" .. canonical(key) .. "]=" .. canonical(value[key]))
-  end
-  return "{" .. table.concat(parts, ",") .. "}"
-end
-
-local function assert_same_raises(left, right)
-  t.eq(canonical(normalized_raises(left)), canonical(normalized_raises(right)))
-end
-
-local function exercise_pair(case)
+local function exercise_default_policy(case)
   local payload = candidate()
   local current = case.current or {}
   mock_workflow_select_path(case, current)
   local workflow_result = run_workflow_select(payload, "workflow-select-" .. case.name)
 
-  mock_default_path(case, current)
-  local judge_result = run_intake_judge_equivalent(payload)
-
-  assert_same_raises(workflow_result.raises, judge_result.raises)
+  t.eq(#workflow_result.raises, #case.expected_queues)
+  for index, expected_queue in ipairs(case.expected_queues) do
+    t.eq(workflow_result.raises[index].queue, expected_queue)
+  end
+  local decision = workflow_result.raises[1]
+  t.eq(decision.queue, "github-proxy.github_issue_comment_request")
+  t.is_true(decision.payload.body:find('decision="' .. case.action .. '"', 1, true) ~= nil)
 end
 
 local class_siblings = {
@@ -340,23 +278,39 @@ local class_siblings = {
 }
 
 local tests = {
-  test_non_workflow_enable_matches_intake_judge = function()
-    exercise_pair({
+  test_non_workflow_enable_uses_default_policy = function()
+    exercise_default_policy({
       name = "enable",
+      action = "enable",
+      expected_queues = {
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request",
+        "github-devloop.devloop_execute_request",
+      },
       codex = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Clear bounded implementation task.",
     })
   end,
 
-  test_non_workflow_track_matches_intake_judge = function()
-    exercise_pair({
+  test_non_workflow_track_uses_default_policy = function()
+    exercise_default_policy({
       name = "track",
+      action = "track",
+      expected_queues = {
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
       codex = "⟦FKST:INTAKE⟧ track\n⟦FKST:CLASS⟧ background\n⟦FKST:REASON⟧ Umbrella tracker issue; individual waves should be separate proposals.",
     })
   end,
 
-  test_non_workflow_decline_matches_intake_judge = function()
-    exercise_pair({
+  test_non_workflow_decline_uses_default_policy = function()
+    exercise_default_policy({
       name = "decline",
+      action = "decline",
+      expected_queues = {
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
       current = {
         body = "Rotate production credentials after human confirmation.",
         labels = { "fkst-class:background" },
@@ -365,9 +319,15 @@ local tests = {
     })
   end,
 
-  test_non_workflow_escalate_to_class_matches_intake_judge = function()
-    exercise_pair({
+  test_non_workflow_escalate_to_class_uses_default_policy = function()
+    exercise_default_policy({
       name = "escalate",
+      action = "enable",
+      expected_queues = {
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request",
+        "github-devloop.devloop_execute_request",
+      },
       current = {
         title = "Fix widget sync retry overflow again",
         body = "Third recurrence after #80 and #81; decide whether this needs a class-level retry policy.",
@@ -375,6 +335,27 @@ local tests = {
       class_siblings = class_siblings,
       codex = "⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.",
     })
+  end,
+
+  test_pr_state_marker_does_not_satisfy_issue_thinking_milestone = function()
+    local payload = candidate()
+    local decision_key = expected_decision_key(payload)
+    local current = {
+      labels = { "fkst-dev:enabled" },
+      comments = {
+        marker_builders.intake_decision_marker(payload.proposal_id, "enable", decision_key, "expedite"),
+        core.state_marker(payload.proposal_id, "reviewing", decision_key),
+      },
+    }
+    mock_workflow_select_path({
+      codex = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Replay must not run intake codex.",
+    }, current)
+
+    local result = run_workflow_select(payload, "workflow-select-pr-state-marker")
+
+    t.eq(#result.raises, 2)
+    t.eq(result.raises[1].queue, "github-proxy.github_issue_label_request")
+    t.eq(result.raises[2].queue, "github-devloop.devloop_execute_request")
   end,
 }
 

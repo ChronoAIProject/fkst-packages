@@ -152,6 +152,35 @@ return {
     t.eq(find_raise(review.raises, "devloop_review_request"), nil)
   end,
 
+  test_output_obligation_rereview_refuses_when_authorized_head_is_stale = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/review-loop/3"
+    local authorized_head = "deadbeef"
+    local target_version = operator_commands.operator_rereview_version(blocked_version, authorized_head)
+    local command = {
+      id = "IC_rereview_stale_authority",
+      body = "fkst: rereview\n\n"
+        .. '<!-- fkst:github-devloop-ops:output-obligation-command:v1 escalation_dedup="output-obligation/stale-head"'
+        .. ' terminal_version="blocked/terminal" decision="rereview" pr="7"'
+        .. ' head_sha="' .. authorized_head .. '" target_version="' .. target_version .. '" -->',
+      author_login = "fkst-test-bot",
+      created_at = "2026-06-04T03:00:00Z",
+    }
+    mock_pr_origin({
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      command,
+    }, "devloop-owner-repo-42-01HY", "feedface")
+
+    local result = run_observe_pr(pr_event(), opts("operator-rereview-stale-authority"))
+
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
+    t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
+  end,
+
   test_untrusted_rereview_command_is_ignored = function()
     local impl_version = reviewing().version
     mock_pr_origin({

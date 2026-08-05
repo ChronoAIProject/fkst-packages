@@ -265,13 +265,38 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
   if not M.fixing_version_matches_link(state.version, link.impl_version) then
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(pr-link)", "fixing recovery requires a same-version pr-link marker")
   end
+  local observation = facts.fix_feedback_observation
+  if type(observation) == "table" and observation.status == "invalid" then
+    local new_version = devloop_state.next_fix_version(state.version)
+    local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    devloop_logging.log_line("warn", dept, proposal_id, "FIX_FEEDBACK_INVALID", {
+      "status=invalid",
+      "source=" .. tostring(observation.source or "unknown"),
+      "reason_code=" .. tostring(observation.reason_code or "unknown"),
+      "action=reenter-reviewing",
+      "current_head_sha=" .. tostring(current_pr.head_sha),
+    })
+    local effects = { {
+      queue = "github-proxy.github_pr_comment_request",
+      payload = requests_review.build_fix_feedback_recovery_reviewing_comment_request(
+        issue.repo, proposal_id, link.pr_number, new_version,
+        current_pr.head_sha, source_ref),
+    } }
+    add_issue_label_effect(issue, proposal_id, "reviewing", new_version,
+      issue_source_ref(issue), effects, {
+        "fix-feedback-recovery", "label", tostring(proposal_id),
+        tostring(new_version), tostring(link.pr_number), tostring(current_pr.head_sha),
+      }, { kind = "pr", number = link.pr_number })
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing",
+      "applied(replay)", "invalid fix feedback requires a fresh review of the current head")
+    return tools.raise_effects(dept, proposal_id, "reviewing", new_version,
+      { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:fixing" } }, effects)
+  end
   local feedback = feedback_from_comments(facts, current_pr)
   if feedback == nil then
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(fix-feedback)", "trusted fix feedback marker is not visible")
   end
-  if feedback.review_proposal_id == nil or feedback.review_dedup_key == nil or feedback.reviewed_head_sha == nil then
-    return tools.log_skip(dept, proposal_id, state, "fixing", "fixing", "skip-foreign(fix-feedback-binding)", "trusted fix feedback marker lacks review binding")
-  end
+  feedback = m_facts.parse_fix_feedback_fact(feedback)
   if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
     local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then
@@ -337,7 +362,8 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
 end
 
 local function review_meta_decision_fact(facts, current_pr)
-  return m_facts.review_meta_decision_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
+  return m_facts.review_meta_replay_decision_fact(
+    comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
 end
 
 local function replay_review_meta_result(dept, issue, state, row, facts, tools)
@@ -728,10 +754,11 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
         local fix_version = devloop_state.next_fix_version(state.version)
         local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+        local review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, link.pr_number, state.version, pr.head_sha)
         local review_fact = {
           proposal_id = proposal_id,
-          review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, link.pr_number, state.version, pr.head_sha),
-          review_dedup_key = "observe-pr-conflict/" .. tostring(proposal_id) .. "/" .. tostring(state.version) .. "/" .. tostring(link.pr_number),
+          review_proposal_id = review_proposal_id,
+          review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
           reviewed_head_sha = pr.head_sha,
           blocking_gap = mergeable_reason,
           review_reason = mergeable_reason,

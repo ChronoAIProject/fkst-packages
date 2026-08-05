@@ -20,6 +20,8 @@ return {
       ['printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"'] = { stdout = "", exit_code = 0 },
       ['printf %s "$FKST_DEVLOOP_TEST_COMMAND"'] = { stdout = "", exit_code = 0 },
       ['printf %s "$FKST_DEVLOOP_LOCAL_TEST_COMMAND"'] = { stdout = "", exit_code = 0 },
+      ['printf %s "$FKST_DEVLOOP_CACHE_PREPARATION_COMMAND"'] = { stdout = "", exit_code = 0 },
+      ['printf %s "$FKST_PROJECT_ROOT"'] = { stdout = "/trusted/repository", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_REPO"'] = { stdout = "owner/repo", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_BOT_LOGIN"'] = { stdout = "fkst-test-bot", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_WRITE"'] = { stdout = "", exit_code = 0 },
@@ -38,6 +40,8 @@ return {
     t.eq(config.test_command(exec), "scripts/run.sh test")
     local local_command = config.local_iteration_test_command(exec)
     t.eq(local_command, "scripts/run.sh test-affected")
+    t.eq(config.cache_preparation_command(exec), nil)
+    t.eq(config.project_root(exec), "/trusted/repository")
 
     t.eq(config.env_present_command("GH_TOKEN"), 'if [ -n "${GH_TOKEN:-}" ]; then printf present; fi')
     responses[config.env_present_command("GH_TOKEN")] = { stdout = "present", exit_code = 0 }
@@ -53,6 +57,7 @@ return {
     responses['printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"'] = { stdout = "manual", exit_code = 0 }
     responses['printf %s "$FKST_DEVLOOP_TEST_COMMAND"'] = { stdout = "cargo build && cargo test", exit_code = 0 }
     responses['printf %s "$FKST_DEVLOOP_LOCAL_TEST_COMMAND"'] = { stdout = "make preflight", exit_code = 0 }
+    responses['printf %s "$FKST_DEVLOOP_CACHE_PREPARATION_COMMAND"'] = { stdout = "make prepare-cache", exit_code = 0 }
     responses['printf %s "$FKST_GITHUB_WRITE"'] = { stdout = "1", exit_code = 0 }
     cfg = config.devloop_config(exec)
     t.eq(cfg.write_mode, "real")
@@ -61,6 +66,7 @@ return {
     t.eq(cfg.rollup_merge, "manual")
     t.eq(config.test_command(exec), "cargo build && cargo test")
     t.eq(config.local_iteration_test_command(exec), "make preflight")
+    t.eq(config.cache_preparation_command(exec), "make prepare-cache")
 
     responses['printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"'] = { stdout = "../bad", exit_code = 0 }
     t.raises(function()

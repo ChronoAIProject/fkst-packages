@@ -15,6 +15,7 @@ local mock_issue_implement = h.mock_issue_implement
 local mock_issue_state = h.mock_issue_state
 local deterministic_branch_for = h.deterministic_branch_for
 local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
+local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
@@ -128,7 +129,7 @@ local function liveness_redrive_ready(event)
       attempt = 1,
     },
   })
-  t.eq(payload.dedup_key, payloads_shared.ready_redrive_delivery_dedup_key(
+  t.eq(payload.dedup_key, payloads_shared.issue_redrive_delivery_dedup_key(
     payload.proposal_id, payload.implementation_version, payload.redrive_delivery
   ))
   return payload
@@ -156,6 +157,42 @@ local function mock_remote_branch(branch, head)
 end
 
 return {
+  test_invalid_implementation_result_logs_exact_error_class = function()
+    local event = ready()
+    local run_opts = opts("implement-invalid-result-error-class")
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    })
+    mock_existing_empty_implement_worktree({ impl_version = event.dedup_key })
+    mock_implement_codex(0, '{"schema":"github-devloop.implementation-result.v1",'
+      .. '"proposal_id":"' .. event.proposal_id .. '",'
+      .. '"implementation_version":"' .. event.dedup_key .. '","attempt":1}')
+    mock_git_status("")
+    t.mock_command("rev-list --count", {
+      stdout = "0\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh api graphql", {
+      stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    h.mock_context_bundle(event, run_opts)
+
+    local result, logs = run_implement_with_logs(event)
+
+    t.is_nil(result.failure)
+    local codex_failure_log
+    for _, message in ipairs(logs) do
+      if message:find("tag=CODEX", 1, true) ~= nil
+        and message:find("failure=Invalid typed result envelope:", 1, true) ~= nil then
+        codex_failure_log = message
+      end
+    end
+    t.eq(codex_failure_log:match(" error_class=([^ ]+)"), "invalid-implementation-result")
+  end,
+
   test_implementing_redelivery_reruns_when_no_progress_and_attempt_budget_remains = function()
     local event = ready()
     local comments, branch = implementing_comments(event, {

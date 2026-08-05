@@ -50,9 +50,13 @@ return {
     local result = run_result(current, opts("result-outbox-result-marker-no-label"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(label ~= nil)
+    t.eq(label.payload.expected_state, "ready")
+    t.eq(label.payload.expected_version, current.dedup_key)
+    t.eq(label.payload.marker_guard.expected.state, "ready")
+    t.eq(label.payload.marker_guard.expected.version, current.dedup_key)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 

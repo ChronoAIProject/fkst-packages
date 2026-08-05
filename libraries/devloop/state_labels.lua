@@ -44,7 +44,7 @@ L.state_graph = {
   blocked = {},
 }
 
-L.issue_state_order = {
+L.lifecycle_state_order = {
   "thinking",
   "dependency_wait",
   "ready",

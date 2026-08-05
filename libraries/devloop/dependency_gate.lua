@@ -127,11 +127,11 @@ local function gate(kind, reason, unmet, proof)
   return result
 end
 
-function M.dependency_gate_is_satisfied(result)
+local function dependency_gate_is_satisfied(result)
   return type(result) == "table" and result.kind == "satisfied"
 end
 
-function M.dependency_gate_is_verified_cannot_proceed(result, target_repo, target_issue_number)
+local function dependency_gate_is_verified_cannot_proceed(result, target_repo, target_issue_number)
   if type(result) ~= "table" or result.kind ~= "verified_cannot_proceed" or type(result.proof) ~= "table" then
     return false
   end
@@ -259,7 +259,7 @@ end
 
 function M.new(core)
   if type(core) ~= "table" then
-    error("github-devloop: dependency gate requires a core table")
+    error("github-devloop: dependency-gate-core-type-invalid: dependency gate requires a core table")
   end
 
   local function gh_blocked_by(repo, issue_number, timeout, exec)
@@ -756,12 +756,17 @@ function M.new(core)
   return {
     delegated_blocker_merged = delegated_blocker_merged,
     dependency_gate = dependency_gate,
-    dependency_gate_is_satisfied = M.dependency_gate_is_satisfied,
-    dependency_gate_is_verified_cannot_proceed = M.dependency_gate_is_verified_cannot_proceed,
     dependency_waiver_fact = dependency_waiver_fact,
     gh_blocked_by = gh_blocked_by,
     merged_blocker_cache_key = merged_blocker_cache_key,
   }
 end
 
-return M
+return {
+  github_graphql_queries = M.github_graphql_queries,
+  render_github_graphql_query = M.render_github_graphql_query,
+  github_graphql = M.github_graphql,
+  dependency_gate_is_satisfied = dependency_gate_is_satisfied,
+  dependency_gate_is_verified_cannot_proceed = dependency_gate_is_verified_cannot_proceed,
+  new = M.new,
+}

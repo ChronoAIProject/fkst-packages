@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+import check_repo_config
 import ratchet_base
 
 
@@ -96,7 +99,7 @@ def code_without_comments_and_strings(text: str) -> str:
             continue
         char = text[cursor]
         if char in ("'", '"'):
-            end = _quoted_string_end(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             _mask(chars, cursor, end)
             cursor = end
             continue
@@ -108,19 +111,6 @@ def _mask(chars: list[str], start: int, end: int) -> None:
     for index in range(start, end):
         if chars[index] != "\n":
             chars[index] = " "
-
-
-def _quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
 
 
 def normalized_body(lines: list[str]) -> str:
@@ -189,6 +179,7 @@ def duplicate_groups(sources_by_path: dict[str, str]) -> set[DedupEntry]:
     return entries
 
 
+# Local variants parse typed DedupEntry records for current and dev data.
 def load_allowlist(path: Path) -> set[DedupEntry]:
     if not path.exists():
         return set()

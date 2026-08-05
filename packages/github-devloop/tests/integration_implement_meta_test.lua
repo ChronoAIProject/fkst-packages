@@ -261,7 +261,8 @@ return {
   test_implement_impl_failure_replay_skips_before_ready_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:impl-failed" }, {
-      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-replay"))
@@ -275,7 +276,8 @@ return {
   test_implement_impl_failure_marker_skips_before_label_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:thinking" }, {
-      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-marker-replay"))
@@ -353,7 +355,7 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree list"), 0)
+    t.eq(count_calls("git worktree list"), 1)
     t.eq(count_calls("codex exec"), 1)
   end,
 
@@ -361,7 +363,7 @@ return {
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" })
     mock_fresh_implement_worktree()
-    mock_implement_codex(0, "No files needed changes.")
+    mock_implement_codex(0, "")
     mock_git_status("")
     t.mock_command("rev-list --count", {
       stdout = "0\n",
@@ -377,7 +379,6 @@ return {
     t.eq(find_label_with_added(result.raises, "fkst-dev:impl-failed").payload.add_labels[1], "fkst-dev:impl-failed")
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find("No files needed changes.", 1, true) ~= nil)
   end,
 
   test_implement_clean_worktree_with_branch_ahead_marks_implementing = function()
@@ -416,7 +417,7 @@ return {
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" })
     mock_existing_empty_implement_worktree()
-    mock_implement_codex(0, "No files needed changes.")
+    mock_implement_codex(0, "")
     mock_git_status("")
     t.mock_command("rev-list --count", {
       stdout = "0\n",
@@ -573,7 +574,7 @@ return {
     })
 
     local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error))
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
