@@ -1,4 +1,5 @@
 local parsers_misc = require("devloop.parsers.misc")
+local check_runs = require("forge.github.check_runs")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -176,25 +177,32 @@ return {
 
   test_rollup_failure_gate_sha_comes_from_failed_checks = function()
     local sha = "abc123"
-    t.eq(parsers_misc.rollup_failure_gate_sha(pr({
+    local single_failure = pr({
       base_ref_oid = "base999",
       status_check_rollup = {
         { name = "test", state = "COMPLETED", conclusion = "FAILURE", headSha = sha },
         { name = "docs", state = "COMPLETED", conclusion = "SUCCESS", headSha = "docs999" },
       },
-    })), sha)
-    t.eq(parsers_misc.rollup_failure_gate_sha(pr({
+    })
+    local missing_sha = pr({
       base_ref_oid = "base999",
       status_check_rollup = {
         { name = "test", state = "COMPLETED", conclusion = "FAILURE" },
       },
-    })), nil)
-    t.eq(parsers_misc.rollup_failure_gate_sha(pr({
+    })
+    local mixed_sha = pr({
       status_check_rollup = {
         { name = "test", state = "COMPLETED", conclusion = "FAILURE", headSha = "abc123" },
         { name = "lint", state = "COMPLETED", conclusion = "FAILURE", headSha = "def456" },
       },
-    })), nil)
+    })
+
+    t.eq(check_runs.rollup_failure_gate_sha(single_failure), sha)
+    t.eq(check_runs.rollup_failure_gate_sha(missing_sha), nil)
+    t.eq(check_runs.rollup_failure_gate_sha(mixed_sha), nil)
+    t.eq(parsers_misc.rollup_failure_gate_sha(single_failure), sha)
+    t.eq(parsers_misc.rollup_failure_gate_sha(missing_sha), nil)
+    t.eq(parsers_misc.rollup_failure_gate_sha(mixed_sha), nil)
   end,
 
   test_empty_rollup_falls_back_to_required_commit_check_run_green = function()

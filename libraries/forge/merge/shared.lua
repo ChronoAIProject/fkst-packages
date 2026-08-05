@@ -85,7 +85,7 @@ local function ci_classification(kind, reason, extra)
 end
 
 local function integration_or_external_red(pr, head_sha, runs)
-  local gate_sha = M.rollup_failure_gate_sha(pr)
+  local gate_sha = check_runs.rollup_failure_gate_sha(pr)
   if gate_sha ~= nil and tostring(gate_sha):lower() ~= tostring(head_sha):lower() then
     return ci_classification("INTEGRATION_RED", "integration-ci-red", { check_runs = runs })
   end

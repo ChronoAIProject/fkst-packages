@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 15,
     "workflow_injected_m_unique_symbols": 7,
-    "forge_injected_m_reads": 14,
-    "forge_injected_m_unique_symbols": 9,
-    "total_injected_m_reads": 29,
-    "total_injected_m_unique_symbols": 16
+    "forge_injected_m_reads": 13,
+    "forge_injected_m_unique_symbols": 8,
+    "total_injected_m_reads": 28,
+    "total_injected_m_unique_symbols": 15
   },
   "manifest": {
     "workflow": {
@@ -71,10 +71,6 @@
       "read_runtime_root_cmd": {
         "route": "workflow",
         "owner": "workflow-env"
-      },
-      "rollup_failure_gate_sha": {
-        "route": "typed_port",
-        "owner": "devloop-seam-dissolution"
       }
     }
   }
