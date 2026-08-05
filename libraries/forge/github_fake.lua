@@ -42,7 +42,7 @@ function M.new(model)
   function handle.read_issue(source_ref)
     local fixture = model.issues[source_ref.ref]
     if fixture == nil then
-      error("fake: unknown issue " .. tostring(source_ref.ref))
+      error("fake: issue-fixture-missing: unknown issue " .. tostring(source_ref.ref))
     end
     return copy(issue.normalize_issue(fixture, source_ref))
   end
@@ -98,6 +98,18 @@ function M.new(model)
       tostring(repo),
       "--json",
       tostring(fields),
+    }, timeout, "gh issue view")
+  end
+  function handle.issue_view_full(repo, issue_number, timeout)
+    return handle._exec({
+      "gh",
+      "issue",
+      "view",
+      tostring(issue_number),
+      "--repo",
+      tostring(repo),
+      "--json",
+      "number,title,body,url,updatedAt,state,labels,comments,assignees,author",
     }, timeout, "gh issue view")
   end
   function handle.issue_rest_view(repo, issue_number, timeout)

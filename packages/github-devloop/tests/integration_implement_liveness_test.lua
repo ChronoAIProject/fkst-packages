@@ -129,7 +129,7 @@ local function liveness_redrive_ready(event)
       attempt = 1,
     },
   })
-  t.eq(payload.dedup_key, payloads_shared.ready_redrive_delivery_dedup_key(
+  t.eq(payload.dedup_key, payloads_shared.issue_redrive_delivery_dedup_key(
     payload.proposal_id, payload.implementation_version, payload.redrive_delivery
   ))
   return payload
@@ -161,7 +161,7 @@ return {
     local event = ready()
     local run_opts = opts("implement-invalid-result-error-class")
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
     mock_existing_empty_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(0, '{"schema":"github-devloop.implementation-result.v1",'

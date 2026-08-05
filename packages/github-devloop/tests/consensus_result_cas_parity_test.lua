@@ -188,7 +188,7 @@ local function source_for_fixture(fixture)
   })
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(event.proposal_id, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(event.proposal_id, fixture.current_state, fixture.current_version))
   end
   if fixture.result_marker_visible then
     table.insert(comments, m_builders.result_marker(
@@ -482,7 +482,7 @@ local TRACE_FIXTURES = {
     probe_outcome = "apply",
     admission_status = "apply",
     admission_reason_code = "apply",
-    boundary_call_count = 2,
+    boundary_call_count = 1,
     post_admission_disposition = "effect-emitted(ready)",
     legacy_log_outcome = "applied | applied",
     effect_state = "ready",
@@ -510,7 +510,7 @@ local TRACE_FIXTURES = {
     probe_outcome = "idempotent",
     admission_status = "idempotent",
     admission_reason_code = "already-at-target",
-    boundary_call_count = 2,
+    boundary_call_count = 1,
     post_admission_disposition = "effect-repair(ready)",
     legacy_log_outcome = "applied(result effects incomplete)",
     effect_state = "ready",
@@ -652,7 +652,7 @@ return {
       probe_outcome = "apply",
       admission_status = "apply",
       admission_reason_code = "apply",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-emitted(ready)",
       legacy_log_outcome = "applied | applied",
       effect_state = "ready",
@@ -669,7 +669,7 @@ return {
       probe_outcome = "apply",
       admission_status = "apply",
       admission_reason_code = "apply",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-emitted(dependency_wait)",
       legacy_log_outcome = "applied | hold-dependency",
       effect_state = "dependency_wait",
@@ -687,7 +687,7 @@ return {
       probe_outcome = "apply",
       admission_status = "apply",
       admission_reason_code = "apply",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-emitted(declined)",
       legacy_log_outcome = "applied | applied",
       effect_state = "declined",
@@ -705,7 +705,7 @@ return {
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-repair(declined)",
       legacy_log_outcome = "applied(result effects incomplete)",
       effect_state = "declined",
@@ -845,7 +845,7 @@ return {
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-repair(ready)",
       legacy_log_outcome = "applied(result effects incomplete)",
       effect_state = "ready",
@@ -867,7 +867,7 @@ return {
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
-      boundary_call_count = 2,
+      boundary_call_count = 1,
       post_admission_disposition = "effect-repair(label)",
       legacy_log_outcome = "applied(result effects incomplete)",
       effect_state = nil,

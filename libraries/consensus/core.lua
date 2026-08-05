@@ -47,9 +47,9 @@ function M.error_fingerprint(error_class, queue, dept, message)
 end
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  local class = text:match("consensus: ([%w%-]+):")
-    or text:match("consensus: ([%w%-]+) failed:")
-  return class or "caught-failure"
+  local class =
+    text:match("consensus: ([%w%-]+) failed:")
+  return class or error_facts.error_class_from_message(text)
 end
 function M.log_error_fact(level, dept, tag, error_class, queue, message, context)
   local fields = error_facts.error_fact_fields(error_class, queue, dept, message, context)

@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "432125d7615c39c94d342f76733e99f086c270655319c9aa22608c65e731fa4d",
+  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -18964,7 +18964,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188306"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188306"
             },
             "queue": "consensus.proposal"
           }
@@ -19004,7 +19004,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188306"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188306"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19361,7 +19361,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188308"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188308"
             },
             "queue": "consensus.proposal"
           }
@@ -19396,7 +19396,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188308"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188308"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19568,7 +19568,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188310"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188310"
             },
             "queue": "consensus.proposal"
           }
@@ -19603,7 +19603,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188310"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188310"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19781,7 +19781,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188312"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188312"
             },
             "queue": "consensus.proposal"
           }
@@ -19821,7 +19821,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188312"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188312"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -21502,8 +21502,13 @@
               "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-3306236848",
               "convergence_question": "Latest visible question",
-              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1/delivery-redrive/level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z/1",
+              "effect_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
               "proposal_id": "github-devloop/issue/owner/repo/42",
+              "redrive_delivery": {
+                "attempt": 1,
+                "generation_key": "level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z"
+              },
               "round": 1,
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -21601,8 +21606,13 @@
             "payload": {
               "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z",
-              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/delivery-redrive/level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z/1",
+              "effect_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "proposal_id": "github-devloop/issue/owner/repo/42",
+              "redrive_delivery": {
+                "attempt": 1,
+                "generation_key": "level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z"
+              },
               "schema": "consensus.proposal.v1",
               "source_ref": {
                 "kind": "external",
@@ -21700,8 +21710,13 @@
               "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-3306236849",
               "convergence_question": "Narrowed question 1",
-              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2/delivery-redrive/level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z/1",
+              "effect_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2",
               "proposal_id": "github-devloop/issue/owner/repo/42",
+              "redrive_delivery": {
+                "attempt": 1,
+                "generation_key": "level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z"
+              },
               "round": 2,
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -22396,8 +22411,13 @@
             "payload": {
               "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z",
-              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/delivery-redrive/level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z/1",
+              "effect_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "proposal_id": "github-devloop/issue/owner/repo/42",
+              "redrive_delivery": {
+                "attempt": 1,
+                "generation_key": "level-replay/github-devloop/issue/owner/repo/42/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/2026-06-03T01-02-04Z"
+              },
               "schema": "consensus.proposal.v1",
               "source_ref": {
                 "kind": "external",

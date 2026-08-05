@@ -5,9 +5,6 @@ local capacity = require("core.intake_capacity")
 local base_ids = require("devloop.base_ids")
 local claims = require("devloop.claims")
 local marker_builders = require("devloop.markers.builders")
-local operator_commands = require("devloop.operator_commands")
-local testing = require("testkit_internal.testing")
-local admission_department = require("departments.admission.main")
 
 local REPO = "owner/repo"
 local OWNER = "fkst-test-bot"
@@ -52,23 +49,6 @@ local function state_comment(number, state, version, created_at)
   ), created_at)
 end
 
-local function reintake_command(id, created_at)
-  return {
-    id = id,
-    body = "fkst: reintake",
-    author_login = OWNER,
-    created_at = created_at or "2026-07-16T00:00:02Z",
-  }
-end
-
-local function command_response(command, outcome, created_at)
-  local fact = assert(operator_commands.operator_command_fact({ command }, "reintake"))
-  return trusted_comment(
-    operator_commands.operator_command_marker(fact, outcome, "reintake"),
-    created_at or "2026-07-16T00:00:03Z"
-  )
-end
-
 local function issue(number, fields)
   local selected = fields or {}
   return {
@@ -84,14 +64,6 @@ local function issue(number, fields)
   }
 end
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tonumber(value) == tonumber(expected) then
-      return true
-    end
-  end
-  return false
-end
 
 local function active_issue(current)
   return capacity.issue_occupies_capacity(REPO, current)
@@ -205,7 +177,6 @@ local function new_world(max_inflight)
           kind = "cas",
           runtime_root = runtime_root,
           holders = copy(record.holders),
-          reintake_reservations = copy(record.reintake_reservations),
           sha = sha,
         })
         return true, sha
@@ -244,50 +215,6 @@ end
 
 local function authorize(controller, world, number)
   return controller.authorize(REPO, number, world:current(number), proposal_id(number))
-end
-
-local function owner_event(number)
-  return {
-    queue = "github-proxy.github_entity_changed",
-    payload = {
-      schema = "github-proxy.v1",
-      type = "issue",
-      repo = REPO,
-      number = number,
-      updated_at = "2026-07-16T00:00:00Z",
-      dedup_key = REPO .. "#issue#" .. tostring(number),
-      source_ref = {
-        kind = "external",
-        ref = REPO .. "#issue/" .. tostring(number),
-      },
-    },
-  }
-end
-
-local function owner_department(world, controller)
-  return admission_department.make_department({
-    capacity = controller,
-    claims = {
-      claim_admission_inputs = function()
-        return {}
-      end,
-      claim_admission_precheck = function()
-        return "needs-claim", "owner-side integration fixture"
-      end,
-      claim_issue_for_management = function(_core, _dept, repo, number)
-        t.eq(repo, REPO)
-        world:claim(number)
-        return true
-      end,
-      with_current_claim_admission_epoch = function(_detail, fn)
-        return true, fn()
-      end,
-    },
-    read_current_issue = function(source_ref)
-      local number = tonumber(tostring(source_ref.ref):match("#issue/(%d+)$"))
-      return REPO, number, world:current(number), nil
-    end,
-  })
 end
 
 return {
@@ -408,209 +335,6 @@ return {
     t.eq(world:active_claim_count(), 1)
   end,
 
-  test_reintake_reservation_survives_applied_response_until_bound_successor = function()
-    h.mock_bot_env()
-    local world = new_world(1)
-    local command = reintake_command("IC_reintake_capacity_75")
-    world:add(issue(75, {
-      comments = {
-        decision_comment(75, "enable"),
-        state_comment(75, "blocked", nil, "2026-07-16T00:00:01Z"),
-        command,
-      },
-    }))
-    local controller = capacity.new(world:ports("/runtime/reintake"))
-
-    t.eq(authorize(controller, world, 75), false)
-    t.eq(controller.authorize_reintake(REPO, 75, world:current(75), proposal_id(75)), true)
-    world:claim(75)
-
-    local reservation = assert(world.grant.reintake_reservations[1])
-    t.eq(reservation.issue_number, 75)
-    t.is_true(reservation.command_key:find("operator%-command", 1, false) ~= nil)
-    t.eq(reservation.effect_updated_at, "2026-07-16T00:00:02Z")
-    t.is_true(type(reservation.successor_version) == "string" and reservation.successor_version ~= "")
-
-    local successful_cas_after_grant = world.successful_cas
-    table.insert(world.issues[75].comments, command_response(command, "applied"))
-    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
-    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
-    t.eq(world.successful_cas, successful_cas_after_grant)
-    t.eq(world.grant.holders[1], 75)
-    t.eq(world.grant.reintake_reservations[1].command_key, reservation.command_key)
-
-    table.insert(world.issues[75].comments, state_comment(
-      75,
-      "thinking",
-      reservation.successor_version,
-      "2026-07-16T00:00:04Z"
-    ))
-    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
-    t.eq(world.grant.holders[1], 75)
-    t.eq(#world.grant.reintake_reservations, 0)
-
-    table.insert(world.issues[75].comments, state_comment(
-      75,
-      "blocked",
-      proposal_id(75) .. "/2026-07-16T00-00-05Z/intake/3",
-      "2026-07-16T00:00:05Z"
-    ))
-    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
-    t.eq(#world.grant.holders, 0)
-    t.eq(claims.issue_claim_state(world.issues[75].assignees, OWNER), "unassigned")
-  end,
-
-  test_reintake_refusal_releases_matching_reservation = function()
-    h.mock_bot_env()
-    local world = new_world(1)
-    local command = reintake_command("IC_reintake_refused_76")
-    world:add(issue(76, {
-      comments = {
-        decision_comment(76, "enable"),
-        state_comment(76, "blocked", nil, "2026-07-16T00:00:01Z"),
-        command,
-      },
-    }))
-    local controller = capacity.new(world:ports("/runtime/reintake-refused"))
-
-    t.eq(controller.authorize_reintake(REPO, 76, world:current(76), proposal_id(76)), true)
-    world:claim(76)
-    table.insert(world.issues[76].comments, command_response(command, "applied", "2026-07-16T00:00:03Z"))
-    table.insert(world.issues[76].comments, command_response(command, "refused", "2026-07-16T00:00:04Z"))
-
-    t.eq(controller.reconcile(REPO, proposal_id(76)), true)
-    t.eq(#world.grant.holders, 0)
-    t.eq(#world.grant.reintake_reservations, 0)
-    t.eq(claims.issue_claim_state(world.issues[76].assignees, OWNER), "unassigned")
-  end,
-
-  test_reintake_cas_loss_does_not_accept_holder_without_matching_reservation = function()
-    h.mock_bot_env()
-    local command = reintake_command("IC_reintake_contended_77")
-    local world = new_world(1)
-    world:add(issue(77, {
-      assignees = { OWNER },
-      comments = {
-        decision_comment(77, "enable"),
-        state_comment(77, "blocked", nil, "2026-07-16T00:00:01Z"),
-        command,
-      },
-    }))
-    world.grant = {
-      schema = capacity.schema,
-      repo = REPO,
-      owner = OWNER,
-      capacity = 1,
-      holders = { 77 },
-      reintake_reservations = {},
-      sha = string.format("%040x", 10),
-    }
-    world.before_next_cas = function()
-      world.grant.sha = string.format("%040x", 11)
-    end
-    local controller = capacity.new(world:ports("/runtime/reintake-contended"))
-    local department = owner_department(world, controller)
-
-    local result = testing.run_fake(department, owner_event(77))
-
-    t.eq(#result.raises, 0)
-    t.eq(world.grant.holders[1], 77)
-    t.eq(#world.grant.reintake_reservations, 0)
-  end,
-
-  test_real_admission_converts_blocked_holder_to_reintake_reservation_without_claim_gap = function()
-    h.mock_bot_env()
-    local world = new_world(1)
-    world:add(issue(100))
-    local controller = capacity.new(world:ports("/runtime/owner-handoff"))
-    local department = owner_department(world, controller)
-
-    testing.run_fake(department, owner_event(100))
-    world.issues[100].labels = { "fkst-dev:enabled", "fkst-dev:blocked" }
-    world.issues[100].comments = {
-      decision_comment(100, "enable"),
-      state_comment(100, "blocked", nil, "2026-07-16T00:00:01Z"),
-      reintake_command("IC_owner_handoff_100"),
-    }
-
-    local reintake = testing.run_fake(department, owner_event(100))
-
-    t.eq(reintake.raises[1].queue, "devloop_intake_candidate")
-    t.eq(world.grant.holders[1], 100)
-    t.eq(world.grant.reintake_reservations[1].issue_number, 100)
-    t.eq(#world:release_order(), 0)
-    t.eq(claims.issue_claim_state(world.issues[100].assignees, OWNER), "self")
-  end,
-
-  test_real_admission_owner_replays_blocked_release_and_reintake_handoff_schedules = function()
-    h.mock_bot_env()
-    local world = new_world(1)
-    world:add(issue(101))
-    world:add(issue(102))
-    world:add(issue(103))
-    local controller = capacity.new(world:ports("/runtime/owner-integration"))
-    local department = owner_department(world, controller)
-
-    local first = testing.run_fake(department, owner_event(101))
-    t.eq(first.raises[1].queue, "devloop_intake_candidate")
-    t.eq(world.grant.holders[1], 101)
-
-    world.issues[101].labels = { "fkst-dev:enabled", "fkst-dev:blocked" }
-    world.issues[101].comments = {
-      decision_comment(101, "enable"),
-      state_comment(101, "blocked", nil, "2026-07-16T00:00:01Z"),
-    }
-    local second = testing.run_fake(department, owner_event(102))
-    t.eq(second.raises[1].queue, "devloop_intake_candidate")
-    t.eq(world.grant.holders[1], 102)
-    t.eq(claims.issue_claim_state(world.issues[101].assignees, OWNER), "unassigned")
-
-    world.issues[102].labels = { "fkst-dev:enabled", "fkst-dev:blocked" }
-    world.issues[102].comments = {
-      decision_comment(102, "enable"),
-      state_comment(102, "blocked", nil, "2026-07-16T00:00:01Z"),
-    }
-    local command = reintake_command("IC_owner_reintake_101")
-    table.insert(world.issues[101].comments, command)
-    local reintake = testing.run_fake(department, owner_event(101))
-    t.eq(reintake.raises[1].queue, "devloop_intake_candidate")
-    t.eq(world.grant.holders[1], 101)
-    local reservation = assert(world.grant.reintake_reservations[1])
-    t.eq(reservation.successor_version, reintake.raises[1].payload.effect_id)
-
-    table.insert(world.issues[101].comments, command_response(command, "applied"))
-    table.insert(world.issues[101].comments, reintake_command(
-      "IC_owner_reintake_101_next",
-      "2026-07-16T00:00:04Z"
-    ))
-    t.eq(controller.reconcile(REPO, proposal_id(101)), true)
-    t.eq(controller.reconcile(REPO, proposal_id(101)), true)
-    t.eq(world.grant.holders[1], 101)
-    t.eq(world.grant.reintake_reservations[1].command_key, reservation.command_key)
-
-    table.insert(world.issues[101].comments, state_comment(
-      101,
-      "thinking",
-      reservation.successor_version,
-      "2026-07-16T00:00:05Z"
-    ))
-    t.eq(controller.reconcile(REPO, proposal_id(101)), true)
-    t.eq(world.grant.holders[1], 101)
-    t.eq(#world.grant.reintake_reservations, 0)
-
-    table.insert(world.issues[101].comments, state_comment(
-      101,
-      "blocked",
-      proposal_id(101) .. "/2026-07-16T00-00-06Z/intake/3",
-      "2026-07-16T00:00:06Z"
-    ))
-    local third = testing.run_fake(department, owner_event(103))
-    t.eq(third.raises[1].queue, "devloop_intake_candidate")
-    t.eq(world.grant.holders[1], 103)
-    t.eq(#world.grant.holders, 1)
-    t.eq(claims.issue_claim_state(world.issues[101].assignees, OWNER), "unassigned")
-  end,
-
   test_declined_state_marker_releases_capacity_for_next_issue = function()
     h.mock_bot_env()
     local world = new_world(1)
@@ -725,14 +449,6 @@ return {
       owner = OWNER,
       capacity = 1,
       holders = { 91 },
-      reintake_reservations = {
-        {
-          issue_number = 91,
-          command_key = "operator-command/IC_adapter_reintake",
-          effect_updated_at = "2026-07-16T00:00:02Z",
-          successor_version = proposal_id(91) .. "/intake/2",
-        },
-      },
     }
 
     local created, created_sha = adapter.compare_and_swap_grant(REPO, OWNER, nil, first)
@@ -747,14 +463,11 @@ return {
     t.eq(decoded.owner, OWNER)
     t.eq(decoded.capacity, 1)
     t.eq(decoded.holders[1], 91)
-    t.eq(decoded.reintake_reservations[1].command_key, "operator-command/IC_adapter_reintake")
-    t.eq(decoded.reintake_reservations[1].successor_version, proposal_id(91) .. "/intake/2")
     t.eq(decoded.sha, first_sha)
 
     next_commit_sha = second_sha
     local updated = copy(first)
     updated.holders = { 92 }
-    updated.reintake_reservations = {}
     local changed, changed_sha = adapter.compare_and_swap_grant(REPO, OWNER, first_sha, updated)
     t.eq(changed, true)
     t.eq(changed_sha, second_sha)

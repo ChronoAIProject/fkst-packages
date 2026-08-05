@@ -107,7 +107,7 @@ end
 
 local function mock_bridge_issue(event)
   mock_issue_implement({ "fkst-dev:ready" }, {
-    core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
   }, {
     body = bridge_issue_body(),
     author_login = "fkst-test-bot",

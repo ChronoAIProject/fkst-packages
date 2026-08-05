@@ -45,7 +45,7 @@ function C.attach_reviewing_handoff(request, proposal_id, pr_number, version, so
       or review_proposal_id ~= expected_review_proposal_id
       or tostring(review_pr_number or "") ~= tostring(pr_number or "")
       or tostring(review_pr_number or "") ~= tostring(source_pr_number or "") then
-      error("github-devloop: invalid reviewing redrive delivery handoff")
+      error("github-devloop: pr-review-redrive-dedup-mismatch: invalid reviewing redrive delivery handoff")
     end
     request.dedup_key = review_delivery_dedup_key
     request.handoff.review_delivery_dedup_key = review_delivery_dedup_key
@@ -94,7 +94,7 @@ function C.attach_fixing_handoff(request, proposal_id, pr_number, version, revie
   end
   if review_fact.current_head_sha ~= nil then
     if not require("devloop.pr_safety").is_safe_head_sha(review_fact.current_head_sha) then
-      error("github-devloop: invalid fixing handoff current head sha")
+      error("github-devloop: git-sha-invalid: invalid fixing handoff current head sha")
     end
     request.handoff.current_head_sha = tostring(review_fact.current_head_sha)
   end
@@ -236,7 +236,7 @@ function C.build_review_result_comment_request(M, repo, issue_number, issue_prop
     reached.proposal_id
   )
   if review_dedup_key == nil then
-    error("github-devloop: invalid review result dedup")
+    error("github-devloop: review-result-dedup-mismatch: invalid review result dedup")
   end
   local to_state = reached.reflection_checkpoint and "review-meta"
     or reached.decision == "approve" and "merge-ready"
@@ -334,7 +334,7 @@ function C.build_high_risk_review_evidence_comment_request(repo, issue_proposal_
     reached.proposal_id
   )
   if review_dedup_key == nil then
-    error("github-devloop: invalid high-risk review evidence dedup")
+    error("github-devloop: review-result-dedup-mismatch: invalid high-risk review evidence dedup")
   end
   local marker = m_builders.high_risk_review_evidence_marker(issue_proposal_id,
     issue_version,
@@ -370,7 +370,7 @@ function C.build_merge_gate_fix_comment_request(M, repo, issue_number, merge_rea
     display_reason = "gate-failed"
   end
   if gate_baseline_sha ~= nil and not forge_validators.is_git_sha(gate_baseline_sha) then
-    error("github-devloop: invalid merge-gate baseline sha")
+    error("github-devloop: git-sha-invalid: invalid merge-gate baseline sha")
   end
   local test_command = devloop_base.neutralize_untrusted_comment_text(config.test_command())
   local state_marker = devloop_state.state_marker(merge_ready.proposal_id, "fixing", fix_version)
@@ -611,6 +611,28 @@ function C.build_review_carry_over_comment_request(repo, pr_number, issue_propos
     source_ref = base_ids.normalize_source_ref(source_ref),
   }
   return request
+end
+
+function C.build_fix_feedback_recovery_reviewing_comment_request(repo, proposal_id,
+    pr_number, version, current_head_sha, source_ref)
+  local state_marker = devloop_state.state_marker(proposal_id, "reviewing", version)
+  local request = entity_lib.build_entity_comment_request({
+    kind = "pr",
+    repo = repo,
+    number = pr_number,
+  }, "github-devloop rejected invalid fix feedback and re-entered review"
+    .. "\nCurrent head: " .. tostring(current_head_sha)
+    .. "\n\n" .. state_marker
+    .. "\n" .. ai_sentinel, base_ids.dedup_key({
+    "fix-feedback-recovery",
+    "comment",
+    tostring(proposal_id),
+    tostring(version),
+    tostring(pr_number),
+    tostring(current_head_sha),
+  }), source_ref)
+  return C.attach_reviewing_handoff(
+    request, proposal_id, pr_number, version, source_ref)
 end
 
 return C

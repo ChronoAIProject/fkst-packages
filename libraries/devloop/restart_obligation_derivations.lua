@@ -15,10 +15,10 @@ function M.new(primitives)
 
   function K.derive_edge(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}
@@ -27,12 +27,12 @@ function M.new(primitives)
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
@@ -40,7 +40,7 @@ function M.new(primitives)
       require_nonempty_string(edge.owner, "owner_edges edge.owner")
       local pending_order = edge.pending_order
       if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
-        error("devloop.restart_obligations: edge.pending_order.participates must be a boolean")
+        error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
       end
       if pending_order.predecessor_state ~= nil then
         require_nonempty_string(
@@ -48,12 +48,12 @@ function M.new(primitives)
           "owner_edges edge.pending_order.predecessor_state"
         )
       elseif pending_order.participates then
-        error("devloop.restart_obligations: participating edge must have a predecessor_state")
+        error("devloop.restart_obligations: pending-predecessor-missing: participating edge must have a predecessor_state")
       end
       require_nonempty_string(edge.target, "owner_edges edge.target")
       require_nonempty_string(edge.kind, "owner_edges edge.kind")
       if seen_edge_ids[edge.id] then
-        error("devloop.restart_obligations: duplicate edge id " .. edge.id)
+        error("devloop.restart_obligations: duplicate-edge-id: duplicate edge id " .. edge.id)
       end
       seen_edge_ids[edge.id] = true
 
@@ -108,10 +108,10 @@ function M.new(primitives)
 
   function K.derive(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}
@@ -120,12 +120,12 @@ function M.new(primitives)
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
@@ -134,7 +134,7 @@ function M.new(primitives)
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate CAS edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate CAS edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
 
@@ -180,10 +180,10 @@ function M.new(primitives)
 
   function K.derive_pending(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}
@@ -192,18 +192,18 @@ function M.new(primitives)
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
       local pending_order = edge.pending_order
       if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
-        error("devloop.restart_obligations: edge.pending_order.participates must be a boolean")
+        error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
       end
       if pending_order.participates then
         require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -214,7 +214,7 @@ function M.new(primitives)
           "owner_edges edge.pending_order.predecessor_state"
         )
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate pending edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate pending edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
 
@@ -337,22 +337,22 @@ function M.new(primitives)
 
   function K.derive_edge_pair(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local edge_count = 0
     local seen_edge_ids = {}
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
@@ -368,7 +368,7 @@ function M.new(primitives)
       end
       local pending_order = edge.pending_order
       if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
-        error("devloop.restart_obligations: edge.pending_order.participates must be a boolean")
+        error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
       end
       if pending_order.predecessor_state ~= nil then
         require_nonempty_string(
@@ -376,10 +376,10 @@ function M.new(primitives)
           "owner_edges edge.pending_order.predecessor_state"
         )
       elseif pending_order.participates then
-        error("devloop.restart_obligations: participating edge must have a predecessor_state")
+        error("devloop.restart_obligations: pending-predecessor-missing: participating edge must have a predecessor_state")
       end
       if seen_edge_ids[edge.id] then
-        error("devloop.restart_obligations: duplicate edge id " .. edge.id)
+        error("devloop.restart_obligations: duplicate-edge-id: duplicate edge id " .. edge.id)
       end
       seen_edge_ids[edge.id] = true
     end
@@ -476,7 +476,7 @@ function M.new(primitives)
   local function validate_entitlement_case(entitlements, status, context)
     local entitlement = entitlements[status]
     if type(entitlement) ~= "table" then
-      error("devloop.restart_obligations: " .. context .. "." .. status .. " must be a table")
+      error("devloop.restart_obligations: effect-entitlement-case-not-table: " .. context .. "." .. status .. " must be a table")
     end
     require_nonempty_string(entitlement.id, context .. "." .. status .. ".id")
     require_dense_string_array(entitlement.effect_ids, context .. "." .. status .. ".effect_ids")
@@ -515,10 +515,10 @@ function M.new(primitives)
 
   function K.derive_entitlement(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}
@@ -527,18 +527,18 @@ function M.new(primitives)
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
       local entitlements = edge.transition_effect_entitlements
       if entitlements ~= nil and type(entitlements) ~= "table" then
-        error("devloop.restart_obligations: edge.transition_effect_entitlements must be a table")
+        error("devloop.restart_obligations: transition-effect-entitlements-not-table: edge.transition_effect_entitlements must be a table")
       end
       if type(entitlements) == "table" and next(entitlements) ~= nil then
         require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -546,7 +546,7 @@ function M.new(primitives)
         validate_entitlement_case(entitlements, "apply", "edge.transition_effect_entitlements")
         validate_entitlement_case(entitlements, "idempotent", "edge.transition_effect_entitlements")
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate entitlement edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate entitlement edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
 
@@ -594,7 +594,7 @@ function M.new(primitives)
     local groups = {}
     for _, edge in ipairs(owner_edges) do
       if edge.cas_variant ~= nil and edge.cas_policy_id == nil then
-        error("devloop.restart_obligations: edge.cas_variant requires edge.cas_policy_id")
+        error("devloop.restart_obligations: cas-variant-policy-missing: edge.cas_variant requires edge.cas_policy_id")
       end
       if edge.cas_policy_id ~= nil then
         require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
@@ -627,21 +627,21 @@ function M.new(primitives)
 
   function K.derive_family_variant(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     local groups = family_variant_groups(owner_edges)
@@ -655,7 +655,7 @@ function M.new(primitives)
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(edge.target, "owner_edges edge.target")
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate family variant edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate family variant edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
 
@@ -709,10 +709,10 @@ function M.new(primitives)
 
   function K.derive_timeout(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}
@@ -721,12 +721,12 @@ function M.new(primitives)
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     for _, edge in ipairs(owner_edges) do
@@ -736,7 +736,7 @@ function M.new(primitives)
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(resolver, "owner_edges edge.timeout_evidence_policy_id")
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate timeout edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate timeout edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
 

@@ -109,7 +109,7 @@ local function log_defer(M, ...) return log_decline(M, "deferred", ...) end
 function C.replay_log_decline(M, disposition, ...)
   if disposition == "deferred" then return log_defer(M, ...) end
   if disposition == "stuck" then return log_skip(M, ...) end
-  error("github-devloop: invalid typed replay disposition")
+  error("github-devloop: typed-replay-disposition-invalid: invalid typed replay disposition")
 end
 
 function C.build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
@@ -118,6 +118,10 @@ end
 
 function C.has_thinking_converge_replay(M, current, proposal_id, state, source_ref)
   return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
+end
+
+function C.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+  return replay_thinking_convergence.level_replay_delivery_identity(proposal_id, state, event_ts)
 end
 
 local function replay_thinking(M, dept, issue, state, row, facts)
@@ -191,7 +195,7 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
   local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
   if intended_head_sha == nil then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "retry-pending(head-advanced)", "PR head changed and deterministic branch head is not readable")
-    error("github-devloop: PR head changed before fix replay and deterministic branch head is not readable")
+    error("github-devloop: deterministic-branch-head-read-failed: PR head changed before fix replay and deterministic branch head is not readable")
   end
   if tostring(current_pr.head_sha or "") ~= intended_head_sha then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
@@ -556,11 +560,11 @@ local function restart_replayers(M)
   local function merge(source)
     if source == nil then return end
     if type(source) ~= "table" then
-      error("github-devloop: invalid restart replayer registry")
+      error("github-devloop: restart-replayer-registry-invalid: invalid restart replayer registry")
     end
     for state_name, replay in pairs(source) do
       if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
-        error("github-devloop: invalid restart replayer registration")
+        error("github-devloop: restart-replayer-registration-invalid: invalid restart replayer registration")
       end
       replayers[state_name] = replay
     end

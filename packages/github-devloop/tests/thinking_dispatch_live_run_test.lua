@@ -73,7 +73,8 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, version)
+    t.eq(proposal.payload.effect_version, version)
+    t.is_true(proposal.payload.dedup_key ~= version)
     t.eq(proposal.payload.round, 1)
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
@@ -97,7 +98,8 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, original.dedup_key .. "/loop/1")
+    t.eq(proposal.payload.effect_version, original.dedup_key .. "/loop/1")
+    t.is_true(proposal.payload.dedup_key ~= proposal.payload.effect_version)
     t.eq(proposal.payload.round, 1)
     t.eq(proposal.payload.convergence_question, "Latest visible question")
     t.eq(proposal.payload.findings_record, nil)
@@ -111,7 +113,8 @@ return {
       angle_digests = {
         { angle = "minimal", verdict = "approve", digest = "round-digest-1" },
       },
-      dedup_key = "consensus:" .. proposal.payload.dedup_key,
+      dedup_key = "consensus:" .. proposal.payload.effect_version,
+      effect_version = proposal.payload.effect_version,
       source_ref = proposal.payload.source_ref,
     }
     mock_issue_loop({ "fkst-dev:enabled", "fkst-dev:thinking" }, {

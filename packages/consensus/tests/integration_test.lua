@@ -124,11 +124,6 @@ local function assert_judgment_dir_created_without_permission_control(count)
   t.eq(seen, count)
 end
 
-local function assert_no_judgment_dir_created()
-  for _, call in ipairs(t.command_calls()) do
-    t.is_nil(call.rendered:find("mkdir -p", 1, true))
-  end
-end
 
 local function mock_judgment_runtime()
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {

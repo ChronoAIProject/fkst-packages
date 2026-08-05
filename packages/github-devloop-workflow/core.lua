@@ -1,5 +1,6 @@
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
 local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
@@ -9,7 +10,7 @@ local marker = require("core.marker")
 local materialize_reconcile = require("materialize_reconcile")
 local materialization = require("core.materialization")
 local select_request = require("core.select_request")
-local default_intake = require("core.default_intake")
+local default_intake = require("devloop.intake.default")
 local intake_class = require("core.intake_class")
 local intake_service_class = require("core.intake_service_class")
 local devloop_base = require("devloop.base")
@@ -31,6 +32,7 @@ end
 M = {
   blueprint = blueprint,
   catalog = catalog,
+  child_disposition_receipt = child_disposition_receipt,
   child_result = child_result,
   default_catalog = default_catalog,
   digest = digest,
@@ -129,7 +131,7 @@ local function install_intake_surface(target)
   target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
   devloop_prompts.install(target, {
     prompts = {
-      intake = require("prompts.intake"),
+      intake = default_intake.prompt,
     },
   }, {
     intake = true,
@@ -145,6 +147,7 @@ M._test_bot_login = devloop_base._test_bot_login
 function M.install(target)
   blueprint.install(target)
   catalog.install(target)
+  child_disposition_receipt.install(target)
   child_result.install(target)
   default_catalog.install(target)
   digest.install(target)
@@ -160,7 +163,6 @@ function M.install(target)
   target.github_graphql = devloop_dependency_gate.github_graphql
   local dependency_resolver = devloop_dependency_gate.new(target)
   target.dependency_gate = dependency_resolver.dependency_gate
-  target.dependency_gate_is_satisfied = dependency_resolver.dependency_gate_is_satisfied
 end
 
 M.install(M)

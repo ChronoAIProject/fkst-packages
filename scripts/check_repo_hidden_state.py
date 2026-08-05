@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 ALLOWLIST = "migration/hidden-state.allowlist"
@@ -48,6 +48,7 @@ class HiddenStateKey:
         return f"{self.package}|{self.row}|{self.fact_family}|{self.successor}"
 
 
+# Local variants parse typed HiddenStateKey entries for current and dev data.
 def load_allowlist(path: Path) -> set[HiddenStateKey]:
     if not path.exists():
         return set()
@@ -60,19 +61,12 @@ def load_allowlist(path: Path) -> set[HiddenStateKey]:
     return entries
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[HiddenStateKey] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            HiddenStateKey.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
+def parse_dev_allowlist_lines(lines: list[str]) -> set[HiddenStateKey]:
+    return {
+        HiddenStateKey.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def ratchet_messages(allowlist: set[HiddenStateKey], base_allowlist: set[HiddenStateKey] | None = None) -> list[str]:
@@ -130,7 +124,15 @@ def repository_messages(root: Path, allowlist_dir: Path | None = None, enforce_b
             messages.append("libraries/devloop/replayer.lua must call replay_from_table with ordinary facts, not hidden-state capability hooks")
     allow_path = root / ALLOWLIST if allowlist_dir is None else allowlist_dir / Path(ALLOWLIST).name
     allowlist = load_allowlist(allow_path)
-    base_status, base_allowlist = allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=ALLOWLIST,
+            parse_allowlist_lines=parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     if base_status == "unresolved":
         messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     messages.extend(ratchet_messages(allowlist, base_allowlist))

@@ -5,6 +5,21 @@ local facts = require("contract.error_facts")
 local t = fkst.test
 
 return {
+  test_error_class_from_message_accepts_hierarchical_envelopes = function()
+    t.eq(
+      facts.error_class_from_message("contract.external_pr_bridge: invalid-number: details"),
+      "invalid-number"
+    )
+    t.eq(facts.error_class_from_message("github-devloop: gh-view-failed: details"), "gh-view-failed")
+  end,
+
+  test_error_class_from_message_rejects_incomplete_or_invalid_hierarchies = function()
+    t.eq(facts.error_class_from_message("a.b: some prose"), "caught-failure")
+    t.eq(facts.error_class_from_message(".a: narrow-class: details"), "caught-failure")
+    t.eq(facts.error_class_from_message("a.: narrow-class: details"), "caught-failure")
+    t.eq(facts.error_class_from_message("a..b: narrow-class: details"), "caught-failure")
+  end,
+
   test_normalized_message_removes_timestamp_sha_and_tmp_path_noise = function()
     local first = facts.normalized_message("FAIL at 2026-06-11T20:57:25Z in /tmp/fkst-a/run sha 81bb199f4a3eda6d736d11100856a12230030b0e")
     local second = facts.normalized_error_message("fail at 2026-06-12T01:02:03Z in /tmp/fkst-b/run sha 7d9c0a1b2c3d4e5f678901234567890abcdef123")

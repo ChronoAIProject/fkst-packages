@@ -42,7 +42,7 @@ local PENDING_STATUSES = {
 }
 
 local function fail(context, message)
-  error("devloop.restart_trace: " .. context .. " " .. message, 0)
+  error("devloop.restart_trace: restart-trace-contract-invalid: " .. context .. " " .. message, 0)
 end
 
 local function require_nonempty_string(value, context)

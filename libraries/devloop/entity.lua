@@ -25,7 +25,7 @@ end
 
 function C.build_entity_comment_request(target, body, dedup_key, source_ref, opts)
   if type(target) ~= "table" then
-    error("github-devloop: invalid entity comment target")
+    error("github-devloop: entity-comment-target-invalid: invalid entity comment target")
   end
   local request = {
     schema = "github-proxy.v1",
@@ -43,7 +43,7 @@ function C.build_entity_comment_request(target, body, dedup_key, source_ref, opt
   elseif target.kind == "pr" then
     request.pr_number = target.number
   else
-    error("github-devloop: invalid entity comment target kind")
+    error("github-devloop: entity-comment-target-kind-invalid: invalid entity comment target kind")
   end
   return request
 end
@@ -153,12 +153,12 @@ local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
       if command_indicates_not_found(pr_view) then
         snapshot.absent_prs[tostring(pr_number)] = true
       else
-        error("github-devloop: linked PR state view failed: " .. tostring(pr_view.stderr))
+        error("github-devloop: linked-pr-state-view-failed: linked PR state view failed: " .. tostring(pr_view.stderr))
       end
     else
       local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
       if type(current_pr.comments) ~= "table" or tostring(current_pr.state or "") == "" then
-        error("github-devloop: linked PR state view malformed")
+        error("github-devloop: linked-pr-state-view-malformed: linked PR state view malformed")
       end
       table.insert(snapshot.prs, {
         number = pr_number,
@@ -195,11 +195,11 @@ end
 
 function C.pr_proposal_id(repo, pr_number)
   if not require("devloop.pr_safety").is_safe_pr_number(pr_number) then
-    error("github-devloop: invalid PR proposal number")
+    error("github-devloop: invalid-pr-number: invalid PR proposal number")
   end
   local safe_repo = strings.sanitize_key(repo, false)
   if safe_repo == nil or safe_repo == "" then
-    error("github-devloop: invalid PR proposal repo")
+    error("github-devloop: pr-proposal-repo-invalid: invalid PR proposal repo")
   end
   return "github-devloop/pr/" .. safe_repo .. "/" .. tostring(pr_number)
 end

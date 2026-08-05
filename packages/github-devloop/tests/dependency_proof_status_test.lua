@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local dependency_gate = require("devloop.dependency_gate")
 local devloop_logging = require("devloop.logging")
 local h = require("tests.devloop_helpers")
 
@@ -147,8 +148,8 @@ return {
 
     t.eq(gate.kind, "satisfied")
     t.eq(gate.ok, nil)
-    t.eq(core.dependency_gate_is_satisfied(gate), true)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate), false)
   end,
 
   test_dependency_cycle_carries_validated_terminal_proof = function()
@@ -165,7 +166,7 @@ return {
     t.eq(gate.proof.issue_number, 42)
     t.eq(gate.proof.target_repo, REPO)
     t.eq(gate.proof.target_issue_number, 42)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
   end,
 
   test_nested_cycle_proof_is_bound_to_the_root_dependency_target = function()
@@ -180,8 +181,8 @@ return {
     t.eq(gate.proof.issue_number, 45)
     t.eq(gate.proof.target_repo, REPO)
     t.eq(gate.proof.target_issue_number, 44)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 44), true)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 45), false)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, REPO, 44), true)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, REPO, 45), false)
   end,
 
   test_unmanaged_cross_repo_blocker_carries_validated_terminal_proof = function()
@@ -199,7 +200,7 @@ return {
     t.eq(gate.proof.blocker_number, 77)
     t.eq(gate.proof.target_repo, REPO)
     t.eq(gate.proof.target_issue_number, 42)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
   end,
 
   test_depth_cap_is_unavailable_without_fabricated_unmet_dependency = function()
@@ -214,8 +215,8 @@ return {
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "depth-cap-exceeded")
     t.eq(#gate.unmet, 0)
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate), false)
   end,
 
   test_repeated_read_failures_hold_until_a_fresh_successful_derivation = function()
@@ -241,7 +242,7 @@ return {
     mock_blocked_by(REPO, 42, {})
     local recovered = core.dependency_gate(REPO, 42)
     t.eq(recovered.kind, "satisfied")
-    t.eq(core.dependency_gate_is_satisfied(recovered), true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(recovered), true)
     local released = capture_replay(recovered)
     t.eq(has_marker(released, 'state="ready"'), true)
     t.eq(has_marker(released, 'state="blocked"'), false)
@@ -275,7 +276,7 @@ return {
     end)
     t.eq(caught.kind, "unavailable")
     t.eq(caught.reason, "dependency-gate-exception")
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(caught), false)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(caught), false)
   end,
 
   test_consumer_exhaustively_holds_releases_or_blocks_by_proof_status = function()

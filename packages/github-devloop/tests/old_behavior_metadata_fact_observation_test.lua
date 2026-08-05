@@ -2,6 +2,7 @@ local github_fake = require("forge.github_fake")
 local github_factory = require("devloop.github_factory")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -18,6 +19,10 @@ local json_array = observation_support.json_array
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", {
+  kind = "external",
+  ref = REPO .. "#issue/" .. ISSUE_NUMBER,
+})
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local OLDER_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CURRENT_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-04Z"
@@ -27,6 +32,18 @@ local TIMEOUT_RECONCILE_LABEL_SINK = {
   sink_kind = "label",
   authority_class = "lifecycle-authoritative",
   family = "state-label:blocked;dedup=timeout-reconcile/label",
+}
+local CURRENT_SINK_FAMILIES = {
+  ["comment:issue:consensus-result"] =
+    "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
+  ["label:issue:consensus-result"] =
+    "state-label:visible-marker-repair:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
+  ["comment:issue:dependency-canonicalization"] =
+    "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
+  ["label:issue:dependency-canonicalization"] =
+    "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
+  ["label:issue:awaiting-pr-terminal"] =
+    "state-label:merged|blocked;dedup=awaiting-pr/label",
 }
 
 local SITES = {
@@ -133,7 +150,7 @@ local function capture_current_state_fact()
   h.mock_bot_env()
   local comments = json_array({
     trusted(core.state_marker(PROPOSAL_ID, "thinking", OLDER_VERSION), "2026-06-03T01:00:00Z"),
-    trusted(core.state_marker(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
+    trusted(h.projected_state_comment(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
     trusted(core.state_marker("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9")),
     {
       body = core.state_marker(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10"),
@@ -222,7 +239,11 @@ local function capture_current_state_fact()
       source_ref = { kind = "external", ref = REPO .. "#issue/" .. ISSUE_NUMBER },
     }),
   }
-  local ok, result = pcall(testing.run_fake, observe_issue_department, event)
+  local ok, result = pcall(function()
+    return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+      return testing.run_fake(observe_issue_department, event)
+    end)
+  end)
   devloop_state.current_state = original_current_state
   github_proxy_entity_view.fetch_issue_view_state = original_fetch
   github_factory.production_handle = original_handle
@@ -317,6 +338,9 @@ local function committed_records()
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
       record.old_inputs.current_fact.record_count = 84
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        sink.family = CURRENT_SINK_FAMILIES[sink.effect_id] or sink.family
+      end
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)
       end)

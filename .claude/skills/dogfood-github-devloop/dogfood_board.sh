@@ -69,7 +69,7 @@ workflow_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(workflow_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
@@ -93,7 +93,7 @@ lifecycle_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
@@ -111,6 +111,18 @@ lifecycle_board_condition() { # $1 fact-json
   '
 }
 
+# Fetch comments as a REST-shaped JSON array. GitHub applies separate secondary
+# limits to REST and GraphQL, so a REST failure falls back to the GraphQL surfaces.
+fetch_entity_comments() { # $1 issue-or-pr number
+  local num="$1" out
+  out=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) && {
+    printf '%s' "$out"; return 0; }
+  gh issue view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null \
+  || gh pr view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null
+}
+
 # Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
 # symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
 # issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
@@ -121,7 +133,7 @@ pr_lifecycle_board_fact() { # $1 pr-number
   local num="$1" comments origin fact tool
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
     | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
     | sed -E 's/.*proposal="([^"]+)".*/\1/')
@@ -173,7 +185,12 @@ board_one() { # $1 name, $2 stale_hours
   local pr_rows pr_rc
   pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   if [ "$pr_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (pulls: gh api exit $pr_rc) — GitHub REST likely down; cross-check: gh pr list --repo $REPO --state open"
+    pr_rows=$(gh pr list --repo "$REPO" --state open --limit 100 \
+      --json number,headRefOid,updatedAt,baseRefName,title \
+      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  fi
+  if [ "$pr_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (pulls: REST and GraphQL both failed) — cross-check: gh pr list --repo $REPO --state open"
   else
   printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
     [ -z "$num" ] && continue
@@ -204,7 +221,12 @@ board_one() { # $1 name, $2 stale_hours
   local issue_rows issue_rc
   issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
   if [ "$issue_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (issues: gh api exit $issue_rc) — GitHub REST likely down; cross-check: gh issue list --repo $REPO --state open"
+    issue_rows=$(gh issue list --repo "$REPO" --state open --limit 200 \
+      --json number,updatedAt,labels,title \
+      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
+  fi
+  if [ "$issue_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (issues: REST and GraphQL both failed) — cross-check: gh issue list --repo $REPO --state open"
   else
   printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label title; do
     [ -z "$num" ] && continue

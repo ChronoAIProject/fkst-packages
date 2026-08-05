@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -31,6 +32,7 @@ local ISSUE_NUMBER = 42
 local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 local CONSENSUS_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local IMPLEMENTING_VERSION = "ready/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
@@ -77,7 +79,7 @@ local function comments_for(fixture)
   local version = state_version(fixture)
   local effects = fixture.ready_handoff and "result-marker,ready-label,devloop-ready" or nil
   local comments = json_array({
-    trusted_comment("IC_state_" .. fixture.state, core.state_marker(PROPOSAL_ID, fixture.state, version, effects)),
+    trusted_comment("IC_state_" .. fixture.state, h.state_comment(PROPOSAL_ID, fixture.state, version, effects)),
   })
   if fixture.dependency_wait then
     table.insert(comments, trusted_comment(
@@ -200,7 +202,11 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = fixture.state,
-      run = function() return testing.run_fake(observe_issue_department, event) end,
+      run = function()
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
+      end,
       codex_runs_for_read = json_array(),
       write_mode = "real",
     })
@@ -254,7 +260,11 @@ local function build_record(fixture)
   local event, captured, dispatch = capture_runtime(fixture)
   local emitted_effects, observable_writes = effect_observations(dispatch.raises)
   t.eq(canonical_json(effect_id_list(emitted_effects)), canonical_json(fixture.expected_effect_ids), fixture.name)
-  local target_version = dispatch.raises[1] and dispatch.raises[1].payload.dedup_key or nil
+  local target_payload = dispatch.raises[1] and dispatch.raises[1].payload or nil
+  local target_version = target_payload and target_payload.dedup_key or nil
+  if fixture.expected_target == "devloop_consensus_request" then
+    target_version = target_payload and target_payload.effect_version or nil
+  end
   return {
     schema = "restart-old-behavior-observation.v2",
     observation_id = OBSERVATION_PREFIX .. fixture.name,

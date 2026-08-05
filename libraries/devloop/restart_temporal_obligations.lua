@@ -18,7 +18,7 @@ local CAPABILITY_MATRIX = {
 }
 
 local function fail(message)
-  error("devloop.restart_temporal_obligations: " .. message, 0)
+  error("devloop.restart_temporal_obligations: temporal-obligation-contract-invalid: " .. message, 0)
 end
 
 local function is_nonempty_string(value)

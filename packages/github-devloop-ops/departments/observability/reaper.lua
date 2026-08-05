@@ -11,6 +11,7 @@ local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_state = require("devloop.state")
+local pr_commands = require("devloop.commands.prs")
 
 local M = {}
 
@@ -176,7 +177,7 @@ local function reap_orphan_pr(repo, entity)
 
   local closed = core.observability_run_cmd({
     run = function(timeout)
-      return core.gh_pr_close(repo, pr_number, timeout)
+      return pr_commands.gh_pr_close(repo, pr_number, timeout)
     end,
   }, entity.observability_limits, entity.observability_deadline, "orphan PR close")
   if core.observability_result_deferred(closed) then
@@ -194,7 +195,7 @@ local function reap_orphan_pr(repo, entity)
   file.write(path, body)
   local commented = core.observability_run_cmd({
     run = function(timeout)
-      return core.gh_pr_comment(repo, pr_number, path, timeout)
+      return pr_commands.gh_pr_comment(repo, pr_number, path, timeout)
     end,
   }, entity.observability_limits, entity.observability_deadline, "orphan PR reaper comment")
   if core.observability_result_deferred(commented) then

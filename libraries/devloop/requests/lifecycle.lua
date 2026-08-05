@@ -4,7 +4,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local premise_correction = require("devloop.premise_correction")
-local C = {}
+local C, attach_declined_label_handoff = {}, nil
 local forge_validators = require("devloop.forge_validators")
 local comment_strings = require("devloop.strings")
 local shared = require("devloop.requests.shared")
@@ -44,7 +44,7 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
   local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
     or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
     or "result-marker,ready-label,dependency-hold"
-  local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
+  local marker_version = tostring(reached.effect_version or reached.dedup_key)
   local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
   local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
   local display_decision = reached.decision == "reject"
@@ -54,32 +54,33 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
   if verdict_summary ~= nil then
     body = body .. "\n" .. verdict_summary
   end
-  body = body
-    .. "\n\n" .. body_text
-    .. "\n\n" .. state_marker
-    .. "\n" .. marker
-    .. "\n" .. ai_sentinel
-  local request = m_claims.attach_issue_claim({
-    schema = "github-proxy.v1",
-    repo = repo,
-    issue_number = issue_number,
-    body = body,
-    dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "comment", logical_identity }),
-    source_ref = base_ids.normalize_source_ref(reached.source_ref),
-  }, reached.source_ref)
-  if canonical_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
-      proposal_id = reached.proposal_id,
-      version = reached.dedup_key,
-      marker_version = tostring(reached.effect_version or reached.dedup_key),
-      source_ref = base_ids.normalize_source_ref(reached.source_ref),
-    }
-    if reached.framing ~= nil then
-      request.handoff.framing = reached.framing
-    end
+  body = body .. "\n\n" .. body_text .. "\n\n"
+  local comment_dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "comment", logical_identity })
+  if canonical_state == "ready" or canonical_state == "dependency_wait" then
+    local remove_labels = canonical_state == "ready"
+      and { devloop_base._blocked_on_dependency_label }
+      or {}
+    return devloop_state.build_projected_state_comment_request({
+      repo = repo, issue_number = issue_number, proposal_id = reached.proposal_id, state = canonical_state,
+      marker_version = marker_version, handoff_version = reached.dedup_key, effects = effects,
+      body_before_marker = body,
+      body_after_marker = "\n" .. marker .. "\n" .. ai_sentinel,
+      comment_dedup_key = comment_dedup_key,
+      label_policy = {
+        dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "label", marker_version }),
+        remove_labels = remove_labels,
+      },
+      source_ref = reached.source_ref, framing = reached.framing,
+    })
   end
-  return request
+  local request = m_claims.attach_issue_claim({
+    schema = "github-proxy.v1", repo = repo, issue_number = issue_number,
+    body = body .. M.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
+      .. "\n" .. marker
+      .. "\n" .. ai_sentinel,
+    dedup_key = comment_dedup_key, source_ref = base_ids.normalize_source_ref(reached.source_ref),
+  }, reached.source_ref)
+  return attach_declined_label_handoff(request, repo, issue_number, reached, canonical_state, marker_version)
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
@@ -143,7 +144,6 @@ function C.build_dependency_hold_comment_request(M, repo, issue_number, proposal
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
 end
-
 function C.build_dependency_release_comment_request(M, repo, issue_number, proposal_id, version, gate, source_ref)
   local reason = devloop_base.neutralize_untrusted_comment_text(gate and gate.reason or "satisfied")
   if reason == "" then
@@ -168,7 +168,7 @@ end
 
 function C.build_intake_decision_comment_request(M, repo, issue_number, candidate, decision, reason, service_class)
   if not m_shared.is_intake_service_class(service_class) then
-    error("github-devloop: invalid intake service class")
+    error("github-devloop: intake-service-class-invalid: invalid intake service class")
   end
   local normalized_class = m_shared.normalize_intake_service_class(service_class)
   local premise_fingerprint = decision == "decline"
@@ -213,16 +213,16 @@ end
 
 function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid implementing head_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: git-ref-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -250,13 +250,13 @@ end
 
 function C.build_implementing_state_comment_request(M, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: git-ref-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local state_marker = M.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -283,16 +283,16 @@ end
 
 function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid checkpoint branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid checkpoint head_sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid checkpoint base_branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid checkpoint base_sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint base_sha")
   end
   local text = tostring(detail or "")
   if #text > M._max_impl_output_len then
@@ -485,6 +485,21 @@ function C.build_queue_starvation_reconcile_comment_request(repo, merge_ready, c
     tostring(merge_ready.reviewed_head_sha),
     tostring(attempt_key),
   }), entity_lib.pr_source_ref(repo, merge_ready.pr_number))
+end
+
+attach_declined_label_handoff = function(request, repo, issue_number, reached, state, marker_version)
+  if state ~= "declined" then return request end
+  request.handoff = {
+    kind = "github-devloop.declined-label",
+    proposal_id = reached.proposal_id,
+    version = tostring(reached.dedup_key),
+    marker_version = marker_version,
+    label_request = require("devloop.requests.labels").build_result_state_label_request(
+      repo, issue_number, reached, state
+    ),
+    source_ref = base_ids.normalize_source_ref(reached.source_ref),
+  }
+  return request
 end
 
 return C

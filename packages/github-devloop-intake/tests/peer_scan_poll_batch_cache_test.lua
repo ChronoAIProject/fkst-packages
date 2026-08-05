@@ -9,7 +9,6 @@ local author_policy = require("testkit_internal.github_author_policy")
 local github_author_policy = require("devloop.github_author_policy")
 local github_factory = require("devloop.github_factory")
 local m_claims = require("devloop.claims")
-local marker_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
 
@@ -131,9 +130,6 @@ local test_capacity = {
   authorize = function()
     return true, "peer scan test capacity"
   end,
-  authorize_reintake = function()
-    return true, "peer scan test capacity"
-  end,
   relinquish = function()
     return true, "peer scan test capacity"
   end,
@@ -166,35 +162,6 @@ local function run_admission(run_opts, number, poll_token, created_at, opts)
   return testing.run_fake_outcome(department, entity_changed(number, poll_token))
 end
 
-local function reintake_comments(number)
-  local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
-  return {
-    marker_builders.intake_decision_marker(
-      proposal_id,
-      "enable",
-      "intake/" .. proposal_id .. "/v1",
-      "standard"
-    ),
-    {
-      id = "IC_reintake_" .. tostring(number),
-      body = "fkst: reintake",
-      author_login = "fkst-test-bot",
-      created_at = "2026-07-30T01:03:00Z",
-    },
-  }
-end
-
-local function blocked_reintake_comments(number)
-  local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
-  local comments = reintake_comments(number)
-  table.insert(comments, core.state_marker(
-    proposal_id,
-    "blocked",
-    proposal_id .. "/2026-07-30T01-00-00Z/intake/1"
-  ))
-  return comments
-end
-
 local function assert_no_admission_effect(result)
   t.eq(result.exit_code, 0)
   t.eq(#result.raises, 0)
@@ -222,7 +189,6 @@ local function counting_capacity(counter)
       counter.calls = counter.calls + 1
       return true, "peer scan test capacity"
     end,
-    authorize_reintake = test_capacity.authorize_reintake,
     relinquish = test_capacity.relinquish,
     reconcile = test_capacity.reconcile,
   }
@@ -399,43 +365,6 @@ return {
 
     t.eq(issue_calls, 1, "thrown issue source settles once")
     t.eq(pr_calls, 0, "PR discovery does not run after unavailable issue discovery")
-  end,
-
-  test_same_poll_reintake_admissions_share_each_peer_source_snapshot = function()
-    local run_opts = h.opts("peer-scan-reintake-poll-batch")
-    local poll_token = "2026-07-30T01:04:00Z"
-    mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 2)
-    mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 2)
-
-    for number = 67, 68 do
-      local result = run_admission(run_opts, number, poll_token, nil, {
-        current = { comments = reintake_comments(number) },
-      })
-      t.eq(result.exit_code, 0)
-    end
-
-    t.eq(count_peer_calls(issue_peer_command), 1, "reintake issue scan cost does not grow with batch size")
-    t.eq(count_peer_calls(pr_peer_command), 1, "reintake PR scan cost does not grow with batch size")
-  end,
-
-  test_stale_event_epoch_does_not_discard_self_owned_blocked_reintake_without_peer_snapshot = function()
-    local run_opts = h.opts("peer-scan-stale-self-owned-reintake")
-    local result = run_admission(run_opts, 73, "2026-07-30T01:02:03Z", nil, {
-      current_epoch = "2026-07-30T01:02:04Z",
-      current = {
-        labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
-        comments = blocked_reintake_comments(73),
-        assignees = { "fkst-test-bot" },
-        author_login = "trusted-human",
-      },
-    })
-
-    t.eq(result.exit_code, 0)
-    local candidate = h.find_raise(result.raises, "devloop_intake_candidate")
-    t.is_true(candidate ~= nil, "a stale raw event token cannot discard reintake when no peer snapshot was consumed")
-    t.eq(candidate.payload.issue_number, "73")
-    t.eq(count_peer_calls(issue_peer_command), 0)
-    t.eq(count_peer_calls(pr_peer_command), 0)
   end,
 
   test_replayed_older_dynamic_peer_poll_epoch_stays_stale_without_admission_effect_or_scan = function()
