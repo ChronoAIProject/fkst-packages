@@ -140,7 +140,7 @@ end
 function C.converge_round_marker(proposal_id, base_version, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid converge round")
+    error("github-devloop: converge-round-invalid: invalid converge round")
   end
   return '<!-- fkst:github-devloop:converge-round:v1 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
     .. '" version="' .. safe_attr(base_version, devloop_base._max_dedup_len)
@@ -159,7 +159,7 @@ end
 function C.review_converge_round_marker(M, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid review converge round")
+    error("github-devloop: review-converge-round-invalid: invalid review converge round")
   end
   local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
   return '<!-- fkst:github-devloop:review-converge-round:v1 proposal="' .. safe_attr(review_proposal_id, devloop_base._max_key_len)

@@ -510,7 +510,7 @@ end
 
 local function autonomy_result_parts(record)
   if type(record) ~= "table" then
-    error("github-devloop: invalid autonomy result record")
+    error("github-devloop: autonomy-result-record-invalid: invalid autonomy result record")
   end
   local proposal_id = tostring(record.proposal_id or "")
   local repo = tostring(record.repo or "")
@@ -526,7 +526,7 @@ local function autonomy_result_parts(record)
   local gates = type(record.gates) == "table" and record.gates or {}
   local valid = C.autonomy_valid_autonomous_merge(gates)
   if valid ~= "true" and valid ~= "false" and valid ~= "pending" then
-    error("github-devloop: invalid autonomy result predicate")
+    error("github-devloop: autonomy-result-predicate-invalid: invalid autonomy result predicate")
   end
   if not strings.is_path_safe_key(proposal_id, devloop_base._max_key_len)
     or not strings.is_path_safe_key(repo, devloop_base._max_key_len)
@@ -537,13 +537,13 @@ local function autonomy_result_parts(record)
     or human_touch_count == nil or human_touch_count < 0 or human_touch_count % 1 ~= 0
     or rounds == nil or rounds < 0 or rounds % 1 ~= 0
     or retry_count == nil or retry_count < 0 or retry_count % 1 ~= 0 then
-    error("github-devloop: invalid autonomy result marker")
+    error("github-devloop: autonomy-result-marker-invalid: invalid autonomy result marker")
   end
   local codex_calls_value = "null"
   if codex_calls ~= nil then
     local parsed = tonumber(codex_calls)
     if parsed == nil or parsed < 0 or parsed % 1 ~= 0 then
-      error("github-devloop: invalid autonomy result codex calls")
+      error("github-devloop: autonomy-result-codex-calls-invalid: invalid autonomy result codex calls")
     end
     codex_calls_value = tostring(parsed)
   end

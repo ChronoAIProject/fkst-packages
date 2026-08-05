@@ -172,7 +172,7 @@ end
 
 function C.operator_rereview_version(current_version, head_sha)
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid operator rereview head sha")
+    error("github-devloop: operator-rereview-head-sha-invalid: invalid operator rereview head sha")
   end
   return transition_version.next_rereview(current_version, head_sha)
 end
@@ -507,10 +507,10 @@ function C.operator_command_marker(command, outcome, reason)
       and command.command ~= "reready"
       and command.command ~= "reimplement"
       and command.command ~= "dependency-waiver") then
-    error("github-devloop: invalid operator command marker")
+    error("github-devloop: operator-command-marker-invalid: invalid operator command marker")
   end
   if outcome ~= "applied" and outcome ~= "refused" then
-    error("github-devloop: invalid operator command outcome")
+    error("github-devloop: operator-command-outcome-invalid: invalid operator command outcome")
   end
   local safe_reason = strings.sanitize_key(reason or outcome, false):gsub("/", "-")
   return '<!-- fkst:github-devloop:operator-command:v1 command="' .. tostring(command.command)
@@ -598,7 +598,7 @@ function C.build_output_obligation_command_guard(fact, decision, fields)
   local target = fields or {}
   if type(fact) ~= "table"
     or decision ~= "rereview" then
-    error("github-devloop: invalid output obligation command guard")
+    error("github-devloop: output-obligation-command-guard-invalid: invalid output obligation command guard")
   end
   return {
     schema = "github-devloop.output-obligation-command-guard.v1",
@@ -766,7 +766,7 @@ function C.build_output_obligation_command_write_refusal_body(body, reason)
   local parsed = parse_command(body)
   local key = parsed and output_obligation_command_key(parsed.output_obligation) or nil
   if parsed == nil or key == nil then
-    error("github-devloop: invalid output obligation command refusal")
+    error("github-devloop: output-obligation-command-refusal-invalid: invalid output obligation command refusal")
   end
   local command = {
     command = parsed.command,
@@ -787,7 +787,7 @@ function C.build_operator_command_intent_request(target, command_name, dedup_key
     or not strings.is_bounded_string(dedup_key, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(correlation_marker, devloop_base._max_body_len)
     or output_obligation_guard_fact(command_guard) == nil then
-    error("github-devloop: invalid operator command intent")
+    error("github-devloop: operator-command-intent-invalid: invalid operator command intent")
   end
   local request = entity_lib.build_entity_comment_request(
     target,

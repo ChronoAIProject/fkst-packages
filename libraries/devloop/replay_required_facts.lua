@@ -36,10 +36,10 @@ end
 
 local function validate_required_fact(required)
   if type(required) ~= "table" or type(required.family) ~= "string" or required.family == "" then
-    error("github-devloop: invalid replay required fact")
+    error("github-devloop: replay-required-fact-invalid: invalid replay required fact")
   end
   if required.freshness ~= "marker-read" and required.freshness ~= "fetch-before-compare" then
-    error("github-devloop: invalid replay fact freshness")
+    error("github-devloop: replay-fact-freshness-invalid: invalid replay fact freshness")
   end
 end
 
@@ -83,7 +83,7 @@ local function fetch_child_state_fact(M, facts)
       consumer = "replay_child_state",
     })
     if view.exit_code ~= 0 then
-      error("github-devloop: child-state PR view failed: " .. tostring(view.stderr))
+      error("github-devloop: child-state-pr-view-failed: child-state PR view failed: " .. tostring(view.stderr))
     end
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
     facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
@@ -185,7 +185,7 @@ local function require_marker_fact(M, facts, family)
   if rawget(facts, family) ~= nil then
     return rawget(facts, family)
   end
-  error("github-devloop: unsupported replay marker fact family: " .. tostring(family))
+  error("github-devloop: replay-marker-fact-family-unsupported: unsupported replay marker fact family: " .. tostring(family))
 end
 
 local function gather_fetch_before_compare_fact(M, facts, entity, family)
@@ -207,7 +207,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
   if family == "decompose-children" then
     local child_list = M.gh_issue_list_decompose_children(entity.repo, facts.proposal_id, 30)
     if child_list.exit_code ~= 0 then
-      error("github-devloop: gh issue decompose child list failed: " .. tostring(child_list.stderr))
+      error("github-devloop: gh-issue-child-list-failed: gh issue decompose child list failed: " .. tostring(child_list.stderr))
     end
     facts.decompose_children = decompose_lib.parse_decompose_child_issue_list(child_list.stdout)
     return facts.decompose_children
@@ -215,7 +215,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
   if family == "branch-head" then
     return true
   end
-  error("github-devloop: unsupported replay fetch-before-compare fact family: " .. tostring(family))
+  error("github-devloop: replay-fetch-before-compare-fact-family-unsupported: unsupported replay fetch-before-compare fact family: " .. tostring(family))
 end
 
 local function store_gathered_marker_fact(facts, family, value)
