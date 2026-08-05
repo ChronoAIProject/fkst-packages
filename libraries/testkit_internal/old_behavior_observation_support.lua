@@ -385,7 +385,7 @@ function M.admission_trace_output_path(filename)
 end
 
 local R11_CAUSE = "R11.queue_dialogue_to_sync_consensus_call"
-local R11_MANIFEST_PATH = "migration/intent-diffs/2775.json"
+local R11_AUTHORIZATION_PATH = "migration/intent_bounded_replay/r11-delivery-authorizations.json"
 local R11_DELIVERY_ATOMS = {
   ["queue:consensus.proposal"] = true,
   ["queue:consensus.consensus_reached"] = true,
@@ -423,7 +423,7 @@ end
 
 local function delivery_authorizations(manifest)
   if type(manifest) ~= "table" or manifest.cause ~= R11_CAUSE then
-    error("testkit-internal: r11-manifest-cause-invalid: R11 OLD observation comparison requires the committed R11 manifest", 0)
+    error("testkit-internal: r11-manifest-cause-invalid: R11 OLD observation comparison requires the committed R11 authorization corpus", 0)
   end
   local changed = {}
   for _, field in ipairs({ "changed_row_ids", "changed_edge_ids", "changed_policy_ids" }) do
@@ -657,7 +657,7 @@ local function index_records(records, label)
 end
 
 function M.assert_delivery_atom_pair(actual, expected, observation_id, context, manifest)
-  local authorization_manifest = manifest or json.decode(file.read(R11_MANIFEST_PATH))
+  local authorization_manifest = manifest or json.decode(file.read(R11_AUTHORIZATION_PATH))
   local authorization = delivery_authorizations(authorization_manifest)[observation_id]
   if authorization == nil then
     error(tostring(context) .. " has no R11 delivery authorization for " .. observation_id, 0)
@@ -712,7 +712,7 @@ function M.assert_delivery_scoped_admission_fixture(actual, expected, observatio
 end
 
 function M.assert_old_behavior_records(actual, expected, context, manifest)
-  local authorization_manifest = manifest or json.decode(file.read(R11_MANIFEST_PATH))
+  local authorization_manifest = manifest or json.decode(file.read(R11_AUTHORIZATION_PATH))
   local authorizations = delivery_authorizations(authorization_manifest)
   local actual_records = index_records(actual, "runtime OLD observations")
   local expected_records = index_records(expected, "committed OLD observations")

@@ -114,7 +114,7 @@ function M.github_proxy_poll_label_prefixes(exec)
   return prefixes
 end
 
-require("forge.github_debug_stamp").install(M)
+require("forge.github_debug_stamp").install(M, M.read_env)
 
 function M.log_line(level, dept, tag, fields)
   local parts = {
