@@ -95,5 +95,36 @@ class ErrorClassRatchetTest(unittest.TestCase):
         self.assertIn("packages/example/core.lua:1", violations[0])
 
 
+class ErrorEnvelopeGrammarTest(unittest.TestCase):
+    def warning_lines(self, source: str) -> list[int]:
+        return check_repo.unclassified_error_call_lines(source)
+
+    def test_checker_loads_grammar_from_contract_owner(self) -> None:
+        expected = Path(__file__).resolve().parents[1] / "libraries/contract/error_facts.lua"
+
+        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR_SOURCE, expected)
+        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR, check_repo.load_error_envelope_grammar())
+
+    def test_allows_hierarchical_subsystem_with_underscore(self) -> None:
+        source = """
+error("contract.external_pr_bridge: invalid-number: details")
+"""
+        self.assertEqual(self.warning_lines(source), [])
+
+    def test_rejects_dotted_subsystem_without_class_segment(self) -> None:
+        source = """
+error("a.b: some prose")
+"""
+        self.assertEqual(self.warning_lines(source), [2])
+
+    def test_rejects_invalid_hierarchy_dot_placement(self) -> None:
+        source = """
+error(".a: narrow-class: details")
+error("a.: narrow-class: details")
+error("a..b: narrow-class: details")
+"""
+        self.assertEqual(self.warning_lines(source), [2, 3, 4])
+
+
 if __name__ == "__main__":
     unittest.main()

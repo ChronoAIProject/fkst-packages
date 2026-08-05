@@ -77,9 +77,9 @@ return {
       proposal_id = proposal_id,
       version = version,
       comments = {
-        core.state_marker(proposal_id, "dependency_wait", version),
-        core.dependency_wait_marker(
-          proposal_id, version, { 99 }, "expected-edge", "precursor-edge-not-visible"),
+        h.projected_state_comment(proposal_id, "dependency_wait", version)
+          .. "\n" .. core.dependency_wait_marker(
+            proposal_id, version, { 99 }, "expected-edge", "precursor-edge-not-visible"),
       },
     })
 

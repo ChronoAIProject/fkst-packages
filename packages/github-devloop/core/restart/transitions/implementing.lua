@@ -3,8 +3,11 @@ local devloop_state = require("devloop.state")
 local function effect_entitlements(semantic_variant)
   local id = "github-devloop/implementing/autonomous/" .. semantic_variant
   local effect_ids = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
   }
+  if semantic_variant ~= "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
   if semantic_variant == "revision_published" then
     table.insert(effect_ids, "git.push:implementation-branch")
   elseif semantic_variant == "precursor_waiting" then

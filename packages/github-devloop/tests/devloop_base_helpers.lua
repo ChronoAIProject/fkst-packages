@@ -11,4 +11,6 @@ return require("testkit_internal.devloop_fixtures").new({
   loop_department = require("departments.loop.main"),
   pr_origin_view_times_enabled = true,
   default_pr_origin_times = 3,
+  projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
+  state_comment = require("testkit_internal.projected_state_fixture").bind_state_comment(require("devloop.state")),
 })

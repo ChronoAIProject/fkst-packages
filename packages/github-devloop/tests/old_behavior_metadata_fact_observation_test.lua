@@ -35,6 +35,18 @@ local PRECURSOR_BLOCKED_BY_ADAPTER_SINK = {
   authority_class = "lifecycle-authoritative",
   family = "issue-blocked-by/precursor/proposal+version+blocker",
 }
+local CURRENT_SINK_FAMILIES = {
+  ["comment:issue:consensus-result"] =
+    "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
+  ["label:issue:consensus-result"] =
+    "state-label:visible-marker-repair:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
+  ["comment:issue:dependency-canonicalization"] =
+    "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
+  ["label:issue:dependency-canonicalization"] =
+    "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
+  ["label:issue:awaiting-pr-terminal"] =
+    "state-label:merged|blocked;dedup=awaiting-pr/label",
+}
 
 local SITES = {
   current_state = {
@@ -140,7 +152,7 @@ local function capture_current_state_fact()
   h.mock_bot_env()
   local comments = json_array({
     trusted(core.state_marker(PROPOSAL_ID, "thinking", OLDER_VERSION), "2026-06-03T01:00:00Z"),
-    trusted(core.state_marker(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
+    trusted(h.projected_state_comment(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
     trusted(core.state_marker("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9")),
     {
       body = core.state_marker(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10"),
@@ -325,6 +337,9 @@ local function committed_records()
       record.old_inputs.current_fact.record_count = 85
       table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        sink.family = CURRENT_SINK_FAMILIES[sink.effect_id] or sink.family
+      end
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)
       end)

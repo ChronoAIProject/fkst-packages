@@ -94,7 +94,7 @@ end
 
 local function mock_blocker_state(issue_number, state_name)
   local blocker_proposal = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
-  local comments = state_name and { core.state_marker(blocker_proposal, state_name, "blocker-v1") } or {}
+  local comments = state_name and { h.state_comment(blocker_proposal, state_name, "blocker-v1") } or {}
   local rendered = {}
   for _, comment in ipairs(comments) do
     table.insert(rendered, render_comment(comment))
@@ -186,8 +186,9 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id,
-      initial_attempt == 1 and "ready" or "implementing", ready.dedup_key),
+    initial_attempt == 1
+      and h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key)
+      or core.state_marker(event.proposal_id, "implementing", ready.dedup_key),
   }
   if initial_attempt == 1 then
     mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
@@ -323,7 +324,7 @@ local function run_precursor_refusal(blocker)
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   mock_issue_implement_view_only({ "fkst-dev:ready" }, {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }, 3)
   mock_existing_empty_implement_worktree({
     impl_version = ready.dedup_key,
@@ -365,7 +366,7 @@ local function run_first_clean_implementation_attempt(name, build_stdout)
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }
   mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
   mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
@@ -727,6 +728,20 @@ return {
       true
     ) ~= nil)
     t.eq(state_comment(refused.raises, "blocked"), nil)
+    t.eq(refusal.payload.handoff.kind, "github-devloop.ready-split-label")
+    t.eq(refusal.payload.handoff.marker_version, wait_version)
+    t.eq(refusal.payload.handoff.label_request.expected_state, "dependency_wait")
+    t.eq(refusal.payload.handoff.label_request.expected_version, wait_version)
+    t.is_true(table.concat(
+      refusal.payload.handoff.label_request.add_labels,
+      ","
+    ):find(core._blocked_on_dependency_label, 1, true) ~= nil)
+    local direct_wait_label = find_raise(
+      refused.raises,
+      "github-proxy.github_issue_label_request",
+      function(payload) return payload.expected_state == "dependency_wait" end
+    )
+    t.eq(direct_wait_label, nil)
 
     local edge_request = find_raise(
       refused.raises, "github-proxy.github_issue_blocked_by_request")
@@ -753,7 +768,7 @@ return {
     t.is_true(released ~= nil)
     local released_version = core.ready_split_version(wait_version)
     t.is_true(released.payload.body:find(
-      core.state_marker(
+      h.projected_state_comment(
         event.proposal_id, "ready", released_version, "result-marker,ready-label,devloop-ready"),
       1,
       true

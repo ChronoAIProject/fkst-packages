@@ -87,7 +87,7 @@ return {
     local ready = ready_payload()
     mock_runtime()
     h.mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(proposal_id, "ready", ready.dedup_key),
+      h.projected_state_comment(proposal_id, "ready", ready.dedup_key),
     }, {
       repo = repo,
       number = issue_number,

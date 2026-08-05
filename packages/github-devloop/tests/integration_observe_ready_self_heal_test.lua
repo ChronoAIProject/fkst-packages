@@ -98,7 +98,7 @@ end
 
 local function fresh_state_marker(proposal_id, state, version)
   return {
-    body = core.state_marker(proposal_id, state, version),
+    body = h.state_comment(proposal_id, state, version),
     created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
   }
 end
@@ -240,7 +240,7 @@ return {
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
         id = "IC_ready_self_heal",
-        body = core.state_marker(event.proposal_id, "ready", event.dedup_key, "result-marker,ready-label,devloop-ready"),
+        body = h.projected_state_comment(event.proposal_id, "ready", event.dedup_key, "result-marker,ready-label,devloop-ready"),
         created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
       },
     })
@@ -266,7 +266,7 @@ return {
     local exec_ref = core.implement_exec_ref(event.proposal_id, ready_payload.dedup_key)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, ready_payload.dedup_key)
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
       fresh_state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
     })
@@ -277,7 +277,7 @@ return {
     t.eq(count_calls("--json body"), 0)
 
     mock_issue_implement_raw({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
       core.state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
       m_builders.implementing_marker(event.proposal_id, ready_payload.dedup_key, branch, "abc123", "dev", "def456"),

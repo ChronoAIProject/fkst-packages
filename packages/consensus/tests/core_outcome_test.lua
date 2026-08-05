@@ -23,6 +23,11 @@ local with_real_consensus_catalog = fixtures.with_real_consensus_catalog
 local expected_prompt = fixtures.expected_prompt
 
 return {
+  test_error_class_from_message_preserves_failed_form = function()
+    t.eq(core.error_class_from_message("consensus: judgment failed: details"), "judgment")
+    t.eq(core.error_class_from_message("consensus: invalid-verdict: details"), "invalid-verdict")
+  end,
+
   test_aggregate_accepts_unanimous_approve = function()
     t.eq(core.aggregate({
       result("teleology", "approve"),

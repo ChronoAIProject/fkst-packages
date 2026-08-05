@@ -16,10 +16,10 @@ local expected_new_apply_effects = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
   },
   ["github-devloop/dependency_wait/canonicalization/legacy_ready_dependency_hold"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
   },
   ["github-devloop/dependency_wait/guard_boundary/blockers_released"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
   },
   ["github-devloop/dependency_wait/guard_boundary/blockers_still_open"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
@@ -35,7 +35,7 @@ local expected_new_apply_effects = {
     "git.push:implementation-branch",
   },
   ["github-devloop/implementing/autonomous/precursor_waiting"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_blocked_by_request",
   },
   ["github-devloop/implementing/autonomous/implementation_refused"] = {
@@ -48,10 +48,10 @@ local expected_new_apply_effects = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
   },
   ["github-devloop/ready/canonicalization/legacy_ready_rederive"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
   },
   ["github-devloop/ready/guard_boundary/blocker_reappeared"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
   },
   ["github-devloop/thinking/entry/execute_request"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request", "devloop_consensus_request",

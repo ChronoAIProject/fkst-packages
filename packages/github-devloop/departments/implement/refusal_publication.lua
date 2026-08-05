@@ -24,36 +24,30 @@ function M.publish(core, repo, issue_number, outcome)
     outcome.exec_ref,
     outcome.blocker
   )
-  local label_request = requests_labels.build_state_label_request(
-    repo,
-    issue_number,
-    target_state,
-    outcome.ready.proposal_id,
-    target_version,
-    base_ids.dedup_key({
-      "implement",
-      "label",
-      "implementation-refusal",
-      tostring(outcome.reason),
-      tostring(outcome.attempt),
-      tostring(outcome.ready.dedup_key),
-    }),
-    outcome.ready.source_ref
-  )
-  if precursor_missing then
-    table.insert(label_request.add_labels, core._blocked_on_dependency_label)
-    label_request.label_colors = label_request.label_colors or {}
-    label_request.label_colors[core._blocked_on_dependency_label] =
-      core._label_colors[core._blocked_on_dependency_label]
-  end
-  local add_labels, remove_labels = devloop_state.state_label_changes(target_state)
-  if precursor_missing then
-    table.insert(add_labels, core._blocked_on_dependency_label)
-  end
+  local label_request = precursor_missing
+      and comment_request.handoff.label_request
+    or requests_labels.build_state_label_request(
+      repo,
+      issue_number,
+      target_state,
+      outcome.ready.proposal_id,
+      target_version,
+      base_ids.dedup_key({
+        "implement",
+        "label",
+        "implementation-refusal",
+        tostring(outcome.reason),
+        tostring(outcome.attempt),
+        tostring(outcome.ready.dedup_key),
+      }),
+      outcome.ready.source_ref
+    )
   local raised = {
       "github-proxy.github_issue_comment_request",
-      "github-proxy.github_issue_label_request",
   }
+  if not precursor_missing then
+    table.insert(raised, "github-proxy.github_issue_label_request")
+  end
   local blocked_by_request = nil
   if precursor_missing then
     blocked_by_request = {
@@ -74,11 +68,13 @@ function M.publish(core, repo, issue_number, outcome)
     table.insert(raised, "github-proxy.github_issue_blocked_by_request")
   end
   devloop_logging.log_apply("implement", outcome.ready.proposal_id, target_state, target_version,
-    { add = add_labels, remove = remove_labels }, raised)
+    { add = label_request.add_labels, remove = label_request.remove_labels }, raised)
   devloop_logging.log_raise(
     "implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  devloop_logging.log_raise(
-    "implement", outcome.ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  if not precursor_missing then
+    devloop_logging.log_raise(
+      "implement", outcome.ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  end
   if blocked_by_request ~= nil then
     devloop_logging.log_raise(
       "implement", outcome.ready.proposal_id,

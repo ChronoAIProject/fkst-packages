@@ -335,7 +335,7 @@ local function fixture_comments(event, fixture)
     return {}
   end
   return {
-    core.state_marker(
+    h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
@@ -555,7 +555,7 @@ local function assert_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
@@ -624,7 +624,7 @@ local function assert_dependency_wait_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
