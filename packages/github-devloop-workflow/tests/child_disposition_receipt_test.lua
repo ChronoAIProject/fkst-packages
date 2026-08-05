@@ -372,6 +372,45 @@ local tests = {
     end
   end,
 
+  test_put_once_keeps_staged_bytes_bound_to_the_normalized_value = function()
+    local proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" })
+    local competing = fact({
+      disposition = "transferred",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
+    })
+    local model, commands = new_git_process()
+    local competing_commands = {
+      git_ls_remote_ref = commands.git_ls_remote_ref,
+      git_rev_parse_ref_tree = commands.git_rev_parse_ref_tree,
+      git_commit_tree = function()
+        return result("", "staging interleaving complete", 1)
+      end,
+    }
+    local interleaved = false
+    local file_port = {
+      write = function(path, body)
+        file.write(path, body)
+        if interleaved then
+          return
+        end
+        interleaved = true
+        local ok, err = pcall(function()
+          receipt.new({ commands = competing_commands }).put_once(competing)
+        end)
+        t.eq(ok, false)
+        t.is_true(tostring(err):find("receipt-commit-failed", 1, true) ~= nil)
+      end,
+    }
+
+    local committed = receipt.new({ commands = commands, file = file_port }).put_once(proposed)
+
+    t.eq(interleaved, true)
+    assert_outcome(committed, proposed)
+    t.eq(model.refs[receipt.receipt_ref(proposed)], committed.commit_sha)
+    t.eq(count_calls(model, "commit-tree"), 1)
+    t.eq(count_calls(model, "push"), 1)
+  end,
+
   test_put_once_accepts_only_the_matching_source_visible_race_winner = function()
     local model, commands = new_git_process()
     model.before_push_result = function(current, candidate_sha, ref)

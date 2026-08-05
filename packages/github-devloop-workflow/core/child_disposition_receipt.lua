@@ -275,9 +275,9 @@ local function decode_receipt(decoder, message, expected, commit_sha)
   return embedded
 end
 
-local function body_file(identity)
+local function body_file(message)
   return "/tmp/fkst-github-devloop-workflow-child-disposition-"
-    .. sha256.hex(M.canonical_identity(identity)) .. ".json"
+    .. sha256.hex(message) .. ".json"
 end
 
 function M.new(deps)
@@ -335,8 +335,9 @@ function M.new(deps)
     if not gitref.is_git_sha(tree_sha) then
       fail("receipt-tree-invalid", "receipt tree SHA is invalid")
     end
-    local path = body_file(normalized)
-    file_port.write(path, encode_receipt(normalized) .. "\n")
+    local message = encode_receipt(normalized) .. "\n"
+    local path = body_file(message)
+    file_port.write(path, message)
     local committed = operation_result(
       adapter.git_commit_tree(tree_sha, nil, path, READ_TIMEOUT_SECONDS),
       "receipt-commit-failed",
