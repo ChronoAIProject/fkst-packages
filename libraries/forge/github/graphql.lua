@@ -16,7 +16,7 @@ local function graphql_repo_parts(repo)
   for _, segment in ipairs({ owner, name }) do
     if segment == nil or segment == "." or segment == ".."
       or segment:find("^[%w%._%-]+$") == nil then
-      error("forge.github.graphql: invalid repository")
+      error("forge: github-repository-invalid: forge.github.graphql: invalid repository")
     end
   end
   return owner, name
@@ -24,14 +24,14 @@ end
 
 local function sorted_issue_numbers(numbers)
   if type(numbers) ~= "table" then
-    error("forge.github.graphql: issue numbers must be a table")
+    error("forge: github-issue-number-list-type-invalid: forge.github.graphql: issue numbers must be a table")
   end
   local seen = {}
   local result = {}
   for _, value in ipairs(numbers) do
     local number = tonumber(value)
     if number == nil or number < 1 or number > 2147483647 or number ~= math.floor(number) then
-      error("forge.github.graphql: issue number must be a positive integer")
+      error("forge: github-issue-number-invalid: forge.github.graphql: issue number must be a positive integer")
     end
     if not seen[number] then
       seen[number] = true
@@ -40,7 +40,7 @@ local function sorted_issue_numbers(numbers)
   end
   table.sort(result)
   if #result == 0 then
-    error("forge.github.graphql: at least one issue number is required")
+    error("forge: github-issue-number-list-empty: forge.github.graphql: at least one issue number is required")
   end
   return result
 end
