@@ -235,33 +235,9 @@ local function rest_pr_to_view_json(pr_stdout, comments_stdout)
     .. "}"
 end
 
--- GitHub's SECONDARY (request-rate) limit 403s REST while the GraphQL budget stays healthy and
--- separate. Both entity reads below are REST, so one throttle takes down ALL observation while
--- half the account's capacity sits idle: measured 6137 `issue-read-failed` outcomes in a single
--- runtime with graphql at ~4834/5000. Since observe_issue turns a non-zero result into error(),
--- that entity-level transient became a dead-lettered child and froze every observe-driven state.
---
--- The GraphQL issue view is field-complete for this consumer: `issue_view_fields` includes
--- `comments`, and every marker/state path keys on comment *createdAt*
--- (`state.lua` marker_created_at, `fix_feedback_observation` comment_created_at). Comment
--- `updated_at` is the one REST-only field, and it has no production consumer.
--- GitHub's SECONDARY (request-rate) limit 403s REST while the GraphQL budget stays healthy and
--- separate: measured 6137 `issue-read-failed` outcomes in one runtime with graphql at ~4834/5000,
--- and `API rate limit exceeded` / `HTTP 403` appearing 10612 times in the same child logs.
--- observe_issue turns a non-zero result into error(), so that entity-level transient became a
--- dead-lettered child and froze every observe-driven state.
---
--- The fallback is deliberately narrow: ONLY a throttle reroutes to GraphQL. Every other REST
--- failure (timeout, slow read, adapter error) keeps its existing result, because those paths have
--- designed semantics -- notably "a slow issue view defers without a retry failure" -- that a
--- blanket fallback would destroy.
-local function is_rest_throttled(result)
-  if type(result) ~= "table" then
-    return false
-  end
-  local stderr = tostring(result.stderr or "")
-  return stderr:find("rate limit exceeded", 1, true) ~= nil
-    or stderr:find("HTTP 403", 1, true) ~= nil
+local function is_rate_limited(result)
+  return type(result) == "table"
+    and (result.error_class == "gh-rate-limited" or result.class == "gh-rate-limited")
 end
 
 local function graphql_issue_view_result(repo, issue_number, timeout)
@@ -277,19 +253,11 @@ local function rest_issue_view_result(repo, issue_number, timeout)
   local github_port = github()
   local ok_issue, issue = pcall(github_port.issue_rest_view, repo, issue_number, timeout)
   if not ok_issue then
-    local result = adapter_error_result(issue)
-    if is_rest_throttled(result) then
-      return graphql_issue_view_result(repo, issue_number, timeout)
-    end
-    return result
+    return adapter_error_result(issue)
   end
   local ok_comments, comments = pcall(github_port.issue_comments, repo, issue_number, timeout)
   if not ok_comments then
-    local result = adapter_error_result(comments)
-    if is_rest_throttled(result) then
-      return graphql_issue_view_result(repo, issue_number, timeout)
-    end
-    return result
+    return adapter_error_result(comments)
   end
   local ok, view_json = pcall(rest_issue_to_view_json, issue.stdout, comments.stdout)
   if not ok then
@@ -304,6 +272,16 @@ local function rest_issue_view_result(repo, issue_number, timeout)
     stderr = "",
     exit_code = 0,
   }
+end
+
+-- Full entity reads need REST-only fields. Keep REST primary, but cross to the field-complete
+-- GraphQL view when the adapter reports that REST is throttled.
+local function rest_first_issue_view_result(repo, issue_number, timeout)
+  local result = rest_issue_view_result(repo, issue_number, timeout)
+  if is_rate_limited(result) then
+    return graphql_issue_view_result(repo, issue_number, timeout)
+  end
+  return result
 end
 
 -- Same REST-throttle fallback as the issue view above; `pr_view` is the GraphQL surface.
@@ -321,7 +299,7 @@ local function rest_pr_view_result(repo, pr_number, timeout)
   local ok_pr, pr = pcall(github_port.pr_rest_view, repo, pr_number, timeout)
   if not ok_pr then
     local result = adapter_error_result(pr)
-    if is_rest_throttled(result) then
+    if is_rate_limited(result) then
       return graphql_pr_view_result(repo, pr_number, timeout)
     end
     return result
@@ -329,7 +307,7 @@ local function rest_pr_view_result(repo, pr_number, timeout)
   local ok_comments, comments = pcall(github_port.pr_comments, repo, pr_number, timeout)
   if not ok_comments then
     local result = adapter_error_result(comments)
-    if is_rest_throttled(result) then
+    if is_rate_limited(result) then
       return graphql_pr_view_result(repo, pr_number, timeout)
     end
     return result
@@ -353,16 +331,17 @@ local function rest_entity_view_result(repo, kind, number, timeout)
   if kind == "pr" then
     return rest_pr_view_result(repo, number, timeout)
   end
-  return rest_issue_view_result(repo, number, timeout)
+  return rest_first_issue_view_result(repo, number, timeout)
 end
 
 local function issue_state_view_result(repo, _, issue_number, timeout)
   local result = issue_reads.gh_issue_view_state(repo, issue_number, timeout)
   if type(result) ~= "table"
     or tonumber(result.exit_code) == 0
-    or result.error_class ~= "gh-rate-limited" then
+    or not is_rate_limited(result) then
     return result
   end
+  -- This is the alternate attempt, so use raw REST rather than the REST-primary failover path.
   return rest_issue_view_result(repo, issue_number, timeout)
 end
 
