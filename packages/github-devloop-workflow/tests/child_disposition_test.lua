@@ -433,7 +433,7 @@ local tests = {
     t.is_true(tostring(failed.failure.error):find("child-already-merged", 1, true) ~= nil)
   end,
 
-  test_handoff_rejects_transfer_when_pr_merges_after_receipt_request = function()
+  test_handoff_preserves_transfer_when_pr_merges_after_receipt_request = function()
     local entities = {
       [origin_issue] = origin_entity(),
       [child_issue] = child_entity(child_issue),
@@ -452,12 +452,33 @@ local tests = {
       successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
     })).raises[1].payload
     entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(request.body)
+    local fact = disposition_fact(entities[child_issue])
+    t.is_true(fact ~= nil)
+    t.eq(fact.disposition, "transferred")
     prs[child_pr].state = "MERGED"
     prs[child_pr].merged_at = "2026-08-05T00:05:00Z"
 
     local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
+    testing.run_fake(dept, handoff_event(request))
+    t.eq(#deps.closes, 1)
+    t.eq(deps.closes[1].disposition.kind, "duplicate")
+    t.eq(deps.closes[1].disposition.duplicate_of, successor_issue)
+    t.eq(entities[child_issue].state, "CLOSED")
+  end,
+
+  test_handoff_revalidates_child_claim_after_receipt = function()
+    local entities = {
+      [origin_issue] = origin_entity(),
+      [child_issue] = child_entity(child_issue),
+    }
+    local deps = fake_deps(entities)
+    local request = run_request(deps, request_payload("satisfied")).raises[1].payload
+    entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(request.body)
+    entities[child_issue].assignees = { "human" }
+
+    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
     local failed = testing.run_fake_expecting_failure(dept, handoff_event(request))
-    t.is_true(tostring(failed.failure.error):find("child-already-merged", 1, true) ~= nil)
+    t.is_true(tostring(failed.failure.error):find("child-claim-not-self", 1, true) ~= nil)
     t.eq(#deps.closes, 0)
   end,
 

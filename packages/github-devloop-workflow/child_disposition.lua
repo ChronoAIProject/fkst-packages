@@ -142,9 +142,6 @@ local function trusted_disposition_fact(issue, expected)
 end
 
 function M.current_fact(issue, expected)
-  if tostring(issue and issue.state or ""):upper() ~= "CLOSED" then
-    return nil
-  end
   return trusted_disposition_fact(issue, expected)
 end
 
@@ -240,6 +237,17 @@ local function expected_lineage(request)
   }
 end
 
+local function assert_self_claim(child)
+  local claim_state = devloop_claims.issue_claim_state(
+    child.assignees,
+    devloop_claims.claim_owner(),
+    child.labels
+  )
+  if claim_state ~= "self" then
+    fail("child-claim-not-self", "workflow child must retain the configured actor's claim")
+  end
+end
+
 local function assert_authority(deps, request)
   local origin_issue = read_issue(
     deps,
@@ -283,11 +291,15 @@ local function assert_authority(deps, request)
   if current_fact ~= nil and not same_disposition(current_fact, request) then
     fail("conflicting-child-disposition", "child already has a different trusted disposition")
   end
-  if tostring(child.state or ""):upper() == "CLOSED" then
-    if current_fact == nil then
-      fail("raw-closed-child", "a raw closed child cannot be retrofitted without a prior workflow disposition")
+  local child_is_closed = tostring(child.state or ""):upper() == "CLOSED"
+  if current_fact ~= nil then
+    if not child_is_closed then
+      assert_self_claim(child)
     end
     return child, current_fact
+  end
+  if child_is_closed then
+    fail("raw-closed-child", "a raw closed child cannot be retrofitted without a prior workflow disposition")
   end
   if not origin_is_open then
     fail("origin-not-open", "workflow origin must remain open while a child is disposed")
@@ -308,16 +320,7 @@ local function assert_authority(deps, request)
       fail("child-already-merged", "a merged workflow child cannot be transferred or marked undeliverable")
     end
   end
-  if tostring(child.state or ""):upper() == "OPEN" then
-    local claim_state = devloop_claims.issue_claim_state(
-      child.assignees,
-      devloop_claims.claim_owner(),
-      child.labels
-    )
-    if claim_state ~= "self" then
-      fail("child-claim-not-self", "workflow child must retain the configured actor's claim")
-    end
-  end
+  assert_self_claim(child)
 
   if request.successor_source_ref ~= nil then
     local successor = read_issue(
