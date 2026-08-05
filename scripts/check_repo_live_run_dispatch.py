@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
 
 
 ALLOWLIST = "migration/live-run-dispatch.allowlist"
@@ -50,21 +50,7 @@ def parse_allowlist_lines(lines: list[str]) -> set[str]:
     return entries
 
 
-def load_allowlist(path: Path) -> set[str]:
-    if not path.exists():
-        return set()
-    return parse_allowlist_lines(path.read_text(encoding="utf-8").splitlines())
-
-
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", parse_allowlist_lines(shown.splitlines())
-    except Exception:
-        return "unresolved", None
+load_allowlist, allowlist_at_dev_base = check_repo_config.bind_allowlist_helpers(ALLOWLIST, parse_allowlist_lines)
 
 
 def _mask_span(chars: list[str], start: int, end: int) -> None:
@@ -73,23 +59,12 @@ def _mask_span(chars: list[str], start: int, end: int) -> None:
             chars[index] = " "
 
 
-def _long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    return cursor - index + 1, "]" + ("=" * (cursor - index - 1)) + "]"
-
-
 def lua_code_mask(source: str) -> str:
     chars = list(source)
     cursor = 0
     while cursor < len(source):
         if source.startswith("--", cursor):
-            long = _long_bracket_at(source, cursor + 2)
+            long = check_repo_config.lua_long_bracket_at(source, cursor + 2)
             if long is not None:
                 opener_len, closer = long
                 body_start = cursor + 2 + opener_len
@@ -103,7 +78,7 @@ def lua_code_mask(source: str) -> str:
             _mask_span(chars, cursor, end)
             cursor = end
             continue
-        long = _long_bracket_at(source, cursor)
+        long = check_repo_config.lua_long_bracket_at(source, cursor)
         if long is not None:
             opener_len, closer = long
             body_start = cursor + opener_len

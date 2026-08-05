@@ -9,7 +9,7 @@ local marker = require("core.marker")
 local materialize_reconcile = require("materialize_reconcile")
 local materialization = require("core.materialization")
 local select_request = require("core.select_request")
-local default_intake = require("core.default_intake")
+local default_intake = require("devloop.intake.default")
 local intake_class = require("core.intake_class")
 local intake_service_class = require("core.intake_service_class")
 local devloop_base = require("devloop.base")
@@ -160,7 +160,6 @@ function M.install(target)
   target.github_graphql = devloop_dependency_gate.github_graphql
   local dependency_resolver = devloop_dependency_gate.new(target)
   target.dependency_gate = dependency_resolver.dependency_gate
-  target.dependency_gate_is_satisfied = dependency_resolver.dependency_gate_is_satisfied
 end
 
 M.install(M)

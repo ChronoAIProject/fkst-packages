@@ -138,7 +138,6 @@ function C.converge_proposal_base_dedup(consensus_dedup)
   local base_version = C.converge_base_version(consensus_dedup)
   return base_version:match("^consensus:(.+)$") or base_version
 end
-
 function C.next_replay_dedup(fact)
   local round = valid_round(type(fact) == "table" and fact.round or nil)
   local dedup = type(fact) == "table" and fact.dedup or nil
@@ -148,13 +147,13 @@ function C.next_replay_dedup(fact)
   return transition_version.loop_at(C.converge_proposal_base_dedup(dedup), round + 1)
 end
 
-function C.converge_round_marker(proposal_id, base_version, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
+function C.converge_round_marker(proposal_id, epoch_version, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
   local n = valid_round(round)
   if n == nil then
     error("github-devloop: invalid converge round")
   end
   return '<!-- fkst:github-devloop:converge-round:v1 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
-    .. '" version="' .. safe_attr(base_version, devloop_base._max_dedup_len)
+    .. '" version="' .. safe_attr(epoch_version, devloop_base._max_dedup_len)
     .. '" source_ref="' .. safe_attr(source_ref_digest, max_digest_len)
     .. '" round="' .. tostring(n)
     .. '" dedup="' .. safe_attr(consensus_dedup, devloop_base._max_dedup_len)
@@ -190,32 +189,16 @@ function C.review_converge_round_marker(M, review_proposal_id, issue_proposal_id
     .. '" -->'
 end
 
-function C.converge_round_facts(comments, proposal_id, base_version, source_ref_digest)
+function C.converge_round_facts_for_epoch(comments, proposal_id, epoch_version, source_ref_digest)
   local matches = function(marker)
     return attr(marker, "proposal") == tostring(proposal_id)
-      and attr(marker, "version") == tostring(base_version)
+      and attr(marker, "version") == tostring(epoch_version)
       and attr(marker, "source_ref") == tostring(source_ref_digest)
   end
   return converge_record_map(comments, "converge%-round", matches)
 end
 
-function C.converge_round_facts_for_source(comments, proposal_id, source_ref_digest)
-  local matches = function(marker)
-    return attr(marker, "proposal") == tostring(proposal_id)
-      and attr(marker, "source_ref") == tostring(source_ref_digest)
-  end
-  return converge_record_map(comments, "converge%-round", matches)
-end
-
-function C.converge_round_facts_for_proposal(comments, proposal_id)
-  local matches = function(marker)
-    return attr(marker, "proposal") == tostring(proposal_id)
-  end
-  return converge_record_map(comments, "converge%-round", matches)
-end
-
-function C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
-  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+function C.review_converge_round_facts_for_heartbeat(comments, review_proposal_id, issue_proposal_id, heartbeat_version, head_sha, source_ref_digest)
   local matches = function(marker)
     return attr(marker, "proposal") == tostring(review_proposal_id)
       and attr(marker, "issue_proposal") == tostring(issue_proposal_id)
@@ -226,8 +209,16 @@ function C.review_converge_round_facts(M, comments, review_proposal_id, issue_pr
   return converge_record_map(comments, "review%-converge%-round", matches)
 end
 
-function C.converge_budget_round(comments, proposal_id)
-  return C.max_converge_round(C.converge_round_facts_for_proposal(comments, proposal_id))
+function C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
+  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+  return C.review_converge_round_facts_for_heartbeat(
+    comments,
+    review_proposal_id,
+    issue_proposal_id,
+    heartbeat_version,
+    head_sha,
+    source_ref_digest
+  )
 end
 
 function C.max_converge_round(facts)
@@ -244,18 +235,6 @@ function C.max_converge_round(facts)
   return max_seen
 end
 
-function C.has_converge_round_marker(comments, proposal_id, base_version, source_ref_digest, round)
-  local n = valid_round(round)
-  if n == nil then
-    return false
-  end
-  for _, fact in ipairs(C.converge_round_facts(comments, proposal_id, base_version, source_ref_digest)) do
-    if fact.round == n then
-      return true
-    end
-  end
-  return false
-end
 function C.has_review_converge_round_marker(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round)
   local n = valid_round(round)
   if n == nil then

@@ -7,10 +7,18 @@ local M = {}
 M.MAX_AUTO_RETRY_ATTEMPTS = 2
 M.MAX_RETRY_ATTEMPTS = 100000
 
-local auto_retryable_reasons = {
+local legacy_v1_retryable_reasons = {
   ["codex-failed"] = true,
   ["lean-proof-repair-needed"] = true,
   ["non-descendant-head"] = true,
+}
+
+local valid_fault_classes = {
+  SEMANTIC = true,
+  CONFIGURATION = true,
+  TOOLCHAIN = true,
+  INFRASTRUCTURE = true,
+  UNKNOWN = true,
 }
 
 local function marker_attr(marker, name)
@@ -25,13 +33,41 @@ function M.valid_attempt(value)
   return n
 end
 
+local function valid_fault_class(value)
+  if type(value) ~= "string" or valid_fault_classes[value] ~= true then
+    return nil
+  end
+  return value
+end
+
+local function retryable_attr(value)
+  if value == "true" then
+    return true
+  end
+  if value == "false" then
+    return false
+  end
+  return nil
+end
+
 local function fact_from_marker(max_key_len, max_dedup_len, marker, comment, proposal_id, dedup_key)
   local marker_proposal = marker_attr(marker, "proposal")
   local marker_dedup = marker_attr(marker, "dedup")
   local reason = marker_attr(marker, "reason")
+  local raw_fault_class = marker_attr(marker, "fault_class")
+  local raw_retryable = marker_attr(marker, "retryable")
+  local legacy_v1 = raw_fault_class == nil and raw_retryable == nil
+  local fault_class = legacy_v1 and nil or valid_fault_class(raw_fault_class)
+  local retryable
+  if legacy_v1 then
+    retryable = legacy_v1_retryable_reasons[reason] == true
+  else
+    retryable = retryable_attr(raw_retryable)
+  end
   if marker_proposal ~= tostring(proposal_id)
     or (dedup_key ~= nil and marker_dedup ~= tostring(dedup_key))
     or reason == nil
+    or (not legacy_v1 and (fault_class == nil or retryable == nil))
     or not strings.is_bounded_string(reason, max_key_len)
     or (max_dedup_len ~= nil and not strings.is_bounded_string(marker_dedup, max_dedup_len)) then
     return nil
@@ -40,6 +76,8 @@ local function fact_from_marker(max_key_len, max_dedup_len, marker, comment, pro
     proposal_id = marker_proposal,
     dedup_key = marker_dedup,
     reason = reason,
+    fault_class = fault_class,
+    retryable = retryable,
     attempt = M.valid_attempt(marker_attr(marker, "attempt")) or 1,
     comment_created_at = parsers_misc._comment_created_at(comment),
   }
@@ -77,16 +115,26 @@ function M.current_fact(max_key_len, max_dedup_len, comments, proposal_id)
 end
 
 function M.retry_allowed(fact)
-  return type(fact) == "table"
-    and auto_retryable_reasons[fact.reason] == true
-    and tonumber(fact.attempt or 1) < M.MAX_AUTO_RETRY_ATTEMPTS
+  local attempt = type(fact) == "table" and M.valid_attempt(fact.attempt or 1) or nil
+  return attempt ~= nil
+    and fact.retryable == true
+    and attempt < M.MAX_AUTO_RETRY_ATTEMPTS
 end
 
 function M.next_retry_attempt(fact)
   if not M.retry_allowed(fact) then
     return nil
   end
-  return tonumber(fact.attempt or 1) + 1
+  return M.valid_attempt(fact.attempt or 1) + 1
 end
 
-return M
+return {
+  MAX_AUTO_RETRY_ATTEMPTS = M.MAX_AUTO_RETRY_ATTEMPTS,
+  MAX_RETRY_ATTEMPTS = M.MAX_RETRY_ATTEMPTS,
+  valid_attempt = M.valid_attempt,
+  valid_fault_class = valid_fault_class,
+  fact = M.fact,
+  current_fact = M.current_fact,
+  retry_allowed = M.retry_allowed,
+  next_retry_attempt = M.next_retry_attempt,
+}

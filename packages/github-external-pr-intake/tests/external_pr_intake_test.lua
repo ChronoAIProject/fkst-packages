@@ -77,6 +77,10 @@ local function pr_json(pr)
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. json_string(login) .. "}")
   end
+  local is_cross_repository = pr.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = true
+  end
   return '{"number":' .. tostring(pr.number or 7)
     .. ',"title":' .. json_string(pr.title or "Contributor patch")
     .. ',"headRefName":' .. json_string(pr.head_ref_name or "feature/contrib")
@@ -84,6 +88,7 @@ local function pr_json(pr)
     .. ',"state":' .. json_string(pr.state or "OPEN")
     .. ',"createdAt":' .. json_string(pr.created_at or "2026-06-03T01:02:03Z")
     .. ',"updatedAt":' .. json_string(pr.updated_at or "2026-06-19T01:02:03Z")
+    .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"author":{"login":' .. json_string(pr.author_login or "contributor")
     .. '},"comments":[' .. table.concat(comments, ",")
     .. '],"assignees":[' .. table.concat(assignees, ",") .. "]}\n"
@@ -474,7 +479,6 @@ return {
     local released_path = scratch .. "/released"
     local entered_path = scratch .. "/entered"
     local locker_script = scratch .. "/hold_lock.py"
-    local releaser_script = scratch .. "/release_lock.py"
 
     write_disk_file(locker_script, [[
 import fcntl
@@ -494,16 +498,7 @@ with open(lock_path, "a+", encoding="utf-8") as handle:
             pathlib.Path(released_path).write_text("timeout\n", encoding="utf-8")
             raise SystemExit(2)
         time.sleep(0.02)
-    pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
-]])
-    write_disk_file(releaser_script, [[
-import pathlib
-import sys
-import time
-
-release_path = sys.argv[1]
-time.sleep(0.2)
-pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
+pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
 ]])
 
     local ok, err = pcall(function()
@@ -511,11 +506,25 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
       if not wait_for_file(ready_path, 150) then
         error("github-external-pr-intake: lock helper did not acquire the bridge lock")
       end
-      start_python_background(releaser_script, { release_path })
 
+      -- Substrate #305 makes contention exit 75 as a supervise-owned transient defer.
+      local entered_while_busy = false
+      local busy_ok, busy_err = pcall(function()
+        with_lock(lock_key, function()
+          entered_while_busy = true
+        end)
+      end)
+      t.eq(busy_ok, false)
+      t.eq(tostring(busy_err):match("^[^\n]+"), "with_lock lock busy: " .. lock_key)
+      t.eq(entered_while_busy, false)
+
+      write_disk_file(release_path, "release\n")
+      if not wait_for_file(released_path, 150) then
+        error("github-external-pr-intake: lock helper did not release the bridge lock")
+      end
       local entered_after_release = false
       with_lock(lock_key, function()
-        entered_after_release = file.exists(released_path)
+        entered_after_release = true
         file.write(entered_path, tostring(entered_after_release))
       end)
 
@@ -546,6 +555,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
           title = "Bot patch",
           author_login = "fkst-test-bot[bot]",
           head_ref_name = "feature/bot",
+          is_cross_repository = false,
           state = "OPEN",
         },
         {
@@ -553,6 +563,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
           title = "Managed branch",
           author_login = "contributor",
           head_ref_name = "devloop/owner-repo-9",
+          is_cross_repository = false,
           state = "OPEN",
         },
         {
@@ -837,7 +848,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 1)
   end,
 
-  test_bot_authored_pr_is_ignored = function()
+  test_same_repository_bot_authored_pr_is_ignored = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -845,6 +856,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
           title = "Bot patch",
           author_login = "other-bot[bot]",
           head_ref_name = "feature/bot",
+          is_cross_repository = false,
           state = "OPEN",
           comments = {},
           assignees = {},
@@ -861,7 +873,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 0)
   end,
 
-  test_devloop_head_pr_is_ignored = function()
+  test_cross_repository_devloop_head_pr_is_not_self_excluded = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -880,9 +892,9 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
       event = candidate_event(7),
     })
 
-    t.eq(count_kind(github._model.writes, "issue_create"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
-    t.eq(count_kind(github._model.writes, "issue_search"), 0)
+    t.eq(count_kind(github._model.writes, "issue_create"), 1)
+    t.eq(count_kind(github._model.writes, "issue_assign"), 1)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 1)
   end,
 
   test_other_assignee_claim_blocks_writes = function()

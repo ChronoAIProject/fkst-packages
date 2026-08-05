@@ -67,6 +67,7 @@ local function payload_for_queue(queue)
       number = 42,
       updated_at = "2026-06-03T01:02:03Z",
       dedup_key = "github-issue-observed/owner/repo/42/2026-06-03T01:02:03Z/probe",
+      poll_token = "2026-06-03T01:05:00Z/sub-epoch/0",
       source_ref = entity_lib.issue_source_ref("owner/repo", 42),
     },
   }

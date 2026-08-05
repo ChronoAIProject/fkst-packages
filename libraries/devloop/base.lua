@@ -534,25 +534,15 @@ function C.implement_version_mismatch_key(expected_version, current_version)
   })
 end
 
-function C.intake_decision_dedup_key(proposal_id, current, reintake_command, effective_updated_at)
-  local reintake_created_at = "none"
-  if reintake_command ~= nil then
-    reintake_created_at = tostring(reintake_command.created_at or "unknown")
-  end
-  local effective = effective_updated_at ~= nil and tostring(effective_updated_at) or nil
-  local parts = {
+function C.intake_decision_dedup_key(proposal_id, current)
+  return dedup_key({
     tostring(proposal_id),
     "intake",
-  }
-  if effective ~= nil and effective ~= "" then
-    table.insert(parts, C.safe_updated_at(effective))
-  end
-  table.insert(parts, decimal_checksum(table.concat({
-    "title=" .. tostring(current and current.title or ""),
-    "body=" .. tostring(current and current.body or ""),
-    "reintake_created_at=" .. reintake_created_at,
-  }, "\n")))
-  return dedup_key(parts)
+    decimal_checksum(table.concat({
+      "title=" .. tostring(current and current.title or ""),
+      "body=" .. tostring(current and current.body or ""),
+    }, "\n")),
+  })
 end
 
 function C.ci_selfheal_once_key(repo, pr_number, head_sha)
@@ -648,7 +638,7 @@ function C.implement_branch(repo, issue_number, impl_version)
 
   local branch = prefix .. safe_version .. suffix
   if not forge_validators.is_git_ref_safe(branch) or #branch > max_branch_len then
-    error("github-devloop: invalid deterministic implementation branch")
+    error("github-devloop: implementation-branch-invalid: invalid deterministic implementation branch")
   end
   return branch
 end
@@ -656,7 +646,7 @@ end
 function C.implement_worktree_path(runtime_root, repo, issue_number, impl_version)
   local root = trim(runtime_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   local slug = C.safe_issue_slug(repo, issue_number)
   local suffix = decimal_checksum(tostring(repo) .. "#" .. tostring(issue_number) .. "#" .. tostring(impl_version))
@@ -667,7 +657,7 @@ function C.path_under_runtime_root(runtime_root, path)
   local root = trim(runtime_root)
   local target = trim(path)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   if target == "" or target:find("[\r\n]") ~= nil then
     return false
@@ -684,7 +674,7 @@ end
 function C.mkdir_p_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid directory path")
+    error("github-devloop: directory-path-invalid: invalid directory path")
   end
   return "mkdir -p " .. shell_single_quote(value)
 end
@@ -692,7 +682,7 @@ end
 function C.judgment_worktree_path(runtime_root, role, identity)
   local root = trim(runtime_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   local slug = strings.sanitize_key(tostring(role or "") .. "-" .. tostring(identity or ""), false):gsub("/", "-")
   slug = slug:gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
@@ -728,16 +718,16 @@ end
 
 function C.render_template(template, vars)
   if type(template) ~= "string" then
-    error("github-devloop: template must be a string")
+    error("github-devloop: template-invalid: template must be a string")
   end
   if type(vars) ~= "table" then
-    error("github-devloop: template vars must be a table")
+    error("github-devloop: template-invalid: template vars must be a table")
   end
 
   return (template:gsub("{{([%w_]+)}}", function(name)
     local value = vars[name]
     if value == nil then
-      error("github-devloop: missing template var " .. name)
+      error("github-devloop: template-var-missing: missing template var " .. name)
     end
     return tostring(value)
   end))
@@ -850,7 +840,7 @@ function C.trusted_bot_login()
     return login
   end
   if C.read_env("FKST_GITHUB_WRITE") == "1" then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
+    error("github-devloop: github-bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
   end
   return test_bot_login
 end

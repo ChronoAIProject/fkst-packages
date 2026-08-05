@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local parsers_misc = require("devloop.parsers.misc")
 local conv_attempts = require("devloop.convergence.attempts")
 local contract_time = require("contract.time")
@@ -214,7 +215,7 @@ local function resolve_live_defer_epoch(M, row, state, facts, now_seconds)
     if type(gate) ~= "table" then
       return invalid("live-defer-never-deferred-proof-missing:" .. tostring(gate_error or "dependency-gate-missing"))
     end
-    if M.dependency_gate_is_satisfied(gate) then
+    if dependency_gate.dependency_gate_is_satisfied(gate) then
       return resolve_state_entry(M, row, state)
     end
     return invalid("live-defer-clear-absent-after-dependency-gate:" .. tostring(gate.reason or gate.kind or "dependency-held"))

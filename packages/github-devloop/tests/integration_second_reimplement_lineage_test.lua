@@ -30,7 +30,7 @@ local function second_round_comments(event, base_version, command)
   local replacement_version = base_version .. "/reimplement/2"
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", replacement_version),
-    core.impl_failure_marker(event.proposal_id, replacement_version, "codex-failed", 2),
+    core.impl_failure_marker(event.proposal_id, replacement_version, "codex-failed", 2, "UNKNOWN", true),
   }
   if command ~= nil then
     table.insert(comments, command)
@@ -93,7 +93,8 @@ return {
     ready.impl_retry_attempt = 3
     local comments = {
       core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
-      core.impl_failure_marker(event.proposal_id, first_replacement_version, "codex-failed", 1),
+      core.impl_failure_marker(
+        event.proposal_id, first_replacement_version, "codex-failed", 1, "UNKNOWN", true),
     }
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
 
@@ -126,7 +127,10 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    t.eq(ready.payload.dedup_key, replacement_version)
+    t.eq(ready.payload.implementation_version, replacement_version)
+    t.eq(ready.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_second_reimplement")
+    t.is_true(ready.payload.dedup_key ~= replacement_version)
     t.eq(ready.payload.impl_retry_attempt, 3)
   end,
 

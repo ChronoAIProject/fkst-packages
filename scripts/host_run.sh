@@ -641,6 +641,7 @@ host_run_supervise_contract() {
   host_run_restart_prior || return $?
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
+  export FKST_PROJECT_ROOT="$HOST_RUN_PROJECT_ROOT"
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")
