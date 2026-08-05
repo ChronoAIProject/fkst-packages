@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 13,
     "workflow_injected_m_unique_symbols": 6,
-    "forge_injected_m_reads": 12,
-    "forge_injected_m_unique_symbols": 7,
-    "total_injected_m_reads": 25,
-    "total_injected_m_unique_symbols": 13
+    "forge_injected_m_reads": 10,
+    "forge_injected_m_unique_symbols": 5,
+    "total_injected_m_reads": 23,
+    "total_injected_m_unique_symbols": 11
   },
   "manifest": {
     "workflow": {
@@ -36,14 +36,6 @@
       }
     },
     "forge": {
-      "ci_missing_status_first_observed_key": {
-        "route": "forge",
-        "owner": "forge-merge"
-      },
-      "ci_selfheal_once_key": {
-        "route": "forge",
-        "owner": "forge-merge"
-      },
       "git_worktree_remove_if_present": {
         "route": "forge",
         "owner": "forge-git"
