@@ -11,7 +11,7 @@ local config = require("devloop.config")
 -- are reached directly), so departments can `require("devloop.logging")` and call them without
 -- routing through the composed-core ambient table. S.install(M) still binds the methods onto M
 -- as a migration scaffold so readers not yet rewired keep working; it is deleted once the
--- G-DEVLOOP-INSTALLER ratchet shows zero logging reads through the ambient M.
+-- G-DEVLOOP-INSTALLER count reaches zero AND libraries/ has no ambient read (see the endpoint doc).
 
 function C.error_fingerprint(error_class, queue, dept, message)
   return error_facts.error_fingerprint(error_class, queue, dept, message)
@@ -22,16 +22,16 @@ function C.error_class_from_message(message)
   if text:match("github%-devloop: .-codex failed:") then
     return "codex-failed"
   end
-  local class = text:match("github%-devloop: [^:]+ failed: ([%w%-]+):")
-    or text:match("github%-devloop: ([%w%-]+):")
+  local class =
+    text:match("github%-devloop: [^:]+ failed: ([%w%-]+):")
     or text:match("github%-devloop: ([%w%-]+) failed:")
     or text:match("github%-devloop: ([%w%-]+) retrying")
-  return class or "caught-failure"
+  return class or error_facts.error_class_from_message(text)
 end
 
 function C.log_error_fact(level, dept, proposal_id, tag, error_class, queue, message, context)
   if type(context) ~= "table" then
-    error("devloop.logging: log_error_fact context must be a table", 2)
+    error("devloop.logging: error-fact-context-invalid: log_error_fact context must be a table", 2)
   end
   local fields = error_facts.error_fact_fields(error_class, queue, dept, message, context)
   table.insert(fields, "queue=" .. error_facts.one_line(queue))
@@ -94,7 +94,7 @@ end
 function C.log_typed_guard(shape, decision, dept, proposal_id, current, from_state, to_state, reason)
   local actions = typed_guard_actions[shape]
   if actions == nil then
-    error("devloop.logging: unknown typed guard shape: " .. tostring(shape))
+    error("devloop.logging: typed-guard-shape-unknown: unknown typed guard shape: " .. tostring(shape))
   end
   local action = actions[decision.status]
   if action == nil then

@@ -7,7 +7,7 @@ local contract = core.pr_partition_contract
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function marker(state, version)
-  return core.state_marker(proposal_id, state, version or ("2026-06-03T01-02-03Z/" .. state))
+  return h.state_comment(proposal_id, state, version or ("2026-06-03T01-02-03Z/" .. state))
 end
 
 local function has_value(values, expected)
@@ -25,6 +25,12 @@ return {
       t.eq(contract.state_allowed_for_saga("issue", state), false, state)
     end
     t.eq(contract.state_allowed_for_saga("issue", "ready"), true)
+  end,
+
+  test_issue_partition_accepts_every_issue_lifecycle_state = function()
+    for _, state in ipairs(core.restart_lifecycle_states) do
+      t.eq(contract.state_allowed_for_saga("issue", state), true, state)
+    end
   end,
 
   test_pr_partition_accepts_pr_phases_and_terminals = function()

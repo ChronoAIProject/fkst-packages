@@ -11,6 +11,7 @@ local t = fkst.test
 local REPO = "ChronoAIProject/fkst-packages"
 local OLD_RT = "/runtime/dogfood-rt-packages.1111"
 local CUR_RT = "/runtime/dogfood-rt-packages.2222"
+local IMPLEMENTATION_ROOT = "/runtime/dogfood-durable-packages-worktrees"
 local NOW_S = 1000000
 local NOW_MS = NOW_S * 1000
 
@@ -66,6 +67,7 @@ local MAIN_PATH = "/home/dev/fkst-packages"
 local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
 local CURRENT_PATH = CUR_RT .. "/worktrees/devloop-current-333"
+local STABLE_PATH = IMPLEMENTATION_ROOT .. "/worktrees/devloop-current-333"
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -109,9 +111,10 @@ local function checkpoint_marker()
   )
 end
 
-local function failure_marker()
+local function failure_marker(dedup_key, attempt)
   return '<!-- fkst:github-devloop:impl-failure:v1 proposal="github-devloop/issue/'
-    .. REPO .. '/333" reason="local-iteration-failed" attempt="1" dedup="dedup-current" -->'
+    .. REPO .. '/333" reason="local-iteration-failed" attempt="' .. tostring(attempt or 1)
+    .. '" dedup="' .. tostring(dedup_key or "dedup-current") .. '" -->'
 end
 
 return {
@@ -121,26 +124,36 @@ return {
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
     t.eq(live.complete, true)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(removable_has(result, ORPHAN_PATH), false)
     t.eq(skip_reason(result, ORPHAN_PATH), "live-branch")
   end,
 
-  -- Terminal old-RT deterministic worktree with NO live row is the removable target.
+  test_live_retry_row_keeps_base_branch_worktree = function()
+    local branch = base.implement_branch(REPO, 333, "dedup-retry")
+    local path = STABLE_PATH .. "-retry"
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = path, branch = branch },
+    }))
+    local live = core.live_branches({
+      running_row(333, "dedup-retry/reimplement/2"),
+    }, NOW_MS)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
+      released_branches = {
+        [branch] = true,
+      },
+    })
+
+    t.eq(removable_has(result, path), false)
+    t.eq(skip_reason(result, path), "live-branch")
+  end,
+
+  -- An old-runtime deterministic worktree with NO live row is reclaimable.
   test_terminal_old_rt_is_removable = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(removable_has(result, TERMINAL_PATH), true)
-  end,
-
-  -- v1 containment: a deterministic worktree under the CURRENT runtime root is skipped.
-  test_current_rt_is_skipped = function()
-    local worktrees = core.parse_worktrees(FULL_PORCELAIN)
-    local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
-    t.eq(removable_has(result, CURRENT_PATH), false)
-    t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-root")
   end,
 
   test_branch_issue_ref_parses_normal_github_issue_branch = function()
@@ -152,28 +165,40 @@ return {
     t.eq(issue_ref.source_ref.ref, REPO .. "#issue/333")
   end,
 
-  test_published_output_releases_exact_branch = function()
+  test_published_output_does_not_release_reusable_branch = function()
     local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
     local fact = core.branch_release_fact({ comment(implementation_marker()) }, issue_ref, CURRENT_BRANCH)
-    t.eq(fact.kind, "published")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
-  test_checkpointed_output_releases_exact_branch = function()
+  test_checkpoint_does_not_release_inflight_branch = function()
     local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
     local fact = core.branch_release_fact({ comment(checkpoint_marker()) }, issue_ref, CURRENT_BRANCH)
-    t.eq(fact.kind, "checkpointed")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
-  test_current_impl_failure_classifies_residue_disposable = function()
+  test_current_impl_failure_does_not_release_reenterable_branch = function()
     local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
     local comments = {
       comment(devloop_state.state_marker(proposal_id, "impl-failed", "dedup-current") .. "\n" .. failure_marker()),
     }
     local fact = core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH)
-    t.eq(fact.kind, "disposable-residue")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
+  end,
+
+  test_retry_impl_failure_does_not_release_reused_base_branch = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    local retry_dedup = "dedup-current/reimplement/2"
+    local comments = {
+      comment(devloop_state.state_marker(proposal_id, "impl-failed", retry_dedup)
+        .. "\n" .. failure_marker(retry_dedup, 2)),
+    }
+    local fact = core.branch_release_fact(
+      comments,
+      core.issue_ref_from_branch(CURRENT_BRANCH),
+      CURRENT_BRANCH
+    )
+    t.eq(fact, nil)
   end,
 
   test_stale_impl_failure_does_not_release_reentered_attempt = function()
@@ -220,7 +245,7 @@ return {
   test_current_rt_finalized_branch_is_removable_without_terminal_issue = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, {
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
       released_branches = {
         [CURRENT_BRANCH] = true,
       },
@@ -231,7 +256,7 @@ return {
   test_live_branch_wins_over_finalized_release_fact = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(333, "dedup-current") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, {
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
       released_branches = {
         [CURRENT_BRANCH] = true,
       },
@@ -265,16 +290,40 @@ return {
   test_current_rt_without_release_proof_is_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, { released_branches = {} })
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, { released_branches = {} })
     t.eq(removable_has(result, CURRENT_PATH), false)
     t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-release-unverified")
+  end,
+
+  test_stable_worktree_without_release_proof_is_skipped = function()
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = STABLE_PATH, branch = CURRENT_BRANCH },
+    }))
+    local live = core.live_branches({}, NOW_MS)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, { released_branches = {} })
+    t.eq(removable_has(result, STABLE_PATH), false)
+    t.eq(skip_reason(result, STABLE_PATH), "stable-release-unverified")
+  end,
+
+  test_stable_released_worktree_carries_issue_ref_for_fresh_recheck = function()
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = STABLE_PATH, branch = CURRENT_BRANCH },
+    }))
+    local live = core.live_branches({}, NOW_MS)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
+      released_branches = {
+        [CURRENT_BRANCH] = true,
+      },
+    })
+    t.eq(removable_has(result, STABLE_PATH), true)
+    t.eq(result.removable[1].issue_ref.proposal_id, "github-devloop/issue/" .. REPO .. "/333")
   end,
 
   -- Detached, foreign, and main-checkout worktrees are never removable.
   test_detached_foreign_main_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({}, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(skip_reason(result, DETACHED_PATH), "detached-or-non-branch")
     t.eq(skip_reason(result, FOREIGN_PATH), "non-deterministic-branch")
     t.eq(skip_reason(result, MAIN_PATH), "non-deterministic-branch")
@@ -293,7 +342,7 @@ return {
     }
     local live = core.live_branches(rows, NOW_MS)
     t.eq(live.complete, false)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(#result.removable, 0)
     t.eq(skip_reason(result, TERMINAL_PATH), "fail-open-incomplete-live-set")
   end,
@@ -306,7 +355,7 @@ return {
     }))
     local live = core.live_branches({ running_row(111, "dedup-orphan", -1) }, NOW_MS) -- lease already past
     t.eq(live.complete, true)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(removable_has(result, ORPHAN_PATH), true)
   end,
 
@@ -318,7 +367,7 @@ return {
     local row = running_row(111, "dedup-orphan")
     row.lease_expires_at_ms = nil
     local live = core.live_branches({ row }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT)
     t.eq(removable_has(result, ORPHAN_PATH), false)
     t.eq(skip_reason(result, ORPHAN_PATH), "live-branch")
   end,

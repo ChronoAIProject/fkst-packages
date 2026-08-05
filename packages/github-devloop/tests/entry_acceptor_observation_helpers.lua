@@ -212,7 +212,7 @@ local function assert_bidirectional(actual, expected, actual_label, expected_lab
   end
 end
 
-local function committed_records(site, prefix)
+local function committed_records(site, prefix, transform_record)
   local inventory = json.decode(file.read("migration/restart-lifecycle.inventory.json"))
   local records = M.json_array()
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
@@ -220,7 +220,14 @@ local function committed_records(site, prefix)
     if actual.path == site.path and actual.symbol == site.symbol
       and type(record.observation_id) == "string"
       and record.observation_id:sub(1, #prefix) == prefix then
-      table.insert(records, record)
+      local selected = M.copy_value(record)
+      if transform_record ~= nil then
+        selected = transform_record(selected)
+        if type(selected) ~= "table" then
+          error("entry acceptor committed-record transform must return a record", 0)
+        end
+      end
+      table.insert(records, selected)
     end
   end
   table.sort(records, function(left, right) return left.observation_id < right.observation_id end)
@@ -245,7 +252,7 @@ function M.assert_site(t, opts)
   local runtime_set = tuple_set(first, function(record) return record_tuple(record, opts.prefix) end,
     opts.dept .. " runtime records")
   assert_bidirectional(runtime_set, fixture_set, "runtime records", "production fixture lattice")
-  local expected = committed_records(opts.site, opts.prefix)
+  local expected = committed_records(opts.site, opts.prefix, opts.transform_committed_record)
   observation_support.assert_old_behavior_records(
     first,
     expected,

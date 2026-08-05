@@ -24,16 +24,7 @@ local function department_paths()
   return result
 end
 
-local function read_file(path)
-  local handle = assert(io.open(path, "r"))
-  local body = handle:read("*a")
-  handle:close()
-  return body
-end
 
-local function department_source(path)
-  return read_file(package_root .. "/" .. path)
-end
 
 local function load_department_spec(path)
   local old_pipeline = pipeline
@@ -67,17 +58,6 @@ local function review_proposal_id()
   return devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", "def456")
 end
 
-local function review_consensus_payload()
-  local proposal_id = review_proposal_id()
-  return {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = proposal_id,
-    decision = "approve",
-    body = "All angles approve.",
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function issue_unresolved_payload()
   return {
@@ -88,15 +68,6 @@ local function issue_unresolved_payload()
   }
 end
 
-local function review_unresolved_payload()
-  local proposal_id = review_proposal_id()
-  return {
-    schema = "consensus.consensus_converge.v1",
-    proposal_id = proposal_id,
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function issue_entity_payload()
   return {
@@ -113,19 +84,6 @@ local function issue_entity_payload()
   }
 end
 
-local function pr_entity_payload()
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    title = "Implement decision recorder",
-    state = "OPEN",
-    updated_at = "2026-06-03T01:02:03Z",
-    dedup_key = "owner/repo#pr#7@2026-06-03T01:02:03Z",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function run_department_with_logs(path, event)
   local result = t.run_department(path, event)
@@ -135,9 +93,6 @@ local function run_department_with_logs(path, event)
   }, "\n")
 end
 
-local function branch_tick_payload()
-  return { schema = "github-devloop.branch-tick.v1" }
-end
 
 local function execution_request_payload()
   return execution_start.build_execution_request_payload({
@@ -298,6 +253,16 @@ local function payload_for_queue(queue)
       },
     },
     ["github-proxy.github_entity_changed"] = issue_entity_payload(),
+    ["github-proxy.github_issue_observed"] = {
+      schema = "github-proxy.issue-observed.v1",
+      type = "issue",
+      repo = "owner/repo",
+      number = 42,
+      updated_at = "2026-06-03T01:02:03Z",
+      cold_replay = true,
+      dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+    },
     devloop_observe_issue = issue_entity_payload({ source = "liveness-scan" }),
   }
   local payload = payloads[queue]

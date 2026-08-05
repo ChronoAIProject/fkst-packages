@@ -48,6 +48,13 @@ local function count_literal(text, needle)
 end
 
 return {
+  test_error_class_from_message_preserves_nested_failure_envelope = function()
+    t.eq(
+      core.error_class_from_message("github-proxy: gh issue comment failed: gh-command-failed: details"),
+      "gh-command-failed"
+    )
+  end,
+
   test_env_command_whitelist = function()
 	    t.eq(core.read_env_command("FKST_GITHUB_REPO"), 'printf %s "$FKST_GITHUB_REPO"')
 	    t.eq(core.read_env_command("FKST_GITHUB_BOT_LOGIN"), 'printf %s "$FKST_GITHUB_BOT_LOGIN"')
@@ -348,7 +355,7 @@ return {
     local result = core.fetch_rest_issue_view("owner/repo", 3)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_issue_view_fails_closed_on_empty_success_stdout = function()
@@ -367,7 +374,7 @@ return {
     local result = core.fetch_rest_issue_view("owner/repo", 3)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_pr_view_fails_closed_on_malformed_success_stdout = function()
@@ -386,7 +393,7 @@ return {
     local result = core.fetch_rest_pr_view("owner/repo", 7)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_pr_view_fails_closed_on_empty_success_stdout = function()
@@ -405,7 +412,7 @@ return {
     local result = core.fetch_rest_pr_view("owner/repo", 7)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_issue_view_empty_comments_stdout_uses_empty_comments_fallback = function()
@@ -510,6 +517,50 @@ return {
 
     t.eq(core.has_trusted_marker(comments, key, "other-bot"), false)
     t.eq(core.has_trusted_marker(comments, key, "fkst-test-bot"), true)
+  end,
+
+  test_marker_guard_distinguishes_observed_behind_from_observed_newer = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local older_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-07-19T00-00-00Z"
+    local expected_version = older_version .. "/ready-split/1"
+    local newer_version = older_version .. "/ready-split/2"
+    local function marker(state, version)
+      return '<!-- fkst:github-devloop:state:v1 proposal="' .. proposal_id
+        .. '" state="' .. state
+        .. '" version="' .. version
+        .. '" -->'
+    end
+    local function comments(body)
+      return {
+        {
+          body = body,
+          author = { login = "fkst-test-bot" },
+        },
+      }
+    end
+    local guard = {
+      namespace = "github-devloop",
+      marker = "state",
+      version = "v1",
+      match = { proposal = proposal_id },
+      expected = {
+        state = "dependency_wait",
+        version = expected_version,
+      },
+      order_by = { "version_order_key" },
+    }
+
+    local behind_ok, behind_reason = core.marker_guard_current(
+      comments(marker("ready", older_version)), guard, "fkst-test-bot"
+    )
+    t.eq(behind_ok, false)
+    t.eq(behind_reason, "marker-guard-pending")
+
+    local newer_ok, newer_reason = core.marker_guard_current(
+      comments(marker("ready", newer_version)), guard, "fkst-test-bot"
+    )
+    t.eq(newer_ok, false)
+    t.eq(newer_reason, "marker-guard-superseded")
   end,
 
   test_trusted_comment_marker_accepts_github_app_bot_suffix = function()

@@ -314,6 +314,33 @@ local function comments(pr)
   return result
 end
 
+local function repository_name_with_owner(repository, repository_owner)
+  if type(repository) == "string" and repository ~= "" then
+    return repository
+  end
+  if type(repository) ~= "table" then
+    return nil
+  end
+  for _, field in ipairs({ "nameWithOwner", "name_with_owner", "full_name" }) do
+    if repository[field] ~= nil and tostring(repository[field]) ~= "" then
+      return tostring(repository[field])
+    end
+  end
+  local owner = nil
+  if type(repository.owner) == "table" then
+    owner = repository.owner.login
+  end
+  if owner == nil and type(repository_owner) == "table" then
+    owner = repository_owner.login
+  elseif owner == nil and type(repository_owner) == "string" then
+    owner = repository_owner
+  end
+  if owner ~= nil and repository.name ~= nil then
+    return tostring(owner) .. "/" .. tostring(repository.name)
+  end
+  return nil
+end
+
 function M.normalize_pr(pr, repo)
   assert(type(pr) == "table", "normalize_pr requires a table")
   local head = pr.headRefName or pr.head_ref_name
@@ -328,6 +355,27 @@ function M.normalize_pr(pr, repo)
   if state ~= "" then
     state = state:upper()
   end
+  local head_repository = repository_name_with_owner(
+    pr.headRepository or pr.head_repository,
+    pr.headRepositoryOwner or pr.head_repository_owner
+  )
+  if head_repository == nil and type(pr.head) == "table" then
+    head_repository = repository_name_with_owner(pr.head.repo)
+  end
+  local is_cross_repository = pr.isCrossRepository
+  if is_cross_repository == nil then
+    is_cross_repository = pr.is_cross_repository
+  end
+  if is_cross_repository ~= nil and type(is_cross_repository) ~= "boolean" then
+    is_cross_repository = nil
+  end
+  local derived_cross_repository = nil
+  if head_repository ~= nil and repo ~= nil and tostring(repo) ~= "" then
+    derived_cross_repository = tostring(head_repository):lower() ~= tostring(repo):lower()
+  end
+  if is_cross_repository == nil then
+    is_cross_repository = derived_cross_repository
+  end
   return {
     repo = repo,
     number = tonumber(pr.number),
@@ -338,6 +386,8 @@ function M.normalize_pr(pr, repo)
     updated_at = pr.updatedAt or pr.updated_at,
     author_login = author_login(pr),
     head_ref_name = head,
+    head_repository = head_repository,
+    is_cross_repository = is_cross_repository,
     base_ref_name = base,
     comments = comments(pr),
     assignees = assignee_logins(pr),
@@ -361,17 +411,19 @@ function M.normalize_issue(issue)
   }
 end
 
-function M.is_external_candidate(pr, managed, now_seconds)
+function M.is_external_candidate(pr, now_seconds)
   if type(pr) ~= "table" or pr.number == nil then
     return false
   end
   if tostring(pr.state or "") ~= "" and tostring(pr.state):upper() ~= "OPEN" then
     return false
   end
-  if M.is_managed_bot_login(pr.author_login, managed) then
-    return false
+  if type(pr.is_cross_repository) ~= "boolean" then
+    error("github-external-pr-intake: pr-provenance-unavailable: PR #"
+      .. tostring(pr.number)
+      .. " has no authoritative head repository provenance")
   end
-  if tostring(pr.head_ref_name or ""):match("^devloop/") ~= nil then
+  if not pr.is_cross_repository then
     return false
   end
   local created_seconds = M.iso_timestamp_epoch_seconds(pr.created_at)
@@ -516,7 +568,7 @@ M.error_fingerprint = error_facts.error_fingerprint
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  return text:match("github%-external%-pr%-intake: ([%w%-]+):") or "caught-failure"
+  return error_facts.error_class_from_message(text)
 end
 
 function M.log_line(level, dept, proposal_id, tag, fields)

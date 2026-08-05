@@ -14,6 +14,7 @@ local issue = h.issue
 local reached = h.reached
 local run_observe_pr = h.run_observe_pr
 local run_observe = h.run_observe
+local run_department = h.run_department
 local run_review_pr = h.run_review_pr
 local mock_issue_reviewing = h.mock_issue_reviewing
 local mock_issue_review = h.mock_issue_review
@@ -23,28 +24,7 @@ local merge_comments = h.merge_comments
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local function pr_event(updated_at)
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    dedup_key = "owner/repo#pr#7@" .. tostring(updated_at or "2026-06-04T03:00:00Z"),
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#pr/7",
-    },
-  }
-end
 
-local function trusted_command(id)
-  return {
-    id = id or "IC_rereview_1",
-    body = "fkst: rereview\n\nCI was rerun.",
-    author_login = "fkst-test-bot",
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
 
 local function trusted_issue_command(command, id)
   return {
@@ -63,7 +43,7 @@ local function thinking_converge_comments(event, rounds, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -86,7 +66,7 @@ local function thinking_changing_converge_comments(event, rounds, command)
   local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -215,7 +195,7 @@ return {
     local event = reached()
     local command = trusted_issue_command("reready", "IC_issue_reready_release")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }, "OPEN", {
-      core.state_marker(event.proposal_id, "dependency_wait", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "dependency_wait", event.dedup_key),
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_unresolvable_marker(event.proposal_id, event.dedup_key, { 42 }),
       command,
@@ -227,11 +207,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(command_response.payload.body:find('outcome="applied"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    local ready_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return type(payload.handoff) == "table"
         and payload.handoff.kind == "github-devloop.ready"
-    end) ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_label_request") ~= nil)
+    end)
+    t.is_true(ready_comment ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.is_true(type(ready_comment.payload.handoff.label_request) == "table")
   end,
 
   test_issue_reready_command_invalid_state_refuses = function()
@@ -257,7 +239,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_ready")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
@@ -302,7 +284,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_pr_link")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       m_builders.pr_link_marker(proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
@@ -330,7 +312,8 @@ return {
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
       command,
     })
 
@@ -347,6 +330,55 @@ return {
       "operator-command/IC_issue_reimplement")
     t.is_true(ready_raise.payload.dedup_key ~= ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
+  end,
+
+  test_cold_issue_observation_reaches_reimplement_command_recovery = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local command = trusted_issue_command("reimplement", "IC_cold_issue_reimplement")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
+      core.state_marker(event.proposal_id, "impl-failed", ready_version),
+      core.impl_failure_marker(
+        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
+      command,
+    })
+    local observation = issue()
+    observation.schema = "github-proxy.issue-observed.v1"
+    observation.cold_replay = true
+    observation.title = nil
+    observation.url = nil
+    observation.state = nil
+    observation.labels = nil
+
+    local result = run_observe(
+      observation,
+      opts("operator-cold-issue-reimplement"),
+      "github-proxy.github_issue_observed"
+    )
+
+    t.eq(result.exit_code, 0)
+    local command_response = find_issue_comment_raise(result.raises, "operator command accepted: reimplement")
+    local ready_raise = find_raise(result.raises, "devloop_ready")
+    t.is_true(command_response ~= nil)
+    t.is_true(ready_raise ~= nil)
+    t.eq(ready_raise.payload.proposal_id, event.proposal_id)
+    t.eq(ready_raise.payload.implementation_version, ready_version)
+    t.eq(ready_raise.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_cold_issue_reimplement")
+  end,
+
+  test_cache_warm_issue_observation_stays_out_of_operator_recovery = function()
+    local observation = issue({
+      schema = "github-proxy.issue-observed.v1",
+      cold_replay = false,
+    })
+    local result = run_department("departments/observe_issue/main.lua", {
+      queue = "github-proxy.github_issue_observed",
+      payload = observation,
+    }, opts("operator-cache-warm-observation-skip"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
   end,
 
   test_issue_reimplement_command_reenters_blocked_implementing_timeout_without_pr = function()

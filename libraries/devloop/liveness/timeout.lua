@@ -254,6 +254,11 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     devloop_logging.log_cas_decision(dept, proposal_id, state, "blocked", row.driving_queue, "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
     return true
   end
+  if row.from_state == "implementing"
+    and M.implementing_version_mismatch_budget_exhausted(comments, proposal_id, state and state.version) then
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", row.driving_queue, "skip-idempotent(version-mismatch-exhausted)", "implementing re-drive would hand implement a version-mismatch whose delivery budget is already exhausted (terminal fail-closed)")
+    return true
+  end
   local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
   if receiver_liveness.action == "defer" then
     local signal = receiver_liveness.signal or {}

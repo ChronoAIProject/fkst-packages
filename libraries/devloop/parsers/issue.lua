@@ -7,6 +7,23 @@ function C.parse_issue_view_state(M, stdout)
   return C.issue_state_from_json(M, decoded)
 end
 
+function C.parse_issue_list_freshness(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local data = type(decoded) == "table" and decoded.data or nil
+  local repository = type(data) == "table" and data.repository or nil
+  local versions = {}
+  if type(repository) ~= "table" then
+    return versions
+  end
+  for _, issue in pairs(repository) do
+    local number = type(issue) == "table" and tonumber(issue.number) or nil
+    if number ~= nil then
+      versions[number] = issue.updatedAt or issue.updated_at
+    end
+  end
+  return versions
+end
+
 function C.issue_state_from_json(M, decoded)
   local labels = {}
   for _, label in ipairs(decoded.labels or {}) do
@@ -61,14 +78,14 @@ function C.parse_issue_list_recent_closed(stdout)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
   if type(decoded) ~= "table" then
-    error("github-devloop: recent closed issue list decode failed")
+    error("github-devloop: recent-closed-issue-list-decode-failed: recent closed issue list decode failed")
   end
   shared.each_paginated_item(decoded, function(issue)
     local number = type(issue) == "table" and tonumber(issue.number) or nil
     local title = type(issue) == "table" and issue.title or nil
     local closed_at = type(issue) == "table" and (issue.closedAt or issue.closed_at) or nil
     if number == nil or title == nil or closed_at == nil or type(issue.labels) ~= "table" then
-      error("github-devloop: recent closed issue list item missing required fields")
+      error("github-devloop: recent-closed-issue-list-item-fields-missing: recent closed issue list item missing required fields")
     end
     table.insert(issues, {
       number = number,
@@ -150,14 +167,14 @@ function C.parse_issue_view_intake_judge(M, stdout)
   local milestone_number = nil
   if milestone ~= nil then
     if type(milestone) ~= "table" then
-      error("github-devloop: issue milestone must be an object or null")
+      error("github-devloop: issue-milestone-shape-invalid: issue milestone must be an object or null")
     end
     milestone_number = tonumber(milestone.number)
     if milestone_number == nil
       or milestone_number < 1
       or milestone_number > 2147483647
       or milestone_number ~= math.floor(milestone_number) then
-      error("github-devloop: issue milestone number must be a positive integer")
+      error("github-devloop: issue-milestone-number-invalid: issue milestone number must be a positive integer")
     end
   end
   return {

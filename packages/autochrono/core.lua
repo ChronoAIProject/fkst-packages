@@ -7,9 +7,9 @@ local strings = require("contract.strings")
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  local class = text:match("autochrono: ([%w%-]+):")
-    or text:match("autochrono: ([%w%-]+) failed:")
-  return class or "caught-failure"
+  local class =
+    text:match("autochrono: ([%w%-]+) failed:")
+  return class or error_facts.error_class_from_message(text)
 end
 
 function M.log_error_fact(level, dept, tag, error_class, queue, message, context)

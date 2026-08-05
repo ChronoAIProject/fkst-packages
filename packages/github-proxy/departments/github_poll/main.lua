@@ -2,6 +2,10 @@ local core = require("core")
 local saga = require("workflow.saga")
 local entity_list_cache = require("devloop.entity_list_cache")
 local sweep = require("workflow_internal.sweep")
+local poll_delivery_rearm = require("core.poll_delivery_rearm")
+
+local changed_queue = "github-proxy.github_entity_changed"
+local observed_queue = "github-proxy.github_issue_observed"
 
 local spec = {
   consumes = { "github_poll_tick" },
@@ -116,20 +120,17 @@ local function observation_slice(repo, observed_issues, budget)
   return selected, next_cursor, next_high_water
 end
 
-local function item_dedup_key(repo, item, poll_token)
+local function item_dedup_key(repo, item, delivery_index, queue)
   local entity = item.entity
-  local dedup_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  if item.level_replay then
-    return dedup_key .. "/poll/" .. tostring(poll_token or now())
-  end
-  return dedup_key
+  local base_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
+  return delivery_index.key_for(queue, base_key)
 end
 
-local function raise_changed_item(repo, item, poll_token)
+local function raise_changed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
     if item.level_replay or cache_get(item.key) ~= entity.updated_at then
-      local dedup_key = item_dedup_key(repo, item, poll_token)
+      local dedup_key = item_dedup_key(repo, item, delivery_index, changed_queue)
       -- At-least-once: raise before cache_set. If this process crashes
       -- before the write, the next tick raises the same dedup_key again.
       raise("github_entity_changed", {
@@ -157,19 +158,7 @@ local function raise_changed_item(repo, item, poll_token)
   end)
 end
 
-local function observed_dedup_key(repo, item, poll_token)
-  local entity = item.entity
-  return "github-issue-observed/"
-    .. tostring(repo)
-    .. "/"
-    .. tostring(entity.number)
-    .. "/"
-    .. tostring(entity.updated_at)
-    .. "/"
-    .. tostring(poll_token or now())
-end
-
-local function raise_observed_item(repo, item, poll_token)
+local function raise_observed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
     local cached_updated_at = cache_get(item.key)
@@ -181,7 +170,8 @@ local function raise_observed_item(repo, item, poll_token)
         repo = repo,
         number = entity.number,
         updated_at = entity.updated_at,
-        dedup_key = observed_dedup_key(repo, item, poll_token),
+        cold_replay = item.replay == true,
+        dedup_key = item_dedup_key(repo, item, delivery_index, observed_queue),
         poll_token = poll_token,
         source = "gh",
         source_ref = core.entity_source_ref(repo, "issue", entity.number),
@@ -190,16 +180,16 @@ local function raise_observed_item(repo, item, poll_token)
   end)
 end
 
-local function raise_changed(repo, fresh_changes, replay_changes, observed_issues, poll_token, observation_budget)
+local function raise_changed(repo, fresh_changes, replay_changes, observed_issues, poll_token, delivery_index, observation_budget)
   for _, item in ipairs(fresh_changes or {}) do
-    raise_changed_item(repo, item, poll_token)
+    raise_changed_item(repo, item, poll_token, delivery_index)
   end
   for _, item in ipairs(replay_changes or {}) do
-    raise_changed_item(repo, item, poll_token)
+    raise_changed_item(repo, item, poll_token, delivery_index)
   end
   local selected, next_cursor, next_high_water = observation_slice(repo, observed_issues or {}, observation_budget)
   for _, item in ipairs(selected) do
-    raise_observed_item(repo, item, poll_token)
+    raise_observed_item(repo, item, poll_token, delivery_index)
   end
   if next_cursor ~= nil and next_high_water ~= nil then
     -- Advance only after emissions so a failed slice is retried.
@@ -240,6 +230,7 @@ local function act(event)
   local observed_issues = {}
   local poll_token = event and event.ts or now()
   poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues)
+  local delivery_index = poll_delivery_rearm.current({ changed_queue, observed_queue })
   local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(repo, poll_token)
   if not recorded then
     log.info("github-proxy: suppressing stale poll emissions repo=" .. tostring(repo)
@@ -252,7 +243,7 @@ local function act(event)
     for _, item in ipairs(deferred_observed) do
       table.insert(observed_issues, item)
     end
-    raise_changed(repo, fresh_changes, replay_changes, observed_issues, allocated_epoch, replay_budget)
+    raise_changed(repo, fresh_changes, replay_changes, observed_issues, allocated_epoch, delivery_index, replay_budget)
   end)
   if not epoch_current then
     log.info("github-proxy: suppressing poll emissions after epoch advanced repo=" .. tostring(repo)

@@ -130,7 +130,6 @@ end
 
 local function command_result_stderr(result) return type(result) == "table" and tostring(result.stderr or "") or "" end
 
-local function command_result_exit_code(result) return type(result) == "table" and tonumber(result.exit_code) or nil end
 
 function M.is_gh_rate_limited(result)
   local stderr = command_result_stderr(result)

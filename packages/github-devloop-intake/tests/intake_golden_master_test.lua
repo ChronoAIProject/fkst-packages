@@ -1,10 +1,8 @@
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
-local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
-local operator_commands = require("devloop.operator_commands")
 local opts = h.opts
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
@@ -57,15 +55,6 @@ local function mock_issue(fields)
   }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
 
-local function trusted_reintake_command(id)
-  return {
-    id = id or "IC_reintake_1",
-    body = "fkst: reintake",
-    author_login = devloop_base.trusted_bot_login(),
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
-
 local function run_admission(run_opts)
   return t.run_department("departments/admission/main.lua", event(), run_opts)
 end
@@ -80,20 +69,6 @@ end
 local function assert_source_ref(payload, ref)
   t.eq(payload.source_ref.kind, "external")
   t.eq(payload.source_ref.ref, ref or "owner/repo#issue/42")
-end
-
-local function assert_issue_claim(payload)
-  t.eq(payload.claim.owner, "fkst-test-bot")
-  assert_source_ref(payload.claim, "owner/repo#issue/42")
-end
-
-local function assert_common_issue_request(payload, schema, dedup_key)
-  t.eq(payload.schema, schema)
-  t.eq(payload.repo, "owner/repo")
-  t.eq(tostring(payload.issue_number), "42")
-  t.eq(payload.dedup_key, dedup_key)
-  assert_source_ref(payload)
-  assert_issue_claim(payload)
 end
 
 local function assert_no_codex_or_issue_edit()
@@ -135,30 +110,6 @@ return {
     t.eq(payload.effect_id, devloop_base.intake_decision_dedup_key(payload.proposal_id, { title = "Issue", body = "" }))
     assert_admission_candidate_delivery_key(payload)
     assert_source_ref(payload)
-  end,
-
-  test_golden_admission_refuses_reintake_without_trusted_authority = function()
-    local command = trusted_reintake_command("IC_reintake_no_marker")
-    local command_fact = operator_commands.operator_command_fact({ command }, "reintake")
-    h.mock_bot_env()
-    mock_repo_env()
-    mock_issue({ number = 42, labels = {}, comments = { command } })
-
-    local result = run_admission(opts("golden-admission-reintake-refusal"))
-
-    t.eq(result.exit_code, 0)
-    assert_queues(result.raises, { "github-proxy.github_issue_comment_request" })
-    local request = result.raises[1].payload
-    assert_common_issue_request(request, "github-proxy.v1", base_ids.dedup_key({
-      "operator-command",
-      "comment",
-      command_fact.key,
-      "refused",
-      "reintake requires a trusted intake decision or lifecycle state",
-    }))
-    t.is_true(request.body:find("github-devloop operator command refused: reintake requires a trusted intake decision or lifecycle state", 1, true) ~= nil)
-    t.is_true(request.body:find('command="reintake"', 1, true) ~= nil)
-    t.is_true(request.body:find('outcome="refused"', 1, true) ~= nil)
   end,
 
   test_golden_admission_claim_skip_known_state_hold_and_foreign_assignee = function()

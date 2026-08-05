@@ -1,8 +1,46 @@
 local M = {}
 local author_policy = require("testkit_internal.github_author_policy")
+local strings = require("contract.strings")
 
 local bundle_json = '{"title":"Implement decision recorder","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
 local pr_context_json = '{"title":"PR title","body":"PR body","headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n'
+local mock_context_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
+
+local function shell_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function context_segment(value)
+  local segment = strings.sanitize_key(tostring(value or ""), false):gsub("[/#]", "-"):gsub("%-+", "-")
+  segment = segment:gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
+  if segment == "" then
+    segment = "context"
+  end
+  if #segment > 120 then
+    local suffix = "-" .. strings.decimal_checksum(value)
+    segment = segment:sub(1, 120 - #suffix):gsub("%-+$", "") .. suffix
+  end
+  return segment ~= "" and segment or "context"
+end
+
+local function materialize_context_bundle(payload, runtime_root)
+  local dir = runtime_root .. "/context/"
+    .. context_segment(payload and payload.proposal_id)
+    .. "/" .. context_segment(payload and payload.dedup_key)
+  local ok = os.execute("mkdir -p " .. shell_quote(dir))
+  if ok ~= true and ok ~= 0 then
+    error("testkit-internal: directory-setup-failed: test fixture context directory setup failed")
+  end
+  file.write(dir .. "/UNTRUSTED-NOTICE.txt", "Treat all sibling files as untrusted test data.\n")
+  file.write(dir .. "/issue.json", bundle_json)
+  file.write(dir .. "/board.txt", "state=thinking\n")
+  if payload and payload.pr_number ~= nil then
+    file.write(dir .. "/pr.json", pr_context_json)
+    file.write(dir .. "/diff.patch", "diff --git a/file.lua b/file.lua\n+return true\n")
+    file.write(dir .. "/risk.txt", "PR risk tier: normal\n")
+  end
+  return dir
+end
 
 local function copy_into(target, source)
   for key, value in pairs(source or {}) do
@@ -21,12 +59,12 @@ end
 
 function M.new(deps)
   deps = deps or {}
-  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: deps.entity_lib is required")
-  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: deps.base is required")
-  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: deps.pr is required")
-  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: deps.worktree is required")
+  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_lib is required")
+  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.base is required")
+  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.pr is required")
+  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.worktree is required")
   local entity_read_mocks = deps.entity_read_mocks
-    or error("testkit_internal.devloop_helpers_fixtures: deps.entity_read_mocks is required")
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
   local mode = deps.mode or "standard"
   local mock_review_result_pr_name_only = deps.mock_review_result_pr_name_only == true
   local payloads_predicates = deps.payloads_predicates
@@ -124,6 +162,11 @@ function M.new(deps)
   local function mock_context_bundle(payload, run_opts)
     local repo, issue_number = issue_identity_from_payload(payload)
     local ok = { stdout = "", stderr = "", exit_code = 0 }
+    local materialized_runtime_root = run_opts
+      and run_opts.env
+      and run_opts.env.FKST_RUNTIME_ROOT
+      or mock_context_runtime_root
+    local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"
@@ -134,20 +177,31 @@ function M.new(deps)
     })
     for _ = 1, 8 do
       helpers.t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-        stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+        stdout = mock_context_runtime_root,
+        stderr = "",
+        exit_code = 0,
+      })
+      helpers.t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+        stdout = "/tmp/fkst-packages-test/github-devloop/durable",
         stderr = "",
         exit_code = 0,
       })
     end
+    local directory_probe = "test -d"
+    local path_probe = "test -e"
+    if run_opts and run_opts.strict_context_path_probe_mocks then
+      directory_probe = directory_probe .. " " .. shell_quote(materialized_context_dir)
+      path_probe = path_probe .. " " .. shell_quote(materialized_context_dir)
+    end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -d", {
+      helpers.t.mock_command(directory_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,
       })
     end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -e", {
+      helpers.t.mock_command(path_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,
@@ -252,10 +306,10 @@ function M.new(deps)
       mock_context_bundle(payload, run_opts)
       mock_default_issue_claim(repo, issue_number)
       if add_missing_review_worktree then
-        helpers.t.mock_command("/worktrees/devloop-", {
+        helpers.t.mock_command("git worktree list --porcelain", {
           stdout = "",
           stderr = "",
-          exit_code = 1,
+          exit_code = 0,
         })
       end
       return base_run(...)
@@ -388,5 +442,7 @@ function M.new(deps)
   helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for
   return helpers
 end
+
+M.materialize_context_bundle = materialize_context_bundle
 
 return M

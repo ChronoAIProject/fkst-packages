@@ -24,8 +24,8 @@ for _, module_name in ipairs(modules) do
 end
 
 -- Migration compat scaffold: still loop-bind every submodule's methods onto the composed core M
--- so readers not yet rewired to require("devloop.commands") keep working. Deleted once the
--- G-DEVLOOP-INSTALLER ratchet shows zero commands reads through the ambient M.
+-- so readers not yet rewired to require("devloop.commands") keep working. A zero
+-- G-DEVLOOP-INSTALLER count is NOT the removal condition; see docs/devloop-decouple-endpoint.md.
 function S.install(M)
   for _, module_name in ipairs(modules) do
     require(module_name).install(M)

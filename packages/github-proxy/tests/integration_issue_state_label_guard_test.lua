@@ -1,10 +1,12 @@
 local h = require("tests.proxy_integration_helpers")
 local devloop_state = require("devloop.state")
+local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(devloop_state)
 local t = h.t
 local opts = h.opts
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local mock_repo_label_list = h.mock_repo_label_list
+local calls_matching = h.calls_matching
 local count_calls = h.count_calls
 
 local proposal_id = "github-devloop/issue/owner/x/42"
@@ -115,14 +117,20 @@ local function state_label_event(state, version, extra)
   return label_event(add_labels, remove_labels, payload)
 end
 
-local function mock_label_apply()
-  mock_repo_label_list({
+local function mock_label_apply(labels)
+  mock_repo_label_list(labels or {
     "fkst-dev:awaiting-pr",
     "fkst-dev:blocked",
     "fkst-dev:thinking",
     "manual-label",
   })
   t.mock_command("gh issue edit", { stdout = "", stderr = "", exit_code = 0 })
+end
+
+local function has_arg_pair(rendered, flag, value)
+  local text = tostring(rendered or "")
+  return text:find(tostring(flag) .. " '" .. tostring(value) .. "'", 1, true) ~= nil
+    or text:find(tostring(flag) .. " " .. tostring(value), 1, true) ~= nil
 end
 
 local function run_label(event, name, issue_number)
@@ -178,6 +186,41 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
     t.eq(count_calls("gh issue edit"), 1)
+  end,
+
+  test_issue_ready_projection_with_dependency_label_applies_as_one_guarded_request = function()
+    mock_issue_comment_view({
+      projected_state_comment(proposal_id, "ready", stale_version),
+    })
+    mock_label_apply({
+      "fkst-dev:ready",
+      "fkst-dev:blocked-on-dependency",
+      "fkst-dev:impl-failed",
+    })
+    local event = state_label_event("dependency_wait", fresh_version, {
+      marker_guard = state_marker_guard("dependency_wait", fresh_version),
+      require_marker_guard = true,
+    })
+    table.insert(event.payload.add_labels, "fkst-dev:blocked-on-dependency")
+
+    local pending = run_label(event, "issue-ready-dependency-label-guard-observed-behind")
+
+    t.eq(pending.exit_code, 1)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
+    t.eq(count_calls("gh issue edit"), 0)
+
+    mock_issue_comment_view({
+      projected_state_comment(proposal_id, "dependency_wait", fresh_version),
+    })
+    local result = run_label(event, "issue-ready-dependency-label-guard-retry-current")
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 2)
+    t.eq(count_calls("gh issue edit"), 1)
+    local edit = calls_matching("gh issue edit")[1]
+    t.is_true(has_arg_pair(edit.rendered, "--add-label", "fkst-dev:ready"))
+    t.is_true(has_arg_pair(edit.rendered, "--add-label", "fkst-dev:blocked-on-dependency"))
+    t.is_true(has_arg_pair(edit.rendered, "--remove-label", "fkst-dev:impl-failed"))
   end,
 
   test_issue_state_label_allows_bootstrap_when_no_marker_is_visible = function()

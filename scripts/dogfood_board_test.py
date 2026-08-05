@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -73,11 +74,17 @@ class DogfoodBoardHarness:
 JSON
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
-                    printf '%s\\t%s\\t%s\\t%s\\n' 33 2026-06-27T00:00:00Z 'fkst-dev:ready,fkst-dev:blocked-on-dependency' 'Dependency held'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 34 2026-06-27T00:00:00Z 'fkst-dev:ready' 'Actionable ready'
+                    old=2026-06-27T00:00:00Z
+                    fresh=2026-06-27T11:00:00Z
+                    case "$4" in
+                      *created_at*) active=$old; stateless=$old ;;
+                      *) active=$fresh; stateless=$fresh ;;
+                    esac
+                    printf '%s\\t%s\\t%s\\t%s\\n' 33 "$old" 'fkst-dev:ready,fkst-dev:blocked-on-dependency' 'Dependency held'
+                    printf '%s\\t%s\\t%s\\t%s\\n' 34 "$active" 'fkst-dev:ready' 'Actionable ready commented'
                     printf '%s\\t%s\\t%s\\t%s\\n' 35 2026-06-27T00:00:00Z 'fkst-dev:blocked' 'Terminal blocked'
                     printf '%s\\t%s\\t%s\\t%s\\n' 36 2026-06-27T00:00:00Z 'fkst-dev:implementing,fkst-dev:blocked-on-dependency' 'Implementing stale'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 37 2026-06-27T00:00:00Z '__fkst_stateless__' 'Stateless old issue'
+                    printf '%s\\t%s\\t%s\\t%s\\n' 37 "$stateless" '__fkst_stateless__' 'Stateless commented'
                     printf '%s\\t%s\\t%s\\t%s\\n' 38 2026-06-27T00:00:00Z '__fkst_stateless__' 'Workflow parent'
                     printf '%s\\t%s\\t%s\\t%s\\n' 39 2026-06-27T00:00:00Z '__fkst_stateless__' 'Forged workflow parent'
                     printf '%s\\t%s\\t%s\\t%s\\n' 40 2026-06-27T00:00:00Z '__fkst_stateless__' 'Peer workflow parent'
@@ -87,8 +94,24 @@ JSON
                     printf '%s\\t%s\\t%s\\t%s\\n' 44 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting child cascade'
                     printf '%s\\t%s\\t%s\\t%s\\n' 45 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting terminal timeout'
                     printf '%s\\t%s\\t%s\\t%s\\n' 46 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting unavailable marker'
+                    printf '%s\\t%s\\t%s\\t%s\\n' 47 "$old" 'fkst-dev:ready' 'Actionable ready untouched'
+                    printf '%s\\t%s\\t%s\\t%s\\n' 48 "$old" '__fkst_stateless__' 'Stateless untouched'
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/34/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/47/comments?per_page=100)
+                    num=${2#*/issues/}; num=${num%%/*}
+                    cat <<JSON
+[{"user":{"login":"loning"},"created_at":"2026-06-27T00:00:00Z","body":"<!-- fkst:github-devloop:state:v1 proposal=\\"github-devloop/issue/ChronoAIProject/fkst-packages/$num\\" state=\\"ready\\" version=\\"2026-06-27T00-00-00Z/ready\\" stage_rank=\\"500\\" marker_order_key=\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000500\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/36/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"created_at":"2026-06-27T00:00:00Z","body":"<!-- fkst:github-devloop:state:v1 proposal=\\"github-devloop/issue/ChronoAIProject/fkst-packages/36\\" state=\\"implementing\\" version=\\"2026-06-27T00-00-00Z/implementing\\" stage_rank=\\"600\\" marker_order_key=\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000600\\" -->"}]
+JSON
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/37/comments?per_page=100)
+                    printf '[]\\n'
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/48/comments?per_page=100)
                     printf '[]\\n'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/38/comments?per_page=100)
@@ -188,6 +211,21 @@ JSON
 
 
 class DogfoodBoardTest(unittest.TestCase):
+    def test_issue_age_warnings_are_invariant_to_updated_at_comments(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            for issue_number in (34, 47):
+                self.assertIn(f"#{issue_number:<5}[ready       ] ⚠ STUCK ready 12h", result.stdout)
+            for issue_number in (37, 48):
+                self.assertIn(
+                    f"#{issue_number:<5}[stateless   ] ⚠ STRANDED stateless 12h",
+                    result.stdout,
+                )
+        finally:
+            h.close()
+
     def test_dependency_hold_is_parked_while_actionable_ready_remains_stuck(self) -> None:
         h = DogfoodBoardHarness()
         try:
@@ -196,9 +234,11 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertIn("#33   [ready       ] parked(dependency-wait)", result.stdout)
             self.assertNotIn("#33   [ready       ] ⚠ STUCK", result.stdout)
             self.assertIn("#34   [ready       ] ⚠ STUCK ready 12h", result.stdout)
+            self.assertIn("#47   [ready       ] ⚠ STUCK ready 12h", result.stdout)
             self.assertIn("#35   [blocked     ] parked(blocked)", result.stdout)
             self.assertIn("#36   [implementing] ⚠ STUCK implementing 12h", result.stdout)
             self.assertIn("#37   [stateless   ] ⚠ STRANDED stateless 12h", result.stdout)
+            self.assertIn("#48   [stateless   ] ⚠ STRANDED stateless 12h", result.stdout)
             self.assertIn(
                 "#38   [workflow    ] parked(workflow:software-feature-flow blocked(child-fatal-walking-skeleton))",
                 result.stdout,
@@ -275,6 +315,32 @@ class LifecycleBoardFactTest(unittest.TestCase):
         result = self.run_tool(comments)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(result.stdout.strip(), '{"state":"blocked","terminal":true}')
+
+    def test_lifecycle_projector_preserves_current_marker_condition_onset(self) -> None:
+        comments = json.dumps(
+            [
+                {
+                    "user": {"login": "loning"},
+                    "created_at": "2026-06-03T02:00:00Z",
+                    "body": (
+                        '<!-- fkst:github-devloop:state:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                        'state="ready" version="ready/1" stage_rank="500" '
+                        'marker_order_key="ready/1/0000000500" -->'
+                    ),
+                }
+            ]
+        )
+        result = self.run_tool(comments)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "state": "ready",
+                "terminal": False,
+                "condition_started_at": "2026-06-03T02:00:00Z",
+            },
+        )
 
     def test_lifecycle_projector_fails_closed_without_order_key(self) -> None:
         comments = textwrap.dedent(

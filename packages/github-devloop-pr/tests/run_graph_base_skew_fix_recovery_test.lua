@@ -125,6 +125,11 @@ local function mock_runtime_config()
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+      stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 
@@ -162,15 +167,16 @@ end
 
 local function mock_comment_handoff(event, canonical, include_fixing)
   local visible_comments = '[[{"id":1,"body":"'
-    .. h.json_string(core.state_marker(event.proposal_id, "fixing", event.version))
+    .. h.json_string(core.state_marker(event.proposal_id, "reviewing", core.next_fix_version(event.version)))
     .. '","user":{"login":"fkst-test-bot"}},{"id":2,"body":"'
     .. h.json_string(canonical.body)
     .. '","user":{"login":"fkst-test-bot"}}]]\n'
+  local comment_read_count = include_fixing == false and 4 or 5
   for _, command in ipairs({
     "gh api --paginate --slurp repos/" .. repo .. "/issues/" .. pr_number .. "/comments?per_page=100",
     "gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. pr_number .. "/comments?per_page=100'",
   }) do
-    for _ = 1, 4 do
+    for _ = 1, comment_read_count do
       t.mock_command(command, {
         stdout = visible_comments,
         stderr = "",
@@ -267,7 +273,15 @@ local function mock_fix_execution(event, canonical, opts)
     status_check_rollup_json,
     opts.precheck_times
   )
-  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, nil, {
+  local worktree = devloop_base.implement_worktree_path(
+    devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable"
+    ),
+    repo,
+    issue_number,
+    event.version
+  )
+  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, worktree, {
     sha = new_base,
     stdout = "",
     stderr = "",
@@ -440,8 +454,8 @@ local function assert_ci_recovery_duplicate_executes_once(outcome)
 
   mock_runtime_config()
   h.mock_default_issue_claim(repo, issue_number)
-  mock_fix_execution(event, canonical, outcome)
   mock_comment_handoff(event, canonical, false)
+  mock_fix_execution(event, canonical, outcome)
   local trace = graph.run({
     queue = "github-devloop-pr.test_duplicate_fixing",
     payload = {
@@ -469,8 +483,9 @@ local function assert_ci_recovery_duplicate_executes_once(outcome)
     end
   end
   t.eq(fix_deliveries, 1)
-  -- One admitted fix reads the runtime root for its worktree and context bundle.
-  t.eq(h.count_calls('printf %s "$FKST_RUNTIME_ROOT"'), 2)
+  -- One admitted fix reads runtime scratch for context and durable storage for its worktree.
+  t.eq(h.count_calls('printf %s "$FKST_RUNTIME_ROOT"'), 1)
+  t.eq(h.count_calls('printf %s "$FKST_DURABLE_ROOT"'), 1)
   t.eq(h.count_calls("git worktree list --porcelain"), 1)
   t.eq(h.count_calls("merge --no-edit '" .. new_base .. "'"), 1)
   t.eq(h.count_calls("merge --no-edit '" .. old_base .. "'"), 0)
@@ -643,8 +658,8 @@ local tests = {
 
     mock_runtime_config()
     h.mock_default_issue_claim(repo, issue_number)
-    mock_replay_entry(old_event, canonical)
     mock_comment_handoff(old_event, canonical, false)
+    mock_replay_entry(old_event, canonical)
     mock_label_writes()
     mock_fix_execution(old_event, canonical)
     local recovered = graph.run({

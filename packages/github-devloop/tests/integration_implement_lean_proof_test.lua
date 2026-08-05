@@ -126,7 +126,10 @@ local function run_construction(raw, id)
   mock_implementation_issue_reads({ "fkst-dev:ready", "fkst-dev:thinking" }, {
     accepted_result_comment(accepted),
   })
-  h.mock_fresh_implement_worktree()
+  h.mock_fresh_implement_worktree({
+    impl_version = ready.dedup_key,
+    harvest_checks = 1,
+  })
   mock_toolchain(branch)
   h.mock_implement_codex(0, raw)
   h.mock_git_status(" M " .. target .. "\n")
@@ -157,10 +160,11 @@ local function retry_from_failure(ready, accepted, failure_body, raw, id, checke
   t.eq(replay.payload.impl_retry_attempt, 2)
 
   mock_implementation_issue_reads({ "fkst-dev:impl-failed" }, comments)
+  local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
   h.mock_existing_empty_implement_worktree({
     impl_version = ready.dedup_key .. "/reimplement/2",
+    harvest_checks = checker == false and 1 or 2,
   })
-  local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
   mock_toolchain(branch)
   h.mock_implement_codex(0, raw)
   h.mock_git_status(" M " .. target .. "\n")
@@ -291,12 +295,11 @@ return {
       h.mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" }, {
         accepted_result_comment(accepted),
       })
-      h.mock_fresh_implement_worktree()
+      h.mock_fresh_implement_worktree({ harvest_checks = 1 })
       mock_toolchain(branch)
       t.mock_command("codex exec", { stdout = complete, stderr = "", exit_code = 0 })
       mock_checker(case.checker)
       h.mock_git_status(" M " .. target .. "\n")
-      t.mock_command("scripts/run.sh test-affected", { stdout = "", stderr = "", exit_code = 0 })
       h.mock_git_commit("def456", branch)
 
       local result = h.run_implement(actual_ready, h.opts(case.id))
@@ -305,7 +308,7 @@ return {
     end
   end,
 
-  test_lean_proof_local_verification_failure_never_hands_off = function()
+  test_lean_proof_unknown_local_verification_checkpoints_without_handoff = function()
     local ready, accepted = proof_event()
     local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
     h.mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" }, {
@@ -321,16 +324,20 @@ return {
     mock_checker()
     h.mock_git_status(" M " .. target .. "\n")
     for _ = 1, 2 do
-      t.mock_command("scripts/run.sh test-affected", {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
         stdout = "",
         stderr = "local iteration runner unavailable\n",
         exit_code = 2,
       })
     end
+    h.mock_git_commit("def456", branch)
 
     local result = h.run_implement(ready, h.opts("lean-proof-local-gate-red"))
-    t.is_true(find_comment(result.raises,
-      "github-devloop implementation failed: local-iteration-attribution-indeterminate") ~= nil)
+    local checkpoint = find_comment(result.raises, "fkst:github-devloop:implement-checkpoint:v1")
+    t.is_true(checkpoint ~= nil)
+    t.is_true(checkpoint.payload.body:find("candidate_result=UNKNOWN", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("local iteration runner unavailable", 1, true) ~= nil)
+    t.eq(find_comment(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
     t.eq(count_comments(result.raises, "github-devloop implementation output published"), 0)
   end,
 }

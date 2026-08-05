@@ -23,9 +23,6 @@ local function observe_idle()
   }
 end
 
-local function observe_idle_json()
-  return '{"schema_version":1,"generated_at_ms":1781830860000,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}'
-end
 
 local function copy_contract(contract)
   local copied = {}

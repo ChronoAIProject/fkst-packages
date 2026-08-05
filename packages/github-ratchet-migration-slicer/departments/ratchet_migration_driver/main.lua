@@ -178,9 +178,6 @@ local function timestamp_now()
   return os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(now()) or os.time())
 end
 
-local function issue_create_marker(dedup_key)
-  return "<!-- fkst:github-proxy:issue-create:" .. tostring(dedup_key) .. " -->"
-end
 
 local function issue_create_intent_marker(dedup_key)
   return '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. tostring(dedup_key) .. '" -->'
