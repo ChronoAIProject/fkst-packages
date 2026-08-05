@@ -100,11 +100,15 @@ function C.result_effects_complete(current, reached)
     return false
   end
   local state_name = reached.decision == "reject" and "declined" or "ready"
+  local authoritative_state_reached = devloop_state.reached(current.comments, reached.proposal_id, state_name, {
+    domain = "github-devloop-issue",
+  })
   return result_facts.first_result_fact(
     current.comments,
     reached.proposal_id,
     tostring(reached.effect_version or reached.dedup_key)
   ) ~= nil
+    and authoritative_state_reached
     and devloop_state.state_label_hint_matches(current.labels, state_name)
 end
 
