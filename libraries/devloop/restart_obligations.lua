@@ -16,30 +16,30 @@ local CASE_KINDS = {
 
 local function require_nonempty_string(value, field)
   if type(value) ~= "string" or value == "" then
-    error("devloop.restart_obligations: " .. field .. " must be a non-empty string")
+    error("devloop.restart_obligations: obligation-string-field-invalid: " .. field .. " must be a non-empty string")
   end
 end
 
 local function require_dense_string_array(value, field)
   if type(value) ~= "table" then
-    error("devloop.restart_obligations: " .. field .. " must be an array of strings")
+    error("devloop.restart_obligations: obligation-string-array-not-table: " .. field .. " must be an array of strings")
   end
   local count = 0
   for key, item in pairs(value) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(item) ~= "string" then
-      error("devloop.restart_obligations: " .. field .. " must be an array of strings")
+      error("devloop.restart_obligations: obligation-string-array-entry-invalid: " .. field .. " must be an array of strings")
     end
     count = count + 1
   end
   if count ~= #value then
-    error("devloop.restart_obligations: " .. field .. " must be a dense array")
+    error("devloop.restart_obligations: obligation-string-array-sparse: " .. field .. " must be a dense array")
   end
 end
 
 local function validate_entry(entry, index, seen)
   local context = "entries[" .. tostring(index) .. "]"
   if type(entry) ~= "table" then
-    error("devloop.restart_obligations: " .. context .. " must be a table")
+    error("devloop.restart_obligations: obligation-entry-not-table: " .. context .. " must be a table")
   end
   for _, field in ipairs({
     "obligation_id",
@@ -51,24 +51,24 @@ local function validate_entry(entry, index, seen)
     require_nonempty_string(entry[field], context .. "." .. field)
   end
   if seen[entry.obligation_id] then
-    error("devloop.restart_obligations: duplicate obligation_id " .. entry.obligation_id)
+    error("devloop.restart_obligations: duplicate-obligation-id: duplicate obligation_id " .. entry.obligation_id)
   end
   seen[entry.obligation_id] = true
   if not CASE_KINDS[entry.case_kind] then
-    error("devloop.restart_obligations: " .. context .. ".case_kind is invalid")
+    error("devloop.restart_obligations: obligation-case-kind-invalid: " .. context .. ".case_kind is invalid")
   end
   if type(entry.expected_decision) ~= "table" then
-    error("devloop.restart_obligations: " .. context .. ".expected_decision must be a table")
+    error("devloop.restart_obligations: obligation-expected-decision-not-table: " .. context .. ".expected_decision must be a table")
   end
   require_dense_string_array(entry.expected_effect_ids, context .. ".expected_effect_ids")
   if type(entry.expected_payload_obligations) ~= "table" then
-    error("devloop.restart_obligations: " .. context .. ".expected_payload_obligations must be a table")
+    error("devloop.restart_obligations: obligation-expected-payload-not-table: " .. context .. ".expected_payload_obligations must be a table")
   end
 end
 
 function M.define(entries)
   if type(entries) ~= "table" then
-    error("devloop.restart_obligations: entries must be an array")
+    error("devloop.restart_obligations: obligation-entries-not-table: entries must be an array")
   end
   local seen = {}
   for index, entry in ipairs(entries) do

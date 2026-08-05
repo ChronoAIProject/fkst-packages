@@ -21,7 +21,7 @@ end
 
 local function render_state_marker(proposal_id, state, version, effects)
   if not C.is_state(state) then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
   local effects_field = ""
   if effects ~= nil and tostring(effects) ~= "" then
@@ -141,7 +141,7 @@ end
 
 function C.route_current(comments, proposal_id, routes)
   if type(routes) ~= "table" then
-    error("github-devloop: invalid current state routes")
+    error("github-devloop: current-state-routes-invalid: invalid current state routes")
   end
   local current = derive_current_marker(comments, proposal_id) or {}
   return {
@@ -193,7 +193,7 @@ function C.reached(comments, proposal_id, milestone, opts)
   end
   local options = opts or {}
   if not C.is_state(milestone) then
-    error("github-devloop: invalid milestone")
+    error("github-devloop: milestone-invalid: invalid milestone")
   end
   local domain = options.domain or options.milestone_domain
   restart_metadata._validate_milestone_domain(domain, milestone)

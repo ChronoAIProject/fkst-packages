@@ -119,7 +119,7 @@ local registries = {
 }
 
 local function fail(message)
-  error("devloop: invalid payload token: " .. message, 0)
+  error("devloop: payload-token-invalid: invalid payload token: " .. message, 0)
 end
 
 local function parsed_token(token)
