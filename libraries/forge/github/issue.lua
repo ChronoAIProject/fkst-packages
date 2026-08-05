@@ -53,7 +53,7 @@ end
 local function gh_issue_view_argv(repo, issue_number, fields)
   local selected_fields = tostring(fields or "")
   if selected_fields == "" or selected_fields:match("[^%w_,]") or selected_fields:match("^,") or selected_fields:match(",$") or selected_fields:match(",,") then
-    error("forge.github: invalid issue view fields")
+    error("forge.github: issue-view-fields-invalid: invalid issue view fields")
   end
   return { "gh", "issue", "view", tostring(issue_number), "--repo", tostring(repo), "--json", selected_fields }
 end
@@ -191,7 +191,7 @@ local function comments_from_json(comments_json)
         created_at = comment.createdAt or comment.created_at,
       })
     elseif type(comment) == "string" then
-      error("forge.github: issue comments must be gh-shaped objects")
+      error("forge.github: issue-comment-shape-invalid: issue comments must be gh-shaped objects")
     end
   end
   return comments
@@ -210,14 +210,14 @@ local function parse_json_object(stdout, context)
   if ok and type(decoded) == "table" then
     return decoded
   end
-  error("forge.github: " .. tostring(context) .. " response is not valid JSON")
+  error("forge.github: response-json-invalid: " .. tostring(context) .. " response is not valid JSON")
 end
 
 local function issue_database_id(stdout, context)
   local decoded = parse_json_object(stdout, context)
   local id = tonumber(decoded.id)
   if id == nil then
-    error("forge.github: " .. tostring(context) .. " response is missing issue id")
+    error("forge.github: issue-id-missing: " .. tostring(context) .. " response is missing issue id")
   end
   return id
 end

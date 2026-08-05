@@ -61,11 +61,11 @@ end
 local function parse_timeout_seconds(env_name, raw)
   local value = trim(raw)
   if value == "" or value:find("[^0-9]") ~= nil then
-    error("workflow_internal.codex: invalid " .. env_name .. ": expected positive integer seconds")
+    error("workflow_internal.codex: timeout-config-invalid: invalid " .. env_name .. ": expected positive integer seconds")
   end
   local parsed = tonumber(value)
   if parsed == nil or parsed <= 0 then
-    error("workflow_internal.codex: invalid " .. env_name .. ": expected positive integer seconds")
+    error("workflow_internal.codex: timeout-config-invalid: invalid " .. env_name .. ": expected positive integer seconds")
   end
   return parsed
 end
@@ -73,7 +73,7 @@ end
 local function resolved_role_timeout(role, dispatch_opts)
   local default = role_timeout_defaults[role]
   if default == nil then
-    error("workflow_internal.codex: unknown timeout role: " .. tostring(role))
+    error("workflow_internal.codex: timeout-role-unknown: unknown timeout role: " .. tostring(role))
   end
   if dispatch_opts.timeout ~= nil then
     return dispatch_opts.timeout
@@ -112,7 +112,7 @@ local function identity_parts(identity_or_role, proposal_id, dedup_key)
     local legacy_id = identity_or_role.proposal_id
     local invocation_id = identity_or_role.invocation_id
     if legacy_id ~= nil and invocation_id ~= nil and tostring(legacy_id) ~= tostring(invocation_id) then
-      error("workflow_internal.codex: conflicting run identity")
+      error("workflow_internal.codex: run-identity-conflict: conflicting run identity")
     end
     return identity_or_role.role, invocation_id or legacy_id, identity_or_role.dedup_key
   end
@@ -167,11 +167,11 @@ end
 
 function M.dispatch(identity, opts)
   if type(identity) ~= "table" then
-    error("workflow_internal.codex: dispatch identity must be a convergence identity")
+    error("workflow_internal.codex: dispatch-identity-invalid: dispatch identity must be a convergence identity")
   end
   local role, proposal_id, dedup_key = identity_parts(identity)
   if role == nil or proposal_id == nil or dedup_key == nil then
-    error("workflow_internal.codex: dispatch identity is incomplete")
+    error("workflow_internal.codex: dispatch-identity-incomplete: dispatch identity is incomplete")
   end
   if M.live_run_active(identity) then
     return {

@@ -61,7 +61,7 @@ end
 
 function C.build_state_label_request(repo, issue_number, to_state, proposal_id, state_marker_version, dedup_key_value, source_ref, current_labels, marker_target)
   if proposal_id == nil or state_marker_version == nil then
-    error("github-devloop: state label request requires proposal_id and state marker version")
+    error("github-devloop: state-label-request-guard-fields-missing: state label request requires proposal_id and state marker version")
   end
   local add_labels, remove_labels
   if current_labels ~= nil then

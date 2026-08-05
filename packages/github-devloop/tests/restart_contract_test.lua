@@ -219,7 +219,7 @@ return {
       ops = ops,
     })
     t.eq(ok, false)
-    t.is_true(tostring(err):find("restart kernel: missing op version_fix_round", 1, true) ~= nil, tostring(err))
+    t.is_true(tostring(err):find("restart.kernel: restart-op-missing: missing op version_fix_round", 1, true) ~= nil, tostring(err))
   end,
 
   test_executable_restart_table_covers_non_terminal_states = function()

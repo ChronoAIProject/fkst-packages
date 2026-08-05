@@ -167,7 +167,7 @@ end
 
 function C.build_intake_decision_comment_request(M, repo, issue_number, candidate, decision, reason, service_class)
   if not m_shared.is_intake_service_class(service_class) then
-    error("github-devloop: invalid intake service class")
+    error("github-devloop: intake-service-class-invalid: invalid intake service class")
   end
   local normalized_class = m_shared.normalize_intake_service_class(service_class)
   local premise_fingerprint = decision == "decline"
@@ -212,16 +212,16 @@ end
 
 function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid implementing head_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: git-ref-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -249,13 +249,13 @@ end
 
 function C.build_implementing_state_comment_request(M, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid implementing branch")
+    error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid implementing base_branch")
+    error("github-devloop: git-ref-invalid: invalid implementing base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid implementing base_sha")
+    error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local state_marker = M.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
@@ -282,16 +282,16 @@ end
 
 function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid checkpoint branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint branch")
   end
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid checkpoint head_sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint head_sha")
   end
   if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: invalid checkpoint base_branch")
+    error("github-devloop: git-ref-invalid: invalid checkpoint base_branch")
   end
   if not forge_validators.is_git_sha(base_sha) then
-    error("github-devloop: invalid checkpoint base_sha")
+    error("github-devloop: git-sha-invalid: invalid checkpoint base_sha")
   end
   local text = tostring(detail or "")
   if #text > M._max_impl_output_len then
