@@ -81,7 +81,9 @@ end
   end
 
   function C.gh_issue_view_state(repo, issue_number, timeout)
-    return C.gh_issue_view(repo, issue_number, "view_state", timeout)
+    return support.gh_result(function()
+      return support.github().issue_view_state(repo, issue_number, timeout)
+    end)
   end
 
   function C.gh_issue_view_claim(repo, issue_number, timeout)

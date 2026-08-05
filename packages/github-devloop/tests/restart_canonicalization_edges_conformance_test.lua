@@ -332,7 +332,7 @@ end
 local function observe_implementing_merged_child()
   h.mock_bot_env()
   h.mock_write_env("")
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = blocked_by_json({}),
     stderr = "",
     exit_code = 0,

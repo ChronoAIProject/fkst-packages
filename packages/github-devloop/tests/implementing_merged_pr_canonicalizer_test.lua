@@ -158,7 +158,7 @@ end
 local function mock_env(write_mode, bot_login)
   h.mock_bot_env(bot_login)
   h.mock_write_env(write_mode or "")
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,
@@ -297,7 +297,7 @@ local function run_issue_close_poll(canonicalization_body)
   for _ = 1, 4 do
     h.mock_write_env("1")
   end
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,

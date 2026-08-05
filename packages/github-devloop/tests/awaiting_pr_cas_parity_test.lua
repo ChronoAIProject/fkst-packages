@@ -217,7 +217,7 @@ local function mock_env()
   })
   h.mock_bot_env()
   h.mock_write_env("")
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,

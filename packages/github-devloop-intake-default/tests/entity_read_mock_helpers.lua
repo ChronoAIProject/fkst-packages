@@ -296,6 +296,9 @@ M.pr_freshness_selector = pr_freshness_selector
 M.pr_context_selector = pr_context_selector
 
 local function issue_view_command(repo, number, fields)
+  if fields == issue_state_selector then
+    return require("forge.github.issue").issue_view_state_cmd(repo, number)
+  end
   return "gh issue view " .. shell_quote(number)
     .. " --repo " .. shell_quote(repo)
     .. " --json " .. fields

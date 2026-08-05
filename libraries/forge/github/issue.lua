@@ -15,6 +15,15 @@ local parse_updated_at_stdout = github_view.parse_updated_at_stdout
 -- Two documented exclusions: `blocked_by` needs GraphQL (a separate read op, not gh issue
 -- view), and comment `updated_at` is not exposed by gh issue view (only createdAt).
 local issue_view_fields = "number,title,body,url,updatedAt,state,labels,comments,assignees,author"
+local issue_view_state_query = "query($endCursor:String,$owner:String!,$name:String!,$number:Int!){"
+  .. "repository(owner:$owner,name:$name){issue(number:$number){"
+  .. "title createdAt updatedAt labels(first:100){nodes{name}} state "
+  .. "comments(first:100,after:$endCursor){nodes{id body author{login} createdAt} pageInfo{hasNextPage endCursor}} "
+  .. "assignees(first:100){nodes{login}} author{login}}}}"
+local issue_view_state_projection = ".[0].data.repository.issue as $issue | "
+  .. "if $issue == null then error(\"issue not found\") else "
+  .. "$issue + {labels:$issue.labels.nodes,comments:[.[].data.repository.issue.comments.nodes[]],"
+  .. "assignees:$issue.assignees.nodes} end"
 local max_cache_key_segment_len = 120
 
 local function sanitize_cache_segment(value, allow_slash)
@@ -60,6 +69,28 @@ end
 
 local function gh_issue_view_full_argv(repo, issue_number)
   return gh_issue_view_argv(repo, issue_number, issue_view_fields)
+end
+
+local function gh_issue_view_state_argv(repo, issue_number)
+  local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
+  assert(owner ~= nil and name ~= nil, "forge.github: invalid repository")
+  return {
+    "gh", "api", "graphql", "--paginate", "--slurp",
+    "-f", "query=" .. issue_view_state_query,
+    "-f", "owner=" .. owner,
+    "-f", "name=" .. name,
+    "-F", "number=" .. tostring(issue_number),
+    "--jq", issue_view_state_projection,
+  }
+end
+
+local function render_exec_argv(argv)
+  local rendered = {}
+  for _, value in ipairs(argv or {}) do
+    local text = tostring(value)
+    table.insert(rendered, text:find("^[%w_%-%./:=]+$") and text or argv_render.shell_single_quote(text))
+  end
+  return table.concat(rendered, " ")
 end
 
 local function render_issue_view_argv(argv)
@@ -377,6 +408,10 @@ function M.issue_view_cache_key(repo, issue_number)
   return issue_view_cache_key(repo, issue_number)
 end
 
+function M.issue_view_state_cmd(repo, issue_number)
+  return render_exec_argv(gh_issue_view_state_argv(repo, issue_number))
+end
+
 function M.install(handle)
   function handle.issue_view(repo, issue_number, fields, timeout)
     return handle._exec(
@@ -480,6 +515,15 @@ function M.install(handle)
       gh_issue_view_argv(repo, issue_number, fields),
       timeout,
       "gh issue view",
+      stdout_policy.content_json("issue_view")
+    )
+  end
+
+  function handle.issue_view_state(repo, issue_number, timeout)
+    return handle._exec(
+      gh_issue_view_state_argv(repo, issue_number),
+      timeout,
+      "gh issue view state",
       stdout_policy.content_json("issue_view")
     )
   end

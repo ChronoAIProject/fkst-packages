@@ -294,7 +294,7 @@ return {
   end,
 
   test_observe_issue_state_view_failure_errors_for_retry = function()
-    mock_issue_view_failure("--json title,body,comments,labels,state,updatedAt,assignees", "forced state failure")
+    mock_issue_view_failure(core.gh_issue_view_state_cmd("owner/repo", 42), "forced state failure")
 
 	    local result = run_observe(issue(), opts("observe-state-view-failure"))
 	    t.eq(result.exit_code, 1)
@@ -330,7 +330,7 @@ return {
 
   test_consensus_result_non_whitelisted_author_skips_without_comment_or_label = function()
     mock_issue_result({ "fkst-dev:thinking" }, nil, { author_login = "human" })
-    t.mock_command("gh api graphql", {
+    t.mock_command("blockedBy", {
       stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
       stderr = "",
       exit_code = 0,

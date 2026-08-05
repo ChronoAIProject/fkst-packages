@@ -299,7 +299,7 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
   local effective_child_state = child_state or "merged"
   local current_issue_state = issue_lifecycle_state or "awaiting-pr"
   local current_label = current_issue_state == "blocked" and "fkst-dev:blocked" or "fkst-dev:awaiting-pr"
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,

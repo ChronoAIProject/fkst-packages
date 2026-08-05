@@ -304,7 +304,7 @@ local function mock_terminal_comment_flow()
 end
 
 local function mock_issue_replay(child_comments, issue_comments, issue_labels)
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,
@@ -359,7 +359,7 @@ local function mock_replacement_implementation(ready, ready_body)
     ISSUE_NUMBER,
     ready.dedup_key
   )
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,

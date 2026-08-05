@@ -33,6 +33,39 @@ local function assert_comment_equal(left, right)
 end
 
 return {
+  test_issue_view_state_builds_explicit_paginated_graphql_command = function()
+    local seen
+    local handle = gh.new(function(opts)
+      seen = opts.argv
+      return {
+        stdout = '{"title":"t","createdAt":"2026-06-14T00:00:00Z","updatedAt":"2026-06-15T00:00:00Z","labels":[],"state":"OPEN","comments":[],"assignees":[],"author":{"login":"author"}}',
+        stderr = "",
+        exit_code = 0,
+      }
+    end, { trusted_author_policy = disabled_author_policy })
+    local query = "query($endCursor:String,$owner:String!,$name:String!,$number:Int!){"
+      .. "repository(owner:$owner,name:$name){issue(number:$number){"
+      .. "title createdAt updatedAt labels(first:100){nodes{name}} state "
+      .. "comments(first:100,after:$endCursor){nodes{id body author{login} createdAt}"
+      .. " pageInfo{hasNextPage endCursor}} assignees(first:100){nodes{login}} author{login}}}}"
+    local projection = ".[0].data.repository.issue as $issue | "
+      .. "if $issue == null then error(\"issue not found\") else "
+      .. "$issue + {labels:$issue.labels.nodes,comments:[.[].data.repository.issue.comments.nodes[]],"
+      .. "assignees:$issue.assignees.nodes} end"
+
+    local result = handle.issue_view_state("owner/repo", 42, 30)
+
+    assert(argv_equal(seen, {
+      "gh", "api", "graphql", "--paginate", "--slurp",
+      "-f", "query=" .. query,
+      "-f", "owner=owner",
+      "-f", "name=repo",
+      "-F", "number=42",
+      "--jq", projection,
+    }))
+    assert(result.exit_code == 0)
+  end,
+
   test_read_issue_builds_exact_generic_command_and_parses_full_issue = function()
     local seen
     local handle = gh.new(function(opts)

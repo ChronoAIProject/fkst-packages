@@ -676,9 +676,8 @@ local function install_legacy_command_renderers(core)
   core.gh_issue_view_intake_judge_cmd = core.gh_issue_view_intake_judge_cmd or function(repo, number)
     return gh_issue_view_command(repo, number, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
   end
-  core.gh_issue_view_state_cmd = core.gh_issue_view_state_cmd or function(repo, number)
-    return gh_issue_view_command(repo, number, "title,createdAt,updatedAt,labels,state,comments,assignees,author")
-  end
+  core.gh_issue_view_state_cmd = core.gh_issue_view_state_cmd
+    or require("forge.github.issue").issue_view_state_cmd
   core.gh_issue_view_claim_cmd = core.gh_issue_view_claim_cmd or function(repo, number)
     return gh_issue_view_command(repo, number, "assignees,author")
   end

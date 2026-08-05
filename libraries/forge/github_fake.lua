@@ -127,6 +127,9 @@ function M.new(model)
       tostring(fields),
     }, timeout, "gh issue view")
   end
+  function handle.issue_view_state(repo, issue_number, timeout)
+    return handle.issue_view(repo, issue_number, "title,createdAt,updatedAt,labels,state,comments,assignees,author", timeout)
+  end
   function handle.issue_view_cmd(repo, issue_number, fields)
     return table.concat({
       "gh",

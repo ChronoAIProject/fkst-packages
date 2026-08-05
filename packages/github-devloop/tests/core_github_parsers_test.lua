@@ -145,7 +145,7 @@ return {
 
     t.eq(
       core.gh_issue_view_state_cmd("owner/repo", 42),
-      "gh issue view '42' --repo 'owner/repo' --json title,createdAt,updatedAt,labels,state,comments,assignees,author"
+      require("forge.github.issue").issue_view_state_cmd("owner/repo", 42)
     )
     t.eq(
       core.gh_issue_view_result_cmd("owner/repo", 42),
@@ -227,7 +227,6 @@ return {
   test_gh_issue_view_commands_match_existing_strings = function()
     local cases = {
       { core.gh_issue_view_intake_judge_cmd, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone" },
-      { core.gh_issue_view_state_cmd, "title,createdAt,updatedAt,labels,state,comments,assignees,author" },
       { core.gh_issue_view_result_cmd, "labels,comments" },
       { core.gh_issue_view_loop_cmd, "title,updatedAt,labels,comments,state,author" },
       { core.gh_issue_view_meta_cmd, "title,labels,comments,author" },
@@ -245,6 +244,7 @@ return {
     for _, case in ipairs(cases) do
       t.eq(case[1]("owner/repo", 42), "gh issue view '42' --repo 'owner/repo' --json " .. case[2])
     end
+    t.eq(core.gh_issue_view_state_cmd("owner/repo", 42), require("forge.github.issue").issue_view_state_cmd("owner/repo", 42))
     t.eq(
       core.gh_check_run_rerequest_cmd("owner/repo", 123),
       "gh api --method POST 'repos/owner/repo/check-runs/123/rerequest'"

@@ -239,7 +239,7 @@ local function emitted_trusted_state(result, proposal_id)
 end
 
 local function mock_empty_dependencies()
-  t.mock_command("gh api graphql", {
+  t.mock_command("blockedBy", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",
     exit_code = 0,

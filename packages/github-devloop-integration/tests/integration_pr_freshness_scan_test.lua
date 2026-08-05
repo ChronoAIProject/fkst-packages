@@ -67,7 +67,7 @@ local function render_comments(comments)
 end
 
 local function mock_issue_freshness_list(updated_at)
-  t.mock_command("gh api graphql", {
+  t.mock_command("i42", {
     stdout = string.format(
       '{"data":{"repository":{"i42":{"number":42,"updatedAt":"%s"}}}}\n',
       encode_json_string(updated_at or unparseable_updated_at)
@@ -271,7 +271,7 @@ return {
     local absent_mark = run_scan(run_opts)
     t.eq(absent_mark.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 1)
-    t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 1)
 
     mock_env("")
     mock_pr_list(false, nil, nil, {
@@ -281,7 +281,7 @@ return {
     local unchanged = run_scan(run_opts)
     t.eq(unchanged.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 1)
-    t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 1)
     t.eq(h.count_calls("i42:issue(number:42)"), 2)
 
     local changed_issue_at = "2026-06-03T01:02:04Z"
@@ -294,7 +294,7 @@ return {
     local changed_issue = run_scan(run_opts)
     t.eq(changed_issue.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 1)
-    t.eq(h.count_calls("gh issue view '42'"), 2)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 2)
 
     mock_env("")
     mock_pr_list(false, nil, nil, {
@@ -305,7 +305,7 @@ return {
     local unparsable_issue = run_scan(run_opts)
     t.eq(unparsable_issue.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 1)
-    t.eq(h.count_calls("gh issue view '42'"), 3)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 3)
 
     local changed_pr_at = "2026-06-03T02:03:05Z"
     mock_env("")
@@ -317,7 +317,7 @@ return {
     local changed_pr = run_scan(run_opts)
     t.eq(changed_pr.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 2)
-    t.eq(h.count_calls("gh issue view '42'"), 3)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 3)
 
     mock_env("")
     mock_pr_list(false, nil, nil, {
@@ -328,7 +328,7 @@ return {
     local unparsable_pr = run_scan(run_opts)
     t.eq(unparsable_pr.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 3)
-    t.eq(h.count_calls("gh issue view '42'"), 3)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 3)
     t.eq(h.count_calls("repos/owner/repo/issues?state=open"), 0)
   end,
 
@@ -345,7 +345,7 @@ return {
     local first = run_scan(run_opts)
     t.eq(first.exit_code, 1)
     t.eq(h.count_calls("gh pr view '7'"), 1)
-    t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 1)
 
     mock_env("")
     mock_pr_list(false, nil, nil, {
@@ -357,7 +357,7 @@ return {
     local retry = run_scan(run_opts)
     t.eq(retry.exit_code, 1)
     t.eq(h.count_calls("gh pr view '7'"), 2)
-    t.eq(h.count_calls("gh issue view '42'"), 2)
+    t.eq(h.count_calls(core.gh_issue_view_state_cmd("owner/repo", 42)), 2)
   end,
 
   test_pr_freshness_scan_accepts_maximum_length_managed_branch = function()

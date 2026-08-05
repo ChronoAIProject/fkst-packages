@@ -173,7 +173,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("gh api graphql", {
+    t.mock_command("blockedBy", {
       stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
       stderr = "",
       exit_code = 0,

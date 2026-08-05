@@ -138,7 +138,7 @@ function M.new(deps)
   local base_run_implement = helpers.run_implement
 
   local function mock_empty_dependencies()
-    helpers.t.mock_command("gh api graphql", {
+    helpers.t.mock_command("blockedBy", {
       stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
       stderr = "",
       exit_code = 0,

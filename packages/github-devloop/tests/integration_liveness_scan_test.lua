@@ -326,9 +326,7 @@ end
 
 local function issue_state_view_number(rendered)
   local text = h.argv_rendered(tostring(rendered or ""))
-  local selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
-  return text:match("^gh issue view (%d+) %-%-repo owner/repo %-%-json '" .. selector .. "'$")
-    or text:match("^gh issue view (%d+) %-%-repo owner/repo %-%-json " .. selector .. "$")
+  return text:match("^gh api graphql %-%-paginate %-%-slurp .+ %-F number=(%d+) %-%-jq ")
 end
 
 return {
