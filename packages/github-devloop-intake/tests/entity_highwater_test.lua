@@ -37,16 +37,19 @@ return {
     local key = entity_highwater.key(consumer, source_ref)
     cache_set(key, "")
     local calls = 0
-    local function work()
-      calls = calls + 1
-      return "worked"
+    local function work(updated_at)
+      return function(_, record_authoritative_version)
+        calls = calls + 1
+        record_authoritative_version(updated_at)
+        return "worked"
+      end
     end
 
-    local first = reconcile("2026-08-04T00:01:00Z", work)
-    local older = reconcile("2026-08-04T00:00:00Z", work)
-    local equal = reconcile("2026-08-04T00:01:00Z", work)
-    local newer = reconcile("2026-08-04T00:02:00Z", work)
-    local equal_newer = reconcile("2026-08-04T00:02:00Z", work)
+    local first = reconcile("2026-08-04T00:01:00Z", work("2026-08-04T00:01:00Z"))
+    local older = reconcile("2026-08-04T00:00:00Z", work("2026-08-04T00:00:00Z"))
+    local equal = reconcile("2026-08-04T00:01:00Z", work("2026-08-04T00:01:00Z"))
+    local newer = reconcile("2026-08-04T00:02:00Z", work("2026-08-04T00:02:00Z"))
+    local equal_newer = reconcile("2026-08-04T00:02:00Z", work("2026-08-04T00:02:00Z"))
 
     t.eq(first.outcome, "reconciled")
     t.eq(older.outcome, "skip-superseded-version")
@@ -56,6 +59,32 @@ return {
     t.eq(equal_newer.outcome, "reconciled")
     t.eq(calls, 4)
     t.eq(cache_get(key), "2026-08-04T00:02:00Z")
+  end,
+
+  test_entity_highwater_commits_the_authoritative_version_reported_by_work = function()
+    local key = entity_highwater.key(consumer, source_ref)
+    cache_set(key, "")
+    local calls = 0
+    local current = "2026-08-04T00:07:11Z"
+
+    local first = reconcile("2026-08-04T00:00:00Z", function(_, record_authoritative_version)
+      calls = calls + 1
+      record_authoritative_version(current)
+    end)
+    local superseded = reconcile("2026-08-04T00:07:10Z", function()
+      calls = calls + 1
+    end)
+    local non_regressing = reconcile(current, function(_, record_authoritative_version)
+      calls = calls + 1
+      record_authoritative_version("2026-08-04T00:00:00Z")
+    end)
+
+    t.eq(first.outcome, "reconciled")
+    t.eq(first.reconciled_updated_at, current)
+    t.eq(superseded.outcome, "skip-superseded-version")
+    t.eq(non_regressing.reconciled_updated_at, current)
+    t.eq(calls, 2)
+    t.eq(cache_get(key), current)
   end,
 
   test_entity_highwater_fails_open_and_advances_only_after_success = function()
@@ -70,8 +99,14 @@ return {
     t.eq(invalid_calls, 1)
     t.eq(cache_get(key), "")
 
+    reconcile("2026-08-04T00:02:00Z", function(_, record_authoritative_version)
+      record_authoritative_version("not-a-timestamp")
+    end)
+    t.eq(cache_get(key), "")
+
     local ok = pcall(function()
-      reconcile("2026-08-04T00:02:00Z", function()
+      reconcile("2026-08-04T00:02:00Z", function(_, record_authoritative_version)
+        record_authoritative_version("2026-08-04T00:03:00Z")
         error("work failed")
       end)
     end)

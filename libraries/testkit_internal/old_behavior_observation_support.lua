@@ -760,4 +760,27 @@ function M.assert_old_behavior_records(actual, expected, context, manifest)
   end
 end
 
+function M.with_isolated_cache(keys, run)
+  if type(keys) ~= "table" or type(run) ~= "function" then
+    error("old-observation: invalid-cache-isolation: keys and a callback are required", 0)
+  end
+  local prior = {}
+  for index, key in ipairs(keys) do
+    if type(key) ~= "string" or key == "" then
+      error("old-observation: invalid-cache-key: cache keys must be non-empty strings", 0)
+    end
+    prior[index] = cache_get(key)
+    cache_set(key, "")
+  end
+
+  local results = table.pack(pcall(run))
+  for index, key in ipairs(keys) do
+    cache_set(key, prior[index] or "")
+  end
+  if not results[1] then
+    error(results[2], 0)
+  end
+  return table.unpack(results, 2, results.n)
+end
+
 return M

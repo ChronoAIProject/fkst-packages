@@ -4,6 +4,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -35,6 +36,7 @@ local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local MARKER_CREATED_AT = "2099-01-01T00:00:00Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 
 local function event_payload()
   return h.issue({
@@ -292,7 +294,9 @@ local function capture_runtime(fixture)
       dept = "observe_issue",
       from_state = "thinking",
       run = function()
-        return testing.run_fake(observe_issue_department, event)
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
       end,
       codex_runs_for_read = controlled_codex_runs(fixture),
       write_mode = "real",
