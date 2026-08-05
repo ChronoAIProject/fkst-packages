@@ -317,6 +317,28 @@ local tests = {
     t.is_true(tostring(err):find("receipt-decode-failed", 1, true) ~= nil)
   end,
 
+  test_read_fails_closed_for_a_source_visible_self_transfer_receipt = function()
+    local message = table.concat({
+      '{"schema":"github-devloop-workflow.child-disposition-receipt.v1"',
+      ',"repo":"owner/repo"',
+      ',"origin":"github-devloop/issue/owner/repo/249813"',
+      ',"blueprint_digest":"d-1234567890"',
+      ',"slot":"first"',
+      ',"child_issue":"788438"',
+      ',"disposition":"transferred"',
+      ',"successor_kind":"external"',
+      ',"successor_ref":"owner/repo#issue/788438"}',
+    })
+    local _, commands = seed_remote_commit(fact(), message)
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).read(fact())
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
+  end,
+
   test_read_fails_closed_when_committed_identity_differs_from_requested_identity = function()
     local other = fact({ child_issue = "991610" })
     local model, commands = new_git_process()

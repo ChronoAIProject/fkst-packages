@@ -96,15 +96,19 @@ function M.receipt_ref(value)
   return REF_PREFIX .. sha256.hex(M.canonical_identity(value))
 end
 
-local function normalize_successor_source_ref(value, repo)
+local function normalize_successor_source_ref(value, identity)
   local successor_repo, successor_issue = devloop_base.parse_issue_source_ref(value)
-  if successor_repo == nil or successor_repo ~= repo then
+  if successor_repo == nil or successor_repo ~= identity.repo then
     fail("receipt-successor-invalid", "successor_source_ref must be a canonical issue ref in repo")
   end
-  return {
+  local successor = {
     kind = "external",
     ref = tostring(successor_repo) .. "#issue/" .. tostring(successor_issue),
   }
+  if successor.ref == identity.repo .. "#issue/" .. identity.child_issue then
+    fail("receipt-successor-invalid", "transferred successor must differ from child_issue")
+  end
+  return successor
 end
 
 local function normalize_disposition(value, identity)
@@ -115,10 +119,7 @@ local function normalize_disposition(value, identity)
     return "satisfied", nil
   end
   if value.disposition == "transferred" then
-    local successor = normalize_successor_source_ref(value.successor_source_ref, identity.repo)
-    if successor.ref == identity.repo .. "#issue/" .. identity.child_issue then
-      fail("receipt-successor-invalid", "transferred successor must differ from child_issue")
-    end
+    local successor = normalize_successor_source_ref(value.successor_source_ref, identity)
     return "transferred", successor
   end
   fail("receipt-disposition-invalid", "disposition must be satisfied or transferred")
@@ -243,7 +244,7 @@ local function decode_receipt(decoder, message, expected, commit_sha)
     receipt_value.successor_source_ref = normalize_successor_source_ref({
       kind = decoded.successor_kind,
       ref = decoded.successor_ref,
-    }, embedded.repo)
+    }, embedded)
   else
     fail("receipt-invalid", "receipt schema or disposition is invalid")
   end
