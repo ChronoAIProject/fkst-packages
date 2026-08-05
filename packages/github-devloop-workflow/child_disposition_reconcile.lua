@@ -169,6 +169,14 @@ local function matching_receipt(receipt, request)
   return true
 end
 
+local function receipt_value(request)
+  local value = {}
+  for _, field in ipairs(receipt_fields) do
+    value[field] = request[field]
+  end
+  return value
+end
+
 local function write_enabled(ports)
   if type(ports.write_enabled) == "function" then
     return ports.write_enabled()
@@ -190,9 +198,10 @@ local function reconcile(core, ports, request)
     end
 
     local store = receipt_store(ports)
-    store.put_once(request)
-    local confirmed = store.read(request)
-    if not matching_receipt(confirmed, request) then
+    local proposed = receipt_value(request)
+    store.put_once(proposed)
+    local confirmed = store.read(proposed)
+    if not matching_receipt(confirmed, proposed) then
       fail("receipt-readback-unconfirmed", "authoritative receipt readback does not match request")
     end
     log_decision(request, "applied(receipt-confirmed)", "source-visible satisfied receipt authorizes close")
