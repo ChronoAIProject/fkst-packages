@@ -1,0 +1,23 @@
+local saga = require("workflow.saga")
+local devloop_logging = require("devloop.logging")
+local merge_executor = require("core.merge_executor")
+local queue = require("devloop.queue")
+
+local spec = {
+  consumes = { "devloop_merge_ready" },
+  produces = {
+    "github-proxy.github_issue_label_request",
+    "github-proxy.github_pr_comment_request",
+    "devloop_fix_reconcile",
+    "github-devloop-decompose.devloop_decompose",
+  },
+  fanout = { "devloop_merge_ready" },
+  stall_window = "2m",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
+}
+
+return saga.department(spec, { done = function() return false end, act = function(event)
+  queue.dispatch_consumed_queue("merge", spec, event, {
+    devloop_merge_ready = merge_executor.process_merge_ready_event,
+  }, "github-devloop-pr")
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "merge" })
