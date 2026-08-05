@@ -1,11 +1,12 @@
 local S = {}
 local forge_validators = require("forge.gitref")
+local forge_parse_pr_view_merge = require("forge.github_view").parse_pr_view_merge
 
 function S.install(M, shared, ci_gate, opts)
 local github = opts.github_handle
 local merge_attempt_limit = shared.merge_attempt_limit
 local expected_pr_identity = shared.expected_pr_identity
-local parse_pr_view_merge = M.parse_pr_view_merge
+local parse_pr_view_merge = opts.pr_view_projection or forge_parse_pr_view_merge
 local evaluate_ci_merge_gate = ci_gate.evaluate_ci_merge_gate
 
 local function is_merged_pr(pr)

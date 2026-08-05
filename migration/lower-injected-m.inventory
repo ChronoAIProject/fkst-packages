@@ -3,10 +3,10 @@
   "counts": {
     "workflow_injected_m_reads": 13,
     "workflow_injected_m_unique_symbols": 6,
-    "forge_injected_m_reads": 13,
-    "forge_injected_m_unique_symbols": 8,
-    "total_injected_m_reads": 26,
-    "total_injected_m_unique_symbols": 14
+    "forge_injected_m_reads": 12,
+    "forge_injected_m_unique_symbols": 7,
+    "total_injected_m_reads": 25,
+    "total_injected_m_unique_symbols": 13
   },
   "manifest": {
     "workflow": {
@@ -59,10 +59,6 @@
       "mkdir_p_cmd": {
         "route": "workflow",
         "owner": "workflow-env"
-      },
-      "parse_pr_view_merge": {
-        "route": "forge",
-        "owner": "forge-github"
       },
       "read_runtime_root_cmd": {
         "route": "workflow",
