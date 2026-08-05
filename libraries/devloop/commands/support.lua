@@ -1,5 +1,6 @@
 local S = {}
 local github_factory = require("devloop.github_factory")
+local forge_git = require("forge.git")
 
 local github_handle = nil
 local git_handle = nil
@@ -44,9 +45,17 @@ function S.git()
     if type(exec_argv) ~= "function" then
       error("github-devloop: git-adapter-missing-exec-argv: git adapter requires exec_argv")
     end
-    git_handle = require("forge.git").new(exec_argv)
+    git_handle = forge_git.new(exec_argv)
   end
   return git_handle
+end
+
+function S.path_is_directory_cmd(path)
+  return forge_git.path_is_directory_cmd(path)
+end
+
+function S.run_path_is_directory(path, timeout)
+  return forge_git.run_path_is_directory(path, timeout)
 end
 
 function S.install()
