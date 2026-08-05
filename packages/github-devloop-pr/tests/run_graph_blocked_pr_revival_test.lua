@@ -275,6 +275,7 @@ return {
         exit_code = 0,
       })
     end
+    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
     local implementation_worktree = devloop_base.implement_worktree_path(
       devloop_base.implementation_worktree_root(durable_root),
       repo,
