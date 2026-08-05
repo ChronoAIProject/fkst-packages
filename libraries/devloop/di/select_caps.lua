@@ -48,12 +48,12 @@ local function seal_table(data, label)
     __index = function(_, key)
       local value = data[key]
       if value == nil then
-        error("undeclared capability access: " .. label .. "." .. tostring(key), 2)
+        error("devloop: capability-access-undeclared: undeclared capability access: " .. label .. "." .. tostring(key), 2)
       end
       return value
     end,
     __newindex = function()
-      error("capability table is read-only: " .. label, 2)
+      error("devloop: capability-table-readonly: capability table is read-only: " .. label, 2)
     end,
     -- Hide the metatable so department code cannot get/setmetatable to unseal the projection.
     -- This guards accidental service-locator drift; it is not a defence against deliberate
