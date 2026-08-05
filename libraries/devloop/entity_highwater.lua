@@ -112,13 +112,31 @@ local function run_work(args, context, lock_key, prepared)
     end
   end
 
-  local result = args.work(prepared)
-  if context ~= nil and valid_lock_key(lock_key) then
-    cache_set(context.key, context.incoming)
+  local authoritative = nil
+  local authoritative_epoch = nil
+  local function record_authoritative_version(value)
+    local epoch = contract_time.iso_timestamp_epoch_seconds(value)
+    if epoch ~= nil and (authoritative_epoch == nil or epoch > authoritative_epoch) then
+      authoritative = value
+      authoritative_epoch = epoch
+    end
+  end
+
+  local result = args.work(prepared, record_authoritative_version)
+  local reconciled = stored
+  local reconciled_epoch = stored_epoch
+  if authoritative_epoch ~= nil
+    and (reconciled_epoch == nil or authoritative_epoch > reconciled_epoch) then
+    reconciled = authoritative
+    reconciled_epoch = authoritative_epoch
+  end
+  if context ~= nil and valid_lock_key(lock_key) and reconciled_epoch ~= nil then
+    cache_set(context.key, reconciled)
     cache_set(context.hint_key, lock_key)
   end
   return {
     outcome = "reconciled",
+    reconciled_updated_at = context ~= nil and reconciled_epoch ~= nil and reconciled or nil,
     result = result,
     skipped = false,
   }
@@ -153,7 +171,7 @@ function H.reconcile(args)
   if not valid_lock_key(lock_key) then
     return {
       outcome = "reconciled",
-      result = args.work(prepared),
+      result = args.work(prepared, function() end),
       skipped = false,
     }
   end
@@ -163,7 +181,7 @@ function H.reconcile(args)
     if not valid_lock_key(result.lock_key) then
       return {
         outcome = "reconciled",
-        result = args.work(result.prepared),
+        result = args.work(result.prepared, function() end),
         skipped = false,
       }
     end

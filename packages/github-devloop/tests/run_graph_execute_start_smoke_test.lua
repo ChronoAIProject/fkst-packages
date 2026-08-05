@@ -33,7 +33,7 @@ local env_command_contract = {
   },
   {
     command = devloop_base.read_env_command("FKST_GITHUB_WRITE"),
-    count = 15,
+    count = 13,
     result = { stdout = "", stderr = "", exit_code = 0 },
   },
   {

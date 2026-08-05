@@ -130,7 +130,11 @@ return {}
         ]
 
     def repository_messages(self, root: Path) -> list[str]:
-        with mock.patch.object(saga_split, "allowlist_at_dev_base", return_value=("present", saga_split.load_allowlist(root / saga_split.ALLOWLIST))):
+        with mock.patch.object(
+            saga_split.check_repo_config,
+            "allowlist_at_dev_base",
+            return_value=("present", saga_split.load_allowlist(root / saga_split.ALLOWLIST)),
+        ):
             return saga_split.repository_messages(root)
 
     def test_exhaustive_manifest_passes(self) -> None:
@@ -328,7 +332,11 @@ end
                 "function M.issue_authoritative_linked_state(issue_state, linked_state)\n  return linked_state or issue_state\nend\n",
                 encoding="utf-8",
             )
-            with mock.patch.object(saga_split, "allowlist_at_dev_base", return_value=("present", set())):
+            with mock.patch.object(
+                saga_split.check_repo_config,
+                "allowlist_at_dev_base",
+                return_value=("present", set()),
+            ):
                 growth = saga_split.repository_messages(root)
             self.assertTrue(any("allowlist-growth" in message for message in growth))
 

@@ -162,7 +162,11 @@ end
             (root / content.ALLOWLIST).write_text("", encoding="utf-8")
             commit_paths(root, [content.ALLOWLIST], "head allowlist")
 
-            status, allowlist = content.allowlist_at_dev_base(root)
+            status, allowlist = content.check_repo_config.allowlist_at_dev_base(
+                root,
+                allowlist=content.ALLOWLIST,
+                parse_allowlist_lines=content.parse_dev_allowlist_lines,
+            )
 
         self.assertEqual(status, "present")
         self.assertEqual(

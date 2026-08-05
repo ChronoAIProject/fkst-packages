@@ -18,7 +18,7 @@ end
 local function require_spec_queue(spec, field, queue)
   if not list_contains(spec and spec[field], queue) then
     error(
-      "missing M.spec."
+      "testkit.graph: spec-queue-missing: missing M.spec."
         .. tostring(field)
         .. " queue="
         .. tostring(queue),
@@ -48,7 +48,7 @@ function M.require_delivery(trace, expected)
   local step, index = M.find_delivery(trace, expected)
   if step == nil then
     error(
-      "missing delivery queue="
+      "testkit.graph: delivery-missing: missing delivery queue="
         .. tostring(expected.queue)
         .. " consumer="
         .. tostring(expected.consumer),
@@ -69,7 +69,7 @@ end
 function M.parse_coverage_edge(edge)
   local queue, consumer = tostring(edge):match("^%s*(.-)%s*%->%s*(.-)%s*$")
   if not queue or queue == "" or not consumer or consumer == "" then
-    error("invalid coverage edge id (want '<queue> -> <pkg.dept>'): " .. tostring(edge), 3)
+    error("testkit.graph: coverage-edge-id-invalid: invalid coverage edge id (want '<queue> -> <pkg.dept>'): " .. tostring(edge), 3)
   end
   return queue, consumer
 end
@@ -78,7 +78,7 @@ function M.assert_covers(trace, edges)
   for _, edge in ipairs(edges or {}) do
     local queue, consumer = M.parse_coverage_edge(edge)
     if M.find_delivery(trace, { queue = queue, consumer = consumer }) == nil then
-      error("coverage edge declared in `covers` but not observed as a delivery in the trace: " .. tostring(edge), 2)
+      error("testkit.graph: coverage-edge-unobserved: coverage edge declared in `covers` but not observed as a delivery in the trace: " .. tostring(edge), 2)
     end
   end
   return trace
@@ -98,7 +98,7 @@ end
 function M.require_raise(trace, queue, predicate)
   local raised, step, step_index, raise_index = M.find_raise(trace, queue, predicate)
   if raised == nil then
-    error("missing raised queue=" .. tostring(queue), 2)
+    error("testkit.graph: raise-missing: missing raised queue=" .. tostring(queue), 2)
   end
   return raised, step, step_index, raise_index
 end
@@ -109,7 +109,7 @@ function M.require_quiescent(trace)
   for index, step in ipairs((trace and trace.steps) or {}) do
     if step.status ~= "accepted" or step.exit_code ~= 0 then
       error(
-        "delivery step failed at index="
+        "testkit.graph: delivery-step-failed: delivery step failed at index="
           .. tostring(index)
           .. " queue="
           .. tostring(step.queue)

@@ -27,6 +27,8 @@ local ORIGINAL_BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, ROOT_V
 local REPLACEMENT_VERSION = ROOT_VERSION .. "/reimplement/1"
 local REPLACEMENT_BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, REPLACEMENT_VERSION)
 local UNMERGED = "100644 abcdef 1\tpackages/github-devloop/core.lua\n"
+local ATTEMPT_LEDGER_SHA = "4444444444444444444444444444444444444444"
+local ATTEMPT_LEDGER_TREE_SHA = "5555555555555555555555555555555555555555"
 
 local function copy(value)
   if type(value) ~= "table" then
@@ -222,6 +224,30 @@ local function make_git(fixture)
     record(model, "push", { worktree = worktree, branch = branch, timeout = timeout })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
+  function git.ls_remote_ref(_remote, ref, _timeout)
+    t.eq(ref, core.sync_conflict_attempt_ref(fixture.event))
+    if fixture.ledger_attempt == nil then
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end
+    return {
+      stdout = ATTEMPT_LEDGER_SHA .. "\t" .. ref .. "\n",
+      stderr = "",
+      exit_code = 0,
+    }
+  end
+  function git.fetch_ref()
+    return { stdout = "", stderr = "", exit_code = 0 }
+  end
+  function git.cat_file_pretty(sha)
+    t.eq(sha, ATTEMPT_LEDGER_SHA)
+    return {
+      stdout = "tree " .. ATTEMPT_LEDGER_TREE_SHA .. "\n\n"
+        .. core.sync_conflict_attempt_ledger(fixture.event, fixture.ledger_attempt)
+        .. "\n",
+      stderr = "",
+      exit_code = 0,
+    }
+  end
   return git, model
 end
 
@@ -368,9 +394,8 @@ local function run_fixture(fixture, write_mode)
       end
     end
   end
-  local fingerprint = core.sync_conflict_fingerprint(fixture.event, UNMERGED)
   if fixture.resolve_after_codex ~= true then
-    core.record_sync_conflict_attempt(fixture.event, fingerprint, core.max_sync_conflict_attempts())
+    fixture.ledger_attempt = core.max_sync_conflict_attempts()
   end
   local github, github_model = make_github(fixture)
   local git, git_model = make_git(fixture)

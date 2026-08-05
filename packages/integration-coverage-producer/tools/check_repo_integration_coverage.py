@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
-import check_repo_config
+import check_repo_lua
 
 
 ALLOWLIST = "migration/integration-edge-coverage.allowlist"
@@ -76,39 +76,8 @@ class Exclusion:
     review_by: str
 
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, min(end, len(chars))):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
 def strip_lua_comments_and_strings(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        char = text[cursor]
-        if char in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(text, cursor)
-            continue
-        if char == "[":
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-                continue
-        cursor += 1
-    return "".join(chars)
+    return check_repo_lua.code_mask(text, kinds=check_repo_lua.COMMENT_KINDS)
 
 
 def matching_table_end(masked: str, open_index: int) -> int | None:

@@ -73,7 +73,7 @@ return {
     local event = reconcile()
     local state_version = conv_reconcile.reconcile_terminal_state_version("github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418", event.round)
     mock_issue_reconcile({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", state_version),
+      h.projected_state_comment(event.proposal_id, "ready", state_version),
     })
 
     local ready_result = run_reconcile(event, opts("reconcile-terminal-ready"))

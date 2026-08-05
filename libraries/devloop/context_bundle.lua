@@ -15,7 +15,7 @@ local decimal_checksum = strings.decimal_checksum
 local function content_whitelist(exec)
   local bot_login = strings.trim(devloop_base.read_env("FKST_GITHUB_BOT_LOGIN", exec) or "")
   if bot_login == "" then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required for context bundle content provenance")
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required for context bundle content provenance")
   end
   local logins = { bot_login }
   for _, name in ipairs({ "FKST_DEVLOOP_MANAGED_BOT_LOGINS", "FKST_GITHUB_AUTHORIZED_LOGINS" }) do
@@ -53,11 +53,11 @@ local function runtime_root(exec)
   local run = exec or exec_sync
   local result = run({ cmd = devloop_base.read_runtime_root_cmd(), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
-    error("github-devloop: FKST_RUNTIME_ROOT read failed: " .. tostring(result and result.stderr or "nil result"))
+    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(result and result.stderr or "nil result"))
   end
   local root = strings.trim(result.stdout)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   return root:gsub("/+$", "")
 end
@@ -109,7 +109,7 @@ local function run_required(cmd, timeout, label, exec)
   local run = exec or exec_sync
   local result = run({ cmd = cmd, timeout = timeout or 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
-    error("github-devloop: context bundle " .. label .. " failed: " .. tostring(result and result.stderr or "nil result"))
+    error("github-devloop: context-bundle-command-failed: context bundle " .. label .. " failed: " .. tostring(result and result.stderr or "nil result"))
   end
   return result
 end
@@ -248,7 +248,7 @@ local function uniquified_publish_dir(dir, exec)
       return candidate
     end
   end
-  error("github-devloop: context bundle publish path exhausted")
+  error("github-devloop: context-bundle-publish-path-exhausted: context bundle publish path exhausted")
 end
 
 local function publish_bundle(tmp_dir, target_bundle, exec)
@@ -268,7 +268,7 @@ local function publish_bundle(tmp_dir, target_bundle, exec)
     return unique_bundle
   end
 
-  error("github-devloop: context bundle publish failed: " .. tostring(publish and publish.stderr or "nil result"))
+  error("github-devloop: context-bundle-publish-failed: context bundle publish failed: " .. tostring(publish and publish.stderr or "nil result"))
 end
 
 local function truncate_if_needed(text, dept, proposal_id, file_name)
@@ -288,7 +288,7 @@ end
 local function fetch_result(fn, label)
   local result = fn(60)
   if type(result) ~= "table" or result.exit_code ~= 0 then
-    error("github-devloop: context bundle " .. label .. " failed: " .. tostring(result and result.stderr or "nil result"))
+    error("github-devloop: context-bundle-fetch-failed: context bundle " .. label .. " failed: " .. tostring(result and result.stderr or "nil result"))
   end
   return result.stdout or ""
 end
@@ -412,13 +412,13 @@ function C.context_bundle_manifest_from_ref(ref, exec)
   end
   local manifest = cache_get(key)
   if manifest == nil or manifest == "" then
-    error("github-devloop: error_class=" .. stale_generation_context_error_class .. " context bundle manifest cache miss")
+    error("github-devloop: stale-generation-context: error_class=" .. stale_generation_context_error_class .. " context bundle manifest cache miss")
   end
   if not files_are_readable(manifest_paths(manifest), exec) then
-    error("github-devloop: error_class=" .. stale_generation_context_error_class .. " context bundle manifest files are unreadable")
+    error("github-devloop: stale-generation-context: error_class=" .. stale_generation_context_error_class .. " context bundle manifest files are unreadable")
   end
   if not manifest_has_notice(manifest_paths(manifest)) then
-    error("github-devloop: context bundle manifest notice is missing")
+    error("github-devloop: context-manifest-invalid: context bundle manifest notice is missing")
   end
   return manifest
 end
@@ -441,7 +441,7 @@ function C.build_context_bundle(M, args)
   local proposal_id = args and args.proposal_id
   local version = args and args.version
   if repo == nil or proposal_id == nil or version == nil then
-    error("github-devloop: context bundle requires repo, proposal, and version")
+    error("github-devloop: context-bundle-input-missing: context bundle requires repo, proposal, and version")
   end
 
   local key = C.context_bundle_key(proposal_id, version)
@@ -476,7 +476,7 @@ function C.build_context_bundle(M, args)
   )
   local tmp_dir = strings.trim(tmp_result.stdout)
   if tmp_dir == "" or tmp_dir:find("[\r\n]") ~= nil then
-    error("github-devloop: context bundle invalid temp directory")
+    error("github-devloop: context-bundle-temp-dir-invalid: context bundle invalid temp directory")
   end
 
   local tmp_bundle = bundle_paths(tmp_dir, args.pr_number ~= nil)
@@ -549,7 +549,7 @@ function C.build_context_bundle(M, args)
   end
   local final_bundle = publish_bundle(tmp_dir, bundle_paths(target_dir, args.pr_number ~= nil), args.exec)
   if not validate_bundle(final_bundle, args.exec) then
-    error("github-devloop: context bundle publish validation failed")
+    error("github-devloop: context-bundle-publish-validation-failed: context bundle publish validation failed")
   end
   final_bundle.notice_bytes = tmp_bundle.notice_bytes
   final_bundle.issue_bytes = tmp_bundle.issue_bytes

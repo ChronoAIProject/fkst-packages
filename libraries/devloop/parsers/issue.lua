@@ -85,7 +85,7 @@ function C.parse_issue_list_recent_closed(stdout)
     local title = type(issue) == "table" and issue.title or nil
     local closed_at = type(issue) == "table" and (issue.closedAt or issue.closed_at) or nil
     if number == nil or title == nil or closed_at == nil or type(issue.labels) ~= "table" then
-      error("github-devloop: recent-closed-issue-fields-missing: recent closed issue list item missing required fields")
+      error("github-devloop: recent-closed-issue-list-item-fields-missing: recent closed issue list item missing required fields")
     end
     table.insert(issues, {
       number = number,
@@ -167,7 +167,7 @@ function C.parse_issue_view_intake_judge(M, stdout)
   local milestone_number = nil
   if milestone ~= nil then
     if type(milestone) ~= "table" then
-      error("github-devloop: issue-milestone-type-invalid: issue milestone must be an object or null")
+      error("github-devloop: issue-milestone-shape-invalid: issue milestone must be an object or null")
     end
     milestone_number = tonumber(milestone.number)
     if milestone_number == nil

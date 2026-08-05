@@ -55,7 +55,7 @@ function M.from_env(exec, github_handle)
     bot_login = ok_bot and strings.trim(bot_login or "") or ""
   end
   if bot_login == "" then
-    error("devloop.github_author_policy: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
+    error("devloop.github_author_policy: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
   end
   return content_filter.author_policy_from_options({
     owner = "devloop.github_author_policy",
