@@ -1,5 +1,5 @@
 -- Non-circularity contract: production truth comes from the real
--- consensus_result department's CAS probe and the first result-marker guard.
+-- consensus_result department's CAS probe and the divergent result-marker guard.
 -- Effect repair and legacy CAS logs are separate post-admission observations.
 -- This test never computes the expected admission with a transition helper.
 
@@ -25,7 +25,9 @@ local projection = owner_pending_projection.derive(core.restart_package_name, co
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local THINKING_CORPUS_PATH = "migration/intent_bounded_replay/corpus/thinking.json"
-local THINKING_NEW_TRACE_PATH = ".fkst/run/r9-thinking-new-trace.json"
+local THINKING_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-thinking-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_consensus_result_v1"
@@ -310,8 +312,8 @@ local function assert_catalog_matches_observed_admission(fixture)
   end)
 
   if fixture.first_result_gate then
-    t.eq(#probes, 0, fixture.name .. ": first-result gate precedes CAS")
-    t.eq(#result.raises, 0, fixture.name .. ": admitted result is a no-op")
+    t.eq(#probes, 0, fixture.name .. ": complete first result precedes CAS")
+    t.eq(#result.raises, 0, fixture.name .. ": complete first result is a no-op")
     t.eq(legacy_log_outcome(decisions), "skip-idempotent(first-result)", fixture.name .. ": first-result outcome")
     t.eq(grant_mints, 0, fixture.name .. ": first-result gate mints no grant")
     return
@@ -861,15 +863,15 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       result_marker_visible = true,
-      first_result_gate = true,
       labels = { "fkst-dev:enabled" },
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
-      boundary_call_count = 0,
-      post_admission_disposition = "not-admitted",
-      legacy_log_outcome = "skip-idempotent(first-result)",
+      boundary_call_count = 2,
+      post_admission_disposition = "effect-repair(label)",
+      legacy_log_outcome = "applied(result effects incomplete)",
       effect_state = nil,
+      expected_raise_count = 1,
     })
   end,
 

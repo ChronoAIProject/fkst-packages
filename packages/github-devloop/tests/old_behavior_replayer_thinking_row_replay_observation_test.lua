@@ -58,7 +58,7 @@ local function issue_event()
 end
 
 local BASE_VERSION = payloads_builders.build_proposal(event_payload()).dedup_key
-local CONVERGE_BASE_VERSION = "consensus:" .. BASE_VERSION
+local CONSENSUS_BASE_DEDUP = "consensus:" .. BASE_VERSION
 
 local function trusted_comment(body, created_at)
   return {
@@ -70,11 +70,11 @@ end
 
 local function converge_round_comment(round, options)
   local selected = options or {}
-  local dedup = round == 0 and CONVERGE_BASE_VERSION
-    or transition_version.loop_at(CONVERGE_BASE_VERSION, round)
+  local dedup = round == 0 and CONSENSUS_BASE_DEDUP
+    or transition_version.loop_at(CONSENSUS_BASE_DEDUP, round)
   return trusted_comment(conv_rounds.converge_round_marker(
     PROPOSAL_ID,
-    CONVERGE_BASE_VERSION,
+    BASE_VERSION,
     convergence_shared.source_ref_digest(SOURCE_REF),
     round,
     dedup,
@@ -338,7 +338,7 @@ local function build_record(fixture)
 
   local target_version = nil
   if fixture.expected_target == "devloop_consensus_request" and dispatch.raises[1] ~= nil then
-    target_version = dispatch.raises[1].payload.dedup_key
+    target_version = dispatch.raises[1].payload.effect_version
   elseif fixture.expected_target == "blocked" then
     target_version = dispatch.applies[1] and dispatch.applies[1].version or nil
   end

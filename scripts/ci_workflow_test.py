@@ -76,6 +76,19 @@ class CiWorkflowTest(unittest.TestCase):
 
         self.assertEqual({"contents": "read"}, _top_level_mapping(workflow, "permissions"))
 
+    def test_git_239_compatibility_gate_runs_the_executable_contract(self) -> None:
+        workflow = self.read_workflow()
+        compatibility_test = (REPO_ROOT / "scripts" / "git_compat_test.sh").read_text(encoding="utf-8")
+
+        self.assertIn("git-239-compat:", workflow)
+        self.assertIn("container: debian:bookworm-slim", workflow)
+        self.assertIn("git version 2\\.39\\.", workflow)
+        self.assertIn("scripts/git_compat_test.sh", workflow)
+        self.assertIn("needs: git-239-compat", workflow)
+        self.assertIn('require("forge.git")', compatibility_test)
+        self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
+        self.assertNotIn("git fetch --", compatibility_test)
+
 
 if __name__ == "__main__":
     unittest.main()

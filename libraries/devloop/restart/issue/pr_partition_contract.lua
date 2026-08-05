@@ -7,6 +7,7 @@ local ISSUE_STATES = {
   "implementing",
   "awaiting-pr",
   "impl-failed",
+  "declined",
   "merged",
   "blocked",
 }

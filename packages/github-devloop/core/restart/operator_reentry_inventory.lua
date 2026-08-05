@@ -105,4 +105,41 @@ return {
       field = "operator_reentry_inventory.reimplement_blocked_implementing_timeout_without_pr",
     },
   },
+  {
+    semantic_variant = "reimplement_blocked_implementation_refusal",
+    owner = "github-devloop",
+    row_id = "implementing",
+    kind = "operator_reentry",
+    source = {
+      state = "blocked",
+      boundary = "implementation-refusal",
+    },
+    target = "implementing",
+    pending_order = { participates = false },
+    cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
+    cas_variant = "blocked_to_implementing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal/idempotent",
+        effect_ids = {},
+      },
+    },
+    cause_evidence = {
+      command = "reimplement",
+      requires_applied_certificate = true,
+      resolver = "operator_commands",
+    },
+    provenance = {
+      owner = "github-devloop",
+      row = "implementing",
+      field = "operator_reentry_inventory.reimplement_blocked_implementation_refusal",
+    },
+  },
 }

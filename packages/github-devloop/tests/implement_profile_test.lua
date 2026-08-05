@@ -109,17 +109,29 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local framing = "Change `Proofs/Target.lean` only."
     local manifest = "UNTRUSTED-NOTICE.txt\nissue.json\nboard.txt"
-    local generic = core.build_implement_prompt(proposal_id, issue(), framing, manifest)
-    local explicit_generic = core.build_implement_prompt(proposal_id, issue(), framing, manifest, "generic")
+    local result_context = {
+      implementation_version = "ready/consensus-github-devloop/issue/owner/repo/42/implementation",
+      attempt = 1,
+    }
+    local generic = core.build_implement_prompt(proposal_id, issue(), framing, manifest, nil, result_context)
+    local explicit_generic = core.build_implement_prompt(
+      proposal_id, issue(), framing, manifest, "generic", result_context)
     local proof = core.build_implement_prompt(proposal_id, issue(), framing, manifest, "lean-proof", {
       target = "Proofs/Target.lean",
       phase = "construction",
       attempt = 1,
+      implementation_version = result_context.implementation_version,
       timeout_seconds = 7200,
     })
 
     t.eq(explicit_generic, generic)
     t.is_nil(generic:find("Implementation profile: `lean-proof`", 1, true))
+    t.is_true(generic:find("github-devloop.implementation-result.v1", 1, true) ~= nil)
+    t.is_true(generic:find(result_context.implementation_version, 1, true) ~= nil)
+    t.is_true(generic:find("`precursor-missing`", 1, true) ~= nil)
+    t.is_true(generic:find("`wrong-layer`", 1, true) ~= nil)
+    t.is_true(generic:find("`already-satisfied`", 1, true) ~= nil)
+    t.is_nil(generic:find("`scope-mismatch`", 1, true))
     t.is_true(proof:find("Implementation profile: `lean-proof`", 1, true) ~= nil)
     t.is_true(proof:find("Inspect the target `.lean` source", 1, true) ~= nil)
     t.is_true(proof:find("actual goal or error state before editing", 1, true) ~= nil)
@@ -144,6 +156,7 @@ return {
         target = "Proofs/Target.lean",
         phase = "strong-repair",
         attempt = 2,
+        implementation_version = "ready/consensus-github-devloop/issue/owner/repo/42/reimplement/2",
         timeout_seconds = 7200,
         prior_receipt = {
           declaration = "target_theorem",

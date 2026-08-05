@@ -67,8 +67,8 @@ local function comment_cases()
     { { angle = "minimal", verdict = "abstain", digest = "digest" } }
   )
   local reconcile = conv_reconcile.build_devloop_reconcile_payload(unresolved(), 3, reached_with_angles.dedup_key, "no-semantic-progress")
-  local gate = { kind = "waiting", reason = "waiting-on-dependency" }
-  local dependency_marker = core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }, gate.kind, gate.reason)
+  local gate = { kind = "waiting", hold_kind = "waiting", reason = "waiting-on-dependency" }
+  local dependency_marker = core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }, gate.hold_kind, gate.reason)
   local dependency_void_gate = {
     kind = "satisfied",
     reason = "dependency-void",
@@ -85,7 +85,8 @@ local function comment_cases()
     }), 2, converge_marker) },
     { id = "reconcile", request = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-actionable-framing") },
     { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
-    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "no-changes", "") },
+    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(
+      core, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
     { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
     { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
   }
@@ -209,7 +210,8 @@ return {
         body = "more noise " .. cjk_probe .. "\n"
           .. m_builders.implementing_marker(issue_proposal_id, "impl:v1", "devloop-owner-repo-42", "abc123", "dev", "abc123")
           .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, 7, "devloop-owner-repo-42", "impl:v1", "dev")
-          .. "\n" .. core.impl_failure_marker(issue_proposal_id, "impl:v1", "codex-failed"),
+          .. "\n" .. core.impl_failure_marker(
+            issue_proposal_id, "impl:v1", "codex-failed", nil, "UNKNOWN", true),
         author_login = devloop_base.trusted_bot_login(),
       },
     }

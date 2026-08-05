@@ -133,6 +133,41 @@ local function serialize_fix_reviewing_label(args)
   )
 end
 
+local function valid_fix_review_meta_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and args.issue_number ~= nil
+    and type(args.review_meta) == "table"
+    and type(args.reason) == "string"
+end
+
+local function serialize_fix_review_meta_comment(args)
+  if not valid_fix_review_meta_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  local request = args.core.build_fix_review_meta_comment_request(
+    args.repo,
+    args.issue_number,
+    args.review_meta,
+    args.reason,
+    args.detail
+  )
+  return requests_review.attach_review_meta_handoff(request, args.review_meta)
+end
+
+local function serialize_fix_review_meta_label(args)
+  if not valid_fix_review_meta_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_fix_review_meta_label_request(
+    args.repo,
+    args.issue_number,
+    args.review_meta,
+    args.reason
+  )
+end
+
 local function valid_observe_pr_fix_args(args)
   return type(args) == "table" and type(args.core) == "table"
     and type(args.repo) == "string" and args.issue_number ~= nil
@@ -383,6 +418,17 @@ local FIX_SERIALIZERS = {
   },
 }
 
+local FIX_REVIEW_META_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:fix-review-meta",
+    serialize = serialize_fix_review_meta_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:fix-review-meta",
+    serialize = serialize_fix_review_meta_label,
+  },
+}
+
 local OBSERVE_PR_FIX_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:observe-merge-gate-fix",
@@ -451,6 +497,7 @@ local SERIALIZERS_BY_FAMILY = {
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,
+  ["pr-fix-review-meta"] = FIX_REVIEW_META_SERIALIZERS,
   ["observe-pr-fix"] = OBSERVE_PR_FIX_SERIALIZERS,
   ["pr-review-reconcile"] = REVIEW_RECONCILE_SERIALIZERS,
   ["pr-fix-reconcile"] = FIX_RECONCILE_SERIALIZERS,

@@ -27,7 +27,9 @@ local POLICY_ID = "cas.legacy_merge_v1"
 local VARIANT = "merge_ready_or_merging_to_merging"
 local OWNER = core.restart_package_name
 local MERGE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-merge.json"
-local MERGE_NEW_TRACE_PATH = ".fkst/run/r9-pr-merge-new-trace.json"
+local MERGE_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-merge-new-trace.json"
+)
 local COMMENT_EFFECT_ID = "github-proxy.github_pr_comment_request"
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"

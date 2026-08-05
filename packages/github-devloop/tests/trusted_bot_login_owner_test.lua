@@ -4,7 +4,7 @@ local devloop_base = require("devloop.base")
 local t = fkst.test
 
 local expected_write_error =
-  "github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)"
+  "github-devloop: github-bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)"
 
 local function call_trusted_bot_login(env_login, write_mode, configured_login)
   devloop_base.configure_trusted_bot_login(nil)

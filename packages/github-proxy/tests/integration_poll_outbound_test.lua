@@ -1,4 +1,5 @@
 local h = require("tests.proxy_integration_helpers")
+local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
 local issue_list_json = h.issue_list_json
@@ -17,17 +18,12 @@ local json_string = h.json_string
 local comment_json = h.comment_json
 local mock_comment_view = h.mock_comment_view
 local mock_comment_view_failure = h.mock_comment_view_failure
-local mock_label_view = h.mock_label_view
 local mock_comment_write = h.mock_comment_write
-local mock_repo_label_list = h.mock_repo_label_list
-local mock_label_create = h.mock_label_create
-local mock_label_write = h.mock_label_write
 local mock_pr_comment_view = h.mock_pr_comment_view
 local mock_pr_comment_write = h.mock_pr_comment_write
 local calls_matching = h.calls_matching
 local count_calls = h.count_calls
 local capture_comment_department_logs = h.capture_comment_department_logs
-local capture_label_department_logs = h.capture_label_department_logs
 local long_dedup = h.long_dedup
 local reviewing_marker = h.reviewing_marker
 local pr_json = h.poll_pr_json
@@ -40,25 +36,57 @@ local observed_issue_raises = h.observed_issue_raises
 local changed_raises = h.changed_raises
 local find_entity_raise = h.find_entity_raise
 local assert_observed_issue = h.assert_observed_issue
+
+local function allocated_poll_epoch(timestamp, sub_epoch)
+  return tostring(timestamp) .. "/sub-epoch/" .. tostring(sub_epoch)
+end
 local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
 
-local function mock_poll_env(replay_budget)
+local function delivery_snapshot(deliveries, dead_letters)
+  return {
+    schema_version = 1,
+    generated_at_ms = 1785574920000,
+    source = {
+      durable_root = "/tmp/fkst-durable",
+      database = "/tmp/fkst-durable/delivery.redb",
+      read_semantics = "single read transaction",
+      history_semantics = "mutable delivery queue snapshot",
+    },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
+    truncated = { deliveries = false, dead_letters = false },
+    queues = json.decode("[]"),
+    deliveries = deliveries or json.decode("[]"),
+    dead_letters = dead_letters or json.decode("[]"),
+  }
+end
+
+local function poll_delivery_payload_summary(dedup_key)
+  return {
+    schema = "github-proxy.v1",
+    dedup_key = dedup_key,
+    digest = string.rep("b", 64),
+    bytes = 128,
+  }
+end
+
+local function poll_delivery_source()
+  return {
+    kind = "cron",
+    reference = "github-proxy.github_poll/slot/1785574800000",
+  }
+end
+
+local function mock_poll_env(replay_budget, label_prefix)
   mock_repo_env()
-  mock_poll_label_prefix_env("adapter-")
+  mock_poll_label_prefix_env(label_prefix or "adapter-")
   if replay_budget ~= nil then
     mock_proxy_replay_budget_env(replay_budget)
   end
 end
 
-local function has_arg_pair(rendered, flag, value)
-  local text = tostring(rendered or "")
-  return text:find(tostring(flag) .. " '" .. tostring(value) .. "'", 1, true) ~= nil
-    or text:find(tostring(flag) .. " " .. tostring(value), 1, true) ~= nil
-end
-
 return {
   test_inbound_poll_raises_issue_and_pr_then_cache_hit = function()
-    local event = { queue = "github_poll_tick", payload = {} }
+    local event = { queue = "github_poll_tick", ts = "2026-07-30T01:02:03Z", payload = {} }
     local run_opts = opts("inbound-cache-hit")
 
     mock_poll()
@@ -73,7 +101,11 @@ return {
     t.eq(first.raises[1].payload.labels[1], "adapter-enabled")
     t.eq(first.raises[1].payload.labels[2], "bug")
     t.is_nil(first.raises[1].payload.view_cache_key)
-    t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:03Z")
+    t.eq(
+      first.raises[1].payload.dedup_key,
+      "owner/x#issue#42@2026-06-03T01:02:03Z"
+    )
+    t.eq(first.raises[1].payload.poll_token, allocated_poll_epoch(event.ts, 0))
     t.eq(first.raises[1].payload.source_ref.kind, "external")
     t.eq(first.raises[1].payload.source_ref.ref, "owner/x#issue/42")
     t.eq(first.raises[2].queue, "github_entity_changed")
@@ -87,6 +119,7 @@ return {
     t.eq(first.raises[2].payload.updated_at, "2026-06-03T02:03:04Z")
     t.is_nil(first.raises[2].payload.view_cache_key)
     t.eq(first.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-03T02:03:04Z")
+    t.eq(first.raises[2].payload.poll_token, allocated_poll_epoch(event.ts, 0))
     t.eq(first.raises[2].payload.source_ref.kind, "external")
     t.eq(first.raises[2].payload.source_ref.ref, "owner/x#pr/7")
     t.is_nil(first.raises[3])
@@ -95,7 +128,13 @@ return {
     local second = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
-    assert_observed_issue(second.raises[1], 42, "2026-06-03T01:02:03Z")
+    t.eq(second.raises[1].queue, "github_entity_changed")
+    t.eq(second.raises[1].payload.number, 42)
+    t.eq(
+      second.raises[1].payload.dedup_key,
+      first.raises[1].payload.dedup_key
+    )
+    t.eq(second.raises[1].payload.poll_token, allocated_poll_epoch(event.ts, 1))
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100"), 2)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/pulls?state=open&per_page=100"), 2)
   end,
@@ -118,7 +157,10 @@ return {
     t.eq(#changed.raises, 2)
     t.eq(changed.raises[1].payload.type, "issue")
     t.eq(changed.raises[1].payload.updated_at, "2026-06-04T05:06:07Z")
-    t.eq(changed.raises[1].payload.dedup_key, "owner/x#issue#42@2026-06-04T05:06:07Z")
+    t.eq(
+      changed.raises[1].payload.dedup_key,
+      "owner/x#issue#42@2026-06-04T05:06:07Z"
+    )
     t.eq(changed.raises[2].payload.type, "pr")
     t.eq(changed.raises[2].payload.updated_at, "2026-06-04T06:07:08Z")
     t.eq(changed.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-04T06:07:08Z")
@@ -340,17 +382,59 @@ return {
     t.eq(result.raises[1].payload.number, 50)
     t.eq(result.raises[1].payload.state, "OPEN")
     t.eq(result.raises[1].payload.labels[1], "bug")
-    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-cold")
+    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
     t.eq(result.raises[1].payload.source_ref.kind, "external")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/x#issue/50")
   end,
 
-  test_inbound_poll_level_replays_stateless_intake_candidates = function()
+  test_inbound_poll_reuses_stable_entity_version_dedup_keys_across_raise_paths = function()
+    local run_opts = opts("stable-level-replay-dedup", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local managed = issue_json(42, "2026-06-03T01:02:00Z")
+
+    local function poll(timestamp)
+      mock_poll_env("1")
+      mock_issue_list(issue_list_from({ managed, intake }))
+      mock_pr_list("[]\n")
+      local result = t.run_department("departments/github_poll/main.lua", {
+        queue = "github_poll_tick",
+        payload = {},
+        ts = timestamp,
+      }, run_opts)
+      t.eq(result.exit_code, 0)
+      t.eq(#result.raises, 2)
+      return result
+    end
+
+    poll("poll-stable-0")
+    local first = poll("poll-stable-1")
+    local second = poll("poll-stable-2")
+    local first_changed = changed_raises(first.raises)
+    local second_changed = changed_raises(second.raises)
+    local first_observed = observed_issue_raises(first.raises)
+    local second_observed = observed_issue_raises(second.raises)
+
+    t.eq(#first_changed, 1)
+    t.eq(#second_changed, 1)
+    t.eq(first_changed[1].payload.number, 50)
+    t.is_true(first_changed[1].payload.poll_token ~= second_changed[1].payload.poll_token)
+    t.eq(first_changed[1].payload.dedup_key, second_changed[1].payload.dedup_key)
+    t.eq(first_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
+
+    t.eq(#first_observed, 1)
+    t.eq(#second_observed, 1)
+    t.eq(first_observed[1].payload.number, 42)
+    t.is_true(first_observed[1].payload.poll_token ~= second_observed[1].payload.poll_token)
+    t.eq(first_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
+    t.eq(first_observed[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
+  end,
+
+  test_inbound_poll_level_replays_every_open_unassigned_issue_regardless_of_configured_prefix = function()
     local run_opts = opts("stateless-intake-level-replay", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
     local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
     local managed = issue_json(42, "2026-06-03T01:02:00Z")
 
-    mock_poll_env("1")
+    mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({ managed, intake }))
     mock_pr_list("[]\n")
     local first = t.run_department("departments/github_poll/main.lua", {
@@ -361,10 +445,10 @@ return {
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 2)
     t.eq(numbers(first.raises), "50,42")
-    t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-1")
+    t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
     t.eq(first.raises[2].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
 
-    mock_poll_env("1")
+    mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({ managed, intake }))
     mock_pr_list("[]\n")
     local second = t.run_department("departments/github_poll/main.lua", {
@@ -377,12 +461,14 @@ return {
     local second_changed = changed_raises(second.raises)
     t.eq(#second_changed, 1)
     t.eq(second_changed[1].payload.number, 50)
-    t.eq(second_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-2")
-    t.eq(#observed_issue_raises(second.raises), 1)
+    t.eq(second_changed[1].payload.dedup_key, first.raises[1].payload.dedup_key)
+    local second_observed = observed_issue_raises(second.raises)
+    t.eq(#second_observed, 1)
+    t.eq(second_observed[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
 
-    mock_poll_env("1")
+    mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({
-      '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"adapter-enabled"},{"name":"bug"}],"assignees":[]}',
+      '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"fkst-class:expedite"},{"name":"bug"}],"assignees":[]}',
       managed,
     }))
     mock_pr_list("[]\n")
@@ -396,12 +482,14 @@ return {
     local labelled_changed = changed_raises(labelled.raises)
     t.eq(#labelled_changed, 1)
     t.eq(labelled_changed[1].payload.number, 50)
-    t.eq(labelled_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
-    t.eq(#observed_issue_raises(labelled.raises), 1)
+    t.eq(labelled_changed[1].payload.dedup_key, first.raises[1].payload.dedup_key)
+    local labelled_observed = observed_issue_raises(labelled.raises)
+    t.eq(#labelled_observed, 1)
+    t.eq(labelled_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
 
-    mock_poll_env("1")
+    mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({
-      '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"adapter-enabled"},{"name":"bug"}],"assignees":[]}',
+      '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"fkst-class:expedite"},{"name":"bug"}],"assignees":[]}',
       managed,
     }))
     mock_pr_list("[]\n")
@@ -412,8 +500,106 @@ return {
     }, run_opts)
     t.eq(cached_labelled.exit_code, 0)
     t.eq(#cached_labelled.raises, 2)
-    t.eq(#changed_raises(cached_labelled.raises), 0)
-    t.eq(#observed_issue_raises(cached_labelled.raises), 2)
+    local cached_labelled_changed = changed_raises(cached_labelled.raises)
+    t.eq(#cached_labelled_changed, 1)
+    t.eq(cached_labelled_changed[1].payload.number, 50)
+    t.eq(cached_labelled_changed[1].payload.dedup_key, first.raises[1].payload.dedup_key)
+    local cached_labelled_observed = observed_issue_raises(cached_labelled.raises)
+    t.eq(#cached_labelled_observed, 1)
+    t.eq(cached_labelled_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
+  end,
+
+  test_inbound_poll_rearms_a_terminal_subscriber_while_a_sibling_is_live = function()
+    local run_opts = opts("post-dlq-level-rearm", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local base_key = "owner/x#issue#50@2026-06-03T01:04:00Z"
+    local terminal_id = "delivery/v3/raised/queue/github-proxy.github_entity_changed/dept/github-devloop-intake.admission/dedup/base"
+    local rearm_key = base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    local terminal = {
+      delivery_id = terminal_id,
+      queue = "github-proxy.github_entity_changed",
+      dept = "github-devloop.observe_issue",
+      source = poll_delivery_source(),
+      observed_at_ms = 1785574800000,
+      not_before_ms = 1785574800000,
+      dead_at_ms = 1785574860000,
+      attempts = 3,
+      redrive_count = 3,
+      replayable = false,
+      permanent = true,
+      payload = poll_delivery_payload_summary(base_key),
+      error_excerpt = "transient admission failure",
+    }
+
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(delivery_snapshot(json.decode("[]"), { terminal }))
+    local rearmed = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-after-dlq",
+    }, run_opts)
+    t.eq(rearmed.exit_code, 0)
+    t.eq(#rearmed.raises, 1)
+    t.eq(rearmed.raises[1].payload.dedup_key, rearm_key)
+    t.eq(rearmed.raises[1].payload.poll_token, allocated_poll_epoch("poll-after-dlq", 0))
+
+    local live = {
+      delivery_id = "live-rearm-delivery",
+      queue = "github-proxy.github_entity_changed",
+      dept = "github-devloop-intake.admission",
+      source = poll_delivery_source(),
+      status = "in-flight",
+      observed_at_ms = 1785574920000,
+      not_before_ms = 1785574920000,
+      attempt = 0,
+      redrive_count = 0,
+      lease_generation = 1,
+      lease_until_ms = 1785574950000,
+      fence_token = "live-rearm-delivery#1",
+      subscriber_absent_since_ms = nil,
+      payload = poll_delivery_payload_summary(base_key),
+      last_error_excerpt = nil,
+    }
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(delivery_snapshot({ live }, { terminal }))
+    local subscriber_rearmed = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-with-live-sibling",
+    }, run_opts)
+    t.eq(subscriber_rearmed.exit_code, 0)
+    t.eq(#subscriber_rearmed.raises, 1)
+    t.eq(subscriber_rearmed.raises[1].payload.dedup_key, rearm_key)
+    t.eq(subscriber_rearmed.raises[1].payload.poll_token, allocated_poll_epoch("poll-with-live-sibling", 0))
+  end,
+
+  test_inbound_poll_emits_fresh_entity_when_delivery_rearm_snapshot_is_truncated = function()
+    local run_opts = opts("truncated-rearm-keeps-fresh-polling", {
+      FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
+    })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local truncated = delivery_snapshot(json.decode("[]"), json.decode("[]"))
+    truncated.truncated.dead_letters = true
+
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(truncated)
+    local result = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-with-truncated-rearm-snapshot",
+    }, run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "github_entity_changed")
+    t.eq(result.raises[1].payload.number, 50)
+    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
   end,
 
   test_inbound_poll_rejects_invalid_replay_budget = function()
@@ -745,231 +931,4 @@ return {
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
     t.eq(count_calls(issue_comment_create), 0)
   end,
-
-  test_label_request_dry_run_write_and_rewrite = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = { "adapter-ready" },
-        remove_labels = { "adapter-thinking" },
-        dedup_key = "generic-workflow/issue/owner/x/42/result",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    mock_write_env("")
-    local dry_logs, dry_write_requests = capture_label_department_logs(
-      "departments/github_issue_label/main.lua",
-      event,
-      ""
-    )
-    t.eq(dry_write_requests, 0)
-    t.eq(dry_logs[1], "github-proxy dept=github_issue_label tag=OUTBOUND mode=dry-run repo=owner/x issue=42 add=adapter-ready remove=adapter-thinking dedup_key=generic-workflow/issue/owner/x/42/result reason=FKST_GITHUB_WRITE!=1")
-
-    local dry = t.run_department("departments/github_issue_label/main.lua", event, opts("label-dry-run"))
-    t.eq(dry.exit_code, 0)
-    t.eq(count_calls("gh issue edit"), 0)
-
-    local write_opts = opts("label-write", {
-      FKST_GITHUB_WRITE = "1",
-    })
-    local real_logs, real_write_requests = capture_label_department_logs(
-      "departments/github_issue_label/main.lua",
-      event,
-      "1"
-    )
-    t.eq(real_write_requests, 1)
-    t.eq(real_logs[1], "github-proxy dept=github_issue_label tag=OUTBOUND mode=real repo=owner/x issue=42 add=adapter-ready remove=adapter-thinking dedup_key=generic-workflow/issue/owner/x/42/result")
-
-    mock_write_env("1")
-    mock_label_write()
-    local write = t.run_department("departments/github_issue_label/main.lua", event, write_opts)
-    t.eq(write.exit_code, 0)
-    t.eq(count_calls("gh label list"), 1)
-    t.eq(count_calls("gh label create"), 0)
-    t.eq(count_calls("gh issue edit"), 1)
-    local edit_calls = calls_matching("gh issue edit")
-    t.is_true(has_arg_pair(edit_calls[1].rendered, "--add-label", "adapter-ready"))
-    t.is_true(has_arg_pair(edit_calls[1].rendered, "--remove-label", "adapter-thinking"))
-
-    mock_write_env("1")
-    mock_label_write()
-    local again = t.run_department("departments/github_issue_label/main.lua", event, write_opts)
-    t.eq(again.exit_code, 0)
-    t.eq(count_calls("gh label list"), 2)
-    t.eq(count_calls("gh label create"), 0)
-    t.eq(count_calls("gh issue edit"), 2)
-  end,
-
-  test_label_request_creates_missing_repo_label_before_add = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = { "adapter-fresh" },
-        remove_labels = {},
-        dedup_key = "generic-workflow/issue/owner/x/42/fresh-label",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    mock_write_env("1")
-    mock_repo_label_list({ "adapter-ready" })
-    mock_label_create()
-    t.mock_command("gh issue edit", { stdout = "", exit_code = 0 })
-    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("label-create-missing", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh label list"), 1)
-    t.eq(count_calls("gh label create"), 1)
-    t.eq(count_calls("gh issue edit"), 1)
-    local create = calls_matching("gh label create")[1]
-    t.is_true(create.rendered:find("adapter-fresh", 1, true) ~= nil)
-    t.is_true(create.rendered:find("--repo owner/x", 1, true) ~= nil)
-    local edit = calls_matching("gh issue edit")[1]
-    t.is_true(has_arg_pair(edit.rendered, "--add-label", "adapter-fresh"))
-  end,
-
-  test_label_request_skips_remove_when_repo_label_is_missing = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = {},
-        remove_labels = { "adapter-gone" },
-        dedup_key = "generic-workflow/issue/owner/x/42/remove-gone-label",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    mock_write_env("1")
-    mock_repo_label_list({ "adapter-ready" })
-    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("label-remove-missing", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh label list"), 1)
-    t.eq(count_calls("gh label create"), 0)
-    t.eq(count_calls("gh issue edit"), 0)
-
-    local logs, write_requests = capture_label_department_logs(
-      "departments/github_issue_label/main.lua",
-      event,
-      "1",
-      false
-    )
-    t.eq(write_requests, 1)
-    t.eq(logs[1], "github-proxy dept=github_issue_label tag=OUTBOUND mode=real repo=owner/x issue=42 add= remove=adapter-gone dedup_key=generic-workflow/issue/owner/x/42/remove-gone-label")
-    t.eq(logs[2], "github-proxy dept=github_issue_label tag=SKIP reason=no-effective-label-change repo=owner/x issue=42 add= remove=adapter-gone dedup_key=generic-workflow/issue/owner/x/42/remove-gone-label")
-  end,
-
-  test_long_label_dedup_uses_bounded_lock_key = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = { "adapter-ready" },
-        remove_labels = {},
-        dedup_key = long_dedup("-label", 430),
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    t.is_true(#event.payload.dedup_key > 400)
-    mock_write_env("1")
-    mock_label_write()
-    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("label-long-dedup", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue edit"), 1)
-  end,
-
-  test_label_request_writes_without_state_precondition = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = { "adapter-ready" },
-        remove_labels = { "adapter-thinking" },
-        dedup_key = "generic-workflow/issue/owner/x/42/ready-hint",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    local write_opts = opts("label-no-precondition", {
-      FKST_GITHUB_WRITE = "1",
-    })
-
-    mock_write_env("1")
-    mock_label_write()
-    local current = t.run_department("departments/github_issue_label/main.lua", event, write_opts)
-    t.eq(current.exit_code, 0)
-    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 0)
-    t.eq(count_calls("gh issue edit"), 1)
-    local current_edit = calls_matching("gh issue edit")[1]
-    t.is_true(has_arg_pair(current_edit.rendered, "--add-label", "adapter-ready"))
-    t.is_true(has_arg_pair(current_edit.rendered, "--remove-label", "adapter-thinking"))
-  end,
-
-  test_label_request_applies_exclusive_hint_without_state_precondition = function()
-    local event = {
-      queue = "github_issue_label_request",
-      payload = {
-        schema = "github-proxy.label.v1",
-        repo = "owner/x",
-        issue_number = 42,
-        add_labels = { "adapter-blocked" },
-        remove_labels = { "adapter-blocked", "adapter-thinking", "adapter-ready" },
-        dedup_key = "generic-workflow/issue/owner/x/42/blocked-hint",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    mock_write_env("1")
-    mock_label_write()
-    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("label-blocked-hint", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 0)
-    t.eq(count_calls("gh issue edit"), 1)
-    local edit = calls_matching("gh issue edit")[1]
-    t.is_true(has_arg_pair(edit.rendered, "--add-label", "adapter-blocked"))
-    t.is_true(has_arg_pair(edit.rendered, "--remove-label", "adapter-ready"))
-  end,
-
 }

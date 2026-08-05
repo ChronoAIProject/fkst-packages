@@ -20,7 +20,21 @@ function S.gh_result(fn)
     return result_or_error
   end
   if type(result_or_error) == "table" and result_or_error.result ~= nil then
-    return result_or_error.result
+    local result = result_or_error.result
+    if result_or_error.class ~= nil then
+      result.class = result_or_error.class
+    end
+    if result_or_error.error_class ~= nil then
+      result.error_class = result_or_error.error_class
+    elseif result_or_error.class ~= nil then
+      result.error_class = result_or_error.class
+    end
+    for _, field in ipairs({ "retryable", "permanent" }) do
+      if result_or_error[field] ~= nil then
+        result[field] = result_or_error[field]
+      end
+    end
+    return result
   end
   error(result_or_error)
 end

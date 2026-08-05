@@ -88,6 +88,10 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/host_entry.sh"
 # shellcheck source=scripts/composed_manifest.sh
 . "$ROOT/scripts/composed_manifest.sh"
+# shellcheck source=scripts/local_iteration_result.sh
+. "$ROOT/scripts/local_iteration_result.sh"
+# shellcheck source=scripts/run_bin.sh
+. "$ROOT/scripts/run_bin.sh"
 # shellcheck source=scripts/test_affected.sh
 . "$ROOT/scripts/test_affected.sh"
 # shellcheck source=scripts/test_parallel.sh
@@ -96,18 +100,6 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/test_deadline.sh"
 # shellcheck source=scripts/run_department.sh
 . "$ROOT/scripts/run_department.sh"
-
-resolve_bin() {
-  if ! resolve_bin_contract "$ROOT" "bootstrap"; then
-    echo "error: $RESOLVE_BIN_ERROR" >&2
-    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-      echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
-    fi
-    exit 1
-  fi
-  BIN="$RESOLVED_BIN"
-  export BIN
-}
 
 shell_single_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
@@ -159,85 +151,13 @@ package_root_for_name() {
   return 1
 }
 
-# Resolve a path to its physical location, following file symlinks too (portable:
-# no realpath / `readlink -f` dependency, works with macOS BSD readlink). This
-# lets a symlinked BIN (e.g. a PATH install pointing into a checkout target) be
-# traced back to its fkst-substrate checkout.
-resolve_phys_path() {
-  local p="$1" target dir
-  while [ -L "$p" ]; do
-    target="$(readlink "$p")" || break
-    case "$target" in
-      /*) p="$target" ;;
-      *)  p="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$target" ;;
-    esac
-  done
-  dir="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 1
-  printf '%s/%s\n' "$dir" "$(basename "$p")"
-}
-
-# Warn — without git-pulling (doctrine: scripts/run.sh never pulls; only dogfood.sh
-# sync does) — when the fkst-substrate checkout the BIN traces to is behind its
-# origin/dev, so a silently-stale BIN cannot masquerade as fresh. The freshness
-# build below builds from the checkout's CURRENT source; if that checkout is behind
-# origin/dev, the resulting BIN is missing newer engine primitives (e.g. exec_argv)
-# and the migrated gh/git argv paths fail under it. Local refs only (no network), so
-# this is a best-effort hint that surfaces a behind checkout after any prior fetch.
-warn_if_substrate_behind() {
-  local substrate="$1" behind
-  behind="$(git -C "$substrate" rev-list --count HEAD..origin/dev 2>/dev/null)" || behind=""
-  if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
-    echo "warning: fkst-substrate checkout '$substrate' is $behind commit(s) behind its origin/dev;" >&2
-    echo "         the BIN may be stale (missing newer engine primitives). scripts/run.sh builds from the" >&2
-    echo "         CURRENT checkout and does NOT git-pull — run 'dogfood.sh sync' (or git pull + rebuild) to refresh." >&2
-  fi
-}
-
-ensure_fresh_bin() {
-  if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-    return 0
-  fi
-
-  local phys substrate suffix
-  suffix="/target/debug/fkst-framework"
-  phys="$(resolve_phys_path "$BIN")" || phys="$BIN"
-  if [[ "$phys" == *"$suffix" ]]; then
-    substrate="${phys%"$suffix"}"
-  else
-    substrate=""
-  fi
-  if [ -z "$substrate" ] || [ ! -d "$substrate/.git" ] || [ ! -f "$substrate/Cargo.toml" ]; then
-    if [ -z "${FKST_NO_AUTOBUILD:-}" ]; then
-      echo "warning: cannot trace BIN to an fkst-substrate checkout; skipping freshness build: $BIN" >&2
-    fi
-    return 0
-  fi
-
-  # Surface a behind-substrate checkout REGARDLESS of FKST_NO_AUTOBUILD — that is
-  # exactly the silently-stale-BIN case: if the build runs it builds from this same
-  # behind checkout, and if it is skipped the existing BIN is at best this old.
-  warn_if_substrate_behind "$substrate"
-
-  if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then
-    echo "warning: FKST_NO_AUTOBUILD set; skipping fkst-framework freshness build" >&2
-    return 0
-  fi
-
-  echo "ensuring fkst-framework is built from current source: $substrate" >&2
-  local build_out
-  if ! build_out="$(cargo build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
-    printf '%s\n' "$build_out" >&2
-    echo "error: fkst-framework freshness build failed; refusing to continue with a potentially stale BIN" >&2
-    exit 1
-  fi
-}
-
 usage() {
   sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd_check() {
   local fail=0 competence_base_ref="" pool
+  unset FKST_R9_TRACE_ROOT
   pool="$(detect_pool_size)"
   # Every unit below is an independent process (its own repo-read + unique tempdir),
   # so the check verdict is a commutative AND-fold — running them concurrently changes
@@ -281,6 +201,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
@@ -291,6 +212,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
     'python3 -B "$ROOT/scripts/board_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_board_test.py"'
+    'python3 -B "$ROOT/scripts/dogfood_split_test.py"'
     'python3 -B "$ROOT/scripts/durable_health_test.py"'
     'python3 -B "$ROOT/scripts/tmp_receipt_sweep_test.py"'
     'python3 -B "$ROOT/scripts/doctor_test.py"'
@@ -303,6 +225,7 @@ cmd_check() {
     units+=('python3 -B "$ROOT/scripts/competence_gate.py" --base-ref "$competence_base_ref"')
   else
     echo "error: competence gate requires FKST_COMPETENCE_BASE_REF, GITHUB_BASE_REF, or an integration ref" >&2
+    local_iteration_result_fail "CONFIGURATION"
     fail=1
   fi
   run_units_parallel "$pool" "${units[@]}" || fail=$(( fail + $? ))
@@ -360,6 +283,7 @@ PY
 
   comm -23 "$expected" "$actual" > "$missing"
   if [ -s "$missing" ]; then
+    local_iteration_result_fail "SEMANTIC"
     echo "error: G5 engine test coverage failed; these *_test.lua files produced zero report-json pass results:" >&2
     sed 's/^/  /' "$missing" >&2
     echo "  Each *_test.lua must contribute at least one real engine-enumerated top-level test." >&2
@@ -542,6 +466,23 @@ run_quiet_keep() {
 
 load_composed_test_roots() { local script; script="$(bash "$ROOT/scripts/composed_test_graph_roots.sh" "$1" "$2")" || return 1; eval "$script"; }
 
+# Per-package `--report-json` files are written into a scratch dir and deleted at the end of
+# the run, so no CI run's per-test outcome is inspectable afterwards. When FKST_TEST_REPORT_DIR
+# is set (same shape as FKST_LUA_COVERAGE_OUTPUT), copy them there before cleaning up, so a CI
+# job can upload them as an artifact. Publishing must never change the run's verdict: a copy
+# failure warns and the reports are still removed.
+finish_test_reports() {
+  local dir="$1" dest="${FKST_TEST_REPORT_DIR:-}"
+  if [ -n "$dest" ] && [ -d "$dir" ]; then
+    if mkdir -p "$dest" && cp -R "$dir"/. "$dest"/ 2>/dev/null; then
+      echo "test reports published to $dest"
+    else
+      echo "warning: could not publish test reports to $dest" >&2
+    fi
+  fi
+  rm -rf "$dir"
+}
+
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
@@ -553,20 +494,22 @@ cmd_test() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -v|--verbose) verbose=1 ;;
-      -*) echo "unknown test flag: $1" >&2; exit 2 ;;
+      -*) local_iteration_result_fail "CONFIGURATION"; echo "unknown test flag: $1" >&2; exit 2 ;;
       *) target="$1" ;;
     esac
     shift
   done
 
-  # One EXIT trap sweeps all three temp roots (even a SIGKILL/OOM of a parallel unit cannot leak its
-  # runtime/durable dirs) and disarms the main()-armed bounded-execution watchdog on a normal finish.
-  trap 'rm -rf "${TEST_HERMETIC_RUNTIME_ROOT:-}" "${TEST_HERMETIC_DURABLE_ROOT:-}" "${TEST_HERMETIC_PKG_ROOTS:-}"; disarm_test_deadline' EXIT
   TEST_HERMETIC_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-rt.XXXXXX")"
   TEST_HERMETIC_DURABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-durable.XXXXXX")"
   TEST_HERMETIC_PKG_ROOTS="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-pkgroots.XXXXXX")"
   export FKST_RUNTIME_ROOT="$TEST_HERMETIC_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$TEST_HERMETIC_DURABLE_ROOT"
+  export FKST_R9_TRACE_ROOT="$TEST_HERMETIC_RUNTIME_ROOT/r9-traces"
+  if ! mkdir -p "$FKST_R9_TRACE_ROOT"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  fi
   unset FKST_GITHUB_WRITE
   unset FKST_SUPERVISOR_PID
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
@@ -615,6 +558,7 @@ cmd_test() {
     [ -f "$coverage_file" ] && coverage_artifacts+=("$coverage_file")
   done
   if [ "$ran" -eq 0 ]; then
+    local_iteration_result_fail "CONFIGURATION"
     if [ -n "$target" ]; then
       echo "no packages matched for '$target'" >&2
     else
@@ -639,16 +583,18 @@ cmd_test() {
   fi
   if [ "$fail" -ne 0 ]; then
     if test_reports_establish_semantic_failure "$report_dir" "$fail"; then
-      printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL' >&2
+      local_iteration_result_fail "SEMANTIC"
     else
-      printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN' >&2
+      [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
     fi
-    rm -rf "$report_dir"
+    finish_test_reports "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
-  rm -rf "$report_dir"
+  finish_test_reports "$report_dir"
   echo "OK: $ran package(s)"
+  local_iteration_result_pass
 }
+
 
 collect_composed_package() {
   local name="$1" pkg dep deps rc
@@ -692,7 +638,7 @@ cmd_test_composed() {
   fi
 
   hermetic_env=(env)
-  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
+  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_DEVLOOP_CACHE_PREPARATION_COMMAND FKST_PROJECT_ROOT FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
     hermetic_env+=(-u "$hermetic_var")
   done
 
@@ -799,7 +745,7 @@ cmd_supervise_old() {
   [ -d "$pkgdir" ] || { echo "error: no package at $pkgdir" >&2; exit 1; }
 
   local project_root rt durable
-  project_root="${FKST_PROJECT_ROOT:-$pkgdir}"
+  project_root="$(host_run_abs_path "${FKST_PROJECT_ROOT:-$pkgdir}")"
   host_run_validate_local_iteration_test_command_for "$ROOT" "$pkg"
   rt="${FKST_RUNTIME_ROOT:-$DEFAULT_RUNTIME_ROOT}"
   durable="${FKST_DURABLE_ROOT:-$DEFAULT_DURABLE_ROOT}"
@@ -810,6 +756,7 @@ cmd_supervise_old() {
   fi
   export FKST_RUNTIME_ROOT="$rt"
   export FKST_DURABLE_ROOT="$durable"
+  export FKST_PROJECT_ROOT="$project_root"
   export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
 
   echo "BIN=$BIN"
@@ -863,7 +810,8 @@ cmd_build() {
 main() {
   # Bound the whole test-family run BEFORE dispatch (covers cmd_check too); see scripts/test_deadline.sh.
   case "${1:-}" in
-    check|test|test-composed|test-affected) arm_test_deadline; trap 'disarm_test_deadline' EXIT ;;
+    check|test-composed) arm_test_deadline; trap 'disarm_test_deadline' EXIT ;;
+    test|test-affected) local_iteration_result_arm; arm_test_deadline ;;
   esac
   case "${1:-}" in
     check) shift; cmd_check "$@" ;;
@@ -878,9 +826,15 @@ main() {
       # and `test -v`/FKST_TEST_VERBOSE=1 still show every warning.
       case " $* " in *" -v "*|*" --verbose "*) _tv=1 ;; *) _tv="${FKST_TEST_VERBOSE:-}" ;; esac
       if [ -n "$_tv" ]; then
-        cmd_check
+        if ! cmd_check; then
+          local_iteration_result_sync_state
+          [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
+          return 1
+        fi
       elif ! _chk_out="$(cmd_check 2>&1)"; then
-        printf '%s\n' "$_chk_out"; exit 1
+        local_iteration_result_sync_state
+        [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
+        printf '%s\n' "$_chk_out"; return 1
       fi
       resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
     test-affected) shift; cmd_test_affected "$@" ;;

@@ -1,6 +1,5 @@
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
-local forks = require("devloop.forks")
 local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_builders = require("devloop.markers.builders")
@@ -180,9 +179,29 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
-  test_observe_authorized_other_author_after_grace_raises_fork_request_only = function()
+  test_observe_tokenless_authorized_other_author_denies_before_peer_scan_or_fork = function()
     local run_opts = opts("observe-authorized-other-author-fork")
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "trusted-human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
+      stdout = "dev",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), {
+      stdout = "integration-fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = '{"title":"Issue title","createdAt":"' .. os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1) .. '","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"trusted-human"}}\n',
       stderr = "",
@@ -191,13 +210,11 @@ return {
 
     local result = run_observe(issue(), run_opts)
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
-    t.eq(request.schema, "github-proxy.issue-create.v1")
-    t.eq(request.assignees[1], "fkst-test-bot")
-    t.eq(request.dedup_key, forks.fork_issue_dedup_key("owner/repo", 42))
-    t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
+    t.eq(#result.raises, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
+    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()
@@ -360,7 +377,10 @@ return {
     local prompt = core.build_implement_prompt(reached().proposal_id, {
       title = "Fix parser",
       body = "Expected behavior",
-    }, "DO X ONLY")
+    }, "DO X ONLY", nil, nil, {
+      implementation_version = "ready/observe-consensus-loop",
+      attempt = 1,
+    })
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Implement EXACTLY within this", 1, true) ~= nil)
     t.is_true(prompt:find("DO X ONLY", 1, true) ~= nil)
@@ -510,8 +530,8 @@ return {
 
     local result = run_result(current, opts("result-marker"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.expected_state, "ready")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 
@@ -709,6 +729,7 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, base_version .. "/loop/1", event.narrowed_question, event.angle_digests),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 2, base_version .. "/loop/2", event.narrowed_question, event.angle_digests),
     })
@@ -747,6 +768,7 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 0, base_version, "Question 0", varying_digest(0), "open:\nfirst resolvable finding"),
     })
 
@@ -772,6 +794,7 @@ return {
     local base_version = conv_rounds.converge_base_version(event.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, event.dedup_key, nil, nil),
     })
 
@@ -795,6 +818,7 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 4, base_version .. "/loop/4", event.narrowed_question, event.angle_digests),
     })
 
@@ -867,14 +891,16 @@ return {
 
   test_reconcile_drop_blocks_thinking_issue = function()
     local event = reconcile()
-    mock_issue_reconcile({ "fkst-dev:thinking" })
+    mock_issue_reconcile({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", event.base_version),
+    })
 
     local result = run_reconcile(event, opts("reconcile-drop"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(default_marker_version, event.round)
+    local version = conv_reconcile.reconcile_terminal_state_version(event.base_version, event.round)
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("no-semantic-progress-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)

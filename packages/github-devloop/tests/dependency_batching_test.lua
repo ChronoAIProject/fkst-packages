@@ -2,6 +2,7 @@ local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
 local base_ids = require("devloop.base_ids")
+local dependency_graphql = require("devloop.dependency_graphql")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
 
@@ -59,7 +60,7 @@ local function shell_quote(value)
 end
 
 local function batch_command(numbers)
-  local query = core.render_github_graphql_batch_query("dependency_blocked_by", {
+  local query = dependency_graphql.render_batch_query("dependency_blocked_by", {
     owner = "owner",
     name = "repo",
   }, numbers)
@@ -145,7 +146,10 @@ return {
   test_dependency_batch_adapter_uses_one_rate_pool_free_graphql_call = function()
     mock_author_policy(1)
     local calls = {}
-    local result = core.gh_blocked_by_batch(repo, { 11, 12 }, 35, function(spec)
+    local result = dependency_graphql.execute_batch("dependency_blocked_by", {
+      owner = "owner",
+      name = "repo",
+    }, { 11, 12 }, 35, function(spec)
       table.insert(calls, spec)
       return {
         stdout = batch_stdout({ { number = 11 }, { number = 12 } }),
@@ -161,7 +165,7 @@ return {
     t.eq(calls[1].argv[2], "api")
     t.eq(calls[1].argv[3], "graphql")
     t.eq(calls[1].argv[4], "-f")
-    t.eq(calls[1].argv[5], "query=" .. core.render_github_graphql_batch_query(
+    t.eq(calls[1].argv[5], "query=" .. dependency_graphql.render_batch_query(
       "dependency_blocked_by",
       { owner = "owner", name = "repo" },
       { 11, 12 }
@@ -180,7 +184,7 @@ return {
       return core.dependency_gate(repo, 42)
     end)
 
-    t.eq(gate.ok, false)
+    t.is_nil(gate.ok)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "waiting-on-dependency")
     t.eq(#gate.unmet, 2)
@@ -199,20 +203,20 @@ return {
   end,
 
   test_dependency_batch_truncation_fails_closed = function()
-    mock_root(52, { { number = 21 }, { number = 22 } })
-    mock_batch({ 21, 22 }, {
-      { number = 21, nodes = { { number = 7 } }, options = { total_count = 51, has_next_page = true } },
-      { number = 22 },
+    mock_root(52, { { number = 5201 }, { number = 5202 } })
+    mock_batch({ 5201, 5202 }, {
+      { number = 5201, nodes = { { number = 7 } }, options = { total_count = 51, has_next_page = true } },
+      { number = 5202 },
     })
 
     local gate, logs = capture_logs(function()
       return core.dependency_gate(repo, 52)
     end)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.is_nil(gate.ok)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "blockedby-truncated")
-    t.eq(gate.unmet[1], 21)
+    t.eq(#gate.unmet, 0)
     t.is_true(has_log(logs, {
       "operation=dependency_blocked_by",
       "batch_size=2",
@@ -230,10 +234,10 @@ return {
 
     local gate = core.dependency_gate(repo, 62)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.is_nil(gate.ok)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "malformed-json")
-    t.eq(gate.unmet[1], 31)
+    t.eq(#gate.unmet, 0)
   end,
 
   test_dependency_batch_transport_failure_is_attributed_and_fails_closed = function()
@@ -248,10 +252,10 @@ return {
       return core.dependency_gate(repo, 72)
     end)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.is_nil(gate.ok)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "gh-failed")
-    t.eq(gate.unmet[1], 41)
+    t.eq(#gate.unmet, 0)
     t.is_true(has_log(logs, {
       "operation=dependency_blocked_by",
       "repo=owner/repo",

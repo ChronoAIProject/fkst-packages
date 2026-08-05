@@ -75,9 +75,9 @@ end
 
 local function issue_close(deps, repo, issue_number)
   if type(deps) == "table" and type(deps.issue_close) == "function" then
-    return deps.issue_close(repo, issue_number, M.RELEASE_TIMEOUT_SECONDS)
+    return deps.issue_close(repo, issue_number, { kind = "completed" }, M.RELEASE_TIMEOUT_SECONDS)
   end
-  return github().issue_close(repo, issue_number, M.RELEASE_TIMEOUT_SECONDS)
+  return github().issue_close(repo, issue_number, { kind = "completed" }, M.RELEASE_TIMEOUT_SECONDS)
 end
 
 -- A workflow whose every slot genuinely merged is fully implemented, so its origin

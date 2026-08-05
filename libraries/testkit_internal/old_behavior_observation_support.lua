@@ -372,6 +372,18 @@ function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures
   return artifact
 end
 
+function M.admission_trace_output_path(filename)
+  if type(filename) ~= "string"
+    or filename:match("^[A-Za-z0-9][A-Za-z0-9._-]*$") == nil then
+    error("testkit-internal: admission-trace-filename-invalid: R9 admission trace output filename is invalid", 0)
+  end
+  local root = os.getenv("FKST_R9_TRACE_ROOT") or os.getenv("FKST_RUNTIME_ROOT")
+  if type(root) ~= "string" or root == "" or root:find("[\r\n]") ~= nil then
+    error("testkit-internal: admission-trace-root-invalid: R9 admission trace output root is invalid", 0)
+  end
+  return root:gsub("/+$", "") .. "/" .. filename
+end
+
 local R11_CAUSE = "R11.queue_dialogue_to_sync_consensus_call"
 local R11_MANIFEST_PATH = "migration/intent-diffs/2775.json"
 local R11_DELIVERY_ATOMS = {
@@ -411,27 +423,27 @@ end
 
 local function delivery_authorizations(manifest)
   if type(manifest) ~= "table" or manifest.cause ~= R11_CAUSE then
-    error("R11 OLD observation comparison requires the committed R11 manifest", 0)
+    error("testkit-internal: r11-observation-manifest-invalid: R11 OLD observation comparison requires the committed R11 manifest", 0)
   end
   local changed = {}
   for _, field in ipairs({ "changed_row_ids", "changed_edge_ids", "changed_policy_ids" }) do
     local ids = sorted_unique_strings(manifest[field], "R11 manifest " .. field)
     for observation_id in pairs(ids) do
       if changed[observation_id] then
-        error("R11 manifest observation ID appears in multiple changed-ID sets: " .. observation_id, 0)
+        error("testkit-internal: r11-changed-observation-id-duplicate: R11 manifest observation ID appears in multiple changed-ID sets: " .. observation_id, 0)
       end
       changed[observation_id] = true
     end
   end
 
   if not M.is_json_array(manifest.authorized_delivery_atoms) then
-    error("R11 manifest authorized_delivery_atoms must be a JSON array", 0)
+    error("testkit-internal: r11-delivery-authorization-list-invalid: R11 manifest authorized_delivery_atoms must be a JSON array", 0)
   end
   local authorizations = {}
   local prior = nil
   for index, entry in ipairs(manifest.authorized_delivery_atoms) do
     if type(entry) ~= "table" then
-      error("R11 delivery authorization must be an object at index " .. tostring(index), 0)
+      error("testkit-internal: r11-delivery-authorization-type-invalid: R11 delivery authorization must be an object at index " .. tostring(index), 0)
     end
     local keys = {}
     for key in pairs(entry) do keys[key] = true end
@@ -440,7 +452,7 @@ local function delivery_authorizations(manifest)
     end
     for key in pairs(keys) do
       if key ~= "observation_id" and key ~= "remove" and key ~= "add" then
-        error("R11 delivery authorization has unsupported field: " .. tostring(key), 0)
+        error("testkit-internal: r11-delivery-authorization-field-unsupported: R11 delivery authorization has unsupported field: " .. tostring(key), 0)
       end
     end
     local observation_id = entry.observation_id
@@ -448,7 +460,7 @@ local function delivery_authorizations(manifest)
       error("R11 delivery authorization observation_id must be a non-empty string", 0)
     end
     if prior ~= nil and prior > observation_id then
-      error("R11 delivery authorizations must be byte-sorted by observation_id", 0)
+      error("testkit-internal: r11-delivery-authorizations-unsorted: R11 delivery authorizations must be byte-sorted by observation_id", 0)
     end
     if authorizations[observation_id] then
       error("R11 delivery authorization is duplicated: " .. observation_id, 0)
@@ -457,13 +469,13 @@ local function delivery_authorizations(manifest)
     local added = sorted_unique_strings(entry.add, observation_id .. " add")
     for atom in pairs(removed) do
       if not R11_DELIVERY_ATOMS[atom] or atom:sub(1, 6) ~= "queue:" then
-        error("R11 manifest cannot authorize removed non-delivery atom: " .. atom, 0)
+        error("testkit-internal: r11-removed-delivery-atom-invalid: R11 manifest cannot authorize removed non-delivery atom: " .. atom, 0)
       end
     end
     for atom in pairs(added) do
       if not R11_DELIVERY_ATOMS[atom]
         or (atom:sub(1, 6) ~= "raise:" and atom:sub(1, 5) ~= "call:") then
-        error("R11 manifest cannot authorize added non-delivery atom: " .. atom, 0)
+        error("testkit-internal: r11-added-delivery-atom-invalid: R11 manifest cannot authorize added non-delivery atom: " .. atom, 0)
       end
     end
     if removed["queue:consensus.consensus_converge"]
@@ -483,12 +495,12 @@ local function delivery_authorizations(manifest)
   end
   for observation_id in pairs(changed) do
     if not authorizations[observation_id] then
-      error("R11 changed observation lacks delivery authorization: " .. observation_id, 0)
+      error("testkit-internal: r11-delivery-authorization-missing: R11 changed observation lacks delivery authorization: " .. observation_id, 0)
     end
   end
   for observation_id in pairs(authorizations) do
     if not changed[observation_id] then
-      error("R11 delivery authorization is not listed in changed-ID sets: " .. observation_id, 0)
+      error("testkit-internal: r11-delivery-authorization-unmatched: R11 delivery authorization is not listed in changed-ID sets: " .. observation_id, 0)
     end
   end
   return authorizations

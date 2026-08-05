@@ -120,6 +120,10 @@ function C.has_thinking_converge_replay(M, current, proposal_id, state, source_r
   return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
 end
 
+function C.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+  return replay_thinking_convergence.level_replay_delivery_identity(proposal_id, state, event_ts)
+end
+
 local function replay_thinking(M, dept, issue, state, row, facts)
   return replay_thinking_convergence.replay(thinking_caps(M), dept, issue, state, row, facts,
     function(...) return log_skip(M, ...) end,
@@ -148,15 +152,13 @@ local function replay_implementing(M, dept, issue, state, row, facts)
   end
   -- Pass the INNER (unwrapped) version: build_devloop_ready_payload re-applies
   -- the "ready/" wrapper, so re-wrapping the already-wrapped state.version would
-  -- double-wrap it ("ready/ready/..."). Preserve the retry suffix as structured
-  -- attempt metadata so re-drives reproduce frozen "ready/.../reimplement/N"
-  -- markers exactly.
+  -- double-wrap it ("ready/ready/..."). Derive lifecycle retry identity from the
+  -- authoritative state version; implement-attempt.attempt is audit-only.
   local payload = payloads_builders.build_devloop_ready_payload(M, {
     proposal_id = proposal_id,
     dedup_key = M.ready_payload_inner_version(state.version),
     source_ref = issue.source_ref,
-    impl_retry_attempt = tonumber(attempt and attempt.attempt)
-      or M.implementation_retry_attempt(state.version),
+    impl_retry_attempt = M.implementation_retry_attempt(state.version),
     redrive_delivery = facts.redrive_delivery,
   })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "implementing", "applied(codex-run-absent)", "no matching implement codex run is running")
@@ -558,11 +560,11 @@ local function restart_replayers(M)
   local function merge(source)
     if source == nil then return end
     if type(source) ~= "table" then
-      error("github-devloop: invalid restart replayer registry")
+      error("github-devloop: restart-replayer-registry-invalid: invalid restart replayer registry")
     end
     for state_name, replay in pairs(source) do
       if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
-        error("github-devloop: invalid restart replayer registration")
+        error("github-devloop: restart-replayer-registration-invalid: invalid restart replayer registration")
       end
       replayers[state_name] = replay
     end

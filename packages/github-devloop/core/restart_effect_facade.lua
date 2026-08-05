@@ -101,18 +101,11 @@ local function serialize_consensus_result_label(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  if args.to_state == "declined" then
-    return requests_labels.build_result_state_label_request(
-      args.repo,
-      args.issue_number,
-      args.reached,
-      "declined"
-    )
-  end
-  return requests_labels.build_result_label_request(
+  return requests_labels.build_result_state_label_request(
     args.repo,
     args.issue_number,
-    args.reached
+    args.reached,
+    args.to_state
   )
 end
 
@@ -120,13 +113,15 @@ local function serialize_awaiting_pr_comment(args)
   if type(args) ~= "table"
     or type(args.issue) ~= "table"
     or type(args.state) ~= "table"
-    or type(args.delegation) ~= "table" then
+    or type(args.delegation) ~= "table"
+    or type(args.child_state) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
   return awaiting_pr_replayer.build_awaiting_pr_canonicalization_comment_request(
     args.issue,
     args.state,
-    args.delegation
+    args.delegation,
+    args.child_state
   )
 end
 

@@ -1,6 +1,8 @@
 # Thin host run.sh delegation to fkst-packages
 
-Status: IMPLEMENTED IN THIS BRANCH
+Status: SUPERSEDED (verified 2026-08-04). Implemented, then superseded by
+`docs/adr/0002-host-fkst-layout.md`, which is the canonical host-layout source of truth.
+Read the ADR for current behaviour; the text below is historical.
 Date: 2026-06-24
 Scope: fkst-packages `scripts/run.sh` host entry and docs. Host-side thin
 bootstrappers, starting with fkst-website, are follow-up changes in their own

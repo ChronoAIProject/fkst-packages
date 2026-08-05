@@ -1,5 +1,10 @@
 local core = require("core")
 local saga = require("workflow.saga")
+local entity_list_cache = require("devloop.entity_list_cache")
+local poll_delivery_rearm = require("core.poll_delivery_rearm")
+
+local changed_queue = "github-proxy.github_entity_changed"
+local observed_queue = "github-proxy.github_issue_observed"
 
 local spec = {
   consumes = { "github_poll_tick" },
@@ -28,37 +33,21 @@ local function is_observed_issue_snapshot(entity_type, entity)
   return entity_type == "issue" and tostring(entity.state or ""):upper() == "OPEN"
 end
 
-local function has_configured_label_prefix(labels, prefixes)
-  if #prefixes == 0 then
-    return false
-  end
-  for _, label in ipairs(labels or {}) do
-    local text = tostring(label)
-    for _, prefix in ipairs(prefixes) do
-      if text:sub(1, #prefix) == prefix then
-        return true
-      end
-    end
-  end
-  return false
-end
-
-local function is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+local function is_intake_candidate_snapshot(entity_type, entity)
   return entity_type == "issue"
     and tostring(entity.state or ""):upper() == "OPEN"
-    and not has_configured_label_prefix(entity.labels, poll_label_prefixes)
 end
 
-local function is_unassigned_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
-  return is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+local function is_unassigned_intake_candidate_snapshot(entity_type, entity)
+  return is_intake_candidate_snapshot(entity_type, entity)
     and #(entity.assignees or {}) == 0
 end
 
-local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
+local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, observed_issues)
   for _, entity in ipairs(entities) do
     local key = core.entity_cache_key(repo, entity_type, entity.number)
     local cached_updated_at = cache_get(key)
-    local level_replay = is_unassigned_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+    local level_replay = is_unassigned_intake_candidate_snapshot(entity_type, entity)
     if level_replay or cached_updated_at ~= entity.updated_at then
       local item = {
         entity_type = entity_type,
@@ -95,20 +84,17 @@ local function replay_allowance(replay_candidates, budget)
   return allowed
 end
 
-local function item_dedup_key(repo, item, poll_token)
+local function item_dedup_key(repo, item, delivery_index, queue)
   local entity = item.entity
-  local dedup_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  if item.level_replay then
-    return dedup_key .. "/poll/" .. tostring(poll_token or now())
-  end
-  return dedup_key
+  local base_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
+  return delivery_index.key_for(queue, base_key)
 end
 
-local function raise_changed_item(repo, item, poll_token)
+local function raise_changed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
     if item.level_replay or cache_get(item.key) ~= entity.updated_at then
-      local dedup_key = item_dedup_key(repo, item, poll_token)
+      local dedup_key = item_dedup_key(repo, item, delivery_index, changed_queue)
       -- At-least-once: raise before cache_set. If this process crashes
       -- before the write, the next tick raises the same dedup_key again.
       raise("github_entity_changed", {
@@ -122,6 +108,7 @@ local function raise_changed_item(repo, item, poll_token)
         labels = entity.labels,
         updated_at = entity.updated_at,
         dedup_key = dedup_key,
+        poll_token = poll_token,
         source = "gh",
         -- Durable-delivery: stable pointer so a reliable consumer can
         -- re-derive the current entity (also required by the engine when
@@ -135,19 +122,7 @@ local function raise_changed_item(repo, item, poll_token)
   end)
 end
 
-local function observed_dedup_key(repo, item, poll_token)
-  local entity = item.entity
-  return "github-issue-observed/"
-    .. tostring(repo)
-    .. "/"
-    .. tostring(entity.number)
-    .. "/"
-    .. tostring(entity.updated_at)
-    .. "/"
-    .. tostring(poll_token or now())
-end
-
-local function raise_observed_item(repo, item, poll_token)
+local function raise_observed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
     if cache_get(item.key) == entity.updated_at then
@@ -157,7 +132,8 @@ local function raise_observed_item(repo, item, poll_token)
         repo = repo,
         number = entity.number,
         updated_at = entity.updated_at,
-        dedup_key = observed_dedup_key(repo, item, poll_token),
+        dedup_key = item_dedup_key(repo, item, delivery_index, observed_queue),
+        poll_token = poll_token,
         source = "gh",
         source_ref = core.entity_source_ref(repo, "issue", entity.number),
       })
@@ -165,19 +141,19 @@ local function raise_observed_item(repo, item, poll_token)
   end)
 end
 
-local function raise_changed(repo, fresh_changes, replay_changes, observed_issues, poll_token)
+local function raise_changed(repo, fresh_changes, replay_changes, observed_issues, poll_token, delivery_index)
   for _, item in ipairs(fresh_changes or {}) do
-    raise_changed_item(repo, item, poll_token)
+    raise_changed_item(repo, item, poll_token, delivery_index)
   end
   for _, item in ipairs(replay_changes or {}) do
-    raise_changed_item(repo, item, poll_token)
+    raise_changed_item(repo, item, poll_token, delivery_index)
   end
   for _, item in ipairs(observed_issues or {}) do
-    raise_observed_item(repo, item, poll_token)
+    raise_observed_item(repo, item, poll_token, delivery_index)
   end
 end
 
-local function poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
+local function poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues)
   for _, entity_type in ipairs(entity_types) do
     local ok, result_or_err = core.gh_exec_result(function(timeout)
       return entity_type.read(repo, timeout)
@@ -192,7 +168,7 @@ local function poll_entities(repo, event, fresh_changes, replay_candidates, obse
         error(result_or_err.message)
       end
     else
-      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
+      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, observed_issues)
     end
   end
 end
@@ -205,12 +181,26 @@ local function act(event)
   end
 
   local replay_budget = core.github_proxy_replay_budget()
-  local poll_label_prefixes = core.github_proxy_poll_label_prefixes()
   local fresh_changes = {}
   local replay_candidates = {}
   local observed_issues = {}
-  poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
-  raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, event and event.ts)
+  local poll_token = event and event.ts or now()
+  poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues)
+  local delivery_index = poll_delivery_rearm.current({ changed_queue, observed_queue })
+  local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(repo, poll_token)
+  if not recorded then
+    log.info("github-proxy: suppressing stale poll emissions repo=" .. tostring(repo)
+      .. " poll_epoch=" .. tostring(poll_token)
+      .. " current_epoch=" .. tostring(allocated_epoch))
+    return
+  end
+  local epoch_current = entity_list_cache.with_current_poll_epoch(repo, allocated_epoch, function()
+    raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, allocated_epoch, delivery_index)
+  end)
+  if not epoch_current then
+    log.info("github-proxy: suppressing poll emissions after epoch advanced repo=" .. tostring(repo)
+      .. " poll_epoch=" .. tostring(allocated_epoch))
+  end
 end
 
 return saga.department(spec, {

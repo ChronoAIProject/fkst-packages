@@ -1,6 +1,7 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
@@ -11,9 +12,11 @@ local saga = require("workflow.saga")
 local convergence_identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
+local refusal_publication = require("departments.implement.refusal_publication")
 local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
+local cache_preparation = require("departments.implement.cache_preparation")
 local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
 local attempt_runner = require("departments.implement.attempt")
@@ -43,7 +46,10 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local MAX_IMPLEMENT_ATTEMPTS = 2
-local MAX_VERSION_MISMATCH_DELIVERIES = 3
+-- Single source of truth lives in core (implement_attempt.lua); the liveness anti-spin
+-- (libraries/devloop/liveness/timeout.lua) reads the same constant so re-drive and
+-- receiver agree on the budget.
+local MAX_VERSION_MISMATCH_DELIVERIES = core.max_implement_version_mismatch_deliveries
 local spec = {
   consumes = { "devloop_ready" },
   produces = {
@@ -79,8 +85,9 @@ local function decide_implementation_transition(repo, issue_number, lock_key, st
   return snapshot, decision
 end
 
-local function raise_impl_failed(repo, issue_number, ready, reason, detail, attempt)
-  local comment_request = requests_lifecycle.build_impl_failure_comment_request(core, repo, issue_number, ready, reason, detail, attempt)
+local function raise_impl_failed(repo, issue_number, ready, reason, fault_class, retryable, detail, attempt)
+  local comment_request = requests_lifecycle.build_impl_failure_comment_request(
+    core, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
   local label_request = requests_labels.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("impl-failed")
   devloop_logging.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -216,28 +223,29 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
   local attempt = prior_attempts + 1
   local message = "ready event does not match current implementing version"
   if attempt < MAX_VERSION_MISMATCH_DELIVERIES then
-    devloop_logging.log_error_fact("warn", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
+    devloop_logging.log_error_fact("warn", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "stale-version-mismatch", "devloop_ready", message, {
       source_ref = ready.source_ref,
       attempt = attempt,
       terminal = false,
     })
     devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", message)
+    -- Persist the attempt marker so the mismatch budget still accrues across
+    -- redeliveries, then return cleanly. Raising here dead-letters the whole
+    -- pipeline dispatch (wrap_pipeline_failure re-raises), which crash-loops the
+    -- queue and starves every sibling implement (#2908).
     raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-    error("github-devloop: fact-changed: implement-version-mismatch retrying: ready event version "
-      .. tostring(expected_version or "")
-      .. " does not match current implementing version "
-      .. tostring(state and state.version or ""))
+    return
   end
-  devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
+  devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "stale-version-mismatch", "devloop_ready", message, {
     source_ref = ready.source_ref,
     attempt = attempt,
     terminal = true,
   })
   devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "fail-closed(version-mismatch-budget)", message)
-  error("github-devloop: fact-changed: implement-version-mismatch: ready event version "
-    .. tostring(expected_version or "")
-    .. " does not match current implementing version "
-    .. tostring(state and state.version or ""))
+  -- Budget exhausted: drop the diverged trigger permanently (#718 / #373) without
+  -- a fatal error. Authoritative state still governs; the liveness sweep redrives
+  -- from the current marker when that state is genuinely stuck.
+  return
 end
 
 local function implementing_mismatch_is_durable(current, proposal_id, state)
@@ -271,6 +279,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
   local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
+  cache_preparation.run(worktree)
 
   local codex_started_at = now()
   local exec_ref = core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
@@ -359,13 +368,19 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.attempt,
       outcome.started_at,
       outcome.exec_ref,
-      outcome.detail
+      outcome.detail,
+      outcome.reason
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
   end
   if outcome.kind == "impl-failed" then
-    raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
+    raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.fault_class,
+      outcome.retryable, outcome.detail, outcome.attempt)
+    return
+  end
+  if outcome.kind == "implementation-refusal" then
+    refusal_publication.publish(core, repo, issue_number, outcome)
     return
   end
   error("github-devloop: invalid-implementation-outcome: unknown implementation outcome")
@@ -525,6 +540,7 @@ local function process_ready_event(event)
     logical.dedup_key = ready.implementation_version
     logical.implementation_version = nil
     logical.redrive_delivery = nil
+    logical.operator_reimplement_delivery = nil
     ready = logical
   end
   devloop_logging.log_entry("implement", event, ready.proposal_id, delivery_dedup_key)
@@ -570,37 +586,27 @@ local function process_ready_event(event)
       return
     end
     local state = devloop_state.current_state(current.comments, ready.proposal_id)
-    local gate = core.dependency_gate(repo, issue_number, {
-      proposal_id = ready.proposal_id,
-      version = core.ready_payload_inner_version(ready.dedup_key),
-      comments = current.comments,
-    })
-    if not gate.ok then
-      local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
-      local dep_version = core.ready_split_version(inner_ready_version)
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
-      devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { devloop_base._blocked_on_dependency_label }, remove = {} }, {
-        "github-proxy.github_issue_comment_request",
-        "github-proxy.github_issue_label_request",
+    -- The dependency gate is a ready-phase entry precondition. A redelivered ready
+    -- event past that phase can emit a newer ready-split marker whose version-first
+    -- ordering regresses the lifecycle without a generation bump.
+    if state == nil or state.state == nil or devloop_state.stage_rank(state.state) <= devloop_state.stage_rank("ready") then
+      local gate = core.dependency_gate(repo, issue_number, {
+        proposal_id = ready.proposal_id,
+        version = core.ready_payload_inner_version(ready.dedup_key),
+        comments = current.comments,
       })
-      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", core.build_ready_split_canonicalized_comment_request(
-        repo,
-        issue_number,
-        ready.proposal_id,
-        inner_ready_version,
-        "dependency_wait",
-        dep_version,
-        gate,
-        ready.source_ref
-      ))
-      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
-        issue_number,
-        { devloop_base._blocked_on_dependency_label },
-        {},
-        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
-        ready.source_ref
-      ))
-      return
+      if not dependency_gate.dependency_gate_is_satisfied(gate) then
+        local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
+        local dep_version = core.ready_split_version(inner_ready_version)
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
+        core.raise_ready_split_effects("implement", {
+          repo = repo,
+          number = issue_number,
+          source_ref = ready.source_ref,
+        }, ready.proposal_id, inner_ready_version, "dependency_wait", dep_version, gate,
+          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }))
+        return
+      end
     end
 
     local branches = config.branch_config()
@@ -621,7 +627,7 @@ local function process_ready_event(event)
         })
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "impl-failed",
         "fail-closed(invalid-version-lineage)", "implementation retry lineage is malformed")
-      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage",
+      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage", "UNKNOWN", false,
         "Implementation retry lineage was rejected because its version suffix does not match the current or immediate-next structured attempt.",
         ready.impl_retry_attempt)
       return
@@ -679,8 +685,9 @@ local function process_ready_event(event)
         end
       end
       local base_head = worktree_lifecycle.prepare_base(branches)
+      local local_progress = nil
       if resume_checkpoint == nil then
-        local local_progress = branch_progress.local_branch_fact(base_head, branch, branches.integration, marker_ready.dedup_key)
+        local_progress = branch_progress.local_branch_fact(base_head, branch, branches.integration, marker_ready.dedup_key)
         if local_progress ~= nil then
           if fact ~= nil then
             local_progress.proposal_id = ready.proposal_id
@@ -690,13 +697,19 @@ local function process_ready_event(event)
           devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-unmarked-progress(local-progress)", "local branch progress has no durable implementing fact; retrying implementation attempt")
         end
       end
+      local has_recoverable_progress = progress ~= nil or local_progress ~= nil
       local attempts = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
-      if attempts >= MAX_IMPLEMENT_ATTEMPTS then
+      if attempts >= MAX_IMPLEMENT_ATTEMPTS and not has_recoverable_progress then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "impl-failed", "applied(attempts-exhausted)", "implementation attempts exhausted with no PR or branch progress")
-        raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "No linked PR, remote branch, or local branch progress was visible after " .. tostring(attempts) .. " attempts.", attempts)
+        raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "UNKNOWN", false,
+          "No linked PR, remote branch, or local branch progress was visible after "
+            .. tostring(attempts) .. " attempts.", attempts)
         return
       end
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(retry-no-progress)", "no PR or branch progress is visible; retrying implementation attempt")
+      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing",
+        has_recoverable_progress and "applied(retry-progress)" or "applied(retry-no-progress)",
+        has_recoverable_progress and "recoverable branch progress is visible; retrying implementation attempt"
+          or "no PR or branch progress is visible; retrying implementation attempt")
       attempt_plan = {
         marker_ready = marker_ready,
         current = current,
@@ -720,7 +733,7 @@ local function process_ready_event(event)
         return
       end
     elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil
-      and transitions.operator_blocked_reimplement_allowed(ready, current, state) then
+      and transitions.operator_blocked_reimplement_allowed(core, ready, current, state) then
       blocked_reentry = true
     elseif state.state == "implementing" or state.state == "impl-failed" then
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation fact marker already visible")

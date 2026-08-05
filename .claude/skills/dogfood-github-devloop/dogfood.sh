@@ -149,155 +149,9 @@ wait_supervise_ready() { # $1 pid, $2 log
   done
   return 2
 }
-# Parse an ISO-8601 UTC timestamp (trailing Z) to epoch. TZ=UTC is REQUIRED: BSD `date -j -f`
-# ignores the Z and parses in the local zone, so on a +HH machine every computed age is inflated by
-# the local UTC offset (e.g. +0800 -> board recency reads 8h too old -> healthy issues mislabelled
-# "STUCK 8h"). now=`date +%s` is already zone-independent, so only the parse side needed fixing.
-epoch_utc() { [ -z "${1:-}" ] && { echo 0; return; }; TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || echo 0; }
 expand() { [ "${1:-all}" = all ] && echo "$DOGFOOD_REPOS" || echo "$1"; }
 
-issue_label_has() { # $1 comma-separated labels, $2 label
-  case ",$1," in
-    *",$2,"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-issue_primary_state() { # $1 comma-separated fkst-dev labels
-  local labels="$1" label state fallback="" old_ifs="$IFS"
-  IFS=,
-  for label in $labels; do
-    [ -n "$label" ] || continue
-    state="${label#fkst-dev:}"
-    [ -n "$fallback" ] || fallback="$state"
-    case "$state" in
-      enabled|blocked-on-dependency) continue ;;
-      *) IFS="$old_ifs"; echo "$state"; return 0 ;;
-    esac
-  done
-  IFS="$old_ifs"
-  echo "$fallback"
-}
-
-issue_recency_class() { # $1 issue-number, $2 labels, $3 state, $4 age-hours, $5 stale-hours, $6 open-pr-issue-numbers
-  local num="$1" labels="$2" st="$3" age="$4" stale="$5" openpr="$6"
-  case "$st" in
-    tracking|pr-open) echo "tracking/umbrella" ;;
-    blocked|impl-failed|merged|declined) echo "parked($st)" ;;
-    thinking|ready|implementing|stalled-thinking)
-      if [ "$st" = "ready" ] && issue_label_has "$labels" "fkst-dev:blocked-on-dependency"; then
-        echo "parked(dependency-wait)"
-      elif [ "$age" -ge "$stale" ]; then
-        echo "⚠ STUCK $st ${age}h"
-      else
-        echo "✓ flowing $st ${age}h"
-      fi
-      ;;
-    reviewing|fixing|review-meta|merge-ready|merging)
-      if echo "$openpr" | grep -qx "$num"; then echo "$st →see PR (active)"; else echo "⚠ STRANDED $st (no open PR)"; fi
-      ;;
-    awaiting-pr)
-      echo "✓ waiting child-cascade ${age}h"
-      ;;
-    # unknown state: render it visibly instead of silently dropping the row (expose, don't swallow)
-    *) echo "⚠ UNRENDERED-STATE $st ${age}h" ;;
-  esac
-}
-
-workflow_board_fact_tool() {
-  local tool="$PKGSRC/packages/github-devloop-workflow/tools/workflow_board_fact.py"
-  if [ -f "$tool" ]; then
-    printf '%s\n' "$tool"
-    return 0
-  fi
-  tool="$_repo_root/packages/github-devloop-workflow/tools/workflow_board_fact.py"
-  [ -f "$tool" ] && printf '%s\n' "$tool"
-}
-
-workflow_board_fact() { # $1 issue-number
-  local num="$1" origin comments fact tool
-  origin="github-devloop/issue/$REPO/$num"
-  tool="$(workflow_board_fact_tool)" || return 1
-  [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
-  fact=$(printf '%s' "$comments" | python3 "$tool" \
-    --origin "$origin" \
-    --bot-login "$BOT" \
-    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
-  [ -n "$fact" ] || return 1
-  printf '%s\n' "$fact"
-}
-
-lifecycle_board_fact_tool() {
-  local tool="$PKGSRC/packages/github-devloop/tools/lifecycle_board_fact.py"
-  if [ -f "$tool" ]; then
-    printf '%s\n' "$tool"
-    return 0
-  fi
-  tool="$_repo_root/packages/github-devloop/tools/lifecycle_board_fact.py"
-  [ -f "$tool" ] && printf '%s\n' "$tool"
-}
-
-lifecycle_board_fact() { # $1 issue-number
-  local num="$1" origin comments fact tool
-  origin="github-devloop/issue/$REPO/$num"
-  tool="$(lifecycle_board_fact_tool)" || return 1
-  [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
-  fact=$(printf '%s' "$comments" | python3 "$tool" \
-    --origin "$origin" \
-    --bot-login "$BOT" \
-    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
-  [ -n "$fact" ] || return 1
-  printf '%s\n' "$fact"
-}
-
-# Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
-# symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
-# issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
-# `proposal="..."` field rather than derived from the PR number. This lets the PR
-# classifier distinguish a genuinely-stuck PR from one that has reached a correct
-# terminal (blocked/merged/closed_unmerged) — the CI+age-only classifier cannot.
-pr_lifecycle_board_fact() { # $1 pr-number
-  local num="$1" comments origin fact tool
-  tool="$(lifecycle_board_fact_tool)" || return 1
-  [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
-  origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
-    | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
-    | sed -E 's/.*proposal="([^"]+)".*/\1/')
-  [ -n "$origin" ] || return 1
-  fact=$(printf '%s' "$comments" | python3 "$tool" \
-    --origin "$origin" \
-    --bot-login "$BOT" \
-    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
-  [ -n "$fact" ] || return 1
-  printf '%s\n' "$fact"
-}
-
-lifecycle_board_reclassify() { # $1 fact-json, $2 age-hours
-  FACT_JSON="$1" AGE_H="$2" python3 - <<'PY'
-import json
-import os
-import sys
-
-try:
-    fact = json.loads(os.environ.get("FACT_JSON", ""))
-except json.JSONDecodeError:
-    raise SystemExit(1)
-state = str(fact.get("state") or "")
-age = str(os.environ.get("AGE_H") or "0")
-if fact.get("pipeline_stuck") is True:
-    why = str(fact.get("why") or f"{state} pipeline-stuck")
-    print(f"{state}\t⚠ {why}")
-elif fact.get("terminal") is True:
-    print(f"{state}\tparked({state})")
-elif state == "awaiting-pr":
-    print(f"{state}\t✓ waiting child-cascade {age}h")
-else:
-    raise SystemExit(1)
-PY
-}
+. "$_self_dir/dogfood_board.sh"
 
 # Sync a dogfood RUN checkout (behavior PKGSRC + target HOST) to the machine's
 # INTEGRATION_BRANCH — the dogfood runs its own pre-rollup code (feature ->
@@ -453,21 +307,65 @@ bin_ensure_fresh() {
 # Prune worktrees + scratch dirs from OLD runtime roots of this dogfood (implement/fix
 # depts create worktrees under the launch runtime scratch, registered in the shared .git; each
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
+#
+# PRESERVE STILL-REGISTERED GENERATIONS (#2925). A restart SIGKILLs only the supervise; an
+# in-flight codex is ORPHANED and keeps running against its worktree (crash-only contract). This
+# cleaner used to remove the registration and rm -rf the directory anyway, so the orphan kept
+# writing into a deleted path and recreated a partial, UNREGISTERED husk. Harvest then ran `cd`
+# into it, exited nonzero WITHOUT a typed marker, and the run was recorded as a false
+# `impl-failed / local-iteration-attribution-indeterminate` (observed on #2919, and on #2925's own
+# implementation twice). A registered worktree is the ground truth for "someone still owns this",
+# so a generation that still has one is skipped entirely and reported — it is reclaimed on a later
+# pass once its registration is gone. This is the operator-side containment that the #2925 fix
+# (moving implementation worktrees to a stable root) requires to land first; without it, deploying
+# that fix would itself destroy the pre-fix work still in flight.
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
-  local name="$1" keep="$2" wt d
-  git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
-    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep" \
-    | while read -r wt; do git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null; done
+  local name="$1" keep="$2" d held writer_census writer_census_status
+  held=$(git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep")
+  if [ -n "$held" ]; then
+    echo "  ! preserving $(printf '%s\n' "$held" | wc -l | tr -d ' ') still-registered worktree(s) from older runtime roots (#2925):"
+    printf '%s\n' "$held" | sed 's|^|      |'
+  fi
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "[$name] cannot prove stale runtime writer quiescence: lsof unavailable; retaining old runtimes" >&2
+    return 0
+  fi
   git -C "$PKGSRC" worktree prune 2>/dev/null
   for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
-    [ -d "$d" ] && [ "$d" != "$keep" ] && rm -rf "$d" 2>/dev/null
+    [ -d "$d" ] && [ "$d" != "$keep" ] || continue
+    # Skip any generation that still holds a registered worktree; removing it is what
+    # manufactures the husk. Re-read the registry each iteration: `worktree prune` above may
+    # have dropped registrations whose directories are already gone.
+    if git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | grep -qF "$d/"; then
+      continue
+    fi
+
+    # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
+    # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
+    writer_census_status=0
+    writer_census=$(lsof +D "$d" 2>&1) || writer_census_status=$?
+    if [ "$writer_census_status" -eq 0 ] && [ -n "$writer_census" ]; then
+      echo "[$name] retaining stale runtime with active writers: $d" >&2
+      continue
+    fi
+    # lsof reports no matches as exit 1 with no output; every other result is inconclusive.
+    if [ "$writer_census_status" -ne 1 ] || [ -n "$writer_census" ]; then
+      echo "[$name] cannot prove stale runtime writer quiescence: lsof exit $writer_census_status; retaining $d" >&2
+      [ -n "$writer_census" ] && printf '%s\n' "$writer_census" >&2
+      continue
+    fi
+    python3 "$_self_dir/dead_letter_causes.py" archive \
+      --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
+      || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
+    rm -rf "$d" 2>/dev/null
   done
 }
 
 launch_one() { # $1 name, $2 restart flag (0|1)
   local name="$1" restart="${2:-0}" ts log rt args=()
   ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
-  clean_stale_runtime_worktrees "$name" "$rt"
   derive_devloop_pkgs_from_workspace "$name" || return 1
   [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
   [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
@@ -507,6 +405,8 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   wait_supervise_ready "$pid" "$log"
   local ready_status=$?
   if [ "$ready_status" -eq 0 ]; then
+    # Cleanup separately proves that no orphaned old-runtime writer remains.
+    clean_stale_runtime_worktrees "$name" "$rt"
     # Committed per-launch verification that the own-session daemonization took effect: a session
     # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a
     # foreign pgroup (the bug this launch fixes) — surface it loud rather than pass a false green.
@@ -524,11 +424,32 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   fi
 }
 
+# launch_with_lock_retry: launch_one + a bounded retry on the redb lock race ONLY.
+# `restart` is the deploy path and is NOT atomic: it SIGKILLs the old supervise then opens the
+# durable store. That kill does not always release the redb lock in time; the race loser exits with
+# `Database already open. Cannot acquire lock.` leaving NOTHING running — a full outage whose next
+# signal is the following operator wake (incident 2026-08-01, #3001; a plain retry minutes later
+# succeeded first try, so the lock was never genuinely held). Retry ONLY this signature, so a real
+# failure (bad config, panic, missing BIN) still fails fast and loud on the first attempt.
+# Deliberately NOT named launch_one: that name carries the scripts/run.sh supervise delegation that
+# G-DOGFOOD-BOUNDARY audits, and this wrapper must not displace it from the audited surface.
+launch_with_lock_retry() { # $1 name, $2 restart flag (0|1)
+  local attempts=5 i=1 log
+  while :; do
+    launch_one "$1" "$2" && return 0
+    log=$(ls -t "$LOGDIR/${1}-sv-"*.log 2>/dev/null | head -1)
+    [ "$i" -lt "$attempts" ] && [ -n "$log" ] \
+      && grep -q "Database already open. Cannot acquire lock." "$log" 2>/dev/null || return 1
+    echo "[$1] durable lock not yet released by the previous supervise (attempt $i/$attempts); retrying in ${i}s"
+    sleep "$i"; i=$((i + 1))
+  done
+}
+
 start_one() {
   cfg "$1" || return 1
   local existing; existing=$(pidof_df)
   if [ -n "$existing" ]; then echo "[$1] already running (pid $existing) — use restart"; return 0; fi
-  launch_one "$1" 0
+  launch_with_lock_retry "$1" 0
 }
 
 stop_one() {
@@ -551,7 +472,27 @@ restart_one() {
   # One migration bridge: a supervise launched before the host-run contract has no
   # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
   [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
-  launch_one "$1" 1
+  launch_with_lock_retry "$1" 1
+}
+
+# fmt_uptime <etime>: render `ps -o etime=` ([[DD-]HH:]MM:SS) with EXPLICIT units.
+# The raw format's leading field changes meaning with the field count, so `09:30` (nine minutes) and
+# `09:30:00` (nine hours) look alike at a glance — an operator read a 9m30s supervise uptime as 9h30m
+# and started diagnosing a nine-hour stall on a twelve-minute-old process. The producer owns making
+# this unambiguous; every reader of status/doctor/board gets it for free.
+fmt_uptime() {
+  local et="${1:-}" d=0 h=0 m=0 s=0 rest colons
+  [ -n "$et" ] || { printf '?'; return 0; }
+  rest="$et"
+  case "$rest" in *-*) d=$((10#${rest%%-*})); rest=${rest#*-} ;; esac
+  # `rest` is now [HH:]MM:SS — peel the hour field only when it is actually present, rather than
+  # indexing a fixed offset (a negative subscript would be evaluated even on the branch that discards it)
+  colons=${rest//[^:]/}
+  if [ ${#colons} -ge 2 ]; then h=$((10#${rest%%:*})); rest=${rest#*:}; fi
+  m=$((10#${rest%%:*})); s=$((10#${rest##*:}))
+  if [ "$d" -gt 0 ]; then printf '%dd%02dh' "$d" "$h"
+  elif [ "$h" -gt 0 ]; then printf '%dh%02dm' "$h" "$m"
+  else printf '%dm%02ds' "$m" "$s"; fi
 }
 
 status_one() {
@@ -559,7 +500,7 @@ status_one() {
   local p log; p=$(pidof_df); log=$(latest_log "$1")
   if [ -z "$p" ]; then echo "[$1] STOPPED   (target $REPO)"; return 0; fi
   local et panic last hv pv
-  et=$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')
+  et=$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')")
   panic=$(engine_panic_count "$log")
   last=$(tail -1 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-44)
   hv=$(git -C "$HOST" rev-parse HEAD 2>/dev/null | cut -c1-8)
@@ -610,7 +551,7 @@ doctor_one() {
     *)            verdict="$st" ;;
   esac
   printf '  %-9s RUNNING pid %s up %s | %s | worktree %s | panic %s\n' "$1" "$p" \
-    "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
+    "$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
 }
 
 # durable_health_one <name>: surface redb delivery-queue state (stuck-pending events + dead-letters)
@@ -625,16 +566,26 @@ doctor_one() {
 durable_health_one() {
   cfg "$1" || return 0
   if [ ! -e "$DUR/delivery.redb" ]; then echo "  $1: no durable store"; return 0; fi
-  local summary now_ms
+  local snapshot summary causes now_ms
   now_ms=$(( $(date +%s) * 1000 ))
-  summary=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null | jq -r --argjson now "$now_ms" '
+  snapshot=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null)
+  summary=$(printf '%s' "$snapshot" | jq -r --argjson now "$now_ms" '
     ([.queues[].pending]|add // 0) as $p |
     (([.queues[].oldest_pending_age_ms]|max // 0)/3600000|floor) as $oh |
     (.dead_letters|length) as $dl_total |
     ([.dead_letters[] | select(($now - (.dead_at_ms // 0)) <= 21600000)] | length) as $dl_recent |
-    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h (\($dl_total) total)"
-      + (if ($dl_recent>0 or $oh>6) then " ⚠" else "" end)' 2>/dev/null)
+    (.truncated.dead_letters // false) as $dl_truncated |
+    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h "
+      + (if $dl_truncated then "(\($dl_total) shown, truncated)" else "(\($dl_total) total)" end)
+      + (if ($dl_recent>0 or $oh>6 or $dl_truncated) then " ⚠" else "" end)' 2>/dev/null)
   echo "  $1: ${summary:-observe unavailable}"
+  [ -n "$summary" ] || return 0
+  if causes=$(printf '%s' "$snapshot" | python3 "$_self_dir/dead_letter_causes.py" render \
+    --now-ms "$now_ms" --log-root "$LOGDIR" --run-name "$1" 2>/dev/null); then
+    [ -n "$causes" ] && printf '%s\n' "$causes"
+  else
+    echo "    dead-letter cause: unavailable (structured cause correlation failed)"
+  fi
 }
 
 # stray_supervise_report: enumerate EVERY running framework supervise on this host and flag any whose
@@ -837,85 +788,6 @@ cmd_sync() {
   return "$failed"
 }
 
-board_one() { # $1 name, $2 stale_hours
-  cfg "$1" || return 1
-  local stale="$2" now; now=$(date +%s)
-  echo "════════════════════════════════════════ $REPO"
-  local p; p=$(pidof_df)
-  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
-  local openpr; openpr=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|.head.ref' 2>/dev/null | grep -oE '/[0-9]+/' | tr -d '/' | sort -u)
-  echo "── PRs (active work · CI · recency) ──"
-  # Capture + check gh's exit status so a REST failure (e.g. the HTML 503 page GitHub serves
-  # during an outage, which makes `--jq` error and gh exit non-zero) FAILS LOUD instead of the
-  # old `2>/dev/null | while` swallowing it into a silently-EMPTY section — an empty board is
-  # indistinguishable from "all resolved" (real blind spot hit during the 2026-07-17 REST outage).
-  local pr_rows pr_rc
-  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
-  if [ "$pr_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (pulls: gh api exit $pr_rc) — GitHub REST likely down; cross-check: gh pr list --repo $REPO --state open"
-  else
-  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
-    [ -z "$num" ] && continue
-    local chk a flow; chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
-    a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
-    if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
-    elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
-    elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
-    else flow="✓ flowing ${a}h"; fi
-    # A CI+age ⚠ can be a FALSE alarm: a PR that reached a correct terminal
-    # (blocked/merged/closed_unmerged) or is awaiting a child cascade is not stuck.
-    # Cross-check the PR's OWN authoritative state:v1 marker (symmetric with the issue
-    # classifier below): terminal -> parked(state), pipeline_stuck -> ⚠ with WHY,
-    # awaiting-pr -> waiting. A genuinely-stuck non-terminal PR has no such marker fact,
-    # so reclassify fails and the ⚠ CI+age verdict stands.
-    case "$flow" in
-      ⚠*)
-        local pr_fact pr_override
-        if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
-          flow="${pr_override#*$'\t'}"
-        fi
-        ;;
-    esac
-    printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
-  done
-  fi
-  echo "── issues (by fkst-dev state) ──"
-  local issue_rows issue_rc
-  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updated_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
-  if [ "$issue_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (issues: gh api exit $issue_rc) — GitHub REST likely down; cross-check: gh issue list --repo $REPO --state open"
-  else
-  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num upd label title; do
-    [ -z "$num" ] && continue
-    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
-    if [ "$label" = "__fkst_dashboard__" ]; then
-      # fkst-dashboard is an intentionally long-lived tracked surface (intake decision=track), not pipeline work — never STRANDED
-      st="dashboard"; cls="✓ dashboard (tracked)"
-    elif [ -z "$label" ] || [ "$label" = "__fkst_stateless__" ]; then
-      if workflow_fact=$(workflow_board_fact "$num"); then
-        st="${workflow_fact%%$'\t'*}"
-        cls="${workflow_fact#*$'\t'}"
-      else
-        st="stateless"
-        if [ "$a" -ge "$stale" ]; then cls="⚠ STRANDED stateless ${a}h"; else cls="✓ waiting intake ${a}h"; fi
-      fi
-    else
-      cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
-      case "$st:$cls" in
-        awaiting-pr:*|*:⚠*)
-          if lifecycle_fact=$(lifecycle_board_fact "$num") && lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
-            st="${lifecycle_override%%$'\t'*}"
-            cls="${lifecycle_override#*$'\t'}"
-          fi
-          ;;
-      esac
-    fi
-    printf "  #%-4s [%-12s] %s\n" "$num" "$st" "$cls"
-  done
-  fi
-  echo ""
-}
-
 cmd_config() {
   echo "resolved config ($([ -f "$_cfg" ] && echo "from $_cfg" || echo 'defaults only — no per-machine config file'))"
   printf '  %-18s %s\n' DOGFOOD_ROOT "$DOGFOOD_ROOT" SUBSTRATE_SRC "$SUBSTRATE_SRC" BIN "$BIN" \
@@ -931,16 +803,6 @@ cmd_config() {
       printf '  %-9s %s | %s | %s | %s | %s\n' "$n" "$HOST" "$PKGSRC" "$DUR" "${LOCAL_PKGS:--}" "CONFIG-ERROR"
     fi
   done
-}
-
-cmd_board() {
-  local target="${1:-}" stale="${2:-6}"
-  # accept `board <stale_hours>` (numeric first arg) as well as `board [name] [stale_hours]`
-  if [ -n "$target" ] && [ -z "${target//[0-9]/}" ]; then stale="$target"; target=""; fi
-  [ -z "$target" ] && target="$DOGFOOD_REPOS" || target=$(expand "$target")
-  for n in $target; do board_one "$n" "$stale"; done
-  echo "✓ flowing / tracking / parked = ok   ·   ⚠ STUCK/STRANDED/CI-RED/NO-CI = needs attention (stale=${stale}h)"
-  echo "(label/marker-based fast view; for authoritative state cross-check the issue's state:v1 marker / workflow marker / linked PR)"
 }
 
 # When sourced (e.g. by scripts/dogfood_reaper_test.py) define functions only — skip the CLI dispatch.
