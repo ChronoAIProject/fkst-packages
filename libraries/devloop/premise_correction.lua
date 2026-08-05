@@ -38,7 +38,7 @@ function C.decision_dedup_key(base_decision_dedup_key, correction_pair)
   if type(correction_pair) ~= "table"
     or not C.is_premise_fingerprint(correction_pair.premise_fingerprint)
     or not C.is_correction_fingerprint(correction_pair.correction_fingerprint) then
-    error("github-devloop: invalid premise correction decision identity")
+    error("github-devloop: premise-correction-decision-identity-invalid: invalid premise correction decision identity")
   end
   return base_ids.dedup_key({
     tostring(base_decision_dedup_key),
