@@ -8,7 +8,10 @@ local OWNER = "github-devloop"
 local EDGE_ID = "github-devloop/thinking/autonomous/consensus-reached"
 local APPLY_ENTITLEMENT_ID = EDGE_ID .. "/apply"
 local IDEMPOTENT_ENTITLEMENT_ID = EDGE_ID .. "/idempotent"
-local EFFECT_IDS = {
+local APPLY_EFFECT_IDS = {
+  "github-proxy.github_issue_comment_request",
+}
+local IDEMPOTENT_EFFECT_IDS = {
   "github-proxy.github_issue_comment_request",
   "github-proxy.github_issue_label_request",
 }
@@ -105,7 +108,7 @@ return {
     for key, value in pairs(genuine) do
       forged[key] = value
     end
-    t.eq(restart_effects.verify_grant(forged, EFFECT_IDS[1]), false)
+    t.eq(restart_effects.verify_grant(forged, APPLY_EFFECT_IDS[1]), false)
 
     local analysis_snapshot = snapshot({ snapshot_fingerprint = "snapshot:issue:42:analysis" })
     local analysis_source = decision(analysis_snapshot, "apply")
@@ -147,12 +150,12 @@ return {
     t.eq(decided.target_version, nil, "decision preserves an omitted target version")
     t.eq(decided.overlay_version, nil, "decision preserves an omitted overlay version")
     t.eq(decided.effect_entitlement_id, APPLY_ENTITLEMENT_ID)
-    assert_array(decided.granted_effect_ids, EFFECT_IDS, "apply entitlement")
+    assert_array(decided.granted_effect_ids, APPLY_EFFECT_IDS, "apply entitlement")
 
     local grant = restart_effects.mint_grant(sealed, decided, AUTHORITATIVE_SINK)
     t.eq(type(grant), "table")
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[1]), true)
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[2]), true)
+    t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1]), true)
+    t.eq(restart_effects.verify_grant(grant, "github-proxy.github_issue_label_request"), false)
     t.eq(restart_effects.verify_grant(grant, "github-devloop.devloop_ready"), false)
   end,
 
@@ -164,11 +167,11 @@ return {
     local decided = decision(sealed, "idempotent")
     t.eq(decided.status, "idempotent")
     t.eq(decided.effect_entitlement_id, IDEMPOTENT_ENTITLEMENT_ID)
-    assert_array(decided.granted_effect_ids, EFFECT_IDS, "idempotent entitlement")
+    assert_array(decided.granted_effect_ids, IDEMPOTENT_EFFECT_IDS, "idempotent entitlement")
 
     local grant = restart_effects.mint_grant(sealed, decided, AUTHORITATIVE_SINK)
     t.eq(type(grant), "table")
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[1]), true)
+    t.eq(restart_effects.verify_grant(grant, IDEMPOTENT_EFFECT_IDS[1]), true)
     t.eq(restart_effects.verify_grant(grant, "github-devloop.devloop_ready"), false)
   end,
 
@@ -215,8 +218,8 @@ return {
       generation = "generation:1",
     })
 
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[1], other), false)
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[1]), true)
-    t.eq(restart_effects.verify_grant(grant, EFFECT_IDS[1]), false)
+    t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1], other), false)
+    t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1]), true)
+    t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1]), false)
   end,
 }

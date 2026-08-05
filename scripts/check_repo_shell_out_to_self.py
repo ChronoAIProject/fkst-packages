@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Callable, Iterable
 
-import check_repo_config
+import check_repo_lua
 
 ALLOWLIST = "migration/shell-out-to-self.allowlist"
 # This ratchet is best-effort DETECT coverage. The true PREVENT follow-up is the
@@ -22,37 +22,8 @@ ASSIGN_RE = re.compile(r"\b(?:local\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=")
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
 def strip_lua_comments(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        if text[cursor] in ("'", '"'):
-            cursor = check_repo_config.lua_quoted_string_end(text, cursor)
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-        if bracket is not None:
-            opener_len, closer = bracket
-            cursor = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-            continue
-        cursor += 1
-    return "".join(chars)
+    return check_repo_lua.code_mask(text, kinds=check_repo_lua.COMMENT_KINDS)
 
 
 def skip_ws(text: str, cursor: int) -> int:
@@ -65,20 +36,15 @@ def skip_ws(text: str, cursor: int) -> int:
 def skip_lua_string(text: str, cursor: int) -> int:
     if cursor >= len(text):
         return cursor
-    if text[cursor] in ("'", '"'):
-        return check_repo_config.lua_quoted_string_end(text, cursor)
-    bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-    if bracket is not None:
-        opener_len, closer = bracket
-        return check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-    return cursor + 1
+    literal = check_repo_lua.literal_span_at(text, cursor, include_line_metadata=False)
+    return literal.end if literal is not None else cursor + 1
 
 
 def find_matching(text: str, start: int, opener: str, closer: str) -> int:
     depth = 0
     cursor = start
     while cursor < len(text):
-        if text[cursor] in ("'", '"') or check_repo_config.lua_long_bracket_at(text, cursor) is not None:
+        if check_repo_lua.literal_span_at(text, cursor, include_line_metadata=False) is not None:
             cursor = skip_lua_string(text, cursor)
             continue
         if text[cursor] == opener:
@@ -99,7 +65,7 @@ def expression_end(text: str, start: int) -> int:
         return find_matching(text, cursor, "{", "}")
     depth = 0
     while cursor < len(text):
-        if text[cursor] in ("'", '"') or check_repo_config.lua_long_bracket_at(text, cursor) is not None:
+        if check_repo_lua.literal_span_at(text, cursor, include_line_metadata=False) is not None:
             cursor = skip_lua_string(text, cursor)
             continue
         char = text[cursor]
@@ -119,19 +85,10 @@ def parse_literal_content(expr: str) -> str | None:
     text = expr.strip()
     if not text:
         return None
-    if text[0] in ("'", '"'):
-        end = check_repo_config.lua_quoted_string_end(text, 0)
-        if end <= len(text) and end > 1 and text[end - 1] == text[0]:
-            return text[1 : end - 1]
-        return text[1:end]
-    bracket = check_repo_config.lua_long_bracket_at(text, 0)
-    if bracket is None:
+    literal = check_repo_lua.literal_span_at(text, 0, include_line_metadata=False)
+    if literal is None:
         return None
-    opener_len, closer = bracket
-    body_start = opener_len
-    close_start = text.find(closer, body_start)
-    body_end = len(text) if close_start == -1 else close_start
-    return text[body_start:body_end]
+    return literal.content(text)
 
 
 def strip_outer_parens(expr: str) -> str:
@@ -147,7 +104,7 @@ def split_top_level_args(text: str) -> list[str]:
     depth = 0
     cursor = 0
     while cursor < len(text):
-        if text[cursor] in ("'", '"') or check_repo_config.lua_long_bracket_at(text, cursor) is not None:
+        if check_repo_lua.literal_span_at(text, cursor, include_line_metadata=False) is not None:
             cursor = skip_lua_string(text, cursor)
             continue
         char = text[cursor]

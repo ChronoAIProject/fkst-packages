@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local impl_failure = require("devloop.impl_failure")
 local strings = require("contract.strings")
 local implementation_refusal = require("core.implementation_refusal")
@@ -17,6 +18,7 @@ local common_keys = {
 local refusal_keys = {
   reason = true,
   evidence = true,
+  blocker = true,
 }
 
 local function trim(value)
@@ -37,6 +39,31 @@ local function exact_field(value, expected, name)
     return nil, name .. " does not match the current implementation attempt"
   end
   return true
+end
+
+local function precursor_blocker(value, proposal_id)
+  if type(value) ~= "table" then
+    return nil
+  end
+  for key in pairs(value) do
+    if key ~= "repo" and key ~= "issue_number" then
+      return nil
+    end
+  end
+  if type(value.repo) ~= "string"
+    or type(value.issue_number) ~= "number"
+    or value.issue_number ~= math.floor(value.issue_number)
+    or not base_ids.issue_ref_round_trips(value.repo, value.issue_number) then
+    return nil
+  end
+  local proposal_repo = base_ids.parse_proposal_id(proposal_id)
+  if proposal_repo == nil or value.repo ~= proposal_repo then
+    return nil
+  end
+  return {
+    repo = value.repo,
+    issue_number = value.issue_number,
+  }
 end
 
 function M.decode(raw, expected)
@@ -98,8 +125,16 @@ function M.decode(raw, expected)
     if not implementation_refusal.is_valid_evidence(value.evidence) then
       return nil, "evidence must be a non-empty string"
     end
+    local blocker = precursor_blocker(value.blocker, value.proposal_id)
+    if value.reason == "precursor-missing" and blocker == nil then
+      return nil, "precursor-missing requires blocker to be a same-repository IssueRef"
+    end
+    if value.reason ~= "precursor-missing" and value.blocker ~= nil then
+      return nil, "blocker is supported only for precursor-missing"
+    end
     receipt.reason = value.reason
     receipt.evidence = value.evidence
+    receipt.blocker = blocker
   end
   return receipt, nil
 end

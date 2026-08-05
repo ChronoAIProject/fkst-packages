@@ -29,17 +29,17 @@ local EXPECTED_DECISION_FIELDS = {
 
 local function dense_table_count(value, context)
   if type(value) ~= "table" then
-    error("devloop.restart_obligations: " .. context .. " must be an array")
+    error("devloop.restart_obligations: bounded-loop-input-not-array: " .. context .. " must be an array")
   end
   local count = 0
   for key, item in pairs(value) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(item) ~= "table" then
-      error("devloop.restart_obligations: " .. context .. " must be an array of tables")
+      error("devloop.restart_obligations: bounded-loop-entry-invalid: " .. context .. " must be an array of tables")
     end
     count = count + 1
   end
   if count ~= #value then
-    error("devloop.restart_obligations: " .. context .. " must be a dense array")
+    error("devloop.restart_obligations: bounded-loop-input-not-dense: " .. context .. " must be a dense array")
   end
 end
 
@@ -109,7 +109,7 @@ function M.new(primitives)
     for _, row in ipairs(rows) do
       require_nonempty_string(row.from_state, "rows row.from_state")
       if rows_by_id[row.from_state] ~= nil then
-        error("devloop.restart_obligations: duplicate row id " .. row.from_state)
+        error("devloop.restart_obligations: duplicate-row-id: duplicate row id " .. row.from_state)
       end
       rows_by_id[row.from_state] = row
     end
@@ -124,20 +124,20 @@ function M.new(primitives)
       require_nonempty_string(edge.kind, "owner_edges edge.kind")
       require_nonempty_string(edge.target, "owner_edges edge.target")
       if type(edge.source) ~= "table" then
-        error("devloop.restart_obligations: owner_edges edge.source must be a table")
+        error("devloop.restart_obligations: edge-source-not-table: owner_edges edge.source must be a table")
       end
       if owner ~= nil and edge.owner ~= owner then
-        error("devloop.restart_obligations: owner_edges must belong to one owner")
+        error("devloop.restart_obligations: owner-edges-mixed-owner: owner_edges must belong to one owner")
       end
       owner = edge.owner
       if seen_edge_ids[edge.id] then
-        error("devloop.restart_obligations: duplicate edge id " .. edge.id)
+        error("devloop.restart_obligations: duplicate-edge-id: duplicate edge id " .. edge.id)
       end
       seen_edge_ids[edge.id] = true
 
       local row = rows_by_id[edge.row_id]
       if row == nil then
-        error("devloop.restart_obligations: missing canonical row " .. edge.row_id)
+        error("devloop.restart_obligations: canonical-row-missing: missing canonical row " .. edge.row_id)
       end
       local budget = row.budget
       local budget_minutes = type(budget) == "table" and budget.minutes or nil
@@ -149,7 +149,7 @@ function M.new(primitives)
         require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
         policy = policy_definition(edge.cas_policy_id)
         if type(policy) ~= "table" then
-          error("devloop.restart_obligations: unknown edge.cas_policy_id " .. edge.cas_policy_id)
+          error("devloop.restart_obligations: cas-policy-id-unknown: unknown edge.cas_policy_id " .. edge.cas_policy_id)
         end
       end
 
@@ -212,7 +212,7 @@ function M.new(primitives)
 
   function K.derive_bounded_loop(rows, owner_edges, witness_index)
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local obligations = {}

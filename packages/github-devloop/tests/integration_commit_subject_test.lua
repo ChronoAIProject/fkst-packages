@@ -46,7 +46,7 @@ return {
     local event = ready()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, {
       title = "Use issue-derived subjects",
     })
@@ -65,7 +65,7 @@ return {
     local event = ready()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, {
       title = "Don't drop quoted title",
     })
@@ -83,7 +83,7 @@ return {
     local event = ready()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, {
       title = "派生提交标题",
     })
@@ -101,7 +101,7 @@ return {
     local event = ready()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, {
       title = "",
     })
@@ -120,7 +120,7 @@ return {
     local event = ready()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, {
       title = "CAS title remains readable",
       commit_title_error = "subject title fetch failed",

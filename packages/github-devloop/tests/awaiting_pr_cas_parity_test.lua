@@ -67,12 +67,6 @@ local variants = {
   ["implementing\0awaiting-pr"] = "implementing_to_awaiting_pr",
 }
 
-local function probe_variant(from_states, to_state)
-  if type(from_states) ~= "table" or #from_states ~= 1 then
-    return nil
-  end
-  return variants[tostring(from_states[1]) .. "\0" .. tostring(to_state)]
-end
 
 local function observe_department(run)
   local probes = {}
@@ -169,7 +163,7 @@ local function parent_comments(fixture)
   local comments = {}
   if fixture.current_state ~= nil then
     table.insert(comments, comment(
-      core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version),
+      h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version),
       "2026-06-03T01:02:03Z"
     ))
   end
@@ -195,7 +189,7 @@ local function child_comments(fixture)
     BASE_BRANCH
   )
   if fixture.child_state ~= nil then
-    body = body .. "\n" .. core.state_marker(PROPOSAL_ID, fixture.child_state, version)
+    body = body .. "\n" .. h.state_comment(PROPOSAL_ID, fixture.child_state, version)
   end
   if fixture.child_state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, PROPOSAL_ID, PR_NUMBER, version, HEAD_SHA)

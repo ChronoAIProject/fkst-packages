@@ -23,6 +23,7 @@ COCHANGE_GRANT_SCHEMA = "fkst.restart-cochange-grant.v1"
 CHECKER_CONTROLS = {
     ".github/workflows/ci.yml",
     "scripts/check_repo_intent_bounded_replay.py",
+    "scripts/check_repo_intent_bounded_replay_trace_catalog.py",
     "scripts/check_repo_restart_preflight.py",
     "scripts/generate_intent_diff_attestation.py",
     "scripts/intent_bounded_replay/attestation.py",

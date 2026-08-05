@@ -14,7 +14,6 @@ from typing import Any
 from intent_bounded_replay.compare import compare_report
 from intent_bounded_replay import delivery_authorization
 from intent_bounded_replay.attestation import (
-    TRACE_PAIRS,
     attestation_messages,
     rollup_provenance_messages,
 )
@@ -24,47 +23,13 @@ from intent_bounded_replay.normalize import (
     loads_json,
 )
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
+import check_repo_intent_bounded_replay_trace_catalog as trace_catalog
 
 import ratchet_base
 
 
 ALLOWLIST = "migration/intent-bounded-replay.allowlist"
 INTENT_DIFF_DIR = "migration/intent-diffs"
-_TRACE_PAIRS_BY_FAMILY = {pair.family: pair for pair in TRACE_PAIRS}
-THINKING_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["thinking"].old_path
-THINKING_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["thinking"].new_path
-ISSUE_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["issue-reconcile"].old_path
-ISSUE_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["issue-reconcile"].new_path
-LOOP_PLAIN_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["loop-plain"].old_path
-LOOP_PLAIN_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["loop-plain"].new_path
-IMPLEMENT_ACTIVATION_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["implement-activation"].old_path
-IMPLEMENT_ACTIVATION_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["implement-activation"].new_path
-AWAITING_PR_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["awaiting-pr"].old_path
-AWAITING_PR_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["awaiting-pr"].new_path
-TIMEOUT_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["timeout-reconcile"].old_path
-TIMEOUT_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["timeout-reconcile"].new_path
-OBSERVE_ISSUE_ENTRY_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["observe-issue-entry"].old_path
-OBSERVE_ISSUE_ENTRY_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["observe-issue-entry"].new_path
-PR_REVIEW_RESULT_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-result"].old_path
-PR_REVIEW_RESULT_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-result"].new_path
-PR_REVIEW_META_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-meta"].old_path
-PR_REVIEW_META_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-meta"].new_path
-PR_FIX_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-fix"].old_path
-PR_FIX_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-fix"].new_path
-PR_REVIEW_ACTIVATION_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-activation"].old_path
-PR_REVIEW_ACTIVATION_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-activation"].new_path
-OBSERVE_PR_FIX_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["observe-pr-fix"].old_path
-OBSERVE_PR_FIX_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["observe-pr-fix"].new_path
-PR_REVIEW_LOOP_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-loop"].old_path
-PR_REVIEW_LOOP_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-loop"].new_path
-PR_FIX_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].old_path
-PR_FIX_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].new_path
-PR_MERGE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-merge"].old_path
-PR_MERGE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-merge"].new_path
-ADMISSION_TRACE_SPECS = tuple(
-    (pair.old_path, pair.new_path, pair.schema, pair.family, pair.owner)
-    for pair in TRACE_PAIRS
-)
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/attestation.py",
     "scripts/intent_bounded_replay/normalize.py",
@@ -339,39 +304,22 @@ def _trace_pair_messages(
     return messages
 
 
-def _admission_trace_messages(root: Path, trace_root: Path | None = None) -> list[str]:
+def _admission_trace_messages(
+    root: Path, trace_root: Path | None = None,
+) -> list[str]:
     messages: list[str] = []
-    for pair in TRACE_PAIRS:
+    for old_relative, new_relative, schema, family, owner in trace_catalog.ADMISSION_TRACE_SPECS:
         messages.extend(
             _trace_pair_messages(
-                root,
-                pair.old_path,
-                pair.new_path,
-                pair.schema,
-                pair.family,
-                pair.owner,
-                trace_root,
+                root, old_relative, new_relative, schema, family, owner, trace_root
             )
         )
     if trace_root is not None and not any(
-        (trace_root / pair.new_path).is_file()
-        for pair in TRACE_PAIRS
+        (trace_root / new_relative).is_file()
+        for _, new_relative, _, _, _ in trace_catalog.ADMISSION_TRACE_SPECS
     ):
         messages.append(f"explicit R9 trace root contains no emitted traces: {trace_root}")
     return messages
-
-
-def admission_trace_status(root: Path, trace_root: Path | None = None) -> str:
-    if trace_root is None:
-        return "admission trace comparisons skipped: no explicit trace root"
-    emitted = [
-        pair.new_path
-        for pair in TRACE_PAIRS
-        if (trace_root / pair.new_path).is_file()
-    ]
-    if not emitted:
-        return "admission trace comparisons skipped: emitted traces are absent"
-    return "admission trace comparisons executed by canonical artifact hash: " + ", ".join(emitted)
 
 
 def trace_root_from_environment() -> Path | None:
@@ -703,4 +651,4 @@ if __name__ == "__main__":
             print(f"R9-INTENT-BOUNDED-REPLAY: {violation}")
         raise SystemExit(1)
     print("OK: R9 intent-bounded-replay refactor-phase checks passed; "
-          + admission_trace_status(project_root, explicit_trace_root))
+          + trace_catalog.admission_trace_status(explicit_trace_root))

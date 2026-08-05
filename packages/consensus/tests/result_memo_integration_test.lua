@@ -47,12 +47,6 @@ local function proposal(extra)
   return value
 end
 
-local function namespaced_event(payload)
-  return {
-    queue = "consensus.proposal",
-    payload = payload,
-  }
-end
 
 local function run_namespaced_decide(payload, run_opts)
   return reach_test_helper.run(payload, run_opts)

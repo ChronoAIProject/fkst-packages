@@ -64,7 +64,7 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "repair-ready-comment-and-label", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "ready", source_line = 228,
-    current_state = "ready", current_version = VERSION, labels = {}, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    current_state = "ready", current_version = VERSION, labels = {}, effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "repair-declined-comment-only", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "declined", source_line = 228,
     decision = "reject", current_state = "declined", current_version = VERSION, labels = { "fkst-dev:declined" },
@@ -72,7 +72,7 @@ local FIXTURES = ra.json_array({
   { disposition = "repair-dependency-wait-hold-effects", status = "admitted", reason = "result-effects-incomplete",
     cas = "hold-dependency", target = "dependency_wait", source_line = 228,
     current_state = "dependency_wait", current_version = VERSION, gate_kind = "waiting", labels = {},
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "skip-incoming-version-older", status = "rejected", reason = "incoming-version-older",
     cas = "skip-stale(incoming version < current marker version)", target = "reject", source_line = 234,
     current_state = "thinking", current_version = VERSION, event_version = OLDER },
@@ -87,26 +87,55 @@ local FIXTURES = ra.json_array({
     current_state = nil, current_version = nil, error = "state-marker-pending" },
   { disposition = "admitted-ready", status = "admitted", reason = "approve-dependency-satisfied",
     cas = "applied", target = "ready", source_line = 243, current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "admitted-ready-with-dependency-release", status = "admitted", reason = "dependency-notes-released",
     cas = "applied", target = "ready", source_line = 243, current_state = "thinking", current_version = VERSION,
-    gate_kind = "release", effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, RELEASE_COMMENT }) },
+    gate_kind = "release", effects = ra.json_array({ RESULT_COMMENT, RELEASE_COMMENT }) },
   { disposition = "admitted-declined", status = "admitted", reason = "premise-refuted",
     cas = "applied", target = "declined", source_line = 243, decision = "reject",
-    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "admitted-dependency-wait", status = "admitted", reason = "dependency-waiting",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "waiting",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "admitted-dependency-cycle", status = "admitted", reason = "dependency-cycle",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "cycle",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "admitted-dependency-unresolvable", status = "admitted", reason = "dependency-unresolvable",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "unresolvable",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
 })
+
+local function transform_projected_handoff_record(record)
+  local target = record.typed_intent and record.typed_intent.target
+  if target ~= "ready" and target ~= "dependency_wait" and target ~= "declined" then
+    return record
+  end
+  local outcome = record.old_outcome
+  local emitted = ra.json_array()
+  for _, effect in ipairs(outcome.emitted_effects or {}) do
+    if effect.effect_id ~= RESULT_LABEL then
+      effect.ordinal = #emitted + 1
+      table.insert(emitted, effect)
+    end
+  end
+  outcome.emitted_effects = emitted
+  local writes = ra.json_array()
+  for _, write in ipairs(outcome.observable_writes or {}) do
+    if write.effect_id ~= RESULT_LABEL then
+      if write.effect_id == RESULT_COMMENT then
+        write.payload.handoff_kind = target == "ready" and "github-devloop.ready"
+          or target == "dependency_wait" and "github-devloop.ready-split-label"
+          or "github-devloop.declined-label"
+      end
+      table.insert(writes, write)
+    end
+  end
+  outcome.observable_writes = writes
+  return record
+end
 
 local function event_for(fixture)
   local payload = fixture.payload and ra.copy_value(fixture.payload) or h.reached({
@@ -153,7 +182,7 @@ local function capture(fixture)
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
   end
   if fixture.first_decision then
     table.insert(comments, trusted(m_builders.result_marker(PROPOSAL_ID, fixture.first_decision, event.payload.dedup_key,
@@ -206,6 +235,9 @@ end
 
 return {
   test_consensus_result_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
-    ra.assert_site(t, { dept = "consensus_result", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE })
+    ra.assert_site(t, {
+      dept = "consensus_result", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
+      transform_committed_record = transform_projected_handoff_record,
+    })
   end,
 }

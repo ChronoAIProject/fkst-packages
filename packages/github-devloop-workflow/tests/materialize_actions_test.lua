@@ -11,18 +11,6 @@ local blueprint_fact = {
   digest = "d-3588118930",
 }
 
-local function current_with_blueprint()
-  return {
-    comments = {
-      {
-        body = "This issue is managed by workflow workflow-one.\n\n"
-          .. '<!-- fkst:github-devloop-workflow:blueprint:v1 origin="' .. origin
-          .. '" workflow="workflow-one" digest="d-3588118930" -->',
-        author_login = "fkst-test-bot",
-      },
-    },
-  }
-end
 
 local function trusted_passthrough(_core, comments)
   return comments or {}

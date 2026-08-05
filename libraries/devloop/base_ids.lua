@@ -11,7 +11,7 @@ I.max_issue_key_len = 30
 
 function I.truncate_utf8(value, limit)
   if type(truncate_utf8) ~= "function" then
-    error("github-devloop: truncate_utf8 SDK primitive is required")
+    error("github-devloop: sdk-primitive-unavailable: truncate_utf8 SDK primitive is required")
   end
   return truncate_utf8(value, limit)
 end
@@ -23,7 +23,7 @@ function I.dedup_key(parts)
     key = I.truncate_utf8(key, I.max_dedup_len - #suffix):gsub("[/%-]+$", "") .. suffix
   end
   if not strings.is_path_safe_key(key, I.max_dedup_len) then
-    error("github-devloop: invalid dedup_key")
+    error("github-devloop: dedup-key-invalid: invalid dedup_key")
   end
   return key
 end
@@ -89,7 +89,7 @@ end
 
 function I.normalize_source_ref(source_ref)
   if not source_refs.has_bounded_source_ref(source_ref, I.max_key_len) then
-    error("github-devloop: invalid source_ref")
+    error("github-devloop: invalid-source-ref: invalid source_ref")
   end
   return {
     kind = source_ref.kind,

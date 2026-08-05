@@ -1,0 +1,288 @@
+{
+  "entries": [
+    {
+      "new_blob": "8bbbe5627a2b5620adbdb753a96c6836e207b2b7",
+      "old_blob": "6b62016ccb0405c5b8b753286bede872a6b9c423",
+      "path": "libraries/devloop/base.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "2d1a28f64081da1a109b1dcda82d7faa05aa6892",
+      "old_blob": "ce464c96c589535ef41aa4fbaf9b168a58f641fa",
+      "path": "libraries/devloop/commands/prs.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "72cff2b8c326c104f43a9819ee1e51e788af2146",
+      "old_blob": "da894359c6dc3c39f7012aab5a9a3a16a8451a1a",
+      "path": "libraries/devloop/convergence/rounds.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "7890fd2453a06e1efa98e38b35becaa21969eebe",
+      "old_blob": "ef27c2a905167c1ce47158c1bd516e2b370d5908",
+      "path": "libraries/devloop/dependency_gate.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "202d244cfd1b43faff5d28f5b2cb6a05bed65867",
+      "old_blob": "",
+      "path": "libraries/devloop/dependency_graphql.lua",
+      "status": "A"
+    },
+    {
+      "new_blob": "e8a7d9c084ef560eb40628f1e92283a403aae821",
+      "old_blob": "",
+      "path": "libraries/devloop/entity_highwater.lua",
+      "status": "A"
+    },
+    {
+      "new_blob": "8987e11c960348c95e33dc2ced6749f58050c2ea",
+      "old_blob": "73f7f0b9d48a831df891ba5b1d42521259d8ac03",
+      "path": "libraries/devloop/fkst.toml",
+      "status": "M"
+    },
+    {
+      "new_blob": "b75def85c441b3cd5776445cdb7dfa4075717c68",
+      "old_blob": "00edd8fee93d5504f4274e1f11488d89f95f2bd3",
+      "path": "libraries/devloop/github_proxy_entity_view.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "2a94fea2bfffb1ad6f718c082fd8fd5cd5b07748",
+      "old_blob": "0197b8c494f99524bcc8dc376917e8a18d3b125e",
+      "path": "libraries/devloop/hidden_state_conformance.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "86a985de776a9ad6d666258a31002dee6ee186e3",
+      "old_blob": "0e732b41c38046e211b2b84020a479bcb1c45233",
+      "path": "libraries/devloop/impl_failure.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "0643e64bd39bdd946dcc56b21aca81e610d75fc7",
+      "old_blob": "e7995f86286d7ebedc2ec40eb93af376d0b1b0de",
+      "path": "libraries/devloop/markers/builders.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "e33b8b1e3a5568db0eaaa9ac5f0a87f61ac8e803",
+      "old_blob": "6b92a5c4b248d4472410cf66daf29f227cf0bb56",
+      "path": "libraries/devloop/markers/fix_feedback_observation.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "e92cc6349f132a946fb7c60da7232d23a13dd789",
+      "old_blob": "fdc87091826f5d3548e02dd8120654065fa6ca55",
+      "path": "libraries/devloop/parsers/issue.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "062f54e8a13e183b7d91684f0ae123b07a1d02ef",
+      "old_blob": "26a71e1543bc8e83b1fbeb2fb112cf1e607b9973",
+      "path": "libraries/devloop/parsers/pr.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "a05809afbd5a66899195b7da4db013927eb8b6ac",
+      "old_blob": "dec4c233a86b7d6d8f9cd0a5d6edb388ae96b448",
+      "path": "libraries/devloop/payloads/builders.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "42936b6c644ef525084c11300316f8ae311df3a0",
+      "old_blob": "8cfe001e6dcead1667bb19dddba0316cad4a916a",
+      "path": "libraries/devloop/replay_required_facts.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "a88224583c66eecb0a17df98f3ce1973ce81c80b",
+      "old_blob": "d7f9a9f551499aeb25cce5e71829ce5f1967b72d",
+      "path": "libraries/devloop/replay_thinking_convergence.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "f6c5ea33878fbf979e4a4e76c921a1571b8cbeec",
+      "old_blob": "ba569bad1ae97b244dcef8d67b97f2a2554ab799",
+      "path": "libraries/devloop/replayer.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "83ef871a92a7210c591b303e92d650369625ab5f",
+      "old_blob": "d1ecf1174b11794a8d43ca43758228c7062712e5",
+      "path": "libraries/devloop/requests/lifecycle.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "3e5174849cea79cf89dc4fad0c33fa5a78c72e42",
+      "old_blob": "fc5ea2e8e70b858a621b7d943bb40fc19f84a534",
+      "path": "libraries/devloop/requests/review.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "69bbc70e01d204cc8bcb9082804fb7b3e289abbb",
+      "old_blob": "c8c7717fc5012ee8d1f5df1c9e018a67ee96ab0d",
+      "path": "libraries/devloop/restart.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "05865238875bec3561487967039268ccd90c72fa",
+      "old_blob": "6a7f9f3de778ef592e8338dcaa97b8808fb2d9b9",
+      "path": "libraries/devloop/restart/pr_review_replay_facts.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "1bafac72a9c0942f8c95959bda61243ca5624a82",
+      "old_blob": "cccca9217a63a8476c865b372e24d560fda70c12",
+      "path": "libraries/devloop/restart_actionable_epoch.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "72292ae3cdd776f76126997e698cd26fcf000ac4",
+      "old_blob": "ed2365a3b3a7b0206f9462cb5e36819db4c4fffe",
+      "path": "libraries/devloop/validators/fixing.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "cddba8d43fb30fdc9088305f1f4b54fddfe896e7",
+      "old_blob": "c3178826f3dd865d8e4dd80ccc6b594e212295f5",
+      "path": "packages/github-devloop-pr/core/merge_ci_wait.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "e2bbf04e838e93a37fe7a8e434c2815f4c0f521b",
+      "old_blob": "43c893ccee6c08dd119f89cc42b55394a2551da3",
+      "path": "packages/github-devloop-pr/core/merge_executor.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "514fbc824be46e91634abb5fa06c7b2fc84d460c",
+      "old_blob": "46cc478c3f743618d7d05f667d1de9edc16c2a96",
+      "path": "packages/github-devloop-pr/core/pr_review_replayer.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "40aa14e7d67c4a35ba0c38a7126da9733930171d",
+      "old_blob": "f5bd69d275fb91125f243f7879fa78ea9dda2663",
+      "path": "packages/github-devloop-pr/core/restart/transitions/fixing.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "f1468451db3da22bc8bccf4134037e846de01464",
+      "old_blob": "dd02dcf8d6d5d46bf9f5b54061d370aa82f1c143",
+      "path": "packages/github-devloop-pr/core/review_meta_requests.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "fb15e2bbcd4739afdedbf292e2c4f6b3ff2c1770",
+      "old_blob": "2cc0ac9808ac88c8529d0138e9593463cded81fd",
+      "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "3c41c2ced190c7bfc6b0c54aff3897fa17fd4e5d",
+      "old_blob": "360810ce945d963643b3a322bfb65e87fe21d011",
+      "path": "packages/github-devloop/conformance/pack.toml",
+      "status": "M"
+    },
+    {
+      "new_blob": "1c1515b511d27eb7859fe7f62890e1a395b2c395",
+      "old_blob": "87a34dc3ee38bb8c8e8e2775b6f429c9913a6777",
+      "path": "packages/github-devloop/consensus_result_department_caps.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "0b6efd53e267b694996e94075031de3d4bca4e45",
+      "old_blob": "14824e8a67b4a8dd7bd17f292d7babeea088c1dc",
+      "path": "packages/github-devloop/core/impl_failure.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "71dbfcef8a0eb73f50a40187b1a9a3efc90b9e71",
+      "old_blob": "19503ec86f38e74fcc4ac89518deb135ad4fd1a7",
+      "path": "packages/github-devloop/core/ready_split.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "60b771728f0bf88b430514c62a174343babe4f52",
+      "old_blob": "696eff96a9448c2e5d5ca063fc5cb66d834a76d3",
+      "path": "packages/github-devloop/core/restart/transitions/impl_failed.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "dc515a1cb158a71cf65b2d1ba5ba4cdc4ba74e3f",
+      "old_blob": "5bb4a8aab3a1b1c7f923ba280fe03aa22666765f",
+      "path": "packages/github-devloop/departments/consensus_result/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "861799a50b318181513116fd1c3cb17ffb6f33e7",
+      "old_blob": "6c45b04426ef5ae5f767e601b7a8d8d5214158e1",
+      "path": "packages/github-devloop/departments/implement/attempt.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "3092b029d931742339fc064d4dd884c4412ab2aa",
+      "old_blob": "e5df4dbd3e0d0565491eb6fe6bda301ee0ef75cf",
+      "path": "packages/github-devloop/departments/implement/harvest.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "5d1571cec1deca2461cc807eca515e8fd2204fd2",
+      "old_blob": "688f8629fb0657200cf03c4e28209ee62e70c39d",
+      "path": "packages/github-devloop/departments/implement/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "0bfb29daaa3e1a88b699810ea9525783ebbd1dd6",
+      "old_blob": "991a535018d2ca60653ec682b4f216a7d34031ba",
+      "path": "packages/github-devloop/departments/implement/proof_attempt.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "29f0e95f61f3b3d8493d3228d7a7b960c8a5a6e4",
+      "old_blob": "b9dd72d3452d667e867fad809c9313d554b9a1d1",
+      "path": "packages/github-devloop/departments/loop/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "cf1a577eaaf6d9029c66bc269a88d3df51768467",
+      "old_blob": "d52ac9ccc9524cb4167aee1e78ee8f9e35347e2d",
+      "path": "packages/github-devloop/departments/observe_issue/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "402fedcd695caa89e6116f332e8f46eaa4b5b8e5",
+      "old_blob": "805ea792bc93d6c7903034a962b0237243cd246d",
+      "path": "packages/github-devloop/departments/observe_issue/operator_recovery.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "555824a5c5afac1aa99be0c08996d25808149ceb",
+      "old_blob": "",
+      "path": "packages/github-devloop/departments/observe_issue/pr_parent_observation.lua",
+      "status": "A"
+    },
+    {
+      "new_blob": "8e47bc8f0cf6873960054a9b0295f0b314e711f5",
+      "old_blob": "3efd99a5f252f922bbd2cfc8b643db0988618a2b",
+      "path": "packages/github-devloop/departments/reconcile/main.lua",
+      "status": "M"
+    },
+    {
+      "new_blob": "60469f7d822097a2fd7172c381c00786fc59de89",
+      "old_blob": "fd0885601b5c1a9c9ab422c13f45da979161f7f0",
+      "path": "scripts/check_repo_intent_bounded_replay.py",
+      "status": "M"
+    },
+    {
+      "new_blob": "f0f5274be9ffaf6e5b7caddb55ca02ea8b5fa2f9",
+      "old_blob": "82d60eed4df3d752383c12846a6647a65d076e8b",
+      "path": "scripts/check_repo_intent_bounded_replay_trace_catalog.py",
+      "status": "M"
+    }
+  ],
+  "grant_sha256": "a53f4e70eb26a1f7abe413be137b226200ae8551b1680cf860b433e7f3d276c7",
+  "schema": "fkst.restart-cochange-grant.v1"
+}

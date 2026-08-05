@@ -125,6 +125,11 @@ local function mock_runtime_config()
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+      stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 
@@ -268,7 +273,15 @@ local function mock_fix_execution(event, canonical, opts)
     status_check_rollup_json,
     opts.precheck_times
   )
-  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, nil, {
+  local worktree = devloop_base.implement_worktree_path(
+    devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable"
+    ),
+    repo,
+    issue_number,
+    event.version
+  )
+  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, worktree, {
     sha = new_base,
     stdout = "",
     stderr = "",
@@ -470,8 +483,9 @@ local function assert_ci_recovery_duplicate_executes_once(outcome)
     end
   end
   t.eq(fix_deliveries, 1)
-  -- One admitted fix reads the runtime root for its worktree and context bundle.
-  t.eq(h.count_calls('printf %s "$FKST_RUNTIME_ROOT"'), 2)
+  -- One admitted fix reads runtime scratch for context and durable storage for its worktree.
+  t.eq(h.count_calls('printf %s "$FKST_RUNTIME_ROOT"'), 1)
+  t.eq(h.count_calls('printf %s "$FKST_DURABLE_ROOT"'), 1)
   t.eq(h.count_calls("git worktree list --porcelain"), 1)
   t.eq(h.count_calls("merge --no-edit '" .. new_base .. "'"), 1)
   t.eq(h.count_calls("merge --no-edit '" .. old_base .. "'"), 0)
