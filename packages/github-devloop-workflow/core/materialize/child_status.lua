@@ -237,11 +237,7 @@ local function production_child_status_deps(core, repo, opts)
     return nil
   end
 
-  local function child_is_closed(child_ref)
-    return tostring(issue(child_ref).state or ""):upper() == "CLOSED"
-  end
-
-  return child_deps, accepted_successor, child_is_closed
+  return child_deps, accepted_successor
 end
 
 function M.reader(core, deps, repo)
@@ -250,17 +246,13 @@ function M.reader(core, deps, repo)
       return deps.child_status(core, child_ref)
     end
   end
-  local child_deps, accepted_successor, child_is_closed = production_child_status_deps(core, repo, deps)
+  local child_deps, accepted_successor = production_child_status_deps(core, repo, deps)
   return function(child_ref)
-    local status, detail = child_result.child_result_status(child_deps, child_ref)
-    if status ~= child_result.STATUS_FATAL or not child_is_closed(child_ref) then
-      return status, detail
-    end
     local successor = accepted_successor(child_ref)
-    if successor == nil then
-      return status, detail
+    if successor ~= nil then
+      return child_result.child_result_status(child_deps, successor)
     end
-    return child_result.child_result_status(child_deps, successor)
+    return child_result.child_result_status(child_deps, child_ref)
   end
 end
 

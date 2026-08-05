@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local devloop_logging = require("devloop.logging")
 local github_fake = require("forge.github_fake")
 local git_fake = require("forge.git_fake")
 local marker_builders = require("devloop.markers.builders")
@@ -181,13 +182,28 @@ local function install_github_fake(events, owned_child_issue)
   })
   model.fail_closes = 0
   model.successful_closes = 0
+  model.reads = {}
   local github = github_fake.new(model)
+  local fake_read_issue = github.read_issue
+
+  function github.read_issue(target_source_ref, opts)
+    t.eq(type(opts), "table")
+    t.eq(opts.force_fresh, true)
+    t.is_true(type(opts.consumer) == "string" and opts.consumer ~= "")
+    model.reads[#model.reads + 1] = {
+      source_ref = target_source_ref,
+      consumer = opts.consumer,
+    }
+    return fake_read_issue(target_source_ref, opts)
+  end
 
   function github.issue_comment_create(repo, issue_number, body_file)
     t.eq(repo, REPO)
     local target = model.issues[source_ref(issue_number).ref]
     local body = assert(file.read(body_file))
-    target.comments[#target.comments + 1] = trusted_comment(body)
+    if model.hide_comment_write ~= true then
+      target.comments[#target.comments + 1] = trusted_comment(body)
+    end
     model.writes[#model.writes + 1] = {
       kind = "issue_comment_create",
       issue_number = tonumber(issue_number),
@@ -280,6 +296,20 @@ local function run_transfer(state, expecting_failure, payload)
     error(outcome, 0)
   end
   return outcome
+end
+
+local function capture_transfer_logs(fn)
+  local captured = {}
+  local previous_log_line = devloop_logging.log_line
+  devloop_logging.log_line = function(_level, _dept, _proposal_id, _tag, fields)
+    captured[#captured + 1] = table.concat(fields or {}, " ")
+  end
+  local ok, outcome = pcall(fn)
+  devloop_logging.log_line = previous_log_line
+  if not ok then
+    error(outcome, 0)
+  end
+  return outcome, captured
 end
 
 local function run_materialization_poll(state)
@@ -393,6 +423,19 @@ local tests = {
     t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "CLOSED")
     t.eq(state.git_model.successful_pushes, 1)
     t.eq(state.github_model.successful_closes, 1)
+    local transfer_reads = {}
+    for index = 1, 7 do
+      transfer_reads[index] = state.github_model.reads[index].consumer
+    end
+    t.eq(table.concat(transfer_reads, ","), table.concat({
+      "workflow_transfer_child:origin",
+      "workflow_transfer_child:predecessor",
+      "workflow_transfer_child:successor",
+      "workflow_transfer_child:acceptance-readback",
+      "workflow_transfer_child:pre-close-predecessor",
+      "workflow_transfer_child:pre-close-successor",
+      "workflow_transfer_child:close-readback",
+    }, ","))
 
     local waiting = run_materialization_poll(state)
     t.is_nil(terminal_request(waiting.raises))
@@ -422,6 +465,20 @@ local tests = {
     t.eq(count_writes(state.github_model, "issue_comment_create"), 1)
   end,
 
+  test_acceptance_visible_log_requires_source_readback = function()
+    local state = fixture()
+    state.github_model.hide_comment_write = true
+
+    local outcome, logs = capture_transfer_logs(function()
+      return run_transfer(state, true)
+    end)
+
+    t.is_true(tostring(outcome.failure.error):find("transfer-acceptance-readback-missing", 1, true) ~= nil)
+    local text = table.concat(logs, "\n")
+    t.is_true(text:find("action=acceptance-issued", 1, true) ~= nil)
+    t.is_nil(text:find("action=acceptance-visible", 1, true))
+  end,
+
   test_replay_after_receipt_visibility_closes_without_rewriting_durable_facts = function()
     local state = fixture()
     state.github_model.fail_closes = 1
@@ -437,18 +494,49 @@ local tests = {
     t.eq(state.github_model.successful_closes, 1)
   end,
 
-  test_successor_must_still_be_open_immediately_before_predecessor_close = function()
+  test_committed_receipt_redirects_parent_while_predecessor_close_retries = function()
+    local state = fixture()
+    local predecessor = state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref]
+    predecessor.comments[#predecessor.comments + 1] = trusted_comment(core.state_marker(
+      base_ids.proposal_id(REPO, PREDECESSOR_ISSUE),
+      "blocked",
+      "ready/github-devloop/issue/owner/repo/108/intake/1"
+    ))
+    state.github_model.fail_closes = 1
+
+    run_transfer(state, true)
+
+    t.eq(table.concat(state.events, ","), "acceptance,receipt")
+    t.eq(predecessor.state, "OPEN")
+    local waiting = run_materialization_poll(state)
+    t.is_nil(terminal_request(waiting.raises))
+  end,
+
+  test_successor_closure_after_receipt_does_not_strand_predecessor_close = function()
     local state = fixture()
     state.git_model.after_successful_push = function()
       state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref].state = "CLOSED"
     end
 
-    local outcome = run_transfer(state, true)
+    run_transfer(state)
 
-    t.is_true(tostring(outcome.failure.error):find("transfer-successor-not-open", 1, true) ~= nil)
-    t.eq(table.concat(state.events, ","), "acceptance,receipt")
+    t.eq(table.concat(state.events, ","), "acceptance,receipt,close")
+    t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "CLOSED")
+    t.eq(state.github_model.successful_closes, 1)
+  end,
+
+  test_parent_follows_committed_receipt_while_predecessor_close_is_blocked = function()
+    local state = fixture()
+    state.github_model.fail_closes = 1
+
+    run_transfer(state, true)
+    add_successor_merged_evidence(state)
+    local completed = run_materialization_poll(state)
+
+    local terminal = terminal_request(completed.raises)
+    t.is_true(terminal ~= nil)
+    t.is_true(terminal.body:find('state="done"', 1, true) ~= nil)
     t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "OPEN")
-    t.eq(state.github_model.successful_closes, 0)
   end,
 
   test_malformed_identity_fails_before_any_external_effect = function()

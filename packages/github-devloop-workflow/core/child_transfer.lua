@@ -197,7 +197,7 @@ local function write_acceptance(github, file_port, identity)
     M.IO_TIMEOUT_SECONDS
   )
   devloop_logging.log_line("info", M.DEPT, identity.origin, "TRANSFER", {
-    "action=acceptance-visible",
+    "action=acceptance-issued",
     "slot=" .. identity.slot,
     "successor=" .. identity.successor_source_ref.ref,
   })
@@ -273,6 +273,11 @@ function M.new(deps)
         if matching_acceptance(successor_current, identity) == nil then
           fail("transfer-acceptance-readback-missing", "exact successor acceptance is not source-visible")
         end
+        devloop_logging.log_line("info", M.DEPT, identity.origin, "TRANSFER", {
+          "action=acceptance-visible",
+          "slot=" .. identity.slot,
+          "successor=" .. identity.successor_source_ref.ref,
+        })
         local requested_receipt = receipt_identity(identity)
         requested_receipt.disposition = "transferred"
         requested_receipt.successor_source_ref = identity.successor_source_ref
@@ -291,9 +296,6 @@ function M.new(deps)
       local predecessor_state = tostring(predecessor_current.state or ""):upper()
       if predecessor_state == "OPEN" then
         successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":pre-close-successor")
-        if tostring(successor_current.state or ""):upper() ~= "OPEN" then
-          fail("transfer-successor-not-open", "successor closed before predecessor close")
-        end
         if matching_acceptance(successor_current, identity) == nil then
           fail("transfer-acceptance-missing", "exact acceptance disappeared before predecessor close")
         end
