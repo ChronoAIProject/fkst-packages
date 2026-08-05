@@ -48,7 +48,7 @@ local function failure_text(result)
   return tostring(result and (result.error or result.stderr) or "")
 end
 
-local function mock_current_base_not_contained()
+local function mock_current_base_not_contained(merge_tree_exit_code)
   t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
     stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
@@ -60,9 +60,33 @@ local function mock_current_base_not_contained()
     stderr = "",
     exit_code = 1,
   })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", {
+    stdout = merge_tree_exit_code == 0 and "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" or "",
+    stderr = merge_tree_exit_code == 0 and "" or "CONFLICT (content): merge conflict",
+    exit_code = merge_tree_exit_code or 1,
+  })
 end
 
 return {
+  test_write_time_stale_conflicting_verdict_for_clean_merge_retries_without_fixing = function()
+    local event = h.merge_ready()
+    mock_current_base_not_contained(0)
+    prepare_write_time_recheck(event, nil, "CONFLICTING", "DIRTY")
+
+    local result = run_write_time_recheck(event, "merge-write-time-stale-conflicting-clean")
+
+    t.eq(result.exit_code, 1, failure_text(result))
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("git merge-tree --write-tree"), 1)
+    t.eq(h.find_causal_raise(result, "devloop_fixing"), nil)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    t.is_true(
+      failure_text(result):find("stale-mergeability-local-merge-clean", 1, true) ~= nil,
+      failure_text(result)
+    )
+    t.eq(failure_text(result):find("mergeable-conflicting", 1, true), nil)
+  end,
+
   test_write_time_conflicting_mergeability_moves_back_to_fixing = function()
     local event = h.merge_ready()
     mock_current_base_not_contained()
