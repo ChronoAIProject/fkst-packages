@@ -42,6 +42,11 @@ local function merge(base, extra)
 end
 
 return {
+  test_error_class_from_message_preserves_failed_form = function()
+    t.eq(core.error_class_from_message("autochrono: proposal failed: details"), "proposal")
+    t.eq(core.error_class_from_message("autochrono: source-ref-invalid: details"), "source-ref-invalid")
+  end,
+
   test_proposal_id_round_trips_repo_and_issue = function()
     local id = core.proposal_id("owner/repo", 42)
     local repo, issue_number = core.parse_proposal_id(id)

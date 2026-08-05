@@ -1,3 +1,4 @@
+local core = require("core")
 local t = fkst.test
 
 local function run_department_with_logs(path, event, opts)
@@ -7,6 +8,17 @@ local function run_department_with_logs(path, event, opts)
 end
 
 return {
+  test_error_class_from_message_preserves_failed_form = function()
+    t.eq(
+      core.error_class_from_message("github-ratchet-migration-slicer: ledger failed: details"),
+      "ledger"
+    )
+    t.eq(
+      core.error_class_from_message("github-ratchet-migration-slicer: ledger-fetch-failed: details"),
+      "ledger-fetch-failed"
+    )
+  end,
+
   test_driver_accepts_production_namespaced_queue = function()
     t.mock_command('printf %s "$FKST_GITHUB_REPO"', {
       stdout = "owner/repo",

@@ -259,6 +259,18 @@ local function make_git_fake()
     })
     return { stdout = "", stderr = "", exit_code = 1 }
   end
+  function git.merge_tree(base_head_sha, head_sha, timeout)
+    record(model, "merge_tree", {
+      base_head_sha = base_head_sha,
+      head_sha = head_sha,
+      timeout = timeout,
+    })
+    return {
+      stdout = "",
+      stderr = "CONFLICT (content): merge conflict",
+      exit_code = 1,
+    }
+  end
   return git, model
 end
 
@@ -395,6 +407,7 @@ local function capture_runtime(fixture)
     t.is_true(write_count(department.git_model, "fetch_branch") > 0, fixture.name .. ": base fetch uses Git fake")
     t.is_true(write_count(department.git_model, "remote_branch_head") > 0, fixture.name .. ": base head read uses Git fake")
     t.is_true(write_count(department.git_model, "is_ancestor") > 0, fixture.name .. ": mergeability probe uses Git fake")
+    t.is_true(write_count(department.git_model, "merge_tree") > 0, fixture.name .. ": mergeability truth uses Git fake")
   end
   return event, copy_value(spied), copy_value(reconcile), captured.decisions[1], terminal_comment_markers(fixture, reconcile)
 end

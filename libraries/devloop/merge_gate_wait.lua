@@ -19,7 +19,7 @@ end
 
 function C.merge_gate_wait_marker(issue_proposal_id, pr_number, version, head_sha, reason, kind)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid merge-gate-wait marker")
+    error("github-devloop: merge-gate-wait-marker-invalid: invalid merge-gate-wait marker")
   end
   return '<!-- fkst:github-devloop:merge-gate-wait:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr="' .. tostring(pr_number)

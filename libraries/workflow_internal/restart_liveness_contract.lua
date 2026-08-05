@@ -12,7 +12,7 @@ end
 function S.restart_liveness_inventory_errors(M, rows, inventory)
   local fn = installed_function(M, "restart_liveness_inventory_errors")
   if type(fn) ~= "function" then
-    error("workflow_internal.restart_liveness_contract: restart_liveness_inventory_errors not installed")
+    error("workflow_internal.restart_liveness_contract: inventory-validator-not-installed: restart_liveness_inventory_errors not installed")
   end
   return fn(rows, inventory)
 end

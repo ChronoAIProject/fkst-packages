@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "d4435fe2cf81d2d91d5c7b26f60bec1cb64a2386c9369d6de5fe1ffe0dd227c6",
+  "artifact_sha256": "12832ac0692a23d7db6fe17f81ecb1fa7d525e464d75cb19fd808ad7d2d43896",
   "family": "thinking",
   "fixtures": [
     {
@@ -19,8 +19,7 @@
       "effect_entitlement_id": "github-devloop/thinking/autonomous/consensus-reached/apply",
       "fixture_id": "source-equal-apply",
       "granted_effect_ids": [
-        "github-proxy.github_issue_comment_request",
-        "github-proxy.github_issue_label_request"
+        "github-proxy.github_issue_comment_request"
       ],
       "observable_writes": [
         {
@@ -28,12 +27,6 @@
           "marker_write": true,
           "ordinal": 1,
           "write_kind": "comment"
-        },
-        {
-          "effect_id": "github-proxy.github_issue_label_request",
-          "marker_write": false,
-          "ordinal": 2,
-          "write_kind": "label"
         }
       ],
       "reason_code": "apply"

@@ -64,14 +64,6 @@ local function issue(number, fields)
   }
 end
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tonumber(value) == tonumber(expected) then
-      return true
-    end
-  end
-  return false
-end
 
 local function active_issue(current)
   return capacity.issue_occupies_capacity(REPO, current)

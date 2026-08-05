@@ -3,14 +3,6 @@ local core = h.core
 local contract_time = require("contract.time")
 local t = h.t
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
 
 local function table_by_state()
   local by_state = {}

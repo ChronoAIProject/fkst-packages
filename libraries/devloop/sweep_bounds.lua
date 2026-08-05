@@ -55,7 +55,7 @@ function sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class, exe
   if type(cmd_or_opts) == "table" and type(cmd_or_opts.run) == "function" then
     return cmd_or_opts.run(cmd_or_opts.timeout or timeout)
   end
-  error("github-devloop: sweep_exec requires an injected exec function or a typed run(timeout) command")
+  error("github-devloop: sweep-executor-unavailable: sweep_exec requires an injected exec function or a typed run(timeout) command")
 end
 
 function sweep_bounds.sweep_run_cmd(cmd, limits, deadline, error_class, exec)
@@ -64,7 +64,7 @@ function sweep_bounds.sweep_run_cmd(cmd, limits, deadline, error_class, exec)
     return result
   end
   if result.exit_code ~= 0 then
-    error("github-devloop: " .. tostring(error_class or "sweep command") .. " failed: " .. tostring(result.stderr))
+    error("github-devloop: sweep-command-failed: " .. tostring(error_class or "sweep command") .. " failed: " .. tostring(result.stderr))
   end
   return result
 end

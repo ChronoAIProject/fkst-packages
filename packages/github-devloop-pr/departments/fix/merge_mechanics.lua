@@ -9,12 +9,12 @@ local M = {}
 function M.make(core)
   local git = git_adapter.production_handle
   local function branch_worktree(repo, issue_number, version, branch)
-    local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-    if runtime_result.exit_code ~= 0 then
-      error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
+    local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
+    if durable_result.exit_code ~= 0 then
+      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
     end
-    local runtime_root = runtime_result.stdout
-    local worktree = devloop_base.implement_worktree_path(runtime_root, repo, issue_number, version)
+    local stable_root = devloop_base.implementation_worktree_root(durable_result.stdout)
+    local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, version)
     local list_result = devloop_commands.git_worktree_list(30)
     if list_result.exit_code ~= 0 then
       error("github-devloop: git-worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
@@ -25,7 +25,7 @@ function M.make(core)
       if dir_result.exit_code ~= 0 and dir_result.exit_code ~= 1 then
         error("github-devloop: worktree-path-check-failed: git worktree path check failed: " .. tostring(dir_result.stderr))
       end
-      if dir_result.exit_code == 0 and devloop_base.path_under_runtime_root(runtime_root, existing) then
+      if dir_result.exit_code == 0 and existing == worktree then
         return existing
       end
       if dir_result.exit_code == 1 then

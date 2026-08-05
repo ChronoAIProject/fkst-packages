@@ -48,13 +48,6 @@ local function review_unresolved(extra)
   return value
 end
 
-local function meta_answer(action, reason, gap)
-  local text = action_label .. " " .. action .. "\n" .. reason_label .. " " .. reason
-  if gap ~= nil then
-    text = text .. "\nBlocking gap: " .. gap
-  end
-  return text
-end
 
 local function copy_table(value, extra)
   local copied = {}
@@ -449,10 +442,12 @@ return {
     t.eq(require("devloop.pr_safety").is_devloop_issue_branch(deterministic_branch), true)
     t.eq(require("devloop.pr_safety").is_devloop_issue_branch("devloop-owner-repo-42-01HY"), false)
     t.eq(require("devloop.pr_safety").is_devloop_issue_branch("feature/unrelated"), false)
-    local worktree_path = devloop_base.implement_worktree_path("/tmp/fkst-rt", "owner/repo", "42", ready.dedup_key)
-    t.is_true(worktree_path:find("/tmp/fkst-rt/worktrees/devloop-owner-repo-42-", 1, true) == 1)
-    t.eq(devloop_base.path_under_runtime_root("/tmp/fkst-rt", worktree_path), true)
-    t.eq(devloop_base.path_under_runtime_root("/tmp/fkst-rt", "/tmp/fkst-rt-old/worktrees/devloop-owner-repo-42"), false)
+    local implementation_root = devloop_base.implementation_worktree_root("/tmp/fkst-durable")
+    t.eq(implementation_root, "/tmp/fkst-durable-worktrees")
+    local worktree_path = devloop_base.implement_worktree_path(implementation_root, "owner/repo", "42", ready.dedup_key)
+    t.is_true(worktree_path:find("/tmp/fkst-durable-worktrees/worktrees/devloop-owner-repo-42-", 1, true) == 1)
+    t.eq(devloop_base.path_under_root(implementation_root, worktree_path), true)
+    t.eq(devloop_base.path_under_root(implementation_root, "/tmp/fkst-durable-old/worktrees/devloop-owner-repo-42"), false)
     local judgment_path = core.judgment_worktree_path("/tmp/fkst-rt", "intake", ready.dedup_key)
     t.is_true(judgment_path:find("/tmp/fkst-rt/judgment-worktrees/github-devloop-intake-", 1, true) == 1)
     t.is_nil(judgment_path:find("/worktrees/", 1, true))
@@ -495,11 +490,11 @@ return {
     t.eq(all_branch_worktrees[1], stale_worktree_path)
     t.eq(all_branch_worktrees[2], stale_worktree_path_two)
     t.eq(all_branch_worktrees[3], worktree_path)
-    t.eq(core.find_worktree_for_branch_under_runtime(current_root_list, deterministic_branch, "/tmp/fkst-rt"), worktree_path)
-    t.is_nil(core.find_worktree_for_branch_under_runtime(
+    t.eq(core.find_worktree_for_branch_under_root(current_root_list, deterministic_branch, implementation_root), worktree_path)
+    t.is_nil(core.find_worktree_for_branch_under_root(
       "worktree " .. stale_worktree_path .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n",
       deterministic_branch,
-      "/tmp/fkst-rt"
+      implementation_root
     ))
 
     local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")

@@ -147,10 +147,10 @@ end
 function M.frozen_edge_witness_index(owner, edges)
   local source_path = edge_witness_sources[owner]
   if source_path == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local witnesses = {}
@@ -168,10 +168,10 @@ function M.frozen_edge_witness_index(owner, edges)
         or (pending_order.participates and predecessor_state == nil)
         or type(edge.target) ~= "string" or edge.target == ""
         or type(edge.kind) ~= "string" or edge.kind == "" then
-      error("devloop.restart_owner_pending_projection: edge witness identity is invalid")
+      error("devloop.restart_owner_pending_projection: edge-witness-identity-invalid: edge witness identity is invalid")
     end
     if witnesses[edge.id] ~= nil then
-      error("devloop.restart_owner_pending_projection: duplicate edge witness id " .. edge.id)
+      error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate edge witness id " .. edge.id)
     end
     witnesses[edge.id] = {
       owner = owner,
@@ -195,10 +195,10 @@ end
 
 function M.frozen_pending_witness_index(owner, edges)
   if owner_sources[owner] == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local expected = expected_owner_projection(owner)
@@ -210,7 +210,7 @@ function M.frozen_pending_witness_index(owner, edges)
       local targets = expected[predecessor]
       if type(targets) == "table" and targets[edge.target] == true then
         if witnesses[edge.id] ~= nil then
-          error("devloop.restart_owner_pending_projection: duplicate pending edge id " .. tostring(edge.id))
+          error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate pending edge id " .. tostring(edge.id))
         end
         local fixture_id = predecessor .. "->" .. edge.target
         witnesses[edge.id] = {
@@ -248,22 +248,22 @@ end
 
 function M.frozen_family_variant_witness_index(owner, edges)
   if owner_sources[owner] == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local witnesses = {}
   for _, edge in ipairs(edges) do
     if type(edge) ~= "table" or edge.owner ~= owner
         or type(edge.id) ~= "string" or edge.id == "" then
-      error("devloop.restart_owner_pending_projection: family variant edge identity is invalid")
+      error("devloop.restart_owner_pending_projection: family-variant-edge-identity-invalid: family variant edge identity is invalid")
     end
     if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil then
       if type(edge.cas_policy_id) ~= "string" or edge.cas_policy_id == ""
           or type(edge.cas_variant) ~= "string" or edge.cas_variant == "" then
-        error("devloop.restart_owner_pending_projection: family variant identity is invalid")
+        error("devloop.restart_owner_pending_projection: family-variant-identity-invalid: family variant identity is invalid")
       end
       local definition = restart_cas_catalog.definition(edge.cas_policy_id)
       local variants = type(definition) == "table" and definition.variants or nil
@@ -272,7 +272,7 @@ function M.frozen_family_variant_witness_index(owner, edges)
           and type(variant) == "table"
           and variant.target_state == edge.target then
         if witnesses[edge.id] ~= nil then
-          error("devloop.restart_owner_pending_projection: duplicate family variant edge id " .. edge.id)
+          error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate family variant edge id " .. edge.id)
         end
         witnesses[edge.id] = {
           owner = owner,
@@ -315,10 +315,10 @@ end
 function M.frozen_entitlement_witness_index(owner, edges)
   local sources = entitlement_witness_sources[owner]
   if sources == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local witnesses = {}
@@ -326,10 +326,10 @@ function M.frozen_entitlement_witness_index(owner, edges)
     local entitlements = type(edge) == "table" and edge.transition_effect_entitlements or nil
     if type(entitlements) == "table" and next(entitlements) ~= nil then
       if edge.owner ~= owner or type(edge.id) ~= "string" or edge.id == "" then
-        error("devloop.restart_owner_pending_projection: entitlement edge identity is invalid")
+        error("devloop.restart_owner_pending_projection: entitlement-edge-identity-invalid: entitlement edge identity is invalid")
       end
       if witnesses[edge.id] ~= nil then
-        error("devloop.restart_owner_pending_projection: duplicate entitlement edge id " .. edge.id)
+        error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate entitlement edge id " .. edge.id)
       end
       witnesses[edge.id] = {
         owner = owner,
@@ -358,22 +358,22 @@ end
 function M.frozen_timeout_witness_index(owner, rows, edges)
   local source_path = timeout_witness_sources[owner]
   if source_path == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(rows) ~= "table" then
-    error("devloop.restart_owner_pending_projection: rows must be an array")
+    error("devloop.restart_owner_pending_projection: rows-not-table: rows must be an array")
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local rows_by_id = {}
   for _, row in ipairs(rows) do
     if type(row) ~= "table" or type(row.from_state) ~= "string" or row.from_state == "" then
-      error("devloop.restart_owner_pending_projection: timeout witness row identity is invalid")
+      error("devloop.restart_owner_pending_projection: timeout-witness-row-identity-invalid: timeout witness row identity is invalid")
     end
     if rows_by_id[row.from_state] ~= nil then
-      error("devloop.restart_owner_pending_projection: duplicate timeout witness row id " .. row.from_state)
+      error("devloop.restart_owner_pending_projection: duplicate-row-id: duplicate timeout witness row id " .. row.from_state)
     end
     rows_by_id[row.from_state] = row
   end
@@ -385,10 +385,10 @@ function M.frozen_timeout_witness_index(owner, rows, edges)
           or type(edge.row_id) ~= "string" or edge.row_id == ""
           or type(edge.timeout_evidence_policy_id) ~= "string"
           or edge.timeout_evidence_policy_id == "" then
-        error("devloop.restart_owner_pending_projection: timeout edge identity is invalid")
+        error("devloop.restart_owner_pending_projection: timeout-edge-identity-invalid: timeout edge identity is invalid")
       end
       if witnesses[edge.id] ~= nil then
-        error("devloop.restart_owner_pending_projection: duplicate timeout edge id " .. edge.id)
+        error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate timeout edge id " .. edge.id)
       end
       local row = rows_by_id[edge.row_id]
       local actionable_epoch = type(row) == "table" and row.actionable_epoch or nil
@@ -417,10 +417,10 @@ end
 
 function M.frozen_generation_witness_index(owner, edges)
   if owner_sources[owner] == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(edges) ~= "table" then
-    error("devloop.restart_owner_pending_projection: edges must be an array")
+    error("devloop.restart_owner_pending_projection: edges-not-table: edges must be an array")
   end
 
   local witnesses = {}
@@ -431,10 +431,10 @@ function M.frozen_generation_witness_index(owner, edges)
       if edge.owner ~= owner or type(edge.id) ~= "string" or edge.id == ""
           or type(generation.keys) ~= "table" or #generation.keys == 0
           or type(edge.lineage_keys) ~= "table" or #edge.lineage_keys == 0 then
-        error("devloop.restart_owner_pending_projection: generation edge identity is invalid")
+        error("devloop.restart_owner_pending_projection: generation-edge-identity-invalid: generation edge identity is invalid")
       end
       if witnesses[edge.id] ~= nil then
-        error("devloop.restart_owner_pending_projection: duplicate generation edge id " .. edge.id)
+        error("devloop.restart_owner_pending_projection: duplicate-edge-id: duplicate generation edge id " .. edge.id)
       end
       witnesses[edge.id] = {
         owner = owner,
@@ -461,10 +461,10 @@ end
 function M.frozen_bounded_loop_witness_index(owner, representatives)
   local sources = bounded_loop_witness_sources[owner]
   if sources == nil then
-    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+    error("devloop.restart_owner_pending_projection: lifecycle-owner-unknown: unknown lifecycle owner " .. tostring(owner))
   end
   if type(representatives) ~= "table" then
-    error("devloop.restart_owner_pending_projection: representatives must be an array")
+    error("devloop.restart_owner_pending_projection: representatives-not-table: representatives must be an array")
   end
 
   local witnesses = {}
@@ -472,12 +472,12 @@ function M.frozen_bounded_loop_witness_index(owner, representatives)
   for key, representative in pairs(representatives) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0
         or type(representative) ~= "table" then
-      error("devloop.restart_owner_pending_projection: representatives must be an array of tables")
+      error("devloop.restart_owner_pending_projection: representatives-entry-invalid: representatives must be an array of tables")
     end
     count = count + 1
   end
   if count ~= #representatives then
-    error("devloop.restart_owner_pending_projection: representatives must be a dense array")
+    error("devloop.restart_owner_pending_projection: representatives-not-dense: representatives must be a dense array")
   end
 
   for _, representative in ipairs(representatives) do
@@ -487,13 +487,13 @@ function M.frozen_bounded_loop_witness_index(owner, representatives)
         or type(representative.loop_signal_field) ~= "string"
         or representative.loop_signal_field == ""
         or type(representative.expected_decision) ~= "table" then
-      error("devloop.restart_owner_pending_projection: bounded-loop representative identity is invalid")
+      error("devloop.restart_owner_pending_projection: bounded-loop-representative-identity-invalid: bounded-loop representative identity is invalid")
     end
     local source = sources[representative.loop_class]
     if source ~= nil then
       local witness_key = representative.loop_class .. "\n" .. representative.edge_id
       if witnesses[witness_key] ~= nil then
-        error("devloop.restart_owner_pending_projection: duplicate bounded-loop witness " .. witness_key)
+        error("devloop.restart_owner_pending_projection: duplicate-bounded-loop-witness: duplicate bounded-loop witness " .. witness_key)
       end
       witnesses[witness_key] = {
         owner = owner,

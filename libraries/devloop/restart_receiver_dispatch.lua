@@ -19,12 +19,12 @@ function M.index(owner, rows)
     if entitlement ~= nil then
       local state = row.from_state
       if type(state) ~= "string" or state == "" or by_state[state] ~= nil then
-        error("devloop.restart_receiver_dispatch: receiver state must be unique and non-empty")
+        error("devloop.restart_receiver_dispatch: receiver-state-identity-invalid: receiver state must be unique and non-empty")
       end
       if type(entitlement.id) ~= "string" or entitlement.id == ""
         or type(entitlement.effect_ids) ~= "table" or #entitlement.effect_ids ~= 1
         or type(entitlement.effect_ids[1]) ~= "string" or entitlement.effect_ids[1] == "" then
-        error("devloop.restart_receiver_dispatch: receiver entitlement must name exactly one effect")
+        error("devloop.restart_receiver_dispatch: receiver-entitlement-cardinality-invalid: receiver entitlement must name exactly one effect")
       end
       by_state[state] = {
         owner = owner,

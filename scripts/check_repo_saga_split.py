@@ -15,7 +15,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
+import check_repo_lua
 
 
 MANIFEST = "migration/github-devloop-saga-split.inventory"
@@ -259,27 +260,8 @@ def issue_state_contract_messages(root: Path) -> list[str]:
 
 
 def _strip_lua_line_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
-        if line.startswith("--", index):
-            return line[:index]
-        index += 1
+    for span in check_repo_lua.comment_spans(line, recognize_long_brackets=False):
+        return line[: span.start]
     return line
 
 
@@ -292,31 +274,28 @@ def _line_number(text: str, index: int) -> int:
 
 
 def _call_end(text: str, open_paren: int) -> int | None:
-    quote: str | None = None
-    escaped = False
     depth = 0
     line_count = 0
     limit = min(len(text), open_paren + CALL_SCAN_MAX_CHARS)
     index = open_paren
     while index < limit:
+        literal = check_repo_lua.literal_span_at(
+            text,
+            index,
+            recognize_long_brackets=False,
+            include_line_metadata=False,
+        )
+        if literal is not None:
+            line_count += text.count("\n", literal.start, literal.end)
+            if line_count > CALL_SCAN_MAX_LINES:
+                return None
+            index = literal.end
+            continue
         char = text[index]
         if char == "\n":
             line_count += 1
             if line_count > CALL_SCAN_MAX_LINES:
                 return None
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
         if char == "(":
             depth += 1
         elif char == ")":
@@ -334,26 +313,20 @@ def _call_arguments(call_text: str) -> list[tuple[str, int]]:
         return []
     args_text = call_text[open_paren + 1:close_paren]
     args: list[tuple[str, int]] = []
-    quote: str | None = None
-    escaped = False
     depth = 0
     start = 0
     index = 0
     while index < len(args_text):
+        literal = check_repo_lua.literal_span_at(
+            args_text,
+            index,
+            recognize_long_brackets=False,
+            include_line_metadata=False,
+        )
+        if literal is not None:
+            index = literal.end
+            continue
         char = args_text[index]
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
         if char in "({[":
             depth += 1
         elif char in ")}]":
@@ -457,6 +430,14 @@ def load_allowlist(path: Path) -> set[LeakSite]:
     return entries
 
 
+def parse_dev_allowlist_lines(lines: list[str]) -> set[LeakSite]:
+    return {
+        LeakSite.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def covered_by_allowlist(site: LeakSite, allowlist: set[LeakSite]) -> bool:
     return any(entry.key() == site.key() for entry in allowlist)
 
@@ -480,21 +461,6 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[LeakSite] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            LeakSite.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(root: Path) -> list[str]:
     entries, messages = load_manifest(root / MANIFEST)
     messages.extend(manifest_messages(root, entries))
@@ -509,7 +475,11 @@ def repository_messages(root: Path) -> list[str]:
         pr_phase_states = set()
     leaks = current_leaks(root, entries, pr_phase_states)
     allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+        root,
+        allowlist=ALLOWLIST,
+        parse_allowlist_lines=parse_dev_allowlist_lines,
+    )
     if base_status == "unresolved":
         messages.append("allowlist-base-unresolved: cannot resolve dev base allowlist to enforce shrink-only ratchet")
     messages.extend(ratchet_messages(leaks, allowlist, base_allowlist))

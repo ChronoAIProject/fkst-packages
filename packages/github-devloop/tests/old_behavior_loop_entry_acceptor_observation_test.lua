@@ -116,7 +116,7 @@ local function capture(fixture)
   if fixture.target == "proposal" then h.mock_context_bundle(event.payload) end
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   elseif fixture.payload == nil and fixture.error == nil then
     table.insert(comments, core.state_marker(PROPOSAL_ID, "thinking", VERSION))
   end
