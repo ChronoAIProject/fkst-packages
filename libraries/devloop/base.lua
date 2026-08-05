@@ -4,6 +4,7 @@ local config = require("devloop.config")
 local error_facts = require("contract.error_facts")
 local forge_validators = require("devloop.forge_validators")
 local base_ids = require("devloop.base_ids")
+local sha256 = require("contract.sha256")
 local strings = require("contract.strings")
 local transition_version = require("contract.transition_version")
 
@@ -31,6 +32,7 @@ local max_worktree_prefix_len = 90
 local max_branch_len = 160
 local max_pr_title_len = 240
 local max_judgment_prefix_len = 120
+local redrive_generation_fingerprint_hex_len = 32
 local action_label = "⟦FKST:ACTION⟧"
 local intake_label = "⟦FKST:INTAKE⟧"
 local class_label = "⟦FKST:CLASS⟧"
@@ -298,23 +300,31 @@ local function pr_review_redrive_generation_parts(review_repo, generation_key)
     return nil
   end
   local generation_prefix, heartbeat_state, epoch_text = generation_key:match("^(restart%-liveness%-v2.-)/reviewing/reviewing%.active/live_defer_heartbeat%-v1/review%-converge%-round%-(%a+)/([%d%.]+)$")
-  if generation_prefix == nil then
-    local fixing_generation_opened_by
-    generation_prefix, fixing_generation_opened_by, epoch_text = generation_key:match("^(restart%-liveness%-v2.-)/fixing/fixing%.actionable/codex_run_with_durable_hold%-v1/(.+)/([%d%.]+)$")
-    heartbeat_state = generation_prefix ~= nil and (fixing_generation_opened_by:match("^state%-entry%-v1%-.+") ~= nil or fixing_generation_opened_by:match("^ci%-repair%-attempt%-v1%-.+%-due$") ~= nil) and "fixing" or nil
+  if generation_prefix ~= nil then
+    local generation_code = ({ missing = "m", stale = "s" })[heartbeat_state]
+    local epoch_ms = tonumber(epoch_text)
+    if generation_prefix ~= "restart-liveness-v2"
+      or generation_code == nil
+      or epoch_ms == nil or epoch_ms < 1
+      or epoch_ms ~= math.floor(epoch_ms) then
+      return nil
+    end
+    return generation_code, string.format("%.0f", epoch_ms)
   end
-  local issue_proposal_id = generation_prefix and generation_prefix:match("^restart%-liveness%-v2/(github%-devloop/issue/.+)$") or nil
+
+  generation_prefix = generation_key:match(
+    "^(restart%-liveness%-v2.-)/fixing/fixing%.actionable/codex_run_with_durable_hold%-v1/.+$"
+  )
+  local issue_proposal_id = generation_prefix and generation_prefix:match(
+    "^restart%-liveness%-v2/(github%-devloop/issue/.+)$"
+  ) or nil
   local issue_repo = issue_proposal_id and base_ids.parse_proposal_id(issue_proposal_id) or nil
-  local generation_code = ({ fixing = "f", missing = "m", stale = "s" })[heartbeat_state]
-  local epoch_ms = tonumber(epoch_text)
-  if (generation_prefix ~= "restart-liveness-v2"
-      and (issue_repo == nil or C.safe_pr_review_repo_segment(issue_repo) ~= review_repo))
-    or generation_code == nil
-    or epoch_ms == nil or epoch_ms < 1
-    or epoch_ms ~= math.floor(epoch_ms) then
+  if generation_prefix == nil
+    or (generation_prefix ~= "restart-liveness-v2"
+      and (issue_repo == nil or C.safe_pr_review_repo_segment(issue_repo) ~= review_repo)) then
     return nil
   end
-  return generation_code, string.format("%.0f", epoch_ms)
+  return "f", sha256.hex(generation_key):sub(1, redrive_generation_fingerprint_hex_len)
 end
 
 function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_key, attempt)
@@ -322,7 +332,7 @@ function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_k
   if review_repo == nil then
     error("github-devloop: invalid PR review proposal id")
   end
-  local heartbeat_code, epoch_ms = pr_review_redrive_generation_parts(review_repo, generation_key)
+  local heartbeat_code, generation_identity = pr_review_redrive_generation_parts(review_repo, generation_key)
   if heartbeat_code == nil then
     error("github-devloop: invalid PR review redrive generation: " .. tostring(generation_key))
   end
@@ -330,7 +340,7 @@ function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_k
   if round == nil or round < 1 or round ~= math.floor(round) then
     error("github-devloop: invalid PR review redrive attempt")
   end
-  local key = tostring(review_proposal_id) .. "/r/" .. heartbeat_code .. "/" .. epoch_ms
+  local key = tostring(review_proposal_id) .. "/r/" .. heartbeat_code .. "/" .. generation_identity
     .. "/attempt/" .. tostring(round)
   if not is_path_safe_key(key, max_key_len) then
     error("github-devloop: PR review redrive delivery dedup exceeds the consensus key bound")
@@ -347,13 +357,18 @@ local function parse_pr_review_proposal_dedup_key(dedup_key)
   if review_proposal ~= nil and C.parse_pr_review_proposal_id(review_proposal) ~= nil then
     return review_proposal, C.pr_review_proposal_dedup_key(review_proposal), "canonical"
   end
-  local heartbeat_code, epoch_ms, attempt
-  review_proposal, heartbeat_code, epoch_ms, attempt = without_loop:match(
-    "^(github%-devloop/pr%-review/[^/]+/%d+/[^/]+/[^/]+)/r/([fms])/(%d+)/attempt/(%d+)$"
+  local heartbeat_code, generation_identity, attempt
+  review_proposal, heartbeat_code, generation_identity, attempt = without_loop:match(
+    "^(github%-devloop/pr%-review/[^/]+/%d+/[^/]+/[^/]+)/r/([fms])/([^/]+)/attempt/(%d+)$"
   )
+  local valid_generation_identity = heartbeat_code == "f"
+    and #tostring(generation_identity or "") == redrive_generation_fingerprint_hex_len
+    and tostring(generation_identity):match("^[0-9a-f]+$") ~= nil
+    or (heartbeat_code == "m" or heartbeat_code == "s")
+      and tostring(generation_identity or ""):match("^[1-9]%d*$") ~= nil
   if review_proposal == nil
     or not is_path_safe_key(without_loop, max_key_len)
-    or epoch_ms:match("^[1-9]%d*$") == nil
+    or not valid_generation_identity
     or tonumber(attempt) == nil
     or tonumber(attempt) < 1
     or C.parse_pr_review_proposal_id(review_proposal) == nil then

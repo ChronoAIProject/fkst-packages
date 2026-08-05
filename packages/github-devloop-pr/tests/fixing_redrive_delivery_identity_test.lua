@@ -176,6 +176,26 @@ local function assert_reviewing_receiver(event, raised, state, comment_id, test_
   t.eq(v_reviewing.is_supported_reviewing(core, reviewing.payload), true)
 end
 
+local function deliver_fixing_redrive(event, raised, current_head, test_name)
+  local fixing = find_raise(raised, "devloop_fixing")
+  t.is_true(fixing ~= nil)
+  h.mock_bot_env()
+  h.mock_write_env("")
+  local bodies = fixing_comment_bodies(event)
+  h.mock_issue_fix_for_event(fixing.payload, { "fkst-dev:fixing" }, bodies, branch, event.version)
+  h.mock_pr_fix(bodies, branch, current_head)
+  if current_head ~= event.reviewed_head_sha then
+    t.mock_command("git rev-parse --verify refs/heads/" .. branch, {
+      stdout = current_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  local received = h.run_fix(fixing.payload, h.opts(test_name))
+  t.eq(received.exit_code, 0, tostring(received.error))
+  return received.raises
+end
+
 return {
   test_replayed_fixing_payload_uses_generation_scoped_delivery_identity = function()
     local event = h.fixing()
@@ -216,14 +236,7 @@ return {
     t.is_true(fixing ~= nil)
     t.eq(fixing.payload.redrive_delivery.attempt, 1)
     t.eq(v_fixing.is_supported_fixing(fixing.payload), true)
-
-    h.mock_bot_env()
-    h.mock_write_env("")
-    local bodies = fixing_comment_bodies(event)
-    h.mock_issue_fix_for_event(fixing.payload, { "fkst-dev:fixing" }, bodies, branch, event.version)
-    h.mock_pr_fix(bodies, branch, reviewed_head)
-    local received = h.run_fix(fixing.payload, h.opts("fixing-redrive-delivery-receiver"))
-    t.eq(received.exit_code, 0)
+    deliver_fixing_redrive(event, raised, reviewed_head, "fixing-redrive-delivery-receiver")
   end,
 
   test_fixing_timeout_advanced_head_reaches_reviewing_receiver = function()
@@ -240,8 +253,11 @@ return {
     })
 
     local raised, state = capture_timeout_redrive(event, advanced_head)
+    local receiver_raises = deliver_fixing_redrive(
+      event, raised, advanced_head, "fixing-redrive-reviewing-receiver"
+    )
     assert_reviewing_receiver(
-      event, raised, state,
+      event, receiver_raises, state,
       "IC_fixing_redrive_reviewing_1",
       "fixing-redrive-reviewing-handoff"
     )
@@ -271,8 +287,11 @@ return {
     )
     t.eq(facts.actionable_epoch_eval.status, "actionable")
     t.is_true(facts.actionable_epoch_eval.generation_key:find("-due/", 1, true) ~= nil)
+    local receiver_raises = deliver_fixing_redrive(
+      event, raised, advanced_head, "fixing-durable-hold-redrive-reviewing-receiver"
+    )
     assert_reviewing_receiver(
-      event, raised, state,
+      event, receiver_raises, state,
       "IC_fixing_durable_hold_redrive_reviewing_1",
       "fixing-durable-hold-redrive-reviewing-handoff"
     )

@@ -1,4 +1,5 @@
 local h = require("tests.devloop_core_helpers")
+local sha256 = require("contract.sha256")
 local transition_version = require("contract.transition_version")
 local devloop_base = require("devloop.base")
 local core = h.core
@@ -393,6 +394,28 @@ return {
       devloop_base.pr_review_redrive_delivery_dedup_key(review, generation_prefix .. "missing/1798144657406.0", 2)
         ~= devloop_base.pr_review_redrive_delivery_dedup_key(review, generation_prefix .. "missing/1788062342930.0", 2)
     )
+  end,
+
+  test_pr_review_redrive_delivery_uses_complete_opaque_fixing_generation = function()
+    local review = devloop_base.pr_review_proposal_id(
+      "ChronoAIProject/fkst-packages",
+      2198,
+      "ready/github-devloop/issue/ChronoAIProject/fkst-packages/2196/intake/2750608298/review-loop/1/fix/1",
+      "381b34d281a1da6b6a7ef224f4c588309396b544"
+    )
+    local generation_prefix = "restart-liveness-v2/github-devloop/issue/ChronoAIProject/fkst-packages/2196/fixing/fixing.actionable/codex_run_with_durable_hold-v1/"
+    local row_budget_generation = generation_prefix .. "codex-run-row-budget-absolute-cap/1798144657406"
+    local indeterminate_generation = generation_prefix .. "codex-run-indeterminate/1798144657406"
+    local row_budget = devloop_base.pr_review_redrive_delivery_dedup_key(review, row_budget_generation, 2)
+    local indeterminate = devloop_base.pr_review_redrive_delivery_dedup_key(review, indeterminate_generation, 2)
+
+    t.is_true(#row_budget <= devloop_base._max_key_len)
+    t.is_true(#indeterminate <= devloop_base._max_key_len)
+    t.is_true(row_budget ~= indeterminate)
+    t.is_true(row_budget:find("/r/f/" .. sha256.hex(row_budget_generation):sub(1, 32) .. "/attempt/2", 1, true) ~= nil)
+    t.is_true(indeterminate:find("/r/f/" .. sha256.hex(indeterminate_generation):sub(1, 32) .. "/attempt/2", 1, true) ~= nil)
+    t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(row_budget), review)
+    t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(indeterminate), review)
   end,
 
   test_devloop_state_builders_delegate_to_byte_exact_transition_constructors = function()
