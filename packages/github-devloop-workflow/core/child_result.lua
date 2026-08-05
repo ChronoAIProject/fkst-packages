@@ -116,6 +116,23 @@ local function impl_failed_reason(deps, child_ref)
   return tostring(reason), true
 end
 
+local function confirmed_child_disposition(deps, child_ref)
+  if type(deps.child_disposition_receipt) ~= "function" then
+    return nil, true
+  end
+  local ok, disposition = pcall(deps.child_disposition_receipt, child_ref)
+  if not ok then
+    return nil, false
+  end
+  if disposition == nil then
+    return nil, true
+  end
+  if type(disposition) ~= "table" or disposition.disposition ~= "satisfied" then
+    return nil, false
+  end
+  return disposition, true
+end
+
 -- Uses only exact child-boundary evidence:
 --   deps.has_merged_marker
 --   devloop.markers.facts.merged_fact over trusted marker comments
@@ -124,6 +141,17 @@ end
 function M.child_result_status(deps, child_ref)
   if type(deps) ~= "table" or type(child_ref) ~= "table" then
     return M.STATUS_UNKNOWN
+  end
+
+  local disposition, disposition_ok = confirmed_child_disposition(deps, child_ref)
+  if not disposition_ok then
+    return M.STATUS_UNKNOWN
+  end
+  if disposition ~= nil then
+    return M.STATUS_RESULT_READY, {
+      disposition = disposition.disposition,
+      receipt_commit_sha = disposition.commit_sha,
+    }
   end
 
   local merged_marker = has_trusted_merged_marker(deps, child_ref)

@@ -25,6 +25,24 @@ local function deps(extra)
 end
 
 local tests = {
+  test_confirmed_satisfied_receipt_is_result_ready_before_merge_evidence = function()
+    local status, detail = child_result.child_result_status(deps({
+      child_disposition_receipt = function(ref)
+        t.eq(ref.proposal_id, child.proposal_id)
+        return {
+          disposition = "satisfied",
+          commit_sha = string.rep("a", 40),
+        }
+      end,
+      has_merged_marker = function()
+        error("merge evidence must not be read after a confirmed receipt")
+      end,
+    }), child)
+
+    t.eq(status, "result_ready")
+    t.eq(detail.disposition, "satisfied")
+  end,
+
   test_trusted_merged_marker_is_result_ready = function()
     local status = child_result.child_result_status(deps({
       has_merged_marker = function(ref)
