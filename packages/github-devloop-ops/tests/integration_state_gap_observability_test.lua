@@ -5,25 +5,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local m_builders = require("devloop.markers.builders")
 
-local function opts(name)
-  return {
-    env = {
-      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
-      FKST_GITHUB_REPO = "owner/repo",
-      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
-      FKST_GITHUB_WRITE = "",
-      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
-      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration/dev",
-    },
-  }
-end
 
-local function run_observability()
-  return t.run_department("departments/observability/main.lua", {
-    queue = "devloop_observe_tick",
-    payload = { schema = "github-devloop.observe-tick.v1" },
-  }, opts("state-gap-observability"))
-end
 
 local function mock_env()
   for _ = 1, 8 do
@@ -185,15 +167,6 @@ local function gap_logs(event)
   return logs
 end
 
-local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
-end
 
 return {
   test_logs_state_gap_edges_from_trusted_marker_stream = function()

@@ -183,22 +183,6 @@ local function ready_for_implementation_version(ready, version)
   return copy
 end
 
-local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, status)
-  return {
-    kind = "implementing",
-    ready = ready,
-    worktree = worktree,
-    branch = branch,
-    head_sha = head_sha,
-    base_branch = base_branch,
-    base_sha = base_sha,
-    attempt = attempt,
-    started_at = started_at,
-    exec_ref = exec_ref,
-    finished_at = now(),
-    outcome = status or "completed",
-  }
-end
 
 local function raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
   local request = requests_lifecycle.build_implement_version_mismatch_comment_request(core,

@@ -23,28 +23,7 @@ local merge_comments = h.merge_comments
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local function pr_event(updated_at)
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    dedup_key = "owner/repo#pr#7@" .. tostring(updated_at or "2026-06-04T03:00:00Z"),
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#pr/7",
-    },
-  }
-end
 
-local function trusted_command(id)
-  return {
-    id = id or "IC_rereview_1",
-    body = "fkst: rereview\n\nCI was rerun.",
-    author_login = "fkst-test-bot",
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
 
 local function trusted_issue_command(command, id)
   return {
