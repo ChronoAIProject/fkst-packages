@@ -1,16 +1,15 @@
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
+local entity_highwater = require("devloop.entity_highwater")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
-local convergence_shared = require("devloop.convergence.shared")
 local check_runs = require("forge.github.check_runs")
 local queue = require("devloop.queue")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
-local transition_version = require("contract.transition_version")
 local m_facts = require("devloop.markers.facts")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
 local forge_validators = require("devloop.forge_validators")
@@ -18,13 +17,14 @@ local operator_commands = require("devloop.operator_commands")
 local decompose_lib = require("devloop.decompose")
 local replayer = require("devloop.replayer")
 local config = require("devloop.config")
-local conv_rounds = require("devloop.convergence.rounds")
 local v_pr = require("devloop.validators.pr")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local observe_pr_caps = require("observe_pr_department_caps")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
+local payloads_builders = require("devloop.payloads.builders")
 
 local M = {}
 local restart_transition_table = core.restart_transition_table
@@ -72,6 +72,7 @@ local function pr_context(event)
       number = payload.number,
       dedup_key = payload.dedup_key,
       source_ref = payload.source_ref,
+      updated_at = payload.updated_at,
     }
   end
   return nil
@@ -160,6 +161,18 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked", "decomposed", "skip-foreign(decomposed)", "decomposed marker is not visible")
     return false
   end
+  local feedback, fix_feedback_observation = nil, nil
+  if not devloop_state.is_current_state(
+      current_pr.comments, origin.proposal_id, "review-meta", state.version) then
+    local observation = m_fix_feedback_observation.observe(
+      current_pr.comments, origin.proposal_id, state.version)
+    if observation.source == "merge-gate" and observation.status == "invalid" then
+      fix_feedback_observation = observation
+    else
+      feedback = core.fixing_replay_feedback_fact(
+        current_pr.comments, origin.proposal_id, state.version)
+    end
+  end
   return replayer.replay_from_table(core, "observe_pr", {
     repo = origin.repo,
     number = origin.issue_number,
@@ -182,27 +195,10 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     },
     source_ref = source_ref,
     now_seconds = now_seconds,
-    feedback = core.fixing_replay_feedback_fact(current_pr.comments, origin.proposal_id, state.version), fix_feedback = core.fixing_replay_feedback_fact(current_pr.comments, origin.proposal_id, state.version),
+    feedback = feedback,
+    fix_feedback_observation = fix_feedback_observation,
+    fix_feedback = feedback,
   })
-end
-
-local function is_stalled_reviewing(current_pr, origin, pr_number, state)
-  if state.state ~= "reviewing" or not forge_validators.is_git_sha(current_pr.head_sha) then
-    return false
-  end
-  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
-  local review_version = transition_version.safe_version_segment(state.version)
-  local sr_digest = convergence_shared.source_ref_digest(entity_lib.pr_source_ref(origin.repo, pr_number))
-  local facts = conv_rounds.review_converge_round_facts(core,
-    current_pr.comments,
-    review_proposal_id,
-    origin.proposal_id,
-    review_version,
-    current_pr.head_sha,
-    sr_digest
-  )
-  local round = conv_rounds.max_converge_round(facts)
-  return conv_rounds.is_true_stall(facts, round)
 end
 
 local function maybe_apply_rereview_command(origin, pr_number, current_pr, state, source_ref)
@@ -214,7 +210,30 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
-  if state.state ~= "blocked" and state.state ~= "review-meta" and state.state ~= "reviewing" then
+  local authority_current, authority_reason, authorized_version = operator_commands.output_obligation_rereview_command_precondition(
+    command,
+    pr_number,
+    current_pr,
+    state
+  )
+  if not authority_current then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "authorized-rereview-command", "reviewing", "refused(command-authority-changed)", "output obligation rereview authority changed before application")
+    local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
+      pr_number,
+      command,
+      authority_reason,
+      source_ref
+    )
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
+    return true
+  end
+  local admissible, precondition_reason = operator_commands.rereview_precondition(
+    current_pr,
+    origin,
+    pr_number,
+    state
+  )
+  if not admissible and precondition_reason == "invalid-state" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(invalid-state)", "operator rereview precondition failed")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -225,7 +244,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if state.state == "reviewing" and not is_stalled_reviewing(current_pr, origin, pr_number, state) then
+  if not admissible and precondition_reason == "active-reviewing" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|stalled-reviewing", "reviewing", "refused(active-reviewing)", "operator rereview requires stalled reviewing")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -236,7 +255,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if tostring(current_pr.state or ""):lower() ~= "open" then
+  if not admissible and precondition_reason == "pr-closed" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(pr-closed)", "operator rereview requires an open PR")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -247,7 +266,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if not forge_validators.is_git_sha(current_pr.head_sha) then
+  if not admissible and precondition_reason == "head-missing" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(head-missing)", "operator rereview requires a current PR head")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -259,7 +278,8 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     return true
   end
 
-  local new_version = operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
+  local new_version = authorized_version
+    or operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
   local comment_request = requests_review.build_operator_rereview_comment_request(origin.repo,
     pr_number,
     origin.proposal_id,
@@ -314,9 +334,10 @@ local function build_conflict_review_fact(origin, pr_number, current_pr, version
   if not forge_validators.is_git_sha(head_sha) then
     return nil, "head-missing"
   end
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha)
   return {
-    review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha),
-    review_dedup_key = "observe-pr-conflict/" .. tostring(origin.proposal_id) .. "/" .. tostring(version) .. "/" .. tostring(pr_number),
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
     reviewed_head_sha = head_sha,
     gate_failure_excerpt = reason,
   }, "ok"
@@ -466,51 +487,161 @@ local function maybe_block_unmanaged_base(pr, origin, current_pr, branches, sour
     return true
   end
 
-  with_lock(lock_key, function()
-    local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
-    local issue_current = issue_claim_for_origin(origin)
-    if maybe_heal_pr_base_unmanaged_block(origin, pr.number, current_pr, state, branches, source_ref, issue_current) then
-      return
-    end
-    if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
-      return
-    end
-    if state.state == "blocked" then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-idempotent(already at to_state)", "blocked marker visible on PR")
-      maybe_label_hints(origin, pr.number, current_pr, state, source_ref)
-      return
-    end
-    if state.state ~= "pr-open" then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(state-mismatch)", "PR is not in pr-open state")
-      return
-    end
-    if tostring(state.version or "") ~= tostring(origin.impl_version or "") then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(version-mismatch)", "PR-open marker version does not match PR origin")
-      return
-    end
-    if tostring(current_pr.state or ""):lower() ~= "open" then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(pr-closed)", "re-derived PR is not open")
-      return
-    end
+  local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
+  local issue_current = issue_claim_for_origin(origin)
+  if maybe_heal_pr_base_unmanaged_block(origin, pr.number, current_pr, state, branches, source_ref, issue_current) then
+    return true
+  end
+  if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
+    return true
+  end
+  if state.state == "blocked" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-idempotent(already at to_state)", "blocked marker visible on PR")
+    maybe_label_hints(origin, pr.number, current_pr, state, source_ref)
+    return true
+  end
+  if state.state ~= "pr-open" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(state-mismatch)", "PR is not in pr-open state")
+    return true
+  end
+  if tostring(state.version or "") ~= tostring(origin.impl_version or "") then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(version-mismatch)", "PR-open marker version does not match PR origin")
+    return true
+  end
+  if tostring(current_pr.state or ""):lower() ~= "open" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "skip-stale(pr-closed)", "re-derived PR is not open")
+    return true
+  end
 
-    local blocked_version = requests_review.pr_base_unmanaged_blocked_version(origin.impl_version)
-    local blocked_state = {
-      state = "blocked",
-      version = blocked_version,
-      proposal_id = origin.proposal_id,
-    }
-    local comment_request = requests_review.build_pr_base_unmanaged_comment_request(origin.repo, pr.number, origin, branches.integration, source_ref)
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "applied(pr-base-unmanaged)", "self-claimed PR base is not managed by this instance")
-    devloop_logging.log_apply("observe_pr", origin.proposal_id, "blocked", blocked_version, { add = { "fkst-dev:blocked" }, remove = {} }, {
-      "github-proxy.github_pr_comment_request",
-    })
-    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-    maybe_pr_label_hint(origin, pr.number, current_pr, blocked_state, source_ref)
-  end)
+  local blocked_version = requests_review.pr_base_unmanaged_blocked_version(origin.impl_version)
+  local blocked_state = {
+    state = "blocked",
+    version = blocked_version,
+    proposal_id = origin.proposal_id,
+  }
+  local comment_request = requests_review.build_pr_base_unmanaged_comment_request(origin.repo, pr.number, origin, branches.integration, source_ref)
+  devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "blocked", "applied(pr-base-unmanaged)", "self-claimed PR base is not managed by this instance")
+  devloop_logging.log_apply("observe_pr", origin.proposal_id, "blocked", blocked_version, { add = { "fkst-dev:blocked" }, remove = {} }, {
+    "github-proxy.github_pr_comment_request",
+  })
+  devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+  maybe_pr_label_hint(origin, pr.number, current_pr, blocked_state, source_ref)
   return true
 end
 
-local function process_pr_event(event)
+local function maybe_remediate_legacy_fix_feedback(origin, pr_number, current_pr,
+    state, source_ref, lock_key)
+  if state.state ~= "fixing" then
+    return false
+  end
+  local observation = m_fix_feedback_observation.legacy_review_meta_unbound(
+    current_pr.comments, origin.proposal_id, state.version)
+  if observation == nil then
+    return false
+  end
+  if origin.issue_number == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", "skip-pending(legacy-fix-feedback-identity)",
+      "legacy fix feedback remediation requires an issue-backed PR with a current head")
+    return true
+  end
+
+  local review_version = devloop_state._strip_latest_fix_version_suffix(state.version)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(
+    origin.repo, pr_number, review_version, current_pr.head_sha)
+  local review_dedup_key =
+    devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
+  if not devloop_base.is_safe_pr_review_result_ref(
+      review_proposal_id, review_dedup_key) then
+    error("github-devloop: legacy-fix-feedback-review-identity-invalid: "
+      .. "could not derive a current review identity")
+  end
+  local review_meta = payloads_builders.build_devloop_review_meta_payload({
+    proposal_id = review_proposal_id,
+    dedup_key = review_dedup_key,
+    source_ref = source_ref,
+  }, origin.proposal_id, state.version, pr_number, 0, source_ref)
+
+  local snapshot = observe_pr_caps.restart_effects.seal_snapshot({
+    owner = observe_pr_caps.restart_package_name,
+    entity = { kind = "pr", repo = origin.repo, number = pr_number },
+    proposal_id = origin.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "observe-pr-legacy-fix-feedback", origin.proposal_id,
+      state.version, pr_number, current_pr.head_sha,
+    }, "|"),
+    lock_epoch = lock_key .. "@" .. state.version,
+    generation = state.version,
+    head = { sha = current_pr.head_sha },
+  })
+  local decision = observe_pr_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = "revision_failed",
+    target = "review-meta",
+    incoming_version = state.version,
+    overlay_version = state.version,
+  })
+  observe_pr_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: legacy fix feedback remediation rejected"
+  )
+  if decision.status == "idempotent" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", decision.cas_outcome,
+      "legacy fix feedback already reached review-meta")
+    return true
+  end
+  if decision.status ~= "apply" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", decision.cas_outcome,
+      "legacy fix feedback remediation is not currently admissible")
+    return true
+  end
+
+  local grant = observe_pr_caps.restart_effects.mint_grant(
+    snapshot, decision, "comment:pr:fix-review-meta")
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: "
+      .. "legacy fix feedback remediation grant was not minted")
+  end
+  local facade = observe_pr_caps.restart_effect_facade.make({
+    family = "pr-fix-review-meta",
+    verify_grant = observe_pr_caps.restart_effects.verify_grant,
+    sink_inventory = observe_pr_caps.sink_inventory,
+  })
+  local args = {
+    core = core,
+    repo = origin.repo,
+    issue_number = origin.issue_number,
+    review_meta = review_meta,
+    reason = "legacy-fix-feedback-unbound",
+    detail = "Legacy review-meta fix feedback has no replay binding.",
+  }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: legacy fix feedback effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
+
+  local add_labels, remove_labels = devloop_state.state_label_changes("review-meta")
+  devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+    "fixing", "review-meta", "applied(legacy-fix-feedback-unbound)",
+    "legacy review-meta fix feedback has no replay binding")
+  devloop_logging.log_apply("observe_pr", origin.proposal_id, "review-meta",
+    state.version, { add = add_labels, remove = remove_labels },
+    decision.granted_effect_ids)
+  for _, effect in ipairs(effects) do
+    devloop_logging.log_raise(
+      "observe_pr", origin.proposal_id, effect.queue, effect.payload)
+  end
+  return true
+end
+
+local function reconcile_pr_event(event)
   local pr = pr_context(event)
   local raw = event.payload or {}
   local current_now_seconds = tonumber(event.now_seconds) or now()
@@ -521,49 +652,73 @@ local function process_pr_event(event)
   end
 
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
-  devloop_base.assert_trusted_bot_configured()
-  local branches = config.branch_config()
-  local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at)
-  if pr_view.exit_code ~= 0 then
-    error("github-devloop: gh-pr-origin-view-failed: gh pr origin view failed: " .. tostring(pr_view.stderr))
-  end
-
-  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
-  local origin, has_issue_origin = origin_from_pr(pr.repo, pr.number, current_pr)
-  if origin.branch == nil or origin.base_branch == nil then
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(pr)", "PR branch facts missing")
-    return
-  end
-  local ok, reason = origin_matches_pr(origin, current_pr, pr.repo, branches, false)
-  if not ok then
-    if reason == "base"
-      and origin_base_matches_current_pr(origin, current_pr)
-      and not origin_base_matches_integration(origin, branches) then
-      local source_ref = pr_source_ref(pr.repo, pr.number)
-      if maybe_block_unmanaged_base(pr, origin, current_pr, branches, source_ref) then
-        return
-      end
+  local function resolve_lock()
+    devloop_base.assert_trusted_bot_configured()
+    local branches = config.branch_config()
+    local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
+      force_fresh = true,
+      consumer = "observe_pr",
+    })
+    if pr_view.exit_code ~= 0 then
+      error("github-devloop: gh-pr-origin-view-failed: gh pr origin view failed: " .. tostring(pr_view.stderr))
     end
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(" .. reason .. ")", "PR origin mismatch")
-    return
+
+    local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
+    local origin, has_issue_origin = origin_from_pr(pr.repo, pr.number, current_pr)
+    local transition_lock_key = entity_lib.transition_lock_key(origin.proposal_id)
+    return transition_lock_key or entity_lib.observe_lock_key(pr.repo, pr.number, "pr"), {
+      branches = branches,
+      current_pr = current_pr,
+      has_issue_origin = has_issue_origin,
+      origin = origin,
+      source_ref = pr_source_ref(pr.repo, pr.number),
+      transition_lock_key = transition_lock_key,
+    }
   end
 
-  emit_restart_transition_anomalies(current_pr.comments, origin, pr.number)
+  local function process_pr_event(prepared, record_authoritative_version)
+    local branches = prepared.branches
+    local current_pr = prepared.current_pr
+    local has_issue_origin = prepared.has_issue_origin
+    local origin = prepared.origin
+    local source_ref = prepared.source_ref
+    local lock_key = prepared.transition_lock_key
+    record_authoritative_version(current_pr.updated_at)
 
-  local source_ref = pr_source_ref(pr.repo, pr.number)
-  local lock_key = entity_lib.transition_lock_key(origin.proposal_id)
-  if lock_key == nil then
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(proposal_id)", "no transition lock key")
-    return
-  end
+    if origin.branch == nil or origin.base_branch == nil then
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(pr)", "PR branch facts missing")
+      return
+    end
+    local ok, reason = origin_matches_pr(origin, current_pr, pr.repo, branches, false)
+    if not ok then
+      if reason == "base"
+        and origin_base_matches_current_pr(origin, current_pr)
+        and not origin_base_matches_integration(origin, branches) then
+        if maybe_block_unmanaged_base(pr, origin, current_pr, branches, source_ref) then
+          return
+        end
+      end
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(" .. reason .. ")", "PR origin mismatch")
+      return
+    end
 
-  with_lock(lock_key, function()
+    emit_restart_transition_anomalies(current_pr.comments, origin, pr.number)
+
+    if lock_key == nil then
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(proposal_id)", "no transition lock key")
+      return
+    end
+
     local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
     local issue_current = issue_claim_for_origin(origin)
     if maybe_heal_pr_base_unmanaged_block(origin, pr.number, current_pr, state, branches, source_ref, issue_current) then
       return
     end
     if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
+      return
+    end
+    if maybe_remediate_legacy_fix_feedback(
+        origin, pr.number, current_pr, state, source_ref, lock_key) then
       return
     end
     local merge_gate_feedback = nil
@@ -691,12 +846,19 @@ local function process_pr_event(event)
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("observe_pr", origin.proposal_id, effect.queue, effect.payload)
     end
-  end)
+  end
+
+  return entity_highwater.reconcile({
+    consumer = "github-devloop-pr/observe_pr",
+    event = event,
+    resolve_lock = resolve_lock,
+    work = process_pr_event,
+  })
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   queue.dispatch_consumed_queue("observe_pr", spec, event, {
-    ["github-proxy.github_entity_changed"] = process_pr_event,
-    devloop_observe_pr = process_pr_event,
+    ["github-proxy.github_entity_changed"] = reconcile_pr_event,
+    devloop_observe_pr = reconcile_pr_event,
   }, "github-devloop-pr")
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_pr" })

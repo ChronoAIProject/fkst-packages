@@ -291,6 +291,8 @@ local function fact_value(core, row, state, family, successor)
       proposal_id = ISSUE_PROPOSAL,
       dedup_key = state.version,
       reason = "codex-failed",
+      fault_class = "UNKNOWN",
+      retryable = true,
       attempt = 1,
     }
   end
@@ -457,7 +459,14 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
   elseif family == "implementing" then
     table.insert(entity.comments, comment(core, m_builders.implementing_marker(ISSUE_PROPOSAL, state.version, BRANCH, HEAD_SHA, BASE_BRANCH, BASE_SHA), "2026-06-03T01:03:07Z"))
   elseif family == "impl-failure" then
-    table.insert(entity.comments, comment(core, core.impl_failure_marker(ISSUE_PROPOSAL, state.version, value.reason or "codex-failed", value.attempt or 1), "2026-06-03T01:03:07Z"))
+    table.insert(entity.comments, comment(core, core.impl_failure_marker(
+      ISSUE_PROPOSAL,
+      state.version,
+      value.reason or "codex-failed",
+      value.attempt or 1,
+      value.fault_class,
+      value.retryable
+    ), "2026-06-03T01:03:07Z"))
   elseif family == "decomposed" then
     table.insert(entity.comments, comment(core, decompose_lib.decomposed_marker(ISSUE_PROPOSAL, state.version, PR_NUMBER, value.count or 1), "2026-06-03T01:03:08Z"))
   elseif family == "fix-feedback" then

@@ -293,6 +293,7 @@ def inventory_references_new_modules(inventory: Any) -> list[str]:
     return messages
 
 
+# Local variant: preserves ordering and treats nonempty comment lines as entries.
 def load_allowlist(path: Path) -> list[str]:
     if not path.exists():
         return []

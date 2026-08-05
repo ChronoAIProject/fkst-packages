@@ -15,6 +15,12 @@ local validators = require("devloop.commands.validators")
     end)
   end
 
+  function C.gh_issue_list_freshness(repo, issue_numbers, timeout)
+    return support.gh_result(function()
+      return support.github().issue_list_updated_at(repo, issue_numbers, timeout)
+    end)
+  end
+
   function C.gh_pr_list_merge_queue(repo, base, timeout)
     return support.gh_result(function()
       return support.github().pr_list_merge_queue(repo, validators.require_safe_branch("merge queue base branch", base), timeout)

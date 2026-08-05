@@ -1,8 +1,10 @@
 local h = require("tests.devloop_helpers")
-local cache_seed_helpers = require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
-local _ = cache_seed_helpers
+
+local ATTEMPT_LEDGER_SHA = "1111111111111111111111111111111111111111"
+local ATTEMPT_LEDGER_TREE_SHA = "2222222222222222222222222222222222222222"
+local ATTEMPT_LEDGER_COMMIT_SHA = "3333333333333333333333333333333333333333"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -230,21 +232,57 @@ local function run_conflict(payload, run_opts)
   }, run_opts or opts("sync-conflict"))
 end
 
-local function seed_cache(key, value, run_opts)
-  return t.run_department("departments/test_cache_seed/main.lua", {
-    queue = "cache_seed",
-    payload = {
-      key = key,
-      value = value,
-    },
-  }, run_opts)
+local function mock_attempt_ledger(payload, attempt)
+  local ref = core.sync_conflict_attempt_ref(payload)
+  if attempt == nil then
+    t.mock_command("git ls-remote origin " .. ref, { stdout = "", stderr = "", exit_code = 0 })
+    return
+  end
+  t.mock_command("git ls-remote origin " .. ref, {
+    stdout = ATTEMPT_LEDGER_SHA .. "\t" .. ref .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch origin " .. ref, { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git cat-file -p " .. ATTEMPT_LEDGER_SHA, {
+    stdout = "tree " .. ATTEMPT_LEDGER_TREE_SHA .. "\n\n"
+      .. core.sync_conflict_attempt_ledger(payload, attempt)
+      .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
-local function mock_fetch_and_heads(upstream_sha, integration_sha)
+local function mock_attempt_ledger_write(payload)
+  local ref = core.sync_conflict_attempt_ref(payload)
+  t.mock_command("^{tree}", {
+    stdout = ATTEMPT_LEDGER_TREE_SHA .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git commit-tree", {
+    stdout = ATTEMPT_LEDGER_COMMIT_SHA .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git push origin " .. ATTEMPT_LEDGER_COMMIT_SHA .. ":" .. ref, {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
+end
+
+local function mock_fetch_and_heads(upstream_sha, integration_sha, attempt)
   t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'dev'^{commit}", { stdout = (upstream_sha or "aaaa1111") .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = (integration_sha or "bbbb2222") .. "\n", stderr = "", exit_code = 0 })
+  mock_attempt_ledger(event({
+    upstream_sha = upstream_sha or "aaaa1111",
+    integration_sha = integration_sha or "bbbb2222",
+  }), attempt)
 end
 
 local function mock_conflicting_worktree(unmerged_stdout)
@@ -437,9 +475,10 @@ return {
     mock_conflicting_worktree()
     t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
     t.mock_command("ls-files -u", { stdout = "100644 abc 1\tcore.lua\n", stderr = "", exit_code = 0 })
+    mock_attempt_ledger(event(), nil)
     mock_cleanup()
 
-    local result = run_conflict(event(), opts("sync-conflict-leftover", "1"))
+    local result = run_conflict(event(), opts("sync-conflict-leftover", ""))
     t.eq(result.exit_code, 1)
     t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
   end,
@@ -447,13 +486,13 @@ return {
   test_sync_conflict_leftover_conflict_at_attempt_cap_escalates_without_failure = function()
     local payload = event()
     local remaining = "100644 abc 1\tcore.lua\n"
-    local fingerprint = core.sync_conflict_fingerprint(payload, remaining)
     local run_opts = opts("sync-conflict-leftover-terminal", "1")
-    seed_cache(core.sync_conflict_attempt_key(payload, fingerprint), tostring(core.max_sync_conflict_attempts() - 1), run_opts)
-    mock_fetch_and_heads()
+    mock_fetch_and_heads(nil, nil, core.max_sync_conflict_attempts() - 1)
     mock_conflicting_worktree()
     t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
     t.mock_command("ls-files -u", { stdout = remaining, stderr = "", exit_code = 0 })
+    mock_attempt_ledger(payload, core.max_sync_conflict_attempts() - 1)
+    mock_attempt_ledger_write(payload)
     mock_cleanup()
 
     local result = run_conflict(payload, run_opts)
@@ -469,11 +508,8 @@ return {
 
   test_sync_conflict_attempt_cap_escalates_before_codex = function()
     local payload = event()
-    local remaining = "100644 abc 1\tcore.lua\n"
-    local fingerprint = core.sync_conflict_fingerprint(payload, remaining)
     local run_opts = opts("sync-conflict-pre-codex-terminal", "1")
-    seed_cache(core.sync_conflict_attempt_key(payload, fingerprint), tostring(core.max_sync_conflict_attempts()), run_opts)
-    mock_fetch_and_heads()
+    mock_fetch_and_heads(nil, nil, core.max_sync_conflict_attempts())
     mock_conflicting_worktree()
     mock_cleanup()
 

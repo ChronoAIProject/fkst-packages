@@ -120,6 +120,10 @@ function C.has_thinking_converge_replay(M, current, proposal_id, state, source_r
   return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
 end
 
+function C.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+  return replay_thinking_convergence.level_replay_delivery_identity(proposal_id, state, event_ts)
+end
+
 local function replay_thinking(M, dept, issue, state, row, facts)
   return replay_thinking_convergence.replay(thinking_caps(M), dept, issue, state, row, facts,
     function(...) return log_skip(M, ...) end,
@@ -556,11 +560,11 @@ local function restart_replayers(M)
   local function merge(source)
     if source == nil then return end
     if type(source) ~= "table" then
-      error("github-devloop: invalid restart replayer registry")
+      error("github-devloop: restart-replayer-registry-invalid: invalid restart replayer registry")
     end
     for state_name, replay in pairs(source) do
       if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
-        error("github-devloop: invalid restart replayer registration")
+        error("github-devloop: restart-replayer-registration-invalid: invalid restart replayer registration")
       end
       replayers[state_name] = replay
     end

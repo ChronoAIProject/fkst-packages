@@ -157,6 +157,7 @@ usage() {
 
 cmd_check() {
   local fail=0 competence_base_ref="" pool
+  unset FKST_R9_TRACE_ROOT
   pool="$(detect_pool_size)"
   # Every unit below is an independent process (its own repo-read + unique tempdir),
   # so the check verdict is a commutative AND-fold — running them concurrently changes
@@ -187,6 +188,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_error_class_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_dependency_cycle_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py"'
@@ -465,6 +467,23 @@ run_quiet_keep() {
 
 load_composed_test_roots() { local script; script="$(bash "$ROOT/scripts/composed_test_graph_roots.sh" "$1" "$2")" || return 1; eval "$script"; }
 
+# Per-package `--report-json` files are written into a scratch dir and deleted at the end of
+# the run, so no CI run's per-test outcome is inspectable afterwards. When FKST_TEST_REPORT_DIR
+# is set (same shape as FKST_LUA_COVERAGE_OUTPUT), copy them there before cleaning up, so a CI
+# job can upload them as an artifact. Publishing must never change the run's verdict: a copy
+# failure warns and the reports are still removed.
+finish_test_reports() {
+  local dir="$1" dest="${FKST_TEST_REPORT_DIR:-}"
+  if [ -n "$dest" ] && [ -d "$dir" ]; then
+    if mkdir -p "$dest" && cp -R "$dir"/. "$dest"/ 2>/dev/null; then
+      echo "test reports published to $dest"
+    else
+      echo "warning: could not publish test reports to $dest" >&2
+    fi
+  fi
+  rm -rf "$dir"
+}
+
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
@@ -487,6 +506,11 @@ cmd_test() {
   TEST_HERMETIC_PKG_ROOTS="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-pkgroots.XXXXXX")"
   export FKST_RUNTIME_ROOT="$TEST_HERMETIC_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$TEST_HERMETIC_DURABLE_ROOT"
+  export FKST_R9_TRACE_ROOT="$TEST_HERMETIC_RUNTIME_ROOT/r9-traces"
+  if ! mkdir -p "$FKST_R9_TRACE_ROOT"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  fi
   unset FKST_GITHUB_WRITE
   unset FKST_SUPERVISOR_PID
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
@@ -564,13 +588,14 @@ cmd_test() {
     else
       [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
     fi
-    rm -rf "$report_dir"
+    finish_test_reports "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
-  rm -rf "$report_dir"
+  finish_test_reports "$report_dir"
   echo "OK: $ran package(s)"
   local_iteration_result_pass
 }
+
 
 collect_composed_package() {
   local name="$1" pkg dep deps rc
@@ -614,7 +639,7 @@ cmd_test_composed() {
   fi
 
   hermetic_env=(env)
-  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
+  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_DEVLOOP_CACHE_PREPARATION_COMMAND FKST_PROJECT_ROOT FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
     hermetic_env+=(-u "$hermetic_var")
   done
 
@@ -721,7 +746,7 @@ cmd_supervise_old() {
   [ -d "$pkgdir" ] || { echo "error: no package at $pkgdir" >&2; exit 1; }
 
   local project_root rt durable
-  project_root="${FKST_PROJECT_ROOT:-$pkgdir}"
+  project_root="$(host_run_abs_path "${FKST_PROJECT_ROOT:-$pkgdir}")"
   host_run_validate_local_iteration_test_command_for "$ROOT" "$pkg"
   rt="${FKST_RUNTIME_ROOT:-$DEFAULT_RUNTIME_ROOT}"
   durable="${FKST_DURABLE_ROOT:-$DEFAULT_DURABLE_ROOT}"
@@ -732,6 +757,7 @@ cmd_supervise_old() {
   fi
   export FKST_RUNTIME_ROOT="$rt"
   export FKST_DURABLE_ROOT="$durable"
+  export FKST_PROJECT_ROOT="$project_root"
   export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
 
   echo "BIN=$BIN"

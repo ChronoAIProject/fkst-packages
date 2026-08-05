@@ -3,6 +3,7 @@ local S = {}
 function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
+local sha256 = require("contract.sha256")
 local issue_create_limits = require("contract.github_issue_create").limits()
 local max_repo_len = issue_create_limits.repo
 local max_title_len = issue_create_limits.title
@@ -34,11 +35,10 @@ local function safe_runtime_segment(value)
 end
 
 local function issue_create_runtime_identity(dedup_key)
-  local id = "issue-create-" .. safe_runtime_segment(dedup_key)
-  if #id > max_runtime_id_len then
-    return id:sub(1, max_runtime_id_len)
-  end
-  return id
+  local prefix = "issue-create-"
+  local digest = "-" .. sha256.hex(tostring(dedup_key or ""))
+  local readable_limit = max_runtime_id_len - #prefix - #digest
+  return prefix .. safe_runtime_segment(dedup_key):sub(1, readable_limit) .. digest
 end
 
 local function filtered_labels(labels)
@@ -154,6 +154,16 @@ end
 
 function M.issue_create_once_key(dedup_key)
   return "github-proxy/issue-create-once/" .. issue_create_runtime_identity(dedup_key)
+end
+
+function M.assert_issue_create_once_owner(cached_owner, dedup_key)
+  if cached_owner == nil then
+    return false
+  end
+  if tostring(cached_owner) ~= tostring(dedup_key) then
+    error("github-proxy: issue-create-once-owner-mismatch: cached issue-create owner differs from request dedup_key")
+  end
+  return true
 end
 
 function M.github_issue_create_search(repo, dedup_key, timeout)
@@ -525,7 +535,7 @@ function M.write_issue_create_request(payload)
     -- also publish intent and created facts into the parent ledger.
     local once_key = M.issue_create_once_key(payload.dedup_key)
     local ran = false
-    if cache_get(once_key) == nil then
+    if not M.assert_issue_create_once_owner(cache_get(once_key), payload.dedup_key) then
       ran = true
       local body = tostring(payload.body) .. "\n\n" .. M.issue_create_marker(payload.dedup_key) .. "\n"
       body = M.with_github_debug_stamp(body, {
@@ -547,7 +557,7 @@ function M.write_issue_create_request(payload)
       end
       maybe_add_parent_sub_issue(payload, issue_number)
       maybe_raise_post_create_blocked_by(payload, issue_number)
-      cache_set(once_key, "1")
+      cache_set(once_key, tostring(payload.dedup_key))
     end
     if not ran then
       log.info("github-proxy: skip-idempotent issue-create once marker already present")

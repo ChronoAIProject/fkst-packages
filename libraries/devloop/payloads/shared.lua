@@ -11,7 +11,7 @@ function C.github(_M)
     return github_handle
   end
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   github_handle = github_factory.production_handle()
   return github_handle
@@ -48,23 +48,38 @@ function C.bounded_control_text(value, limit)
   return text
 end
 
-function C.ready_redrive_delivery_dedup_key(proposal_id, implementation_version, redrive_delivery)
-  if not devloop_base.is_safe_proposal_ref(proposal_id, implementation_version) then
-    error("github-devloop: invalid implementation redrive version")
+function C.issue_redrive_delivery_dedup_key(proposal_id, effect_version, redrive_delivery)
+  if not devloop_base.is_safe_proposal_ref(proposal_id, effect_version) then
+    error("github-devloop: invalid issue redrive effect version")
   end
   if type(redrive_delivery) ~= "table"
     or not strings.is_path_safe_key(redrive_delivery.generation_key, devloop_base._max_dedup_len) then
-    error("github-devloop: invalid implementation redrive generation")
+    error("github-devloop: invalid issue redrive generation")
   end
   local attempt = tonumber(redrive_delivery.attempt)
   if attempt == nil or attempt < 1 or attempt ~= math.floor(attempt) then
-    error("github-devloop: invalid implementation redrive attempt")
+    error("github-devloop: invalid issue redrive attempt")
   end
   return base_ids.dedup_key({
-    implementation_version,
+    effect_version,
     "delivery-redrive",
     redrive_delivery.generation_key,
     tostring(attempt),
+  })
+end
+
+function C.ready_operator_reimplement_delivery_dedup_key(proposal_id, implementation_version, delivery)
+  if not devloop_base.is_safe_proposal_ref(proposal_id, implementation_version) then
+    error("github-devloop: invalid operator reimplement version")
+  end
+  if type(delivery) ~= "table"
+    or not strings.is_path_safe_key(delivery.command_key, devloop_base._max_dedup_len) then
+    error("github-devloop: invalid operator reimplement command key")
+  end
+  return base_ids.dedup_key({
+    implementation_version,
+    "operator-reimplement",
+    delivery.command_key,
   })
 end
 

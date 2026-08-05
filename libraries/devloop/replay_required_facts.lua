@@ -3,8 +3,8 @@
 -- replay strategies. Extracted from replayer.lua as a pure structural refactor
 -- (Step 0.0 line-budget containment); behavior is unchanged.
 local m_facts = require("devloop.markers.facts")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local parsers_pr = require("devloop.parsers.pr")
-local conv_rounds = require("devloop.convergence.rounds")
 local forge_validators = require("devloop.forge_validators")
 local m_mgw = require("devloop.merge_gate_wait")
 local decompose_lib = require("devloop.decompose")
@@ -36,10 +36,10 @@ end
 
 local function validate_required_fact(required)
   if type(required) ~= "table" or type(required.family) ~= "string" or required.family == "" then
-    error("github-devloop: invalid replay required fact")
+    error("github-devloop: replay-required-fact-invalid: invalid replay required fact")
   end
   if required.freshness ~= "marker-read" and required.freshness ~= "fetch-before-compare" then
-    error("github-devloop: invalid replay fact freshness")
+    error("github-devloop: replay-fact-freshness-invalid: invalid replay fact freshness")
   end
 end
 
@@ -83,7 +83,7 @@ local function fetch_child_state_fact(M, facts)
       consumer = "replay_child_state",
     })
     if view.exit_code ~= 0 then
-      error("github-devloop: child-state PR view failed: " .. tostring(view.stderr))
+      error("github-devloop: child-state-pr-view-failed: child-state PR view failed: " .. tostring(view.stderr))
     end
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
     facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
@@ -106,8 +106,12 @@ local function require_marker_fact(M, facts, family)
     return fetch_child_state_fact(M, facts)
   end
   if family == "converge-round" then
-    local base_version = M.version_loop_round(facts.state.version) > 0 and conv_rounds.converge_base_version(facts.state.version) or nil
-    return M.latest_complete_converge_round(facts.snapshot.comments, facts.proposal_id, base_version, facts.issue.source_ref)
+    return M.latest_complete_converge_round(
+      facts.snapshot.comments,
+      facts.proposal_id,
+      facts.state.version,
+      facts.issue.source_ref
+    )
   end
   if family == "dependency-release" then
     return M.dependency_release_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
@@ -136,7 +140,13 @@ local function require_marker_fact(M, facts, family)
     return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "merge-gate" then
-    return m_facts.merge_gate_fix_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    local observation = m_fix_feedback_observation.observe(
+      facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    if observation.source == "merge-gate" and observation.status == "invalid" then
+      facts.fix_feedback_observation = observation
+      return nil
+    end
+    return observation.source == "merge-gate" and observation.fact or nil
   end
   if family == "merge-gate-wait" then
     local current_pr = current_pr_fact(facts)
@@ -185,7 +195,7 @@ local function require_marker_fact(M, facts, family)
   if rawget(facts, family) ~= nil then
     return rawget(facts, family)
   end
-  error("github-devloop: unsupported replay marker fact family: " .. tostring(family))
+  error("github-devloop: replay-marker-fact-family-unsupported: unsupported replay marker fact family: " .. tostring(family))
 end
 
 local function gather_fetch_before_compare_fact(M, facts, entity, family)
@@ -207,7 +217,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
   if family == "decompose-children" then
     local child_list = M.gh_issue_list_decompose_children(entity.repo, facts.proposal_id, 30)
     if child_list.exit_code ~= 0 then
-      error("github-devloop: gh issue decompose child list failed: " .. tostring(child_list.stderr))
+      error("github-devloop: decompose-child-list-fetch-failed: gh issue decompose child list failed: " .. tostring(child_list.stderr))
     end
     facts.decompose_children = decompose_lib.parse_decompose_child_issue_list(child_list.stdout)
     return facts.decompose_children
@@ -215,7 +225,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
   if family == "branch-head" then
     return true
   end
-  error("github-devloop: unsupported replay fetch-before-compare fact family: " .. tostring(family))
+  error("github-devloop: replay-fetch-fact-family-unsupported: unsupported replay fetch-before-compare fact family: " .. tostring(family))
 end
 
 local function store_gathered_marker_fact(facts, family, value)

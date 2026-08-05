@@ -1,4 +1,6 @@
 local C = {}
+local devloop_commands = require("devloop.commands")
+local entity_list_cache = require("devloop.entity_list_cache")
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
 
@@ -16,10 +18,11 @@ local repo_owner_login = github_view.repo_owner_login
 local decode_comments_json = function(stdout) return github_view.decode_comments_json(stdout, "github-devloop: REST") end
 
 local max_cache_key_segment_len = 120
+local intake_issue_view_cache_kind = "issue-intake-judge"
 
 local function github()
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   return github_factory.production_handle()
 end
@@ -217,15 +220,61 @@ local function rest_pr_to_view_json(pr_stdout, comments_stdout)
     .. "}"
 end
 
+-- GitHub's SECONDARY (request-rate) limit 403s REST while the GraphQL budget stays healthy and
+-- separate. Both entity reads below are REST, so one throttle takes down ALL observation while
+-- half the account's capacity sits idle: measured 6137 `issue-read-failed` outcomes in a single
+-- runtime with graphql at ~4834/5000. Since observe_issue turns a non-zero result into error(),
+-- that entity-level transient became a dead-lettered child and froze every observe-driven state.
+--
+-- The GraphQL issue view is field-complete for this consumer: `issue_view_fields` includes
+-- `comments`, and every marker/state path keys on comment *createdAt*
+-- (`state.lua` marker_created_at, `fix_feedback_observation` comment_created_at). Comment
+-- `updated_at` is the one REST-only field, and it has no production consumer.
+-- GitHub's SECONDARY (request-rate) limit 403s REST while the GraphQL budget stays healthy and
+-- separate: measured 6137 `issue-read-failed` outcomes in one runtime with graphql at ~4834/5000,
+-- and `API rate limit exceeded` / `HTTP 403` appearing 10612 times in the same child logs.
+-- observe_issue turns a non-zero result into error(), so that entity-level transient became a
+-- dead-lettered child and froze every observe-driven state.
+--
+-- The fallback is deliberately narrow: ONLY a throttle reroutes to GraphQL. Every other REST
+-- failure (timeout, slow read, adapter error) keeps its existing result, because those paths have
+-- designed semantics -- notably "a slow issue view defers without a retry failure" -- that a
+-- blanket fallback would destroy.
+local function is_rest_throttled(result)
+  if type(result) ~= "table" then
+    return false
+  end
+  local stderr = tostring(result.stderr or "")
+  return stderr:find("rate limit exceeded", 1, true) ~= nil
+    or stderr:find("HTTP 403", 1, true) ~= nil
+end
+
+local function graphql_issue_view_result(repo, issue_number, timeout)
+  local github_port = github()
+  local ok, view = pcall(github_port.issue_view_full, repo, issue_number, timeout)
+  if not ok then
+    return adapter_error_result(view)
+  end
+  return { stdout = view.stdout, stderr = "", exit_code = 0 }
+end
+
 local function rest_issue_view_result(repo, issue_number, timeout)
   local github_port = github()
   local ok_issue, issue = pcall(github_port.issue_rest_view, repo, issue_number, timeout)
   if not ok_issue then
-    return adapter_error_result(issue)
+    local result = adapter_error_result(issue)
+    if is_rest_throttled(result) then
+      return graphql_issue_view_result(repo, issue_number, timeout)
+    end
+    return result
   end
   local ok_comments, comments = pcall(github_port.issue_comments, repo, issue_number, timeout)
   if not ok_comments then
-    return adapter_error_result(comments)
+    local result = adapter_error_result(comments)
+    if is_rest_throttled(result) then
+      return graphql_issue_view_result(repo, issue_number, timeout)
+    end
+    return result
   end
   local ok, view_json = pcall(rest_issue_to_view_json, issue.stdout, comments.stdout)
   if not ok then
@@ -242,15 +291,33 @@ local function rest_issue_view_result(repo, issue_number, timeout)
   }
 end
 
+-- Same REST-throttle fallback as the issue view above; `pr_view` is the GraphQL surface.
+local function graphql_pr_view_result(repo, pr_number, timeout)
+  local github_port = github()
+  local ok, view = pcall(github_port.pr_view, repo, pr_number, timeout)
+  if not ok then
+    return adapter_error_result(view)
+  end
+  return { stdout = view.stdout, stderr = "", exit_code = 0 }
+end
+
 local function rest_pr_view_result(repo, pr_number, timeout)
   local github_port = github()
   local ok_pr, pr = pcall(github_port.pr_rest_view, repo, pr_number, timeout)
   if not ok_pr then
-    return adapter_error_result(pr)
+    local result = adapter_error_result(pr)
+    if is_rest_throttled(result) then
+      return graphql_pr_view_result(repo, pr_number, timeout)
+    end
+    return result
   end
   local ok_comments, comments = pcall(github_port.pr_comments, repo, pr_number, timeout)
   if not ok_comments then
-    return adapter_error_result(comments)
+    local result = adapter_error_result(comments)
+    if is_rest_throttled(result) then
+      return graphql_pr_view_result(repo, pr_number, timeout)
+    end
+    return result
   end
   local ok, view_json = pcall(rest_pr_to_view_json, pr.stdout, comments.stdout)
   if not ok then
@@ -296,10 +363,37 @@ local function cache_successful_view(key, result, producer)
   end
 end
 
+local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  local options = opts or {}
+  local validator = tostring(updated_at or "")
+  local coalesce_scope = tostring(options.coalesce_scope or "")
+  local key = entity_view_cache_key(repo, intake_issue_view_cache_kind, issue_number)
+  if validator ~= "" and coalesce_scope ~= "" then
+    local cached_result = nil
+    local epoch_current = entity_list_cache.with_current_poll_epoch(repo, coalesce_scope, function()
+      local cached = decode_cached_view(cache_get(key))
+      if cached ~= nil and cached.updated_at == validator then
+        cached_result = success_from_cache(cached)
+      end
+    end)
+    if epoch_current and cached_result ~= nil then
+      return cached_result
+    end
+  end
+
+  local result = devloop_commands.gh_issue_view_intake_judge(
+    repo,
+    issue_number,
+    tonumber(options.timeout) or 30
+  )
+  cache_successful_view(key, result, options.consumer or "admission")
+  return result
+end
+
 local function fetch_entity_view(repo, kind, number, updated_at, opts)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
-    error("github-devloop: invalid entity view kind")
+    error("github-devloop: entity-view-kind-invalid: invalid entity view kind")
   end
 
   local validator = tostring(updated_at or "")
@@ -352,13 +446,16 @@ end
 function C.invalidate_entity_after_write(repo, kind, number)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
-    error("github-devloop: invalid post-write invalidation kind")
+    error("github-devloop: invalidation-kind-invalid: invalid post-write invalidation kind")
   end
   local entity_key = C.entity_cache_key(repo, selected_kind, number)
   local view_key = entity_view_cache_key(repo, selected_kind, number)
   with_lock(entity_key, function()
     cache_set(entity_key, "")
     cache_set(view_key, "")
+    if selected_kind == "issue" then
+      cache_set(entity_view_cache_key(repo, intake_issue_view_cache_kind, number), "")
+    end
   end)
 end
 
@@ -369,7 +466,7 @@ end
 function C.cached_entity_view(repo, kind, number)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
-    error("github-devloop: invalid cached entity view kind")
+    error("github-devloop: cached-entity-view-kind-invalid: invalid cached entity view kind")
   end
   local cached = decode_cached_view(cache_get(entity_view_cache_key(repo, selected_kind, number)))
   if cached == nil then
@@ -380,6 +477,10 @@ end
 
 function C.fetch_issue_view(repo, issue_number, updated_at, opts)
   return fetch_entity_view(repo, "issue", issue_number, updated_at, opts)
+end
+
+function C.fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  return fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
 end
 
 function C.fetch_pr_view(repo, pr_number, updated_at, opts)
@@ -454,7 +555,7 @@ function C.gh_exec_cached(read, cache_key, ttl_seconds)
     end
   end
   if type(read) ~= "function" then
-    error("github-devloop: gh_exec_cached requires a typed GitHub read function")
+    error("github-devloop: typed-read-fn-required: gh_exec_cached requires a typed GitHub read function")
   end
   local result = read()
   if type(result) == "table" and tonumber(result.exit_code) == 0 then
