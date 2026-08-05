@@ -77,6 +77,8 @@ M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("forge.merge").install(M, {
   github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
   pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
 local git_mechanics = require("devloop.git_mechanics")

@@ -2,6 +2,7 @@ local github = require("forge.github")
 local github_fake = require("forge.github_fake")
 local git = require("forge.git")
 local git_fake = require("forge.git_fake")
+local t = fkst.test
 local policy = require("forge.github.content_filter").author_policy_from_logins({ "author", "human", "fkst-test-bot" })
 
 local function sorted_public_methods(handle)
@@ -89,6 +90,64 @@ return {
       sorted_public_methods(git_fake.new(git_fake.model({}))),
       "forge.git methods"
     )
+  end,
+
+  test_git_worktree_remove_if_present_real_and_fake_return_the_same_shapes = function()
+    local function exercise(branch, probe_result)
+      local real_path = "/tmp/adapter-real-" .. branch
+      local fake_path = "/tmp/adapter-fake-" .. branch
+      t.mock_command(git.path_is_directory_cmd(real_path), probe_result)
+      t.mock_command(git.path_is_directory_cmd(fake_path), probe_result)
+
+      local real_calls = {}
+      local real = git.new(function(opts)
+        table.insert(real_calls, opts)
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end)
+      local fake_model = git_fake.model({})
+      local fake = git_fake.new(fake_model)
+
+      local real_result = real.git_worktree_remove_if_present(real_path, 42)
+      local fake_result = fake.git_worktree_remove_if_present(fake_path, 42)
+      assert_deep_equal(real_result, fake_result, branch .. " result")
+      return real_calls, fake_model.writes
+    end
+
+    local missing_real_calls, missing_fake_writes = exercise("missing", {
+      stdout = "probe missing",
+      stderr = "probe missing stderr",
+      exit_code = 1,
+    })
+    assert(#missing_real_calls == 0, "missing real path must not remove a worktree")
+    assert(#missing_fake_writes == 0, "missing fake path must not remove a worktree")
+
+    local error_real_calls, error_fake_writes = exercise("probe-error", {
+      stdout = "probe output",
+      stderr = "probe failed",
+      exit_code = 2,
+    })
+    assert(#error_real_calls == 0, "failed real probe must not remove a worktree")
+    assert(#error_fake_writes == 0, "failed fake probe must not remove a worktree")
+
+    local present_real_calls, present_fake_writes = exercise("present", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    assert(#present_real_calls == 1, "present real path must remove one worktree")
+    assert(#present_fake_writes == 1, "present fake path must remove one worktree")
+    assert_deep_equal(
+      present_real_calls[1].argv,
+      { "git", "worktree", "remove", "--force", "/tmp/adapter-real-present" },
+      "present real remove argv"
+    )
+    assert_deep_equal(
+      present_fake_writes[1].argv,
+      { "git", "worktree", "remove", "--force", "/tmp/adapter-fake-present" },
+      "present fake remove argv"
+    )
+    assert(present_real_calls[1].timeout == 42, "present real remove timeout mismatch")
+    assert(present_fake_writes[1].timeout == 42, "present fake remove timeout mismatch")
   end,
 
   test_github_author_authorization_real_and_fake_use_bound_policy = function()

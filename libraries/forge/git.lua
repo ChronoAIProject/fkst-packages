@@ -1,7 +1,20 @@
 local exec_wrap = require("forge.git.exec")
+local argv_render = require("forge.argv")
 
 local M = {}
 local production_handles = {}
+
+function M.path_is_directory_cmd(path)
+  local value = tostring(path or "")
+  if value == "" or value:find("[\r\n]") ~= nil then
+    error("github-devloop: directory-path-invalid: invalid directory path")
+  end
+  return "[ -d " .. argv_render.shell_single_quote(value) .. " ]"
+end
+
+function M.run_path_is_directory(path, timeout)
+  return exec_sync({ cmd = M.path_is_directory_cmd(path), timeout = timeout or 30 })
+end
 
 function M.new(exec)
   assert(type(exec) == "function", "forge.git.new requires an exec function")
@@ -10,6 +23,16 @@ function M.new(exec)
     return exec_wrap.run(exec, argv, timeout, context)
   end
   require("forge.git.refs").install(handle)
+  function handle.git_worktree_remove_if_present(worktree, timeout)
+    local dir_result = M.run_path_is_directory(worktree, 30)
+    if dir_result.exit_code == 1 then
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end
+    if dir_result.exit_code ~= 0 then
+      return dir_result
+    end
+    return handle.worktree_remove(worktree, timeout)
+  end
   return handle
 end
 

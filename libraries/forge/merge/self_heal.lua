@@ -8,10 +8,12 @@ local strings = require("contract.strings")
 function S.install(M, shared, ci_gate, opts)
 local github = opts.github_handle
 local git = git_adapter.production_handle
+local read_runtime_root_cmd = opts.read_runtime_root_cmd
+local mkdir_p_cmd = opts.mkdir_p_cmd
 local pr_rollup_green = check_runs.pr_rollup_green
 
 local function merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local runtime_result = exec_sync({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
+  local runtime_result = exec_sync({ cmd = read_runtime_root_cmd(), timeout = 30 })
   if runtime_result.exit_code ~= 0 then
     error("forge.merge: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
   end
@@ -64,12 +66,12 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
     return false, "ci-selfheal-foreign-head"
   end
   local worktree = merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local remove_result = M.git_worktree_remove_if_present(worktree, 60)
+  local remove_result = git("forge.merge").git_worktree_remove_if_present(worktree, 60)
   if remove_result.exit_code ~= 0 then
     error("forge.merge: git-worktree-remove-failed: merge CI self-heal worktree cleanup failed: " .. tostring(remove_result.stderr))
   end
   local plan = git("forge.merge").git_worktree_add_detached_plan(worktree, head_sha)
-  local mkdir_result = exec_sync({ cmd = M.mkdir_p_cmd(plan.parent_dir), timeout = 30 })
+  local mkdir_result = exec_sync({ cmd = mkdir_p_cmd(plan.parent_dir), timeout = 30 })
   if mkdir_result.exit_code ~= 0 then
     error("forge.merge: directory-setup-failed: merge CI self-heal worktree parent setup failed: " .. tostring(mkdir_result.stderr))
   end

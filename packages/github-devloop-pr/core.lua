@@ -83,6 +83,8 @@ local function dept_exec_argv(...) return exec_argv(...) end
 M.git = require("forge.git").new(dept_exec_argv)
 require("forge.merge").install(M, {
   github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
   pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
 require("core.review_carry_over").install(M)
