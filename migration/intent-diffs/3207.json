@@ -1,0 +1,20 @@
+{
+  "base_sha": "de24dff7d7ef1366b06f722866860744cda67299",
+  "behavior_diff_sha256": "b8a20da45ed0a375d6a86a7a4e5ad2f0a93c82c80d2567dcac63e4645dd0720e",
+  "cause": "Make fixing timeout redrive reach its receiver by replacing the advanced-head reviewing-comment delivery with direct github-devloop-pr.devloop_fixing delivery and by binding payload dedup_key to the redrive generation_key and attempt.",
+  "changed_edge_ids": [],
+  "changed_policy_ids": [],
+  "changed_row_ids": [
+    "row-replay-observe-pr-local-route-fixing-head-advanced-reviewing"
+  ],
+  "intent": "behavior-change",
+  "manifest_sha256": "71b14be6d0e34e73187d0561164a8cae0a7ddde43abf8ef6e31470954a457b1e",
+  "new_trace_sha256": "22583c57ef2cfe3abfeb4ad828878983b2ea785b74496b1ed802f9fa209567c7",
+  "old_trace_sha256": "6ceea7572ae049420844023b9e27174dc25c778483da1d9d076ba9c8205c331a",
+  "one_use_identity": "3207/de24dff7d7ef1366b06f722866860744cda67299/8392692908a9f297600196277f78822c3d61c34378094f3e7ff2be354d1c596e/269250f0de1fadcfee08bdb1d00e53d4040deef5e9f6cb6701a16a663cd28f0a",
+  "pr_number": 3207,
+  "review_reference": "Issue #3203; PR #3207; SPEC R9 lines 103-109 and Annex §9.4 lines 1649-1666 (row replay effects, effect order, queue/payload/dedup, package-visible delivery expectations).",
+  "schema": "fkst.intent-diff.v2",
+  "semantic_diff_sha256": "269250f0de1fadcfee08bdb1d00e53d4040deef5e9f6cb6701a16a663cd28f0a",
+  "semantic_tree_sha256": "8392692908a9f297600196277f78822c3d61c34378094f3e7ff2be354d1c596e"
+}
