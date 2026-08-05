@@ -154,6 +154,50 @@ return {
     end)
   end,
 
+  test_delayed_other_lineage_rounds_do_not_rebase_the_current_work_unit = function()
+    local row = thinking_row()
+    local state = thinking_state("2026-06-03T02:00:00Z")
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
+    local other_source = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER + 1)
+    local comments = {
+      convergence_comment("2026-06-03T02:55:00Z"),
+      trusted_comment(conv_rounds.converge_round_marker(
+        PROPOSAL_ID,
+        BASE_VERSION .. "/reimplement/1",
+        convergence_shared.source_ref_digest(SOURCE_REF),
+        7,
+        "consensus:previous-version/loop/7",
+        "Previous version",
+        { { angle = "fidelity", verdict = "converge", digest = "stale version" } }
+      ), "2026-06-03T02:59:00Z"),
+      trusted_comment(conv_rounds.converge_round_marker(
+        PROPOSAL_ID,
+        BASE_VERSION,
+        convergence_shared.source_ref_digest(other_source),
+        6,
+        "consensus:other-source/loop/6",
+        "Other source",
+        { { angle = "fidelity", verdict = "converge", digest = "stale source" } }
+      ), "2026-06-03T02:58:00Z"),
+    }
+    local facts = liveness_facts(comments, now_seconds)
+
+    with_codex_runs({
+      {
+        status = "running",
+        role = "consensus",
+        proposal_id = PROPOSAL_ID,
+        dedup_key = NEXT_WORK_UNIT,
+        started_at = "2026-06-03T02:56:00Z",
+        timeout_seconds = 7200,
+      },
+    }, function()
+      local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
+      t.eq(receiver.action, "defer")
+      t.eq(receiver.signal.dedup_key, NEXT_WORK_UNIT)
+    end)
+  end,
+
   test_unparseable_convergence_timestamp_does_not_rebase_liveness = function()
     local row = thinking_row()
     local state = thinking_state("2026-06-03T00:00:00Z")
