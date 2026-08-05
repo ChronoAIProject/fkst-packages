@@ -20,11 +20,75 @@ import os
 import re
 import signal
 import subprocess
+import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
 
+from process_control_test_support import require_process_control_capability
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _run_selected_tests_with_blind_commands(
+    test_names: tuple[str, ...], blind_commands: tuple[str, ...], *, require_capabilities: bool = False
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture_bin = Path(tmp)
+        for command in blind_commands:
+            command_path = fixture_bin / command
+            command_path.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            command_path.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = f"{fixture_bin}{os.pathsep}{env['PATH']}"
+        env.pop("FKST_REQUIRE_PROCESS_CONTROL_TESTS", None)
+        if require_capabilities:
+            env["FKST_REQUIRE_PROCESS_CONTROL_TESTS"] = "1"
+        return subprocess.run(
+            [sys.executable, "-B", __file__, "-v", *test_names],
+            cwd=str(REPO_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+
+def _own_process_group_unavailable_reason() -> str | None:
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            'pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d " "); [ -n "$pgid" ] && [ "$pgid" = "$$" ]',
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setsid,
+        timeout=10,
+    )
+    if result.returncode == 0:
+        return None
+    return "process group is not observable via `ps -o pgid= -p <pid>`"
+
+
+def _direct_child_unavailable_reason() -> str | None:
+    child = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        result = subprocess.run(
+            ["pgrep", "-P", str(os.getpid())],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        observed = {int(line) for line in result.stdout.splitlines() if line.isdigit()}
+        if result.returncode == 0 and child.pid in observed:
+            return None
+        return "direct child is not observable via `pgrep -P <pid>`"
+    finally:
+        child.kill()
+        child.wait(timeout=5)
 
 
 def _pgid_alive(pgid: int) -> bool:
@@ -55,6 +119,7 @@ class BoundedTestExecWatchdog(unittest.TestCase):
         run). Without the watchdog the group would live the full 60s (the historic hour-long orphan). With
         it, the group is gone well before 60s.
         """
+        require_process_control_capability(self, _own_process_group_unavailable_reason())
         script = (
             "source scripts/run.sh\n"
             "FKST_TEST_DEADLINE_SECONDS=2 arm_test_deadline\n"
@@ -138,6 +203,8 @@ class BoundedTestExecWatchdog(unittest.TestCase):
         Arm with a long deadline in an own-group shell, capture the watchdog pid, disarm, and assert the
         watchdog process is gone — the prevention must not itself leak a lingering sleeper.
         """
+        require_process_control_capability(self, _own_process_group_unavailable_reason())
+        require_process_control_capability(self, _direct_child_unavailable_reason())
         script = (
             "source scripts/run.sh\n"
             "FKST_TEST_DEADLINE_SECONDS=600 arm_test_deadline\n"
@@ -176,6 +243,46 @@ class BoundedTestExecWatchdog(unittest.TestCase):
             result.stdout,
             f"disarm left the watchdog's sleep child orphaned: {result.stdout!r} / {result.stderr!r}",
         )
+
+
+class ProcessCapabilitySelection(unittest.TestCase):
+    def test_ps_blindness_skips_only_ps_dependent_watchdog_assertions(self) -> None:
+        result = _run_selected_tests_with_blind_commands(
+            (
+                "BoundedTestExecWatchdog.test_orphaned_runaway_run_self_terminates_at_deadline",
+                "BoundedTestExecWatchdog.test_disarm_stops_the_watchdog_on_normal_exit",
+            ),
+            ("ps",),
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("test_orphaned_runaway_run_self_terminates_at_deadline", output)
+        self.assertIn("test_disarm_stops_the_watchdog_on_normal_exit", output)
+        self.assertEqual(output.count("skipped 'process group is not observable via `ps -o pgid= -p <pid>`'"), 2)
+
+    def test_pgrep_blindness_skips_the_direct_child_assertion(self) -> None:
+        result = _run_selected_tests_with_blind_commands(
+            ("BoundedTestExecWatchdog.test_disarm_stops_the_watchdog_on_normal_exit",),
+            ("pgrep",),
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("test_disarm_stops_the_watchdog_on_normal_exit", output)
+        self.assertIn("skipped 'direct child is not observable via `pgrep -P <pid>`'", output)
+
+    def test_required_ci_lane_fails_instead_of_skipping(self) -> None:
+        result = _run_selected_tests_with_blind_commands(
+            ("BoundedTestExecWatchdog.test_orphaned_runaway_run_self_terminates_at_deadline",),
+            ("ps",),
+            require_capabilities=True,
+        )
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("required CI process-control assertion cannot run", output)
+        self.assertNotIn("skipped", output)
 
 
 if __name__ == "__main__":
