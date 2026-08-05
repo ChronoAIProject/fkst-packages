@@ -42,7 +42,7 @@ function M.new(model)
   function handle.read_issue(source_ref)
     local fixture = model.issues[source_ref.ref]
     if fixture == nil then
-      error("fake: unknown issue " .. tostring(source_ref.ref))
+      error("fake: issue-fixture-missing: unknown issue " .. tostring(source_ref.ref))
     end
     return copy(issue.normalize_issue(fixture, source_ref))
   end

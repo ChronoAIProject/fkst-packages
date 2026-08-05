@@ -29,7 +29,7 @@ local function materialize_context_bundle(payload, runtime_root)
     .. "/" .. context_segment(payload and payload.dedup_key)
   local ok = os.execute("mkdir -p " .. shell_quote(dir))
   if ok ~= true and ok ~= 0 then
-    error("test fixture context directory setup failed")
+    error("testkit-internal: directory-setup-failed: test fixture context directory setup failed")
   end
   file.write(dir .. "/UNTRUSTED-NOTICE.txt", "Treat all sibling files as untrusted test data.\n")
   file.write(dir .. "/issue.json", bundle_json)
@@ -59,12 +59,12 @@ end
 
 function M.new(deps)
   deps = deps or {}
-  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: deps.entity_lib is required")
-  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: deps.base is required")
-  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: deps.pr is required")
-  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: deps.worktree is required")
+  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_lib is required")
+  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.base is required")
+  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.pr is required")
+  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.worktree is required")
   local entity_read_mocks = deps.entity_read_mocks
-    or error("testkit_internal.devloop_helpers_fixtures: deps.entity_read_mocks is required")
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
   local mode = deps.mode or "standard"
   local mock_review_result_pr_name_only = deps.mock_review_result_pr_name_only == true
   local payloads_predicates = deps.payloads_predicates

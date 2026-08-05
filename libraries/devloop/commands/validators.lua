@@ -46,7 +46,7 @@ end
 function S.require_label_name(name)
   local value = tostring(name or "")
   if value == "" then
-    error("github-devloop: label name is required")
+    error("github-devloop: label-name-required: label name is required")
   end
   return value
 end
@@ -54,7 +54,7 @@ end
 function S.require_label_color(color)
   local value = tostring(color or "")
   if value:find("^%x%x%x%x%x%x$") == nil then
-    error("github-devloop: label color is invalid")
+    error("github-devloop: label-color-invalid: label color is invalid")
   end
   return value
 end
@@ -62,7 +62,7 @@ end
 function S.require_dashboard_label(label)
   local value = tostring(label or "")
   if value == "" then
-    error("github-devloop: dashboard issue label is required")
+    error("github-devloop: dashboard-label-required: dashboard issue label is required")
   end
   return value
 end
