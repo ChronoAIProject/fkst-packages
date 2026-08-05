@@ -67,12 +67,6 @@ local variants = {
   ["implementing\0awaiting-pr"] = "implementing_to_awaiting_pr",
 }
 
-local function probe_variant(from_states, to_state)
-  if type(from_states) ~= "table" or #from_states ~= 1 then
-    return nil
-  end
-  return variants[tostring(from_states[1]) .. "\0" .. tostring(to_state)]
-end
 
 local function observe_department(run)
   local probes = {}

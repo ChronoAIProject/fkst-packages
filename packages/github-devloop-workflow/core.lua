@@ -129,7 +129,7 @@ local function install_intake_surface(target)
   target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
   devloop_prompts.install(target, {
     prompts = {
-      intake = require("prompts.intake"),
+      intake = default_intake.prompt,
     },
   }, {
     intake = true,

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
-import check_repo_config
+import check_repo_lua
 
 
 ALLOWLIST = "migration/gh-git-adapter.allowlist"
@@ -97,94 +97,18 @@ def load_allowlist(path: Path) -> dict[str, set[str]]:
     return entries
 
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is None:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        if text[cursor] in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-        if bracket is not None:
-            opener_len, closer = bracket
-            end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        cursor += 1
-    return "".join(chars)
-
-
 def parse_literal(text: str, cursor: int) -> tuple[str, int] | None:
-    if cursor >= len(text):
+    literal = check_repo_lua.literal_span_at(text, cursor, include_line_metadata=False)
+    if literal is None:
         return None
-    if text[cursor] in ("'", '"'):
-        end = check_repo_config.lua_quoted_string_end(text, cursor)
-        content_end = end - 1 if end <= len(text) and text[end - 1] == text[cursor] else end
-        return text[cursor + 1 : content_end], end
-    bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-    if bracket is None:
-        return None
-    opener_len, closer = bracket
-    body_start = cursor + opener_len
-    close_start = text.find(closer, body_start)
-    body_end = len(text) if close_start == -1 else close_start
-    end = len(text) if close_start == -1 else close_start + len(closer)
-    return text[body_start:body_end], end
+    return literal.content(text), literal.end
 
 
 def lua_string_literals(text: str) -> list[LuaStringLiteral]:
-    literals: list[LuaStringLiteral] = []
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is None:
-                newline = text.find("\n", cursor)
-                cursor = len(text) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            continue
-        if text[cursor] in ("'", '"'):
-            start = cursor
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            content_end = end - 1 if end <= len(text) and text[end - 1] == text[cursor] else end
-            literals.append(LuaStringLiteral(start, end, text[cursor + 1 : content_end]))
-            cursor = end
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-        if bracket is not None:
-            start = cursor
-            opener_len, closer = bracket
-            body_start = cursor + opener_len
-            close_start = text.find(closer, body_start)
-            body_end = len(text) if close_start == -1 else close_start
-            end = len(text) if close_start == -1 else close_start + len(closer)
-            literals.append(LuaStringLiteral(start, end, text[body_start:body_end]))
-            cursor = end
-            continue
-        cursor += 1
-    return literals
+    return [
+        LuaStringLiteral(span.start, span.end, span.content(text))
+        for span in check_repo_lua.literal_spans(text)
+    ]
 
 
 def skip_expression_prefix(text: str, cursor: int) -> int:
@@ -541,7 +465,7 @@ def exec_argv_head_for_literal(
 
 
 def command_heads(source: str) -> set[str]:
-    mask = lua_code_mask(source)
+    mask = check_repo_lua.code_mask(source)
     contexts = lua_call_contexts(mask)
     literals = lua_string_literals(source)
     literals_by_start = {literal.start: literal for literal in literals}

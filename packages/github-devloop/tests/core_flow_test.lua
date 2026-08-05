@@ -48,13 +48,6 @@ local function review_unresolved(extra)
   return value
 end
 
-local function meta_answer(action, reason, gap)
-  local text = action_label .. " " .. action .. "\n" .. reason_label .. " " .. reason
-  if gap ~= nil then
-    text = text .. "\nBlocking gap: " .. gap
-  end
-  return text
-end
 
 local function copy_table(value, extra)
   local copied = {}

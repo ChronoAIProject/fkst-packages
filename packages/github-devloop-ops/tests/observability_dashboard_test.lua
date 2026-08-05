@@ -52,9 +52,6 @@ local function dashboard_issue_list_stdout_many(bodies)
   return "[[" .. table.concat(items, ",") .. "]]\n"
 end
 
-local function command_input_path(command)
-  return tostring(command or ""):match("%-%-input '?([^'%s]+)'?")
-end
 
 local function dashboard_body_from_input(path)
   local raw = file.read(path)

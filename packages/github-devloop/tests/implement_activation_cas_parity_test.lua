@@ -64,13 +64,6 @@ local decision_sources = {
   reimplement_blocked_implementing_timeout_without_pr = { state = "blocked", kind = "cyclic" },
 }
 
-local function source_state_names(expected_states)
-  local names = {}
-  for _, expected in ipairs(expected_states or {}) do
-    table.insert(names, type(expected) == "table" and expected.state or expected)
-  end
-  return names
-end
 
 local function probe_variant(from_states, to_state)
   if type(from_states) ~= "table" or #from_states ~= 1 then
