@@ -1,0 +1,800 @@
+local gh = require("forge.github")
+local git = require("forge.git")
+local content_filter = require("forge.github.content_filter")
+local stdout_policy = require("forge.github.stdout_policy")
+
+local author_policy = content_filter.author_policy_from_logins({ "author", "fkst-test-bot" })
+local disabled_policy = content_filter.test_disabled_author_policy()
+
+local function assert_argv_equal(actual, expected, context)
+  assert(type(actual) == "table", context .. " argv must be a table")
+  assert(#actual == #expected, context .. " argv length mismatch")
+  for index, value in ipairs(expected) do
+    assert(actual[index] == value, context .. " argv[" .. tostring(index) .. "] mismatch")
+  end
+end
+
+local function issue_stdout()
+  return [[{"number":42,"title":"Title","body":"Body","url":"https://github.com/owner/repo/issues/42","updatedAt":"2026-06-15T00:00:00Z","state":"OPEN","labels":[],"comments":[],"assignees":[],"author":{"login":"author"}}]]
+end
+
+return {
+  test_exec_classifies_rate_limit = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = "", stderr = "API rate limit exceeded for user", exit_code = 1 }
+    end, { trusted_author_policy = author_policy })
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "x" }, 10, "ctx")
+    end, { trusted_author_policy = author_policy })
+    assert(ok == false)
+    assert(err.class == "gh-rate-limited", "rate-limit stderr must classify as gh-rate-limited")
+    assert(err.retryable == true)
+  end,
+
+  test_exec_classifies_already_exceeded_rate_limit = function()
+    -- Regression (#710 Finding 1): the dominant GitHub wording interposes
+    -- "already", which a contiguous "api rate limit exceeded" needle misses,
+    -- mis-classifying the most common rate-limit error as non-retryable.
+    local handle = gh.new(function(_opts)
+      return { stdout = "", stderr = "GraphQL: API rate limit already exceeded for user ID 1593871", exit_code = 1 }
+    end)
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "x" }, 10, "ctx")
+    end)
+    assert(ok == false)
+    assert(err.class == "gh-rate-limited", "'already exceeded' wording must classify as gh-rate-limited")
+    assert(err.retryable == true)
+  end,
+
+  test_exec_classifies_generic_failure = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = "", stderr = "fatal: not found", exit_code = 1 }
+    end)
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "y" }, 10, "ctx")
+    end)
+    assert(ok == false)
+    assert(err.class == "gh-command-failed")
+  end,
+
+  test_exec_classifies_issue_assign_permission_denied = function()
+    local handle = gh.new(function(_opts)
+      return {
+        stdout = "",
+        stderr = "GraphQL: Resource not accessible by integration (permission-denied)",
+        exit_code = 1,
+      }
+    end)
+    local ok, err = pcall(function()
+      return handle.issue_assign("owner/repo", 42, "bot-user", 10)
+    end)
+    assert(ok == false)
+    assert(err.class == "gh-issue-assign-permission-denied")
+    assert(err.retryable == false)
+    assert(err.permanent == true)
+  end,
+
+  test_exec_returns_result_on_success = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end)
+    local out = handle._exec({ "gh", "api", "z" }, 10, "ctx", stdout_policy.plain_text())
+    assert(out.stdout == "ok")
+  end,
+
+  test_exec_requires_declared_stdout_policy = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end)
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "z" }, 10, "ctx")
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("missing or unknown stdout policy", 1, true) ~= nil)
+  end,
+
+  test_content_json_requires_author_policy = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = issue_stdout(), stderr = "", exit_code = 0 }
+    end)
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "repos/owner/repo/issues/42" }, 10, "ctx", stdout_policy.content_json("issue_view"))
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("missing trusted author policy", 1, true) ~= nil)
+  end,
+
+  test_content_json_filters_untrusted_authored_fields = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = issue_stdout(), stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    local out = handle._exec(
+      { "gh", "api", "repos/owner/repo/issues/42" },
+      10,
+      "ctx",
+      stdout_policy.content_json("issue_view")
+    )
+    assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    assert(out.content_redacted == true)
+  end,
+
+  test_api_paginate_slurp_issue_list_filters_authored_fields = function()
+    local handle = gh.new(function(_opts)
+      return {
+        stdout = '[{"number":42,"title":"attack","body":"body","user":{"login":"mallory"}}]',
+        stderr = "",
+        exit_code = 0,
+      }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    local out = handle.api_paginate_slurp("repos/owner/repo/issues?state=open&per_page=100", 10)
+    assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    assert(out.content_redacted == true)
+  end,
+
+  test_api_method_include_issue_get_filters_json_body_and_preserves_headers = function()
+    local handle = gh.new(function(_opts)
+      return {
+        stdout = 'HTTP/2.0 200 OK\netag: "old"\n\n{"number":42,"title":"attack","body":"body","user":{"login":"mallory"}}\n',
+        stderr = "",
+        exit_code = 0,
+      }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    local out = handle.api_method("GET", "repos/owner/repo/issues/42", nil, nil, true, 10)
+    assert(out.stdout:find('HTTP/2.0 200 OK\netag: "old"\n\n', 1, true) == 1)
+    assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    assert(out.content_redacted == true)
+  end,
+
+  test_non_content_policies_do_not_filter_stdout = function()
+    local raw = '{"number":42,"title":"attack","body":"attack","author":{"login":"mallory"}}'
+    local handle = gh.new(function(_opts)
+      return { stdout = raw, stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    for _, policy in ipairs({
+      stdout_policy.plain_text(),
+      stdout_policy.trusted_metadata_json(),
+      stdout_policy.write_response(),
+      stdout_policy.no_stdout(),
+    }) do
+      local out = handle._exec({ "gh", "api", "repos/owner/repo/issues/42" }, 10, "ctx", policy)
+      assert(out.stdout == raw)
+      assert(out.content_redacted == nil)
+    end
+  end,
+
+  test_github_exec_uses_argv_without_shell_fields = function()
+    local seen
+    local handle = gh.new(function(opts)
+      seen = opts
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = author_policy })
+
+    handle._exec({ "gh", "api", "repos/owner/repo" }, 12, "ctx", stdout_policy.trusted_metadata_json())
+
+    assert_argv_equal(seen.argv, { "gh", "api", "repos/owner/repo" }, "github")
+    assert(seen.timeout == 12, "timeout is forwarded")
+    assert(seen.cmd == nil, "github exec must not pass cmd")
+    assert(seen.rate_pool == nil, "github exec must not pass rate_pool")
+  end,
+
+  test_github_exec_rejects_non_gh_program = function()
+    local handle = gh.new(function(_opts)
+      error("exec must not be called for adapter misuse")
+    end)
+
+    local ok, err = pcall(function()
+      return handle._exec({ "git", "api", "repos/owner/repo" }, 12, "ctx")
+    end)
+
+    assert(ok == false)
+    assert(err.class == "gh-adapter-misuse")
+    assert(err.bad_program == "git")
+    assert(tostring(err):find("git", 1, true) ~= nil, "misuse error must name the bad program")
+  end,
+
+  test_git_exec_uses_argv_without_shell_fields = function()
+    local seen
+    local handle = git.new(function(opts)
+      seen = opts
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end)
+
+    handle._exec({ "git", "status", "--short" }, 7, "ctx")
+
+    assert_argv_equal(seen.argv, { "git", "status", "--short" }, "git")
+    assert(seen.timeout == 7, "timeout is forwarded")
+    assert(seen.cmd == nil, "git exec must not pass cmd")
+    assert(seen.rate_pool == nil, "git exec must not pass rate_pool")
+  end,
+
+  test_git_object_type_uses_cat_file_type_argv = function()
+    local seen
+    local handle = git.new(function(opts)
+      seen = opts
+      return { stdout = "blob\n", stderr = "", exit_code = 0 }
+    end)
+
+    local result = handle.object_type("refs/heads/proof-task", "lean-toolchain", 30)
+
+    assert_argv_equal(seen.argv, {
+      "git",
+      "cat-file",
+      "-t",
+      "refs/heads/proof-task:lean-toolchain",
+    }, "git object type")
+    assert(seen.timeout == 30, "object type timeout is forwarded")
+    assert(result.stdout == "blob\n")
+  end,
+
+  test_git_exec_rejects_non_git_program = function()
+    local handle = git.new(function(_opts)
+      error("exec must not be called for adapter misuse")
+    end)
+
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "status", "--short" }, 7, "ctx")
+    end)
+
+    assert(ok == false)
+    assert(err.class == "git-adapter-misuse")
+    assert(err.bad_program == "gh")
+    assert(tostring(err):find("gh", 1, true) ~= nil, "misuse error must name the bad program")
+  end,
+
+  test_read_issue_builder_uses_gh_argv = function()
+    local calls = {}
+    local comments_query = table.concat({ "per", "page=100" }, "_")
+    local comments_path = "repos/owner/repo/issues/42/comments?" .. comments_query
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if opts.argv[5] == comments_path then
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end
+      return { stdout = issue_stdout(), stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = author_policy })
+
+    local issue = handle.read_issue({ kind = "external", ref = "owner/repo#issue/42" }, {
+      force_fresh = true,
+      timeout = 9,
+    })
+
+    assert(issue.number == 42, "read_issue still parses stdout")
+    assert(#calls == 2, "force_fresh read_issue fetches REST issue and comments")
+    assert_argv_equal(calls[1].argv, { "gh", "api", "repos/owner/repo/issues/42" }, "read_issue")
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--paginate", "--slurp", comments_path },
+      "read_issue comments"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.timeout == 9, "read_issue forwards timeout for call " .. tostring(index))
+      assert(call.cmd == nil, "read_issue must not pass cmd")
+      assert(call.rate_pool == nil, "read_issue must not pass rate_pool")
+    end
+  end,
+
+  test_github_issue_add_sub_issue_builds_native_sub_issue_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = author_policy })
+
+    handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+
+    assert(#calls == 2, "issue_add_sub_issue must resolve the child REST id internally")
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "api", "repos/owner/repo/issues/120" },
+      "sub_issue_rest_view"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--method", "POST", "repos/owner/repo/issues/979/sub_issues", "-F", "sub_issue_id=987654321" },
+      "issue_add_sub_issue"
+    )
+    assert(calls[1].timeout == 31)
+    assert(calls[2].timeout == 31)
+  end,
+
+  test_github_issue_add_sub_issue_treats_same_parent_duplicate_link_as_success = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      if #calls == 3 then
+        return { stdout = '[[{"id":987654321,"number":120}]]\n', stderr = "", exit_code = 0 }
+      end
+      return {
+        stdout = "",
+        stderr = "HTTP 422: Validation Failed (already linked as a sub-issue)",
+        exit_code = 1,
+      }
+    end, { trusted_author_policy = author_policy })
+
+    local result = handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+
+    assert(#calls == 3, "duplicate sub-issue handling must verify the current parent before swallowing")
+    assert(result.exit_code == 0, "duplicate sub-issue link must be idempotent success")
+    assert(result.idempotent == true, "duplicate sub-issue link must be marked idempotent")
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "api", "repos/owner/repo/issues/120" },
+      "sub_issue_rest_view_duplicate"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--method", "POST", "repos/owner/repo/issues/979/sub_issues", "-F", "sub_issue_id=987654321" },
+      "issue_add_sub_issue_duplicate"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/979/sub_issues?per_page=100" },
+      "issue_add_sub_issue_duplicate_verify_parent"
+    )
+  end,
+
+  test_github_issue_add_sub_issue_keeps_unrelated_errors_fail_closed = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      return { stdout = "", stderr = "HTTP 500: upstream unavailable", exit_code = 1 }
+    end, { trusted_author_policy = author_policy })
+
+    local ok, err = pcall(function()
+      return handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+    end)
+
+    assert(ok == false)
+    assert(err.class == "gh-command-failed")
+  end,
+
+  test_github_issue_add_sub_issue_requires_duplicate_error_to_mention_sub_issue = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      return { stdout = "", stderr = "HTTP 422: Validation Failed (already linked to another object)", exit_code = 1 }
+    end, { trusted_author_policy = author_policy })
+
+    local ok, err = pcall(function()
+      return handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+    end)
+
+    assert(ok == false)
+    assert(err.class == "gh-command-failed")
+  end,
+
+  test_github_issue_add_sub_issue_does_not_swallow_other_sub_issue_already_errors = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      return { stdout = "", stderr = "HTTP 422: Validation Failed (sub-issue already has another parent)", exit_code = 1 }
+    end, { trusted_author_policy = author_policy })
+
+    local ok, err = pcall(function()
+      return handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+    end)
+
+    assert(ok == false)
+    assert(err.class == "gh-command-failed")
+  end,
+
+  test_github_issue_add_sub_issue_does_not_swallow_duplicate_when_parent_list_lacks_child = function()
+    local sub_issues_path = "repos/owner/repo/issues/979/sub_issues?per_page=100"
+    local handle = gh.new(function(opts)
+      if opts.argv[3] == "repos/owner/repo/issues/120" then
+        return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
+      end
+      if opts.argv[6] == sub_issues_path then
+        return { stdout = '[[{"id":111111111,"number":121}]]\n', stderr = "", exit_code = 0 }
+      end
+      return { stdout = "", stderr = "HTTP 422: Validation Failed (already linked as a sub-issue)", exit_code = 1 }
+    end, { trusted_author_policy = author_policy })
+
+    local ok, err = pcall(function()
+      return handle.issue_add_sub_issue("owner/repo", 979, 120, 31)
+    end)
+
+    assert(ok == false)
+    assert(err.class == "gh-command-failed")
+  end,
+
+  test_github_issue_close_requires_and_renders_explicit_disposition = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_close("owner/repo", 41, { kind = "completed" }, 31)
+    handle.issue_close("owner/repo", 42, { kind = "not_planned" }, 32)
+    handle.issue_close("owner/repo", 43, { kind = "duplicate", duplicate_of = 41 }, 33)
+
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "issue", "close", "41", "--repo", "owner/repo", "--reason", "completed" },
+      "issue_close completed"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "issue", "close", "42", "--repo", "owner/repo", "--reason", "not planned" },
+      "issue_close not planned"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "issue", "close", "43", "--repo", "owner/repo", "--duplicate-of", "41" },
+      "issue_close duplicate"
+    )
+
+    local ok, err = pcall(function()
+      handle.issue_close("owner/repo", 44, nil, 34)
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("explicit issue close disposition is required", 1, true) ~= nil)
+  end,
+
+  test_github_entity_methods_build_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_list("owner/repo", 11)
+    handle.pr_list("owner/repo", 12)
+    handle.pr_list_head("owner/repo", "feature/a", "dev", 13)
+    handle.pr_view("owner/repo", 7, 14)
+    handle.pr_create("owner/repo", "feature/a", "dev", "Fix title", "/tmp/body.md", 15)
+    handle.issue_rest_view("owner/repo", 42, 16)
+    handle.pr_rest_view("owner/repo", 7, 17)
+    handle.entity_updated_at("owner/repo", "issue", 42, 18)
+    handle.entity_updated_at("owner/repo", "pr", 7, 19)
+    handle.issue_search(
+      "owner/repo",
+      "<!-- fkst:github-proxy:issue-create:dedup/1 -->",
+      "number,title,state,author,body,url",
+      20
+    )
+    handle.issue_create("owner/repo", "Issue title", "/tmp/body.md", { "bug", "ops" }, { "bot-user" }, 21)
+    handle.issue_assign("owner/repo", 42, "bot-user", 22)
+    handle.issue_unassign("owner/repo", 42, "bot-user", 23)
+    handle.graphql("query { viewer { login } }", nil, 24)
+    handle.label_list("owner/repo", 25)
+    handle.label_create("owner/repo", "adapter-ready", "0E8A16", 26)
+    handle.issue_edit_labels("owner/repo", 42, { "adapter-ready" }, { "adapter-thinking" }, 27)
+    handle.pr_edit_labels("owner/repo", 7, { "review" }, { "draft" }, 28)
+    handle.issue_list_open_assigned("owner/repo", "fkst-test-bot", 29)
+
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues?state=open&per_page=100" },
+      "issue_list"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/pulls?state=open&per_page=100" },
+      "pr_list"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/pulls?state=open&head=owner%3Afeature%2Fa&per_page=100&base=dev" },
+      "pr_list_head"
+    )
+    assert_argv_equal(calls[4].argv, { "gh", "api", "repos/owner/repo/pulls/7" }, "pr_view")
+    assert_argv_equal(
+      calls[5].argv,
+      { "gh", "pr", "create", "--repo", "owner/repo", "--head", "feature/a", "--base", "dev", "--title", "Fix title", "--body-file", "/tmp/body.md" },
+      "pr_create"
+    )
+    assert_argv_equal(
+      calls[6].argv,
+      { "gh", "api", "repos/owner/repo/issues/42" },
+      "issue_rest_view"
+    )
+    assert_argv_equal(
+      calls[7].argv,
+      { "gh", "api", "repos/owner/repo/pulls/7" },
+      "pr_rest_view"
+    )
+    assert_argv_equal(
+      calls[8].argv,
+      { "gh", "api", "repos/owner/repo/issues/42", "--jq", ".updated_at // .updatedAt // \"\"" },
+      "issue_updated_at"
+    )
+    assert_argv_equal(
+      calls[9].argv,
+      { "gh", "api", "repos/owner/repo/pulls/7", "--jq", ".updated_at // .updatedAt // \"\"" },
+      "pr_updated_at"
+    )
+    assert_argv_equal(
+      calls[10].argv,
+      { "gh", "issue", "list", "--repo", "owner/repo", "--state", "all", "--limit", "100", "--search", "<!-- fkst:github-proxy:issue-create:dedup/1 -->", "--json", "number,title,state,author,body,url" },
+      "issue_search"
+    )
+    assert_argv_equal(
+      calls[11].argv,
+      { "gh", "issue", "create", "--repo", "owner/repo", "--title", "Issue title", "--body-file", "/tmp/body.md", "--label", "bug", "--label", "ops", "--assignee", "bot-user" },
+      "issue_create"
+    )
+    assert_argv_equal(
+      calls[12].argv,
+      { "gh", "issue", "edit", "42", "--repo", "owner/repo", "--add-assignee", "bot-user" },
+      "issue_assign"
+    )
+    assert_argv_equal(
+      calls[13].argv,
+      { "gh", "issue", "edit", "42", "--repo", "owner/repo", "--remove-assignee", "bot-user" },
+      "issue_unassign"
+    )
+    assert_argv_equal(
+      calls[14].argv,
+      { "gh", "api", "graphql", "-f", "query=query { viewer { login } }" },
+      "graphql"
+    )
+    assert_argv_equal(
+      calls[15].argv,
+      { "gh", "label", "list", "--repo", "owner/repo", "--limit", "1000", "--json", "name" },
+      "label_list"
+    )
+    assert_argv_equal(
+      calls[16].argv,
+      { "gh", "label", "create", "adapter-ready", "--repo", "owner/repo", "--color", "0E8A16" },
+      "label_create"
+    )
+    assert_argv_equal(
+      calls[17].argv,
+      { "gh", "issue", "edit", "42", "--repo", "owner/repo", "--add-label", "adapter-ready", "--remove-label", "adapter-thinking" },
+      "issue_edit_labels"
+    )
+    assert_argv_equal(
+      calls[18].argv,
+      { "gh", "pr", "edit", "7", "--repo", "owner/repo", "--add-label", "review", "--remove-label", "draft" },
+      "pr_edit_labels"
+    )
+    assert_argv_equal(
+      calls[19].argv,
+      { "gh", "issue", "list", "--repo", "owner/repo", "--state", "open", "--assignee", "fkst-test-bot", "--limit", "100", "--json", "number,title,assignees" },
+      "issue_list_open_assigned"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.timeout == index + 10, "github method timeout mismatch for call " .. tostring(index))
+      assert(call.cmd == nil, "github method must not pass cmd")
+      assert(call.rate_pool == nil, "github method must not pass rate_pool")
+    end
+  end,
+
+  test_github_issue_updated_at_list_builds_one_exact_graphql_call = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = '{"data":{"repository":{}}}', stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_list_updated_at("owner/repo", { 43, 42, 42 }, 30)
+
+    assert(#calls == 1, "issue_list_updated_at must use one GraphQL call")
+    assert_argv_equal(calls[1].argv, {
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      'query=query{repository(owner:"owner",name:"repo"){i42:issue(number:42){number updatedAt}i43:issue(number:43){number updatedAt}}}',
+    }, "issue_list_updated_at")
+  end,
+
+  test_github_comment_methods_build_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_comments("owner/repo", 42, 31)
+    handle.pr_comments("owner/repo", 7, 32)
+    handle.issue_comment_create("owner/repo", 42, "/tmp/body.md", 33)
+    handle.pr_comment_create("owner/repo", 7, "/tmp/body.md", 34)
+    handle.comment_update("owner/repo", 123456, "/tmp/body.md", 35)
+    handle.issue_comment("owner/repo", 42, "/tmp/body.md", 36)
+    handle.pr_comment("owner/repo", 7, "/tmp/body.md", 37)
+
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/42/comments?per_page=100" },
+      "issue_comments"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/7/comments?per_page=100" },
+      "pr_comments"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "api", "--method", "POST", "repos/owner/repo/issues/42/comments", "--field", "body=@/tmp/body.md" },
+      "issue_comment_create"
+    )
+    assert_argv_equal(
+      calls[4].argv,
+      { "gh", "api", "--method", "POST", "repos/owner/repo/issues/7/comments", "--field", "body=@/tmp/body.md" },
+      "pr_comment_create"
+    )
+    assert_argv_equal(
+      calls[5].argv,
+      { "gh", "api", "--method", "PATCH", "repos/owner/repo/issues/comments/123456", "--field", "body=@/tmp/body.md" },
+      "comment_update"
+    )
+    assert_argv_equal(
+      calls[6].argv,
+      { "gh", "issue", "comment", "42", "--repo", "owner/repo", "--body-file", "/tmp/body.md" },
+      "issue_comment"
+    )
+    assert_argv_equal(
+      calls[7].argv,
+      { "gh", "pr", "comment", "7", "--repo", "owner/repo", "--body-file", "/tmp/body.md" },
+      "pr_comment"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.argv[1] == "gh", "comment method must build gh argv for call " .. tostring(index))
+      assert(call.timeout == index + 30, "comment method timeout mismatch for call " .. tostring(index))
+      assert(call.cmd == nil, "comment method must not pass cmd")
+      assert(call.rate_pool == nil, "comment method must not pass rate_pool")
+    end
+  end,
+
+  test_git_fetch_pr_head_oid_uses_floor_compatible_exact_argv = function()
+    -- README prerequisites declare git >= 2.39.5. These exact argv assertions reject
+    -- the known-bad fetch --porcelain flag, but cannot prove that an arbitrary future
+    -- flag preserves that floor; a real-git floor CI lane is the escalation if needed.
+    local oid = "0123456789abcdef0123456789abcdef01234567"
+    local calls = {}
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
+      return {
+        stdout = oid .. "\n",
+        stderr = "",
+        exit_code = 0,
+      }
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "fetch_pr_head_oid fetch")
+    assert(#calls == 2, "fetch_pr_head_oid must fetch and then resolve the local ref")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "fetch_pr_head_oid rev-parse")
+    assert(calls[1].timeout == 42, "fetch_pr_head_oid fetch timeout mismatch")
+    assert(calls[2].timeout == 42, "fetch_pr_head_oid rev-parse timeout mismatch")
+    assert(result.stdout == oid .. "\n", "fetch_pr_head_oid must return the resolved OID")
+    assert(result.stderr == "", "fetch_pr_head_oid must return rev-parse stderr")
+    assert(result.exit_code == 0, "fetch_pr_head_oid must return rev-parse success")
+  end,
+
+  test_git_fetch_pr_head_oid_preserves_fetch_failure = function()
+    local calls = {}
+    local fetch_failure = { stdout = "", stderr = "fetch failed", exit_code = 128 }
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      return fetch_failure
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "failed fetch_pr_head_oid fetch")
+    assert(#calls == 1, "failed fetch_pr_head_oid must not run a fallback command")
+    assert(result == fetch_failure, "failed fetch_pr_head_oid must return the fetch result unchanged")
+  end,
+
+  test_git_fetch_pr_head_oid_propagates_rev_parse_failure = function()
+    local calls = {}
+    local rev_parse_failure = { stdout = "", stderr = "missing ref", exit_code = 128 }
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
+      return rev_parse_failure
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert(#calls == 2, "successful fetch must be followed by rev-parse")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "failed fetch_pr_head_oid rev-parse")
+    assert(result == rev_parse_failure, "fetch_pr_head_oid must propagate rev-parse failure")
+  end,
+
+  test_git_methods_build_argv = function()
+    local calls = {}
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end)
+
+    handle.push_branch("feature/a", 21)
+    handle.show_ref_branch("feature/a", 22)
+    handle.is_ancestor("abc123", "def456", 23)
+    handle.rev_parse_verify_head(24)
+    handle.fetch_branch("origin", "dev", 25)
+    handle.remote_branch_head("origin", "dev", 26)
+    handle.fetch_head_commit(27)
+    handle.merge_no_ff("/tmp/wt", "abcdef", 28)
+    handle.fast_forward("/tmp/wt", "fedcba", 29)
+    handle.remote_trees_equal_quiet("dev", "integration/dev", 30)
+    handle.trees_equal_quiet("aaaa1111", "bbbb2222", 31)
+    handle.merge_tree("approved1", "base1", 32)
+    handle.push_branch_force_with_lease("integration/dev", "cccc3333", "bbbb2222", 33)
+    handle.push_worktree_branch_update("/tmp/wt", "integration/dev", nil, 34)
+    handle.push_worktree_branch_update("/tmp/wt", "feature/a", "dddd4444", 35)
+    handle.unmerged_paths("/tmp/wt", 36)
+    handle.diff_check("/tmp/wt", false, 37)
+    handle.diff_check("/tmp/wt", true, 38)
+    handle.diff_check_range("/tmp/wt", "abc123", "def456", 39)
+    handle.commit_message_file("/tmp/wt", "/tmp/message.txt", 40)
+    handle.worktree_add_detached("/tmp/wt", "eeee5555", 41)
+    handle.worktree_remove("/tmp/wt", 42)
+
+    assert_argv_equal(calls[1].argv, { "git", "push", "-u", "origin", "feature/a" }, "push_branch")
+    assert_argv_equal(calls[2].argv, { "git", "show-ref", "--verify", "refs/heads/feature/a" }, "show_ref_branch")
+    assert_argv_equal(calls[3].argv, { "git", "merge-base", "--is-ancestor", "abc123", "def456" }, "is_ancestor")
+    assert_argv_equal(calls[4].argv, { "git", "rev-parse", "--verify", "HEAD" }, "rev_parse_verify_head")
+    assert_argv_equal(calls[5].argv, { "git", "fetch", "origin", "dev" }, "fetch_branch")
+    assert_argv_equal(calls[6].argv, { "git", "rev-parse", "--verify", "refs/remotes/origin/dev^{commit}" }, "remote_branch_head")
+    assert_argv_equal(calls[7].argv, { "git", "rev-parse", "--verify", "FETCH_HEAD^{commit}" }, "fetch_head_commit")
+    assert_argv_equal(calls[8].argv, { "git", "-C", "/tmp/wt", "merge", "--no-ff", "--no-commit", "abcdef" }, "merge_no_ff")
+    assert_argv_equal(calls[9].argv, { "git", "-C", "/tmp/wt", "merge", "--ff-only", "fedcba" }, "fast_forward")
+    assert_argv_equal(calls[10].argv, { "git", "diff", "--quiet", "refs/remotes/origin/dev", "refs/remotes/origin/integration/dev" }, "remote_trees_equal_quiet")
+    assert_argv_equal(calls[11].argv, { "git", "diff", "--quiet", "aaaa1111", "bbbb2222" }, "trees_equal_quiet")
+    assert_argv_equal(calls[12].argv, { "git", "merge-tree", "--write-tree", "approved1", "base1" }, "merge_tree")
+    assert_argv_equal(calls[13].argv, { "git", "push", "origin", "cccc3333:refs/heads/integration/dev", "--force-with-lease=refs/heads/integration/dev:bbbb2222" }, "push_branch_force_with_lease")
+    assert_argv_equal(calls[14].argv, { "git", "-C", "/tmp/wt", "push", "origin", "HEAD:refs/heads/integration/dev" }, "push_worktree_branch_update")
+    assert_argv_equal(calls[15].argv, { "git", "-C", "/tmp/wt", "push", "origin", "HEAD:refs/heads/feature/a", "--force-with-lease=refs/heads/feature/a:dddd4444" }, "push_worktree_branch_update_with_lease")
+    assert_argv_equal(calls[16].argv, { "git", "-C", "/tmp/wt", "ls-files", "-u" }, "unmerged_paths")
+    assert_argv_equal(calls[17].argv, { "git", "-C", "/tmp/wt", "diff", "--check" }, "diff_check")
+    assert_argv_equal(calls[18].argv, { "git", "-C", "/tmp/wt", "diff", "--cached", "--check" }, "diff_cached_check")
+    assert_argv_equal(calls[19].argv, { "git", "-C", "/tmp/wt", "diff", "--check", "abc123..def456" }, "diff_check_range")
+    assert_argv_equal(calls[20].argv, { "git", "-C", "/tmp/wt", "commit", "-F", "/tmp/message.txt" }, "commit_message_file")
+    assert_argv_equal(calls[21].argv, { "git", "worktree", "add", "--detach", "/tmp/wt", "eeee5555" }, "worktree_add_detached")
+    assert_argv_equal(calls[22].argv, { "git", "worktree", "remove", "--force", "/tmp/wt" }, "worktree_remove")
+    for index, call in ipairs(calls) do
+      assert(call.timeout == index + 20, "git method timeout mismatch for call " .. tostring(index))
+      assert(call.cmd == nil, "git method must not pass cmd")
+      assert(call.rate_pool == nil, "git method must not pass rate_pool")
+    end
+  end,
+}

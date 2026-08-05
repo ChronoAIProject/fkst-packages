@@ -1,0 +1,834 @@
+#!/usr/bin/env bash
+# dogfood.sh — single operator multi-tool for dogfooding github-devloop on this device.
+#
+# Each dogfood drives ONE target repo's issue->PR->review->merge loop using the
+# github-devloop behavior package (sourced from an fkst-packages clone), running on
+# the fkst-substrate engine BIN with the integration->rollup->dev topology and real
+# write posture (FKST_GITHUB_WRITE=1):
+#
+#   packages  : target fkst-packages   (host == package source: one worktree)
+#   substrate : target fkst-substrate  (host = substrate engine worktree, packages from a sibling fkst-packages clone)
+#   website   : target fkst-website    (host = website worktree + its own site-board package)
+#
+# Package layout: `.fkst/` is RUNTIME/build only (gitignored: runtime, durable,
+# substrate-src, board cache) except host repos that intentionally commit their own
+# local package source under `.fkst/local-packages/<pkg>`. The engine BIN + shared
+# devloop packages are the PLATFORM, loaded by delegating the resolved topology to
+# the host-run contract in `$PKGSRC/scripts/run.sh supervise`.
+#
+# Commands:
+#   ./dogfood.sh status  [name|all]            pid/uptime/code-version/panic per supervise
+#   ./dogfood.sh doctor  [name|all]            health roll-up: supervises + BIN freshness + code currency + graphql
+#   ./dogfood.sh board   [name|all] [stale_h]  GitHub board sweep: which issues/PRs flow vs are stuck (default stale 6h)
+#   ./dogfood.sh bin                           ensure engine BIN == substrate origin/dev; rebuild if stale (no restart)
+#   ./dogfood.sh start   [name|all]            launch via host-run contract
+#   ./dogfood.sh stop    [name|all]            SIGKILL (releases the redb lock)
+#   ./dogfood.sh restart [name|all]            sync run checkouts to origin/<integration> + relaunch (unconditional)
+#   ./dogfood.sh sync    [name|all]            auto-deploy: ff pinned operator checkouts to dev, rebuild BIN,
+#                                              and restart ONLY supervises whose running code is a real
+#                                              package/engine change (skill/docs-only skew is left running)
+#   ./dogfood.sh logs    [name] [lines]        tail the latest log (default packages, 40 lines)
+#
+# Dogfood resolves per-machine topology and delegates one-host launch invariants
+# (fresh runtime scratch, stable durable reuse, package loading, and restart) to
+# `scripts/run.sh supervise`.
+set -uo pipefail
+
+# ---- per-machine config ----
+# We run three repos (fkst-packages, fkst-substrate, fkst-website) across two machines.
+# Device-specific values (paths, bot login, integration branch, stable durable roots, which
+# repos this host drives) are sourced from a per-machine file so the SAME script runs anywhere:
+#   1. $DOGFOOD_CONFIG if set, else  2. <this-dir>/dogfood.config.sh (gitignored, per-machine).
+# Every value has a generic default below, so an unconfigured host still works. Precedence is
+# env var > config file > default. See dogfood.config.example.sh for the template.
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_repo_root="$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+_cfg="${DOGFOOD_CONFIG:-$_self_dir/dogfood.config.sh}"
+[ -f "$_cfg" ] && . "$_cfg"
+
+DOGFOOD_ROOT="${DOGFOOD_ROOT:-$HOME/.fkst-dogfood}"                       # base for all worktrees/logs/scratch (STABLE $HOME path; NOT /private/tmp, which macOS age-cleans)
+SUBSTRATE_SRC="${SUBSTRATE_SRC:-$HOME/fkst-substrate}"                    # substrate checkout the engine BIN builds from
+BIN="${BIN:-$SUBSTRATE_SRC/target/debug/fkst-framework}"
+RATE_POOL="${FKST_RATE_POOL_ROOT:-${RATE_POOL:-$DOGFOOD_ROOT/fkst-rate-pools}}"
+BOT="${FKST_GITHUB_BOT_LOGIN:-${BOT:-loning}}"                            # gh auth user == trusted bot marker author (DIFFERS per machine)
+LOGDIR="${DOGFOOD_LOGDIR:-${LOGDIR:-$DOGFOOD_ROOT}}"
+UPSTREAM_BRANCH="${FKST_DEVLOOP_UPSTREAM_BRANCH:-${UPSTREAM_BRANCH:-dev}}"
+INTEGRATION_BRANCH="${FKST_DEVLOOP_INTEGRATION_BRANCH:-${INTEGRATION_BRANCH:-integration}}"  # e.g. integration-<device> on a 2nd machine
+ROLLUP_MERGE="${FKST_DEVLOOP_ROLLUP_MERGE:-${ROLLUP_MERGE:-auto}}"
+MANAGED_BOT_LOGINS="${FKST_DEVLOOP_MANAGED_BOT_LOGINS:-${MANAGED_BOT_LOGINS:-}}"  # collaborating managed-bot logins (this device + peers); lets external-pr-intake skip our own automation
+AUTHORIZE_ORG_MEMBERS="${FKST_GITHUB_AUTHORIZE_ORG_MEMBERS:-${AUTHORIZE_ORG_MEMBERS:-0}}"  # 1 = auto-authorize every member of the repo owner's GH org into the devloop author allowlist (issue intake auto-dev + external-PR bridge); default 0 = only static FKST_GITHUB_AUTHORIZED_LOGINS. Fail-closed: if the token cannot list org members, the policy falls back to static-only.
+GITHUB_PROXY_POLL_LABEL_PREFIX="${FKST_GITHUB_PROXY_POLL_LABEL_PREFIX:-${GITHUB_PROXY_POLL_LABEL_PREFIX:-fkst-dev:}}"
+GH_ORG="${GH_ORG:-ChronoAIProject}"
+DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate}"             # repos this host drives ('all' / board default expand here); website is OPT-IN — a host that wants it adds `website` in dogfood.config.sh
+
+# The shared devloop family = the PLATFORM (like GitHub runners + marketplace actions), loaded from the
+# platform fkst-packages (Lua-primary) checkout's repo-root packages/ (PKGSRC). Each website-source-
+# primary TARGET repo (host) commits its OWN custom Lua packages under `.fkst/local-packages/<pkg>`
+# (root stays website source) — so platform packages come from `$PKGSRC/packages/<pkg>`, a host's own package
+# from `$HOST/.fkst/local-packages/<pkg>`. (`.fkst/` is a tracked+ignored runtime INTERFACE dir, not
+# "all runtime": host repos commit their own Lua there. See fkst-website CLAUDE.md.)
+# Platform packages every dogfood supervise LOADS + RUNS from PKGSRC/packages/ are selected by the
+# target host's `fkst.workspace.toml`. Non-self hosts use
+# `external_sources(id=fkst-packages-platform).packages`; the self host uses explicit workspace
+# `[[package]]` entries. `dogfood.sh` only derives the launch argument from that manifest and never
+# rewrites it, so a drift between committed composition and launch composition fails closed in the
+# host-run contract instead of being masked.
+DEVLOOP_PKGS=""
+
+# cfg <name> -> REPO HOST PKGSRC DUR LOCAL_PKGS. Worktree paths derive from $DOGFOOD_ROOT (uniform
+# layout across machines); stable durable roots default under it but are commonly PINNED per machine
+# (DUR_* in the config) to an existing redb store so restarts resume in-flight. LOCAL_PKGS lists the
+# host target's OWN packages (committed under the host repo's `.fkst/local-packages/<pkg>`).
+cfg() {
+  LOCAL_PKGS=""   # repo-local custom packages this target drives (committed in the host repo)
+  case "$1" in
+    packages)
+      REPO="$GH_ORG/fkst-packages"
+      HOST="$DOGFOOD_ROOT/pkgs-dogfood"; PKGSRC="$HOST"
+      DUR="${DUR_PACKAGES:-$DOGFOOD_ROOT/dogfood-durable-packages}" ;;
+    substrate)
+      REPO="$GH_ORG/fkst-substrate"
+      HOST="$DOGFOOD_ROOT/substrate-dogfood/sub"; PKGSRC="$DOGFOOD_ROOT/substrate-dogfood/pkgs"
+      DUR="${DUR_SUBSTRATE:-$DOGFOOD_ROOT/dogfood-durable-substrate}" ;;
+    website)
+      REPO="$GH_ORG/fkst-website"
+      HOST="$DOGFOOD_ROOT/website-dogfood/site"; PKGSRC="$DOGFOOD_ROOT/website-dogfood/pkgs"
+      DUR="${DUR_WEBSITE:-$DOGFOOD_ROOT/dogfood-durable-website}"; LOCAL_PKGS="site-board" ;;
+    *) echo "unknown dogfood: $1 (packages|substrate|website)" >&2; return 1 ;;
+  esac
+}
+
+derive_devloop_pkgs_from_workspace() { # $1 name
+  local name="$1" output
+  output="$(python3 "$_self_dir/workspace_manifest.py" platform-packages "$name" "$HOST" "$PKGSRC")" \
+    || { printf '%s\n' "$output" >&2; return 1; }
+  DEVLOOP_PKGS="$output"
+}
+
+pidof_df() { pgrep -f -- "supervise --project-root ${HOST} " 2>/dev/null; }
+latest_log() { ls -t "$LOGDIR/${1}-sv-"*.log 2>/dev/null | head -1; }
+engine_panic_count() { # $1 supervise log; count engine panics, excluding child stderr= blobs
+  sed -E 's/[[:space:]]stderr=.*$//' "$1" 2>/dev/null \
+    | grep -aciE "thread '[^']*' panicked|panicked at|redb.*lock error" || true
+}
+pid_alive_non_zombie() {
+  local pid="$1" stat
+  kill -0 "$pid" 2>/dev/null || return 1
+  stat=$(ps -o stat= -p "$pid" 2>/dev/null | awk 'NF {print $1; exit}')
+  [[ "$stat" == Z* ]] && return 1
+  return 0
+}
+supervise_ready_log() {
+  local log="$1"
+  # Supervise-owned startup readiness contract, not a generic health semantic.
+  grep -qaE 'EVENT=code_provenance .*ENGINE_VER=[^ ]+ .*PKG_VERS=[^ ]+' "$log" 2>/dev/null \
+    && grep -qa 'MSG=event runtime running' "$log" 2>/dev/null
+}
+wait_supervise_ready() { # $1 pid, $2 log
+  # timeout_attempts is a GENEROUS backstop for a slow-but-healthy cold start, NOT a health SLA:
+  # a supervise loading ~16 package roots + engine init emits its readiness markers
+  # (code_provenance + `event runtime running`) ~14-16s after spawn (measured), so the old 10s
+  # (100 * 0.1s) cap was chronically SHORTER than a normal cold start and cried wolf
+  # ("FAILED to become ready" on a supervise that was in fact starting fine). 60s (600 * 0.1s)
+  # clears the measured cold start with 3-4x headroom for backlog/disk pressure. This does NOT
+  # slow real-failure detection: a dead start returns 1 the instant the pid dies (below), regardless
+  # of the cap; the cap only bounds how long we wait for an ALIVE-but-not-yet-ready process.
+  local pid="$1" log="$2" attempts=0 ready_seen=0 stable_attempts=30 timeout_attempts=600
+  while [ "$attempts" -lt "$timeout_attempts" ]; do
+    if ! pid_alive_non_zombie "$pid"; then
+      return 1
+    fi
+    if supervise_ready_log "$log"; then
+      ready_seen=1
+    fi
+    if [ "$ready_seen" -eq 1 ] && [ "$attempts" -ge "$stable_attempts" ]; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  return 2
+}
+expand() { [ "${1:-all}" = all ] && echo "$DOGFOOD_REPOS" || echo "$1"; }
+
+. "$_self_dir/dogfood_board.sh"
+
+# Sync a dogfood RUN checkout (behavior PKGSRC + target HOST) to the machine's
+# INTEGRATION_BRANCH — the dogfood runs its own pre-rollup code (feature ->
+# integration-<device> -> rollup -> dev), so it is the live integration test of
+# this device's autonomous changes BEFORE they promote to dev. The rollup target
+# stays UPSTREAM_BRANCH (FKST_DEVLOOP_UPSTREAM_BRANCH=dev); only the engine BIN +
+# the pinned operator/skill checkouts stay on dev.
+# Self-heal a run checkout corrupted by a volatile DOGFOOD_ROOT. DOGFOOD_ROOT now defaults to a
+# STABLE $HOME/.fkst-dogfood, but an explicit override to a volatile base like /private/tmp gets
+# age-cleaned by macOS (files untouched >3d): it strips .git and older tracked
+# files, leaving a partial tree. The constantly-written durable store survives, but the static
+# package source rots — so the supervise either reads "skew/current" against the rotted checkout
+# (operator fixes never deploy) or, on restart, refuses to start on an incomplete package graph
+# (e.g. a raiser file gone -> "queue ... has no producer"). Detect that (no .git, or tracked files
+# deleted) and re-clone fresh from origin. Forward-only restore; the durable store is separate and
+# survives (or is re-derived from GitHub markers). $2 is the org/repo slug to clone (PKGSRC is
+# always fkst-packages; HOST is the target $REPO). This makes correctness independent of where
+# DOGFOOD_ROOT points, rather than relying on the base dir being non-volatile.
+ensure_run_checkout() { # $1 checkout dir, $2 org/repo slug
+  local dir="$1" slug="$2" corrupt=""
+  if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    corrupt="not-a-git-repo"
+  elif git -C "$dir" status --porcelain 2>/dev/null | grep -q '^ D '; then
+    corrupt="deleted-tracked-files"
+  fi
+  [ -z "$corrupt" ] && return 0
+  echo "  ! run checkout $dir corrupt ($corrupt; likely $DOGFOOD_ROOT cleanup) -> re-cloning $slug"
+  [ -e "$dir" ] && mv "$dir" "${dir}.corrupt.$(date +%s)" 2>/dev/null
+  mkdir -p "$(dirname "$dir")"
+  git clone -q "https://github.com/$slug.git" "$dir" \
+    && echo "    re-cloned $slug -> $dir" \
+    || { echo "    ERROR: failed to clone $slug into $dir"; return 1; }
+}
+
+restore_generated_workspace_scratch() { # $1 worktree dir
+  local wt="$1"
+  [ -f "$wt/fkst.workspace.toml" ] || return 0
+  git -C "$wt" diff --quiet -- fkst.workspace.toml 2>/dev/null && return 0
+  python3 "$_self_dir/workspace_manifest.py" is-generated-scratch "$wt" "$DEVLOOP_PKGS" >/dev/null || return 0
+  echo "    restoring generated fkst.workspace.toml scratch before branch sync"
+  git -C "$wt" checkout -q -- fkst.workspace.toml 2>/dev/null
+}
+
+sync_to_run_branch() { # $1 worktree dir
+  git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || { echo "  ! $1 is not a git worktree"; return 1; }
+  git -C "$1" fetch origin "$INTEGRATION_BRANCH" -q 2>/dev/null
+  local target; target=$(git -C "$1" rev-parse --short "origin/$INTEGRATION_BRANCH" 2>/dev/null)
+  # checkout -B (not reset --hard): leaves the checkout actually ON the integration branch
+  # tracking origin/<integration>, instead of pointing a stale local 'dev' ref at integration content.
+  local note; note=$(git -C "$1" checkout -q -B "$INTEGRATION_BRANCH" "origin/$INTEGRATION_BRANCH" 2>&1 | tail -1)
+  # Verify the checkout actually REACHED target, then self-heal. A checkout that aborts (working-tree
+  # obstruction, a file<->symlink/dir transition racing the running supervise, a dirty tree) otherwise
+  # leaves the clone on STALE code while the function returns ok and the supervise silently launches
+  # stale — the exact "supervise silently re-running already-fixed defects" failure this tooling exists
+  # to prevent. Self-heal forcefully (reset --hard + clean reaches the fetched ref regardless of the
+  # obstruction; clean -fd keeps gitignored .fkst/ runtime), then re-assert the branch so the checkout
+  # stays ON <integration>. If it STILL cannot reach target (deep corruption ensure_run_checkout should
+  # have re-cloned), fail loud with STALE-CHECKOUT so the operator and doctor (pkg-stale) catch it.
+  if [ -n "$target" ] && [ "$(git -C "$1" rev-parse --short HEAD 2>/dev/null)" != "$target" ]; then
+    git -C "$1" reset --hard "origin/$INTEGRATION_BRANCH" -q 2>/dev/null
+    git -C "$1" clean -fdq 2>/dev/null
+    git -C "$1" checkout -q -B "$INTEGRATION_BRANCH" "origin/$INTEGRATION_BRANCH" 2>/dev/null
+    note="self-healed stale checkout (was: ${note:-checkout-failed})"
+  fi
+  local head; head=$(git -C "$1" rev-parse --short HEAD 2>/dev/null)
+  if [ -n "$target" ] && [ "$head" != "$target" ]; then
+    echo "  $1 -> STALE-CHECKOUT: still $head, target $target ($note) ($INTEGRATION_BRANCH)"
+    return 1
+  fi
+  echo "  $1 -> $head${note:+ ($note)} ($INTEGRATION_BRANCH)"
+}
+
+# Ensure a checkout's INTEGRATION_BRANCH is >= UPSTREAM_BRANCH (dev) by merging upstream
+# FORWARD into integration and pushing. Why: operator out-of-band fixes land on dev; the
+# dogfood runs on integration; the in-pipeline sync_scan ff's dev->integration but can lag
+# (or the running supervise is itself stale), so _proc_stale reads "current" against a stale
+# integration and the supervise never picks up operator fixes. This deterministically merges
+# dev forward (plain ff when integration is an ancestor of dev; a merge commit when integration
+# has its own un-rolled commits — both keep integration >= dev) and pushes, so the next
+# _proc_stale sees pkg-stale and restarts onto the fix. Forward-only (never rewrites integration);
+# aborts on conflict and leaves it for sync_conflict; a push failure is non-fatal.
+ensure_integration_caught_up() { # $1 checkout dir
+  local wt="$1"
+  git -C "$wt" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  [ "$INTEGRATION_BRANCH" = "$UPSTREAM_BRANCH" ] && return 0   # single-branch topology: nothing to merge
+  git -C "$wt" fetch origin "$INTEGRATION_BRANCH" "$UPSTREAM_BRANCH" -q 2>/dev/null || return 0
+  git -C "$wt" rev-parse --verify "origin/$INTEGRATION_BRANCH" >/dev/null 2>&1 || return 0
+  git -C "$wt" rev-parse --verify "origin/$UPSTREAM_BRANCH"   >/dev/null 2>&1 || return 0
+  local behind; behind=$(git -C "$wt" rev-list --count "origin/$INTEGRATION_BRANCH..origin/$UPSTREAM_BRANCH" 2>/dev/null || echo 0)
+  [ "${behind:-0}" -eq 0 ] && return 0
+  echo "  $INTEGRATION_BRANCH is $behind behind $UPSTREAM_BRANCH in $(basename "$wt") -> merging $UPSTREAM_BRANCH forward"
+  restore_generated_workspace_scratch "$wt"
+  git -C "$wt" checkout -q -B "$INTEGRATION_BRANCH" "origin/$INTEGRATION_BRANCH" 2>/dev/null \
+    || { echo "    WARN: could not checkout $INTEGRATION_BRANCH — leaving for sync_scan"; return 0; }
+  restore_generated_workspace_scratch "$wt"
+  if git -C "$wt" merge --no-edit "origin/$UPSTREAM_BRANCH" >/dev/null 2>&1; then
+    if git -C "$wt" push origin "HEAD:$INTEGRATION_BRANCH" >/dev/null 2>&1; then
+      echo "    merged + pushed: $INTEGRATION_BRANCH -> $(git -C "$wt" rev-parse --short HEAD)"
+    else
+      echo "    WARN: merge ok but push failed (perm/race) — leaving for sync_scan"
+    fi
+  else
+    git -C "$wt" merge --abort 2>/dev/null
+    echo "    WARN: $UPSTREAM_BRANCH does not merge cleanly into $INTEGRATION_BRANCH — leaving for sync_conflict"
+  fi
+}
+
+# Engine BIN freshness. Stale = substrate origin/dev ahead of the build checkout, OR any
+# crate .rs newer than the BIN binary. _bin_state echoes "behind newer head" (read-only,
+# fetches first) and is shared by the read-only report and the rebuild.
+_bin_state() {
+  git -C "$SUBSTRATE_SRC" fetch origin "$UPSTREAM_BRANCH" -q 2>/dev/null
+  local behind newer head
+  head=$(git -C "$SUBSTRATE_SRC" rev-parse --short HEAD 2>/dev/null)
+  behind=$(git -C "$SUBSTRATE_SRC" rev-list --count "HEAD..origin/$UPSTREAM_BRANCH" 2>/dev/null || echo 0)
+  newer=$(find "$SUBSTRATE_SRC/crates" -name '*.rs' -newer "$BIN" 2>/dev/null | wc -l | tr -d ' ')
+  echo "${behind:-0} ${newer:-0} ${head:-?}"
+}
+
+# Read-only freshness report — used by `doctor`, which must NOT mutate. Rebuilding here would
+# make the BIN file current while the RUNNING supervise still executes the old engine, masking
+# the staleness behind a "fresh" line. So doctor only reports; `restart`/`bin` rebuild + reload.
+bin_freshness_report() {
+  git -C "$SUBSTRATE_SRC" rev-parse --git-dir >/dev/null 2>&1 || { echo "$SUBSTRATE_SRC not a substrate checkout"; return 0; }
+  local behind newer head; read -r behind newer head <<<"$(_bin_state)"
+  if [ -x "$BIN" ] && [ "$behind" = 0 ] && [ "$newer" = 0 ]; then
+    echo "fresh: substrate@$head (0 behind origin/$UPSTREAM_BRANCH, 0 newer .rs)"
+  else
+    echo "STALE: substrate@$head behind=$behind newer_rs=$newer → run 'dogfood.sh restart' (or 'bin') to rebuild + reload"
+  fi
+}
+
+# Rebuild the BIN from substrate origin/dev if stale — used by bin/sync (mutating).
+bin_ensure_fresh() {
+  git -C "$SUBSTRATE_SRC" rev-parse --git-dir >/dev/null 2>&1 \
+    || { echo "BIN: $SUBSTRATE_SRC not a substrate checkout — skipping freshness check"; return 0; }
+  local behind newer head; read -r behind newer head <<<"$(_bin_state)"
+  if [ -x "$BIN" ] && [ "$behind" = 0 ] && [ "$newer" = 0 ]; then
+    echo "BIN fresh: substrate@$head (0 behind origin/$UPSTREAM_BRANCH, 0 newer .rs)"
+    return 0
+  fi
+  echo "BIN STALE (behind=$behind newer_rs=$newer) — rebuild from origin/$UPSTREAM_BRANCH"
+  if [ -n "$(git -C "$SUBSTRATE_SRC" status --porcelain 2>/dev/null)" ]; then
+    echo "  ! $SUBSTRATE_SRC working tree dirty — building current HEAD without reset:"
+    git -C "$SUBSTRATE_SRC" status --short | head -5 | sed 's/^/    /'
+  else
+    git -C "$SUBSTRATE_SRC" reset --hard "origin/$UPSTREAM_BRANCH" 2>&1 | tail -1 | sed 's/^/  /'
+  fi
+  ( cd "$SUBSTRATE_SRC" && cargo build -p fkst-framework 2>&1 | tail -2 | sed 's/^/  /' )
+  echo "  built: substrate@$(git -C "$SUBSTRATE_SRC" rev-parse --short HEAD)"
+}
+
+# Prune worktrees + scratch dirs from OLD runtime roots of this dogfood (implement/fix
+# depts create worktrees under the launch runtime scratch, registered in the shared .git; each
+# restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
+#
+# PRESERVE STILL-REGISTERED GENERATIONS (#2925). A restart SIGKILLs only the supervise; an
+# in-flight codex is ORPHANED and keeps running against its worktree (crash-only contract). This
+# cleaner used to remove the registration and rm -rf the directory anyway, so the orphan kept
+# writing into a deleted path and recreated a partial, UNREGISTERED husk. Harvest then ran `cd`
+# into it, exited nonzero WITHOUT a typed marker, and the run was recorded as a false
+# `impl-failed / local-iteration-attribution-indeterminate` (observed on #2919, and on #2925's own
+# implementation twice). A registered worktree is the ground truth for "someone still owns this",
+# so a generation that still has one is skipped entirely and reported — it is reclaimed on a later
+# pass once its registration is gone. This is the operator-side containment that the #2925 fix
+# (moving implementation worktrees to a stable root) requires to land first; without it, deploying
+# that fix would itself destroy the pre-fix work still in flight.
+clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
+  local name="$1" keep="$2" d held writer_census writer_census_status
+  held=$(git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep")
+  if [ -n "$held" ]; then
+    echo "  ! preserving $(printf '%s\n' "$held" | wc -l | tr -d ' ') still-registered worktree(s) from older runtime roots (#2925):"
+    printf '%s\n' "$held" | sed 's|^|      |'
+  fi
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "[$name] cannot prove stale runtime writer quiescence: lsof unavailable; retaining old runtimes" >&2
+    return 0
+  fi
+  git -C "$PKGSRC" worktree prune 2>/dev/null
+  for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
+    [ -d "$d" ] && [ "$d" != "$keep" ] || continue
+    # Skip any generation that still holds a registered worktree; removing it is what
+    # manufactures the husk. Re-read the registry each iteration: `worktree prune` above may
+    # have dropped registrations whose directories are already gone.
+    if git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | grep -qF "$d/"; then
+      continue
+    fi
+
+    # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
+    # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
+    writer_census_status=0
+    writer_census=$(lsof +D "$d" 2>&1) || writer_census_status=$?
+    if [ "$writer_census_status" -eq 0 ] && [ -n "$writer_census" ]; then
+      echo "[$name] retaining stale runtime with active writers: $d" >&2
+      continue
+    fi
+    # lsof reports no matches as exit 1 with no output; every other result is inconclusive.
+    if [ "$writer_census_status" -ne 1 ] || [ -n "$writer_census" ]; then
+      echo "[$name] cannot prove stale runtime writer quiescence: lsof exit $writer_census_status; retaining $d" >&2
+      [ -n "$writer_census" ] && printf '%s\n' "$writer_census" >&2
+      continue
+    fi
+    python3 "$_self_dir/dead_letter_causes.py" archive \
+      --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
+      || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
+    rm -rf "$d" 2>/dev/null
+  done
+}
+
+launch_one() { # $1 name, $2 restart flag (0|1)
+  local name="$1" restart="${2:-0}" ts log rt args=()
+  ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
+  derive_devloop_pkgs_from_workspace "$name" || return 1
+  [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
+  [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
+
+  args=(
+    "$PKGSRC/scripts/run.sh" supervise
+    --project-root "$HOST"
+    --platform-root "$PKGSRC"
+    --platform-packages "$DEVLOOP_PKGS"
+    --durable-root "$DUR"
+    --runtime-root "$rt"
+  )
+  [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
+  [ "$restart" = "1" ] && args+=(--restart)
+
+  # Own-session launch: make the supervise its OWN session/process-group leader. CONFIRMED (ps): the
+  # plain `nohup "${args[@]}" &` launch left the supervise in the LAUNCHER's process group (PGID = the
+  # launching shell's, not its own pid) — vulnerable to any group-directed signal to that pgroup
+  # (`kill -- -<pgid>`). Closing that confirmed foreign-pgroup membership is the point of this change.
+  # [ASSUMED-UNVERIFIED: the recurring out-of-band SIGTERM that forced manual restarts ~every few hours
+  # is *inferred* to be such a group signal on launcher/session/background-task teardown — it was not
+  # caught live. This hardens the confirmed vulnerability; it does NOT prove recurrence-elimination,
+  # which must be observed after this lands.] `nohup` only blocks SIGHUP, not group signals. macOS has
+  # no setsid(1), so wrap in python3 (already required by scripts/run.sh; perl was rejected — it panics
+  # under the automation env's LC_ALL=C.UTF-8 locale). `os.setsid()`+`os.execvp` is IN-PLACE, so $!
+  # below stays the REAL supervise pid and the env-prefix stays scoped to the launch; a failed setsid
+  # raises OSError → nonzero exit → the readiness wait reports the launch failure loud (self-verifying).
+  BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
+    FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
+    FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
+    FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
+    FKST_GITHUB_AUTHORIZE_ORG_MEMBERS="$AUTHORIZE_ORG_MEMBERS" \
+    FKST_RATE_POOL_ROOT="$RATE_POOL" \
+    nohup python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "${args[@]}" > "$log" 2>&1 &
+  local pid=$!
+  ln -sf "$log" "$LOGDIR/${name}-sv.log"
+  wait_supervise_ready "$pid" "$log"
+  local ready_status=$?
+  if [ "$ready_status" -eq 0 ]; then
+    # Cleanup separately proves that no orphaned old-runtime writer remains.
+    clean_stale_runtime_worktrees "$name" "$rt"
+    # Committed per-launch verification that the own-session daemonization took effect: a session
+    # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a
+    # foreign pgroup (the bug this launch fixes) — surface it loud rather than pass a false green.
+    local svpgid; svpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    local own="own-pgroup=yes"; [ "$svpgid" = "$pid" ] || own="own-pgroup=NO(WARN: setsid not in effect, pgid=$svpgid — supervise is signal-group-vulnerable)"
+    echo "[$name] started pid $pid  $own  panic=$(engine_panic_count "$log")  log=$log"
+  else
+    if [ "$ready_status" -eq 1 ]; then
+      echo "[$name] FAILED to start; supervise pid $pid exited before readiness; tail:"
+    else
+      echo "[$name] FAILED to become ready; supervise pid $pid did not emit startup readiness; tail:"
+    fi
+    tail -12 "$log" | sed 's/\x1b\[[0-9;]*m//g'
+    return 1
+  fi
+}
+
+# launch_with_lock_retry: launch_one + a bounded retry on the redb lock race ONLY.
+# `restart` is the deploy path and is NOT atomic: it SIGKILLs the old supervise then opens the
+# durable store. That kill does not always release the redb lock in time; the race loser exits with
+# `Database already open. Cannot acquire lock.` leaving NOTHING running — a full outage whose next
+# signal is the following operator wake (incident 2026-08-01, #3001; a plain retry minutes later
+# succeeded first try, so the lock was never genuinely held). Retry ONLY this signature, so a real
+# failure (bad config, panic, missing BIN) still fails fast and loud on the first attempt.
+# Deliberately NOT named launch_one: that name carries the scripts/run.sh supervise delegation that
+# G-DOGFOOD-BOUNDARY audits, and this wrapper must not displace it from the audited surface.
+launch_with_lock_retry() { # $1 name, $2 restart flag (0|1)
+  local attempts=5 i=1 log
+  while :; do
+    launch_one "$1" "$2" && return 0
+    log=$(ls -t "$LOGDIR/${1}-sv-"*.log 2>/dev/null | head -1)
+    [ "$i" -lt "$attempts" ] && [ -n "$log" ] \
+      && grep -q "Database already open. Cannot acquire lock." "$log" 2>/dev/null || return 1
+    echo "[$1] durable lock not yet released by the previous supervise (attempt $i/$attempts); retrying in ${i}s"
+    sleep "$i"; i=$((i + 1))
+  done
+}
+
+start_one() {
+  cfg "$1" || return 1
+  local existing; existing=$(pidof_df)
+  if [ -n "$existing" ]; then echo "[$1] already running (pid $existing) — use restart"; return 0; fi
+  launch_with_lock_retry "$1" 0
+}
+
+stop_one() {
+  cfg "$1" || return 1
+  local p; p=$(pidof_df)
+  if [ -z "$p" ]; then echo "[$1] not running"; return 0; fi
+  kill -9 $p 2>/dev/null; echo "[$1] killed $p"
+}
+
+restart_one() {
+  cfg "$1" || return 1
+  echo "[$1] sync to origin/$INTEGRATION_BRANCH (run branch; rollup target stays $UPSTREAM_BRANCH):"
+  ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout
+  [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
+  derive_devloop_pkgs_from_workspace "$1" || return 1
+  ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
+  [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
+  sync_to_run_branch "$PKGSRC"
+  [ "$HOST" != "$PKGSRC" ] && sync_to_run_branch "$HOST"
+  # One migration bridge: a supervise launched before the host-run contract has no
+  # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
+  [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
+  launch_with_lock_retry "$1" 1
+}
+
+# fmt_uptime <etime>: render `ps -o etime=` ([[DD-]HH:]MM:SS) with EXPLICIT units.
+# The raw format's leading field changes meaning with the field count, so `09:30` (nine minutes) and
+# `09:30:00` (nine hours) look alike at a glance — an operator read a 9m30s supervise uptime as 9h30m
+# and started diagnosing a nine-hour stall on a twelve-minute-old process. The producer owns making
+# this unambiguous; every reader of status/doctor/board gets it for free.
+fmt_uptime() {
+  local et="${1:-}" d=0 h=0 m=0 s=0 rest colons
+  [ -n "$et" ] || { printf '?'; return 0; }
+  rest="$et"
+  case "$rest" in *-*) d=$((10#${rest%%-*})); rest=${rest#*-} ;; esac
+  # `rest` is now [HH:]MM:SS — peel the hour field only when it is actually present, rather than
+  # indexing a fixed offset (a negative subscript would be evaluated even on the branch that discards it)
+  colons=${rest//[^:]/}
+  if [ ${#colons} -ge 2 ]; then h=$((10#${rest%%:*})); rest=${rest#*:}; fi
+  m=$((10#${rest%%:*})); s=$((10#${rest##*:}))
+  if [ "$d" -gt 0 ]; then printf '%dd%02dh' "$d" "$h"
+  elif [ "$h" -gt 0 ]; then printf '%dh%02dm' "$h" "$m"
+  else printf '%dm%02ds' "$m" "$s"; fi
+}
+
+status_one() {
+  cfg "$1" || return 1
+  local p log; p=$(pidof_df); log=$(latest_log "$1")
+  if [ -z "$p" ]; then echo "[$1] STOPPED   (target $REPO)"; return 0; fi
+  local et panic last hv pv
+  et=$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')")
+  panic=$(engine_panic_count "$log")
+  last=$(tail -1 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-44)
+  hv=$(git -C "$HOST" rev-parse HEAD 2>/dev/null | cut -c1-8)
+  pv=$(git -C "$PKGSRC" rev-parse HEAD 2>/dev/null | cut -c1-8)
+  printf '[%s] RUNNING pid %s up %s panic=%s | host@%s pkgs@%s | %s\n' "$1" "$p" "$et" "$panic" "$hv" "$pv" "$last"
+}
+
+# _proc_stale <name> -> freshness verdict of the RUNNING process vs origin/dev. Authoritative =
+# the code the process loaded at startup (logged code_provenance PKG_VERS/ENGINE_VER), NOT the
+# worktree/BIN file (those can be updated without reloading the process — only a restart reloads).
+# Echoes: stopped | current | skew (dev moved, non-package files only) | pkg-stale | engine-stale.
+# PKG freshness is vs PKGSRC origin/$INTEGRATION_BRANCH (the run branch the dogfood loads);
+# ENGINE freshness is vs SUBSTRATE_SRC origin/$UPSTREAM_BRANCH (the BIN is built from dev).
+# Side effect: fetches origin/$INTEGRATION_BRANCH for $PKGSRC and origin/$UPSTREAM_BRANCH for $SUBSTRATE_SRC.
+_proc_stale() {
+  cfg "$1" || { echo unknown; return; }
+  local p log procpkg proceng pdev sdev; p=$(pidof_df); log=$(latest_log "$1")
+  [ -z "$p" ] && { echo stopped; return; }
+  derive_devloop_pkgs_from_workspace "$1" >/dev/null || { echo config-error; return; }
+  git -C "$PKGSRC" fetch origin "$INTEGRATION_BRANCH" -q 2>/dev/null
+  git -C "$SUBSTRATE_SRC" fetch origin "$UPSTREAM_BRANCH" -q 2>/dev/null
+  pdev=$(git -C "$PKGSRC" rev-parse "origin/$INTEGRATION_BRANCH" 2>/dev/null)
+  sdev=$(git -C "$SUBSTRATE_SRC" rev-parse "origin/$UPSTREAM_BRANCH" 2>/dev/null)
+  procpkg=$(grep -aoE "${DEVLOOP_PKGS%% *}@[a-f0-9]+" "$log" 2>/dev/null | tail -1 | cut -d@ -f2)   # any platform pkg's commit reflects the running code
+  proceng=$(grep -aoE 'ENGINE_VER=[a-f0-9]+' "$log" 2>/dev/null | tail -1 | cut -d= -f2)
+  if [ -n "$proceng" ] && [ "${sdev:0:${#proceng}}" != "$proceng" ]; then echo engine-stale; return; fi
+  if [ -n "$procpkg" ] && [ "${pdev:0:${#procpkg}}" != "$procpkg" ]; then
+    if [ -n "$(git -C "$PKGSRC" diff "$procpkg" "$pdev" -- packages/ 2>/dev/null)" ]; then echo pkg-stale; else echo skew; fi
+    return
+  fi
+  echo current
+}
+
+doctor_one() {
+  cfg "$1" || return 1
+  local p log panic st procpkg proceng verdict; p=$(pidof_df); log=$(latest_log "$1")
+  derive_devloop_pkgs_from_workspace "$1" >/dev/null || { printf '  %-9s CONFIG-ERROR (target %s)\n' "$1" "$REPO"; return 0; }
+  panic=$(engine_panic_count "$log"); panic=${panic:-0}
+  if [ -z "$p" ]; then printf '  %-9s STOPPED (target %s)\n' "$1" "$REPO"; return 0; fi
+  st=$(_proc_stale "$1")   # also fetches origin/dev for $PKGSRC + $SUBSTRATE_SRC
+  procpkg=$(grep -aoE "${DEVLOOP_PKGS%% *}@[a-f0-9]+" "$log" 2>/dev/null | tail -1 | cut -d@ -f2)
+  proceng=$(grep -aoE 'ENGINE_VER=[a-f0-9]+' "$log" 2>/dev/null | tail -1 | cut -d= -f2)
+  case "$st" in
+    current)      verdict="pkg-current engine-current" ;;
+    skew)         verdict="pkg-skew(non-package, no restart) engine-current" ;;
+    pkg-stale)    verdict="PKG-STALE→restart(${procpkg:0:8}≠$(git -C "$PKGSRC" rev-parse --short "origin/$INTEGRATION_BRANCH" 2>/dev/null))" ;;
+    engine-stale) verdict="ENGINE-STALE→restart(${proceng:0:8}≠$(git -C "$SUBSTRATE_SRC" rev-parse --short "origin/$UPSTREAM_BRANCH" 2>/dev/null))" ;;
+    *)            verdict="$st" ;;
+  esac
+  printf '  %-9s RUNNING pid %s up %s | %s | worktree %s | panic %s\n' "$1" "$p" \
+    "$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
+}
+
+# durable_health_one <name>: surface redb delivery-queue state (stuck-pending events + dead-letters)
+# that the supervise-LOG scan is structurally blind to — a stuck pending delivery or a dead-letter is
+# durable-queue state, not a log line. `observe` is the engine's authoritative durable-state aggregator,
+# so reuse it (don't reimplement). Flags ⚠ on a dead-letter that died within the last 6h, or a pending
+# event older than 6h (the board's stale threshold). The dead-letter count is RECENCY-SCOPED (via each
+# entry's dead_at_ms) exactly like pending: a redb dead-letter is a permanent audit record that never
+# drains, so flagging ⚠ on the cumulative count degrades the first-line health signal forever (#2517;
+# same anti-pattern fixed for the rollup runtime-health gate). The total is still shown for the audit
+# trail. Reads a live supervise's redb via a single read transaction (no lock fight).
+durable_health_one() {
+  cfg "$1" || return 0
+  if [ ! -e "$DUR/delivery.redb" ]; then echo "  $1: no durable store"; return 0; fi
+  local snapshot summary causes now_ms
+  now_ms=$(( $(date +%s) * 1000 ))
+  snapshot=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null)
+  summary=$(printf '%s' "$snapshot" | jq -r --argjson now "$now_ms" '
+    ([.queues[].pending]|add // 0) as $p |
+    (([.queues[].oldest_pending_age_ms]|max // 0)/3600000|floor) as $oh |
+    (.dead_letters|length) as $dl_total |
+    ([.dead_letters[] | select(($now - (.dead_at_ms // 0)) <= 21600000)] | length) as $dl_recent |
+    (.truncated.dead_letters // false) as $dl_truncated |
+    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h "
+      + (if $dl_truncated then "(\($dl_total) shown, truncated)" else "(\($dl_total) total)" end)
+      + (if ($dl_recent>0 or $oh>6 or $dl_truncated) then " ⚠" else "" end)' 2>/dev/null)
+  echo "  $1: ${summary:-observe unavailable}"
+  [ -n "$summary" ] || return 0
+  if causes=$(printf '%s' "$snapshot" | python3 "$_self_dir/dead_letter_causes.py" render \
+    --now-ms "$now_ms" --log-root "$LOGDIR" --run-name "$1" 2>/dev/null); then
+    [ -n "$causes" ] && printf '%s\n' "$causes"
+  else
+    echo "    dead-letter cause: unavailable (structured cause correlation failed)"
+  fi
+}
+
+# stray_supervise_report: enumerate EVERY running framework supervise on this host and flag any whose
+# --project-root is not one of this host's managed dogfood targets. doctor_one/pidof_df only ever look
+# at the managed project-roots ($HOST per target), so a supervise from a DEAD session (e.g. a /tmp
+# project-root left by a prior Claude session) or another integration branch reusing the SAME bot login
+# is structurally invisible to them — yet it observes the SHARED repos and writes conflicting state
+# markers, silently poisoning the managed instances. Observed 2026-07-08: a 3-day-old orphan on
+# /tmp/fkst-website-wf (integration=workflow-dogfood, same bot login `loning`) blocked a healthy website
+# PR into a 30h review livelock + false-terminal cascade (#260/#261/PR#265). Only a hand-run `ps` found
+# it. This turns that into a mechanical doctor signal. Always enumerates ALL targets (not the arg) —
+# a stray is a host-global hazard regardless of which target you are inspecting.
+stray_supervise_report() {
+  local managed pid cmd root n stray=0
+  managed=$(for n in $(expand all); do ( cfg "$n" >/dev/null 2>&1 && printf '%s\n' "$HOST" ); done)
+  # Match on `supervise --project-root` (every supervise carries it) rather than the framework BIN
+  # name, so this read-only enumeration does not trip the G-DOGFOOD-BOUNDARY launch-path ratchet;
+  # same match pattern as pidof_df above. A transient test-spawned supervise (temp project-root)
+  # may appear briefly during a concurrent test run — an orphan is the one that persists on re-check.
+  for pid in $(pgrep -f -- 'supervise --project-root' 2>/dev/null); do
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null) || continue
+    root=$(printf '%s\n' "$cmd" | grep -oE -- '--project-root [^ ]+' | head -1 | awk '{print $2}')
+    [ -n "$root" ] || continue
+    if ! printf '%s\n' "$managed" | grep -qxF -- "$root"; then
+      printf '  ⚠ STRAY pid %s project-root %s — unmanaged supervise; may poison SHARED repo state (kill if orphaned)\n' "$pid" "$root"
+      stray=1
+    fi
+  done
+  [ "$stray" -eq 0 ] && echo "  none (every running supervise is a managed target)"
+}
+
+# reap_leaked_test_procs: the CHEAP SYMPTOM PATROL (CLAUDE.md "出错即建兜底清理制度") for the
+# fkst-framework-test-process leak class. We CANNOT predict which subprocess/syscall a test run hangs
+# on (myriad, unenumerable causes), but "a test run should terminate within budget" is a cause-agnostic
+# positive-progress assertion: any `fkst-framework test` process older than DOGFOOD_TEST_REAP_MINUTES
+# (healthy full suite ~230-440s, so the 45min default is ~6-12x margin) is DEFINITELY wrong regardless
+# of WHY. Blind-kill its process GROUP (reaps the hung git/codex grandchildren a pid-only kill would
+# orphan) under two safety guards — never the caller's own group, never a group holding a live
+# supervise. The reap COUNT is fail-visible and is the EVIDENCE SIGNAL for whether the expensive
+# prevention (a bounded-execution test-runner watchdog) is worth building: count stays ~0 ⇒ the patrol
+# suffices; count keeps rising ⇒ a real active leak source, escalate to prevention.
+# DOGFOOD_REAP_DRYRUN=1 identifies + reports without killing (safe operator verify before enabling kill);
+# DOGFOOD_TEST_REAP_MINUTES overrides the 45min threshold.
+reap_leaked_test_procs() {
+  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pat pid pgid comm etime secs reaped=0
+  local leader_comm leader_ppid
+  self_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  # Observed test-runner leak shapes (all the SAME unbounded-execution class): a test-suite process left
+  # running past DOGFOOD_TEST_REAP_MINUTES (healthy suite ~230-440s ⇒ ~6-12x margin) AND orphaned to init.
+  # When the codex worker running `scripts/run.sh test` is SIGKILLed, its children do NOT die with it — the
+  # `fkst-framework test` binary and each leaf `scripts/*_test.py` (host_run_equivalence_test.py, board_test.py,
+  # ...) orphan to init INDEPENDENTLY (separate groups) and hang for DAYS via untimed subprocess.run / syscalls
+  # — the empirical driver of a load-avg spike (11 day-old trees observed 2026-07-21). Match the leaf shapes
+  # (not each script by name); blind-kill each matched leader's whole process GROUP (reaps the run.sh shell).
+  for pat in 'fkst-framework test' 'scripts/[a-z0-9_]*_test\.py'; do
+    for pid in $(pgrep -f -- "$pat" 2>/dev/null); do
+      # REQUIRED safety guard (not an optimization): a codex worker embeds its ENTIRE prompt in argv, so a
+      # worker whose prompt merely MENTIONS a test file matches `pgrep -f` on a test pattern AND is ppid=1
+      # (codex runs detached) — it would be mis-reaped. Exclude by executable: reap only real test
+      # interpreters/binaries (python / fkst-framework), NEVER node/codex. Verified near-miss 2026-07-21.
+      comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+      case "$comm" in *node*|*codex*|*Code*) continue;; esac
+      etime=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' '); [ -n "$etime" ] || continue
+      # etime = [[DD-]HH:]MM:SS -> seconds
+      secs=$(printf '%s\n' "$etime" | awk -F'[:-]' '{n=NF;s=$n;m=$(n-1);h=(n>=3?$(n-2):0);d=(n>=4?$(n-3):0);print ((d*24+h)*60+m)*60+s}')
+      [ "${secs:-0}" -gt "$((reap_min*60))" ] 2>/dev/null || continue
+      # Leak signature = over-budget AND the process GROUP LEADER is orphaned to init. The leak tree is
+      # init(1) -> orphaned run.sh/zsh test-harness (the group LEADER, pid==pgid, ppid=1) -> fkst-framework
+      # test (leaf, ppid=harness). Checking the LEAF's ppid misses this entirely — the leaf's parent is the
+      # harness (ppid!=1), while the harness IS the ppid=1 orphan (observed 2026-07-22: 6 trees uncaught by
+      # the old leaf-ppid check while the reaper reported "1 reaped"). A LIVE codex-owned run keeps the
+      # harness's parent (the codex worker) alive, so the group leader's ppid!=1 and it is correctly spared;
+      # a killed codex orphans the harness to init. So judge orphan-ness at the group leader.
+      pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+      [ -n "$pgid" ] || continue
+      # Exclude a leader that is itself codex/node: a detached codex is its own ppid=1 group leader and can
+      # match a test pattern via its embedded prompt — the leaf comm guard above only spares codex LEAVES.
+      leader_comm=$(ps -o comm= -p "$pgid" 2>/dev/null)
+      case "$leader_comm" in *node*|*codex*|*Code*)
+        printf '  · %s pid %s (group %s) age %ss — group leader comm=%s (codex/node), skip\n' "$pat" "$pid" "$pgid" "$secs" "$leader_comm"; continue;; esac
+      leader_ppid=$(ps -o ppid= -p "$pgid" 2>/dev/null | tr -d ' ')
+      [ "$leader_ppid" = "1" ] || { printf '  · %s pid %s (group %s) age %ss — group leader has live parent %s, skip\n' "$pat" "$pid" "$pgid" "$secs" "$leader_ppid"; continue; }
+      if [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
+        printf '  ⚠ leaked %s pid %s age %ss — SKIPPED (guard: own/supervise group)\n' "$pat" "$pid" "$secs"; continue
+      fi
+      if [ "${DOGFOOD_REAP_DRYRUN:-0}" = "1" ]; then
+        printf '  would-reap %s pid %s pgid %s age %ss\n' "$pat" "$pid" "$pgid" "$secs"
+      else
+        kill -9 -"$pgid" 2>/dev/null; printf '  reaped %s pid %s pgid %s age %ss\n' "$pat" "$pid" "$pgid" "$secs"
+      fi
+      reaped=$((reaped+1))
+    done
+  done
+  printf '  leaked-test-proc reaper: %s reaped (threshold %smin, orphaned-only; count rising ⇒ escalate to bounded-exec test watchdog)\n' "$reaped" "$reap_min"
+}
+
+# sweep_stale_tmp_receipts: the CHEAP SYMPTOM PATROL (CLAUDE.md「出错即建兜底清理制度」) for the github-proxy
+# /tmp receipt-file accumulation (#2616). github-proxy writes gh `--body-file` receipt files
+# (/tmp/fkst-github-proxy-*.md) and the ops dashboard writes /tmp/fkst-github-devloop-dashboard-*.json; both
+# are TRANSIENT (consumed by gh / the board within seconds of writing) but the package has no file.remove
+# primitive to clean them, so one file per distinct entity/request accumulates over time. The elegant
+# package root-fix (pass the body via gh stdin, no file at all) is disproportionate to this minor hygiene
+# value (its test-framework migration cost far exceeds it; WIP branch fix/github-proxy-body-stdin-no-tmp),
+# so this operator patrol bounds them by time: age-based reaping is safe because nothing reads a receipt
+# after its gh call completes. DOGFOOD_RECEIPT_SWEEP_HOURS overrides the 6h threshold;
+# DOGFOOD_RECEIPT_SWEEP_ROOT overrides /tmp (for tests); DOGFOOD_RECEIPT_SWEEP_DRYRUN=1 reports without deleting.
+sweep_stale_tmp_receipts() {
+  local hours="${DOGFOOD_RECEIPT_SWEEP_HOURS:-6}" root="${DOGFOOD_RECEIPT_SWEEP_ROOT:-/tmp}" swept=0 f mins
+  mins=$((hours*60))
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ "${DOGFOOD_RECEIPT_SWEEP_DRYRUN:-0}" = "1" ]; then
+      printf '  would-sweep %s\n' "$f"; swept=$((swept+1))
+    else
+      rm -f "$f" 2>/dev/null && swept=$((swept+1))
+    fi
+  done < <(find "$root" -maxdepth 1 -type f \( -name 'fkst-github-proxy-*' -o -name 'fkst-github-devloop-dashboard-*' \) -mmin "+$mins" 2>/dev/null)
+  printf '  stale-tmp-receipt sweep: %s reaped (>%sh; transient gh body-file/dashboard receipts, #2616)\n' "$swept" "$hours"
+}
+
+cmd_doctor() {
+  echo "engine BIN:"; bin_freshness_report | sed 's/^/  /'
+  echo "supervises:"
+  for n in $(expand "${1:-all}"); do doctor_one "$n"; done
+  echo "stray supervises (unmanaged — poison shared state):"; stray_supervise_report
+  echo "leaked test-proc reaper (cheap symptom patrol):"; reap_leaked_test_procs
+  echo "stale /tmp receipt sweep (cheap symptom patrol):"; sweep_stale_tmp_receipts
+  echo "upstream($UPSTREAM_BRANCH) CI:"; for n in $(expand "${1:-all}"); do upstream_ci_one "$n"; done
+  echo "durable (redb delivery state):"; for n in $(expand "${1:-all}"); do durable_health_one "$n"; done
+  echo "graphql: $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
+}
+
+# upstream_ci_one <name>: report the latest `ci` conclusion on UPSTREAM_BRANCH (dev) for the
+# target's repo. The supervise gates merges on feature/integration CI, NOT on the dev-push run,
+# so a dev-push CI that goes red is INVISIBLE to the board's per-PR view — yet a permanently-red
+# dev CI masks real regressions (you cannot tell a genuine dev break from a chronic one). This
+# line is the operator's trustworthiness check on the dev gate itself. REST (`gh run list`), so it
+# does not compete with the pipeline's graphql budget.
+upstream_ci_one() {
+  cfg "$1" 2>/dev/null || return 0
+  local row concl sha
+  row=$(gh run list --repo "$REPO" --branch "$UPSTREAM_BRANCH" --workflow ci.yml --event push \
+        --limit 1 --json conclusion,headSha -q '.[]|"\(.conclusion) \(.headSha[0:8])"' 2>/dev/null)
+  concl=${row%% *}; sha=${row##* }
+  case "$concl" in
+    success) printf '  %-9s green (%s)\n' "$1" "$sha" ;;
+    "")      printf '  %-9s (no push CI runs)\n' "$1" ;;
+    *)       printf '  %-9s ⚠ %s (%s) — %s CI NOT green; real regression or workflow defect, investigate\n' \
+               "$1" "$concl" "$sha" "$UPSTREAM_BRANCH" ;;
+  esac
+}
+
+# _sync_checkout <dir>: fast-forward a pinned operator checkout to origin/$UPSTREAM_BRANCH. Only
+# touches a CLEAN checkout whose HEAD is an ancestor of origin/dev (a behind-but-on-the-dev-line
+# mirror); refuses a dirty tree or a feature-branch/diverged checkout (those are worktrees doing
+# work — never reset them). A pinned operator checkout must stay a clean dev mirror; make changes
+# in a worktree (see SKILL.md).
+_sync_checkout() {
+  local co="$1" before after
+  { [ -n "$co" ] && git -C "$co" rev-parse --git-dir >/dev/null 2>&1; } || { echo "  ${co:-?}: not a git checkout (skip)"; return; }
+  git -C "$co" fetch origin "$UPSTREAM_BRANCH" -q 2>/dev/null
+  before=$(git -C "$co" rev-parse --short HEAD 2>/dev/null)
+  if [ -n "$(git -C "$co" status --porcelain 2>/dev/null)" ]; then
+    echo "  $co: DIRTY — not synced (a pinned checkout must be clean; make changes in a worktree)"; return
+  fi
+  if ! git -C "$co" merge-base --is-ancestor HEAD "origin/$UPSTREAM_BRANCH" 2>/dev/null; then
+    echo "  $co: $before not an ancestor of origin/$UPSTREAM_BRANCH — skip (feature branch / diverged; not a pinned dev mirror)"; return
+  fi
+  # Verify the end state. A failed reset leaves HEAD unmoved, which otherwise looks
+  # identical to an already-current checkout when only before and after are compared.
+  local reset_err reset_rc target
+  reset_err=$(git -C "$co" reset -q --hard "origin/$UPSTREAM_BRANCH" 2>&1); reset_rc=$?
+  after=$(git -C "$co" rev-parse --short HEAD 2>/dev/null)
+  target=$(git -C "$co" rev-parse --short "origin/$UPSTREAM_BRANCH" 2>/dev/null)
+  if [ "$reset_rc" -ne 0 ] || [ "$after" != "$target" ]; then
+    echo "  $co: SYNC FAILED -- still at $after, origin/$UPSTREAM_BRANCH is $target (rc=$reset_rc)${reset_err:+ -- $reset_err}"
+    echo "  $co: the pinned checkout is STALE; skill/tooling loaded from it may be out of date"
+    return 1
+  fi
+  [ "$before" = "$after" ] && echo "  $co: current ($after)" || echo "  $co: $before -> $after"
+}
+
+# cmd_sync: keep everything current in one call. Fast-forward the pinned operator checkouts (the one
+# this skill+dogfood.sh load from, and the substrate BIN source) to origin/dev, rebuild the BIN if
+# the engine moved, then AUTO-RESTART only the supervises whose RUNNING code is a real package or
+# engine change (pkg-stale/engine-stale). Skill/docs-only skew and already-current processes are
+# left running — a restart would only churn in-flight codex for no code change.
+cmd_sync() {
+  echo "operator checkouts -> origin/$UPSTREAM_BRANCH:"
+  local co_failed=0
+  _sync_checkout "$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null)" || co_failed=1  # repo this skill lives in
+  _sync_checkout "$SUBSTRATE_SRC" || co_failed=1                                                # engine BIN source
+  echo "engine BIN:"; bin_ensure_fresh | sed 's/^/  /'
+  echo "supervises (auto-restart only on real code change):"
+  local n st failed=0
+  for n in $(expand "${1:-all}"); do
+    cfg "$n" || continue
+    ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout (else _proc_stale misreads "skew" and fixes never deploy)
+    [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
+    derive_devloop_pkgs_from_workspace "$n" || { echo "  $n: config-error"; failed=1; continue; }
+    ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
+    [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
+    st=$(_proc_stale "$n")
+    case "$st" in
+      pkg-stale|engine-stale) echo "  $n: $st -> auto-restart"; restart_one "$n" | sed 's/^/    /' || failed=1 ;;
+      stopped)                echo "  $n: stopped (use 'start' to launch)" ;;
+      *)                      echo "  $n: $st (no restart needed)" ;;
+    esac
+  done
+  [ "$co_failed" -eq 0 ] || failed=1
+  return "$failed"
+}
+
+cmd_config() {
+  echo "resolved config ($([ -f "$_cfg" ] && echo "from $_cfg" || echo 'defaults only — no per-machine config file'))"
+  printf '  %-18s %s\n' DOGFOOD_ROOT "$DOGFOOD_ROOT" SUBSTRATE_SRC "$SUBSTRATE_SRC" BIN "$BIN" \
+    BOT "$BOT" GH_ORG "$GH_ORG" UPSTREAM_BRANCH "$UPSTREAM_BRANCH" INTEGRATION_BRANCH "$INTEGRATION_BRANCH" \
+    ROLLUP_MERGE "$ROLLUP_MERGE" RATE_POOL "$RATE_POOL" LOGDIR "$LOGDIR" DOGFOOD_REPOS "$DOGFOOD_REPOS"
+  echo "platform pkgs resolve per repo from fkst.workspace.toml"
+  echo "per-repo (HOST | PKGSRC | DURABLE | local pkgs | platform pkgs):"
+  local n
+  for n in $DOGFOOD_REPOS; do
+    if cfg "$n" && derive_devloop_pkgs_from_workspace "$n" 2>/dev/null; then
+      printf '  %-9s %s | %s | %s | %s | %s\n' "$n" "$HOST" "$PKGSRC" "$DUR" "${LOCAL_PKGS:--}" "$DEVLOOP_PKGS"
+    else
+      printf '  %-9s %s | %s | %s | %s | %s\n' "$n" "$HOST" "$PKGSRC" "$DUR" "${LOCAL_PKGS:--}" "CONFIG-ERROR"
+    fi
+  done
+}
+
+# When sourced (e.g. by scripts/dogfood_reaper_test.py) define functions only — skip the CLI dispatch.
+[ "${BASH_SOURCE[0]}" = "${0}" ] || return 0 2>/dev/null || true
+cmd="${1:-status}"; arg2="${2:-}"; arg3="${3:-}"
+case "$cmd" in
+  bin)     bin_ensure_fresh ;;
+  start)   rc=0; for n in $(expand "${arg2:-all}"); do start_one "$n" || rc=1; done; exit "$rc" ;;
+  stop)    for n in $(expand "${arg2:-all}"); do stop_one "$n"; done ;;
+  restart) rc=0; for n in $(expand "${arg2:-all}"); do restart_one "$n" || rc=1; done; exit "$rc" ;;
+  sync)    cmd_sync "$arg2" ;;
+  status)  for n in $(expand "${arg2:-all}"); do status_one "$n"; done ;;
+  doctor)  cmd_doctor "${arg2:-all}" ;;
+  config)  cmd_config ;;
+  board)   cmd_board "$arg2" "$arg3" ;;
+  logs)    f=$(latest_log "${arg2:-packages}"); echo "$f"; tail -"${arg3:-40}" "$f" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' ;;
+  *) echo "usage: $0 {status|doctor|config|board|bin|start|stop|restart|sync|logs} [packages|substrate|website|all] [stale_h|lines]"; exit 1 ;;
+esac

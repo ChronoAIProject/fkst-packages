@@ -1,0 +1,758 @@
+local entity_lib = require("devloop.entity")
+local devloop_base = require("devloop.base")
+local h = require("tests.devloop_helpers")
+local entity_mocks = require("tests.entity_read_mock_helpers")
+local contract_time = require("contract.time")
+local m_facts = require("devloop.markers.facts")
+local transition_version = require("contract.transition_version")
+local core = h.core
+local t = h.t
+local replay_fields = require("devloop.replay_fields")
+local autonomy_ledger = require("devloop.autonomy_ledger")
+local m_builders = require("devloop.markers.builders")
+local devloop_logging = require("devloop.logging")
+local replayer = require("devloop.replayer")
+local github_commands = require("forge.github").new(function() end)
+local git_mechanics = require("devloop.git_mechanics")
+local awaiting_pr_replayer = require("core.awaiting_pr_replayer")
+
+local repo = "owner/repo"
+local issue_number = 42
+local pr_number = 7
+local parent = "github-devloop/issue/owner/repo/42"
+local child_pr = "github-devloop/pr/owner/repo/7"
+local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local delegation = "g1"
+local head_sha = "0123456789abcdef0123456789abcdef01234567"
+local merge_commit_sha = "1111111111111111111111111111111111111111"
+local integration_branch = "integration/dev"
+local upstream_branch = "dev"
+local upstream_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
+local rollup_pr_number = 9
+local rollup_head_sha = "2222222222222222222222222222222222222222"
+local other_rollup_head_sha = "3333333333333333333333333333333333333333"
+local original_branch = devloop_base.implement_branch(repo, issue_number, core.implementation_base_version(version))
+local replacement_version = version .. "/reimplement/1"
+local replacement_branch = devloop_base.implement_branch(repo, issue_number, replacement_version)
+
+local function restart_transition_row(state_name)
+  return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
+end
+
+local function comment(body, author, created_at)
+  return {
+    id = tostring(created_at or body):gsub("[^%w_%-]", "_"):sub(1, 60),
+    body = body,
+    author_login = author or core._test_bot_login,
+    created_at = created_at or "2026-06-03T01:00:00Z",
+  }
+end
+
+local function find_raise(raises, queue, predicate)
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == queue and (predicate == nil or predicate(raised.payload or {}, raised)) then
+      return raised
+    end
+  end
+  return nil
+end
+
+local function count_raises(raises, queue)
+  local count = 0
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == queue then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+local function count_calls(needle)
+  return h.count_calls(needle)
+end
+
+local function mock_issue_close()
+  t.mock_command("gh issue close", {
+    stdout = "closed\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+
+local function parent_comments(fields)
+  local f = fields or {}
+  local state = f.state or "awaiting-pr"
+  local state_version = f.version or version
+  local comments = {
+    comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
+  }
+  if f.delegation ~= false then
+    table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
+      f.child or child_pr,
+      f.pr_number or pr_number,
+      f.delegation_version or state_version,
+      f.delegation_generation or delegation
+    ), core._test_bot_login, "2026-06-03T01:03:03Z"))
+  end
+  return comments
+end
+
+local function child_comments(state, child_version, opts)
+  local options = opts or {}
+  local effective_version = child_version or version
+  local base_branch = options.base_branch or integration_branch
+  local branch = options.branch or original_branch
+  local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
+    .. "\n" .. core.state_marker(parent, state, effective_version)
+  if state == "merged" then
+    body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
+  end
+  return {
+    comment(body, core._test_bot_login, "2026-06-03T01:04:03Z"),
+  }
+end
+
+local function child_origin_only_comments()
+  return {
+    comment(m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch), core._test_bot_login, "2026-06-03T01:04:03Z"),
+  }
+end
+
+local function child_merged_comments_with_kept_promotion()
+  return {
+    comment(m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch)
+      .. "\n" .. core.state_marker(parent, "merged", version)
+      .. "\n" .. m_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
+  }
+end
+
+local function mock_env()
+  h.mock_bot_env()
+  h.mock_write_env("")
+  t.mock_command("gh api graphql", {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_real_write_env()
+  h.mock_bot_env()
+  for _ = 1, 4 do
+    h.mock_write_env("1")
+  end
+  t.mock_command("gh api graphql", {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_branch_config(split)
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = upstream_branch,
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = split == false and upstream_branch or integration_branch,
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function git_fetch_pr_head_oid_cmd(remote, number)
+  return "git fetch --no-write-fetch-head " .. tostring(remote)
+    .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
+end
+
+local function git_rev_parse_pr_head_oid_cmd(number)
+  return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
+end
+
+local function mock_rollup_landing(exit_code, fetched_head_sha)
+  local fetched_head = fetched_head_sha or rollup_head_sha
+  t.mock_command(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch), {
+    stdout = '[[{"number":' .. tostring(rollup_pr_number)
+      .. ',"state":"closed","merged_at":"2026-06-03T03:03:04Z"'
+      .. ',"head":{"ref":"' .. integration_branch .. '","sha":"' .. rollup_head_sha
+      .. '","repo":{"full_name":"' .. repo .. '"}},"base":{"ref":"' .. upstream_branch .. '"}}]]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number), {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(git_rev_parse_pr_head_oid_cmd(rollup_pr_number), {
+    stdout = fetched_head .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha, {
+    stdout = "",
+    stderr = "",
+    exit_code = exit_code,
+  })
+end
+
+local function mock_orphaned_from_current_upstream()
+  t.mock_command(core.git_fetch_branch_cmd("origin", upstream_branch), {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.git_remote_branch_head_cmd("origin", upstream_branch), {
+    stdout = upstream_head_sha .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. upstream_head_sha, {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
+end
+
+local function mock_no_rollup_receipt()
+  t.mock_command(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch), {
+    stdout = "[[]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_reads(issue_comments, pr_comments, opts)
+  local options = opts or {}
+  entity_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = issue_number,
+    labels = options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+    comments = issue_comments,
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  entity_mocks.mock_pr_view_selector(t, {
+    repo = repo,
+    number = options.pr_number or pr_number,
+    comments = pr_comments,
+    head = options.branch or original_branch,
+    head_sha = head_sha,
+    merge_commit_sha = options.merge_commit_sha or merge_commit_sha,
+    state = options.pr_state or "OPEN",
+    base_branch = options.base_branch or integration_branch,
+    labels = {},
+  }, entity_mocks.pr_origin_selector, options.pr_view_times)
+end
+
+local function run_observe(issue_comments, pr_comments, opts)
+  local options = opts or {}
+  if options.write == "real" then
+    mock_real_write_env()
+  else
+    mock_env()
+  end
+  mock_reads(issue_comments, pr_comments, options)
+  return t.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = repo,
+      number = issue_number,
+      title = "Implement decision recorder",
+      state = "OPEN",
+      updated_at = "2026-06-03T01:02:03Z",
+      labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+      dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
+      source_ref = entity_lib.issue_source_ref(repo, issue_number),
+    },
+  })
+end
+
+local function run_pr_observe(issue_comments, pr_comments, opts)
+  local options = opts or {}
+  if options.write == "real" then
+    mock_real_write_env()
+  else
+    mock_env()
+  end
+  options.pr_view_times = options.pr_view_times or 2
+  mock_reads(issue_comments, pr_comments, options)
+  return t.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = repo,
+      number = pr_number,
+      state = "OPEN",
+      updated_at = "2026-06-03T02:03:04Z",
+      dedup_key = "owner/repo#pr#7@2026-06-03T02:03:04Z",
+      source_ref = entity_lib.pr_source_ref(repo, pr_number),
+    },
+  })
+end
+
+local function resume_comment(result)
+  return find_raise(result.raises, "github-proxy.github_issue_comment_request")
+end
+
+local function assert_resume_has_autonomy_result(resume)
+  t.is_true(resume ~= nil)
+  t.is_true(resume.payload.body:find('state="merged"', 1, true) ~= nil)
+  t.is_true(resume.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+  t.is_true(resume.payload.body:find("fkst:github-devloop:autonomy-result:v1", 1, true) ~= nil)
+  local merged_marker = resume.payload.body:match("<!%-%- fkst:github%-devloop:merged:v1.-%-%->")
+  t.is_true(merged_marker:find('autonomy_result="v1"', 1, true) ~= nil)
+  local avm = autonomy_ledger.autonomy_result_fact({ resume.payload.body }, parent, pr_number, version, head_sha)
+  t.is_true(avm ~= nil)
+  t.eq(avm.issue_number, issue_number)
+  t.eq(avm.pr_number, pr_number)
+  t.eq(avm.valid_autonomous_merge, "pending")
+  t.eq(avm.gates.post_merge_probe, "pending")
+end
+
+return {
+  test_rollup_receipt_fetch_and_rev_parse_stay_inside_repo_ref_store_lock = function()
+    -- fetch_pr_head_oid synchronously runs both commands pinned by the forge adapter
+    -- contract test. This proves exclusion only against writers using this runtime
+    -- lock; it does not claim exclusion against external Git writers.
+    local source = file.read("packages/github-devloop/core/awaiting_pr_replayer.lua")
+    local lock_start = assert(source:find(
+      "local landed = git_mechanics.with_repo_ref_store_lock(issue.repo, function()",
+      1,
+      true
+    ))
+    local lock_end = assert(source:find("\n  end)", lock_start, true))
+    local fetch_call = assert(source:find("git_commands.git_fetch_pr_head_oid", lock_start, true))
+    t.is_true(fetch_call < lock_end, "PR-head fetch and rev-parse must execute under the repo ref-store lock")
+  end,
+
+  test_child_merged_reconciles_parent_to_merged = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_rollup_receipt_head_mismatch_preserves_exact_error = function()
+    mock_branch_config()
+    mock_rollup_landing(0, other_rollup_head_sha)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error or result.stderr):find(
+      "github-devloop: awaiting-pr-rollup-receipt-head-mismatch: fetched rollup PR head differs from GitHub metadata",
+      1,
+      true
+    ) ~= nil)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
+  end,
+
+  test_parent_poll_reconciles_canonical_merged_child_pr_without_child_terminal_markers = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_origin_only_comments(), {
+      write = "real",
+      pr_state = "MERGED",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_parent_poll_reconciles_canonical_merged_child_pr_over_stale_nonterminal_marker = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_comments("merge-ready"), {
+      write = "real",
+      pr_state = "MERGED",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_parent_poll_reconciles_canonical_merged_child_pr_over_stale_closed_marker = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_comments("closed-unmerged"), {
+      write = "real",
+      pr_state = "MERGED",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_pr_entity_changed_child_merged_reconciles_parent_to_merged = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_pr_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="merged"', 1, true) ~= nil)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_child_merged_with_kept_issue_promotion_closes_issue_once = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_merged_comments_with_kept_promotion(), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_blocked_issue_poll_closes_after_canonical_child_merge_lands = function()
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments({
+      state = "blocked",
+      version = blocked_version,
+      delegation_version = version,
+    }), child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_rollup_receipt_scan_fetches_containing_receipt_before_probing_absent_orphan_object = function()
+    local newer_head = "3333333333333333333333333333333333333333"
+    local orphan_object_available = false
+    local ancestry_calls = {}
+    local fake_git = {
+      is_ancestor = function(_, descendant_sha)
+        table.insert(ancestry_calls, descendant_sha)
+        if not orphan_object_available then
+          return {
+            stdout = "",
+            stderr = "fatal: Not a valid commit name " .. merge_commit_sha,
+            exit_code = 128,
+          }
+        end
+        return { stdout = "", stderr = "", exit_code = descendant_sha == rollup_head_sha and 0 or 1 }
+      end,
+    }
+
+    t.raises(function()
+      git_mechanics.is_ancestor(fake_git, merge_commit_sha, newer_head, "test orphan object precondition")
+    end)
+    ancestry_calls = {}
+
+    local landed = awaiting_pr_replayer.fetch_then_scan_rollup_receipts({
+      { number = 10, head_sha = newer_head },
+      { number = rollup_pr_number, head_sha = rollup_head_sha },
+    }, function(candidate)
+      if candidate.number == rollup_pr_number then
+        orphan_object_available = true
+      end
+      return candidate.head_sha
+    end, function(receipt_head)
+      return git_mechanics.is_ancestor(fake_git, merge_commit_sha, receipt_head, "test rollup receipt ancestry")
+    end)
+
+    t.is_true(landed)
+    t.eq(#ancestry_calls, 2)
+    t.eq(ancestry_calls[1], newer_head)
+    t.eq(ancestry_calls[2], rollup_head_sha)
+  end,
+
+  test_split_topology_rewritten_history_uses_immutable_rollup_pr_receipt = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_orphaned_from_current_upstream()
+    mock_rollup_landing(0)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
+    t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha), 1)
+    t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
+    t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. upstream_head_sha), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_split_topology_open_child_with_merged_marker_does_not_advance_parent = function()
+    mock_issue_close()
+    mock_branch_config()
+    local result = run_observe(parent_comments(), child_comments("merged"), { write = "real" })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+    t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
+    t.eq(count_calls("git merge-base --is-ancestor"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+  end,
+
+  test_split_topology_canonical_merged_child_waits_while_integration_has_no_rollup_receipt = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_no_rollup_receipt()
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+    t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
+    t.eq(count_calls("git merge-base --is-ancestor"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+  end,
+
+  test_single_branch_topology_child_merged_does_not_require_rollup_probe = function()
+    mock_issue_close()
+    mock_branch_config(false)
+    local result = run_observe(parent_comments(), child_comments("merged", nil, { base_branch = upstream_branch }), {
+      base_branch = upstream_branch,
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    assert_resume_has_autonomy_result(resume)
+    t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
+    t.eq(count_calls("git merge-base --is-ancestor"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_single_branch_topology_child_merged_requires_current_upstream_base = function()
+    mock_issue_close()
+    mock_branch_config(false)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+    t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
+    t.eq(count_calls("git merge-base --is-ancestor"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+  end,
+
+  test_child_closed_unmerged_reconciles_parent_to_ready_generation = function()
+    local result = run_observe(parent_comments(), child_comments("closed-unmerged"))
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="ready"', 1, true) ~= nil)
+    t.is_true(resume.payload.body:find("/reimplement/1", 1, true) ~= nil)
+    t.eq(resume.payload.handoff.kind, "github-devloop.ready")
+    t.eq(resume.payload.handoff.proposal_id, parent)
+    t.eq(resume.payload.handoff.version, replacement_version)
+    t.eq(resume.payload.handoff.marker_version, replacement_version)
+  end,
+
+  test_replacement_child_closed_unmerged_blocks_without_second_replacement = function()
+    local result = run_observe(
+      parent_comments({
+        version = replacement_version,
+        delegation_version = replacement_version,
+        delegation_generation = "g2",
+      }),
+      child_comments("closed-unmerged", replacement_version, {
+        branch = replacement_branch,
+      }),
+      { branch = replacement_branch }
+    )
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="blocked"', 1, true) ~= nil)
+    t.is_true(resume.payload.body:find("replacement-budget-exhausted", 1, true) ~= nil)
+  end,
+
+  test_child_blocked_reconciles_parent_to_blocked = function()
+    local result = run_observe(parent_comments(), child_comments("blocked"))
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="blocked"', 1, true) ~= nil)
+    t.is_true(resume.payload.body:find("child-pr-blocked", 1, true) ~= nil)
+  end,
+
+  test_child_blocked_replay_is_idempotent_when_target_marker_is_visible = function()
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
+    local comments = parent_comments()
+    table.insert(comments, comment(core.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
+    local state = {
+      state = "awaiting-pr",
+      version = version,
+      proposal_id = parent,
+      marker_created_at = "2026-06-03T01:02:03Z",
+    }
+    local child = {
+      number = pr_number,
+      comments = child_comments("blocked"),
+      force_fresh = true,
+      head_ref_name = "devloop-owner-repo-42-01HY",
+      base_ref_name = integration_branch,
+      state = "OPEN",
+      head_sha = head_sha,
+    }
+    local raised = {}
+    local original_log_raise = devloop_logging.log_raise
+    devloop_logging.log_raise = function(_, _, queue, payload)
+      table.insert(raised, { queue = queue, payload = payload })
+    end
+    local ok, err = pcall(function()
+      t.eq(replayer.replay_from_table(core, "observe_issue", {
+        repo = repo,
+        number = issue_number,
+        source_ref = entity_lib.issue_source_ref(repo, issue_number),
+        comments = comments,
+      }, state, restart_transition_row("awaiting-pr"), {
+        proposal_id = parent,
+        current = { comments = comments },
+        current_pr = child,
+        snapshot = {
+          comments = comments,
+          prs = { { number = pr_number, current = child } },
+          state = state,
+        },
+      }), false)
+    end)
+    devloop_logging.log_raise = original_log_raise
+    if not ok then
+      error(err)
+    end
+
+    t.eq(count_raises(raised, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(raised, "github-proxy.github_issue_label_request"), 0)
+  end,
+
+  test_child_nonterminal_defers_without_parent_cas = function()
+    local result = run_observe(parent_comments(), child_comments("merge-ready"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+  end,
+
+  test_missing_delegation_fails_closed_without_stale_cas = function()
+    local result = run_observe(parent_comments({ delegation = false }), child_comments("merged"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+  end,
+
+  test_stale_generation_delegation_fails_closed_without_stale_cas = function()
+    local result = run_observe(
+      parent_comments({ delegation_version = version .. "/old" }),
+      child_comments("merged")
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+  end,
+
+  test_idempotent_repoll_after_parent_transition_is_noop = function()
+    local close_calls_before = count_calls("gh issue close 42 --repo owner/repo")
+    local result = run_observe(parent_comments({ state = "merged" }), child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:merged" },
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), close_calls_before)
+  end,
+
+  test_over_budget_awaiting_pr_redrives_never_terminal = function()
+    local state = {
+      state = "awaiting-pr",
+      version = version .. "/timeout/awaiting-pr/2",
+      proposal_id = parent,
+      marker_created_at = "2025-01-01T00:00:00Z",
+    }
+    local row = restart_transition_row("awaiting-pr")
+    local comments = parent_comments({ version = state.version, delegation_version = state.version })
+    local facts = {
+      proposal_id = parent,
+      source_ref = entity_lib.issue_source_ref(repo, issue_number),
+      current = { comments = comments },
+      current_pr = { comments = {} },
+      ["pr-delegation"] = m_facts.pr_delegation_fact(comments, parent, state.version),
+      fresh_current_state = state,
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
+    }
+    -- Owner directive (#2725): an over-budget awaiting-pr timeout must NEVER escalate to a
+    -- terminal reconcile / blocked; the timeout DECISION is `redrive` (never `escalate`),
+    -- advancing the attempt/version lineage so the parent keeps polling the child PR.
+    local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(decision.action, "redrive")
+    t.eq(core.version_timeout_round(decision.version, "awaiting-pr"), 3)
+  end,
+}

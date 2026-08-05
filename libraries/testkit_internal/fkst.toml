@@ -1,0 +1,38 @@
+kind = "library"
+name = "testkit_internal"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "forge"]
+
+[dependency_constraints]
+allowed_lib_deps = ["contract", "workflow", "forge"]
+
+[library]
+name = "testkit_internal"
+stable_id = "fkst.library.testkit-internal"
+version = "workspace"
+
+[exports]
+exact = true
+public = [
+  "testkit_internal.devloop_core_fixtures",
+  "testkit_internal.devloop_fixtures",
+  "testkit_internal.devloop_fixtures.mocks",
+  "testkit_internal.devloop_helpers_fixtures",
+  "testkit_internal.devloop_pr_fixtures",
+  "testkit_internal.devloop_worktree_fixtures",
+  "testkit_internal.entity_read_mock_fixtures",
+  "testkit_internal.gh_argv_mock",
+  "testkit_internal.github_author_policy",
+  "testkit_internal.liveness_scan_rate_limit_fixture",
+  "testkit_internal.namespaced_dispatch_conformance",
+  "testkit_internal.old_behavior_observation_support",
+  "testkit_internal.saga_conformance",
+  "testkit_internal.testing",
+]
+
+[visibility]
+public = false

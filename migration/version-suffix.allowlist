@@ -1,0 +1,8 @@
+# Existing non-transition-version suffix-shaped debt.
+# Format: path:line # why=<one-line reason>
+# New entries fail CI after this ratchet lands. Remove entries only when the
+# suffix-shaped string is migrated to contract.transition_version or proven not
+# needed.
+libraries/contract/source_ref.lua:41 # why=source_ref ordering key parser is below transition_version and cannot require it without a cycle
+libraries/contract/source_ref.lua:42 # why=source_ref ordering key parser is below transition_version and cannot require it without a cycle
+libraries/contract/source_ref.lua:43 # why=source_ref ordering key render is below transition_version and cannot require it without a cycle

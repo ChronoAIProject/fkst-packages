@@ -1,0 +1,16 @@
+kind = "package.composed"
+name = "github-devloop"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "workflow_internal", "testkit", "testkit_internal", "forge", "devloop", "consensus"]
+
+[event_deps]
+packages = ["github-proxy", "github-devloop-decompose"]
+
+[conformance]
+pack = "conformance/pack.toml"
+function = "core.span_conformance_errors"
