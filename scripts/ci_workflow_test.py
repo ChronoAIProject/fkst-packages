@@ -89,6 +89,11 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_required_test_lane_executes_process_control_assertions(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertIn("FKST_REQUIRE_PROCESS_CONTROL_TESTS: 1", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

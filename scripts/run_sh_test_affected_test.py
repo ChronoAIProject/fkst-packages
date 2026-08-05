@@ -460,6 +460,29 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_default_test_surfaces_skipped_test_name_and_reason_only(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() {\n"
+                "  printf '%s\\n' 'ordinary successful check output'\n"
+                "  printf '%s\\n' 'test_disarm (suite.ProcessControl)'\n"
+                "  printf '%s\\n' \"disarm contract ... skipped 'direct child is not observable'\"\n"
+                "}\n"
+                "resolve_bin() { :; }\n"
+                "ensure_fresh_bin() { :; }\n"
+                "cmd_test() { local_iteration_result_pass; }\n"
+                "main test"
+            )
+
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn("test_disarm (suite.ProcessControl)", output)
+            self.assertIn("disarm contract ... skipped 'direct child is not observable'", output)
+            self.assertNotIn("ordinary successful check output", output)
+        finally:
+            h.close()
+
     def test_default_test_preserves_g5_failure_as_semantic(self) -> None:
         h = TestAffectedHarness()
         try:

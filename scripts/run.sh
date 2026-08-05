@@ -208,8 +208,8 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_affected_test.py"'
-    'python3 -B "$ROOT/scripts/run_sh_test_deadline_test.py"'
-    'python3 -B "$ROOT/scripts/dogfood_reaper_test.py"'
+    'python3 -B "$ROOT/scripts/run_sh_test_deadline_test.py" -v'
+    'python3 -B "$ROOT/scripts/dogfood_reaper_test.py" -v'
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
     'python3 -B "$ROOT/scripts/board_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_board_test.py"'
@@ -822,9 +822,9 @@ main() {
     health) shift; resolve_bin; ensure_fresh_bin; cmd_health "$@" ;;
     ratchet-migration-dry-run) shift; cmd_ratchet_migration_dry_run "$@" ;;
     test) shift
-      # Quiet cmd_check's advisory warnings during a test run unless verbose;
-      # surface its full output only when it hard-fails (non-zero). `run.sh check`
-      # and `test -v`/FKST_TEST_VERBOSE=1 still show every warning.
+      # Quiet successful cmd_check output during a test run unless verbose, but retain
+      # verbose unittest skip lines so an unsupported assertion stays visible by name
+      # and reason. Hard failures still surface the complete captured output.
       case " $* " in *" -v "*|*" --verbose "*) _tv=1 ;; *) _tv="${FKST_TEST_VERBOSE:-}" ;; esac
       if [ -n "$_tv" ]; then
         if ! cmd_check; then
@@ -836,6 +836,14 @@ main() {
         local_iteration_result_sync_state
         [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
         printf '%s\n' "$_chk_out"; return 1
+      else
+        printf '%s\n' "$_chk_out" | awk '
+          / \.\.\. skipped / {
+            if ($0 !~ /^test_/ && previous ~ /^test_/) print previous
+            print
+          }
+          { previous = $0 }
+        '
       fi
       resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
     test-affected) shift; cmd_test_affected "$@" ;;
