@@ -242,14 +242,6 @@ local function mock_codex_failure()
   })
 end
 
-local function find_raise_from_step(step, queue)
-  for _, raised in ipairs(step.raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
 
 local function observe_snapshot(deliveries, dead_letters)
   return {

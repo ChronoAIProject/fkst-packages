@@ -122,6 +122,10 @@ local function pipeline_thinking(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-stale(state-advanced)", "current marker advanced beyond thinking")
       return
     end
+    if reconcile.base_version ~= state.version then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-stale(epoch-advanced)", "incoming reconcile epoch does not match current thinking epoch")
+      return
+    end
 
     local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
     local snapshot = restart_effects.seal_snapshot({

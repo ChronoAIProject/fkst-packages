@@ -90,7 +90,7 @@ local function find_comment_with(raises, text)
 end
 
 local function mock_candidate_local_red(_worktree, detail)
-  t.mock_command("scripts/run.sh test-affected", {
+  t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
     stdout = "",
     stderr = local_iteration_marker("SEMANTIC_FAIL") .. (detail or "candidate local iteration failed\n"),
     exit_code = 1,
@@ -103,6 +103,16 @@ local function mock_codex_success_without_local_iteration()
     stderr = "",
     exit_code = 0,
   })
+end
+
+local function local_iteration_calls()
+  local calls = {}
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find("scripts/run.sh test-affected", 1, true) ~= nil then
+      table.insert(calls, call)
+    end
+  end
+  return calls
 end
 
 local function mock_base_probe(worktree, options)
@@ -128,7 +138,7 @@ local function mock_base_probe(worktree, options)
       exit_code = 0,
     })
     if values.head == nil or values.head.exit_code == 0 then
-      t.mock_command("scripts/run.sh test-affected", values.check or {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", values.check or {
         stdout = "",
         stderr = local_iteration_marker("PASS"),
         exit_code = 0,
@@ -284,6 +294,9 @@ return {
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 1)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 0)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
@@ -308,6 +321,11 @@ return {
 
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 2)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
+    t.eq(verification_calls[2].rendered:find("export BASE=", 1, true), nil)
+    t.is_true(verification_calls[2].rendered:find("-base-probe-", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("commit -m"), 1)
     local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
@@ -326,12 +344,12 @@ return {
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "report-supervisor: timed out waiting for a slot\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -361,12 +379,12 @@ return {
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "first untyped nonzero\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "second untyped nonzero\n",
       exit_code = 2,
@@ -389,7 +407,7 @@ return {
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = local_iteration_marker("CONFIGURATION_FAIL") .. "no packages matched for 'missing-package'\n",
       exit_code = 1,

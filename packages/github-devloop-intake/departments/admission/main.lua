@@ -10,6 +10,7 @@ local config = require("devloop.config")
 local admission_core = require("core.admission")
 local admission_shared = require("core.admission_shared")
 local premise_correction = require("devloop.premise_correction")
+local entity_highwater = require("devloop.entity_highwater")
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed" },
@@ -86,75 +87,83 @@ local function admit_issue_event(context, event, entity)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  devloop_base.assert_trusted_bot_configured()
+  local lock_key = devloop_base.observe_lock_key(repo, issue_number)
+  return entity_highwater.reconcile({
+    consumer = "github-devloop-intake/admission",
+    event = event,
+    lock_key = lock_key,
+    work = function(_, record_authoritative_version)
+      devloop_base.assert_trusted_bot_configured()
+      local poll_key = m_claims.claim_admission_poll_epoch(event)
+      local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
+      record_authoritative_version(current.updated_at)
 
-  local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+      devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
+      local issue = issue_from_current(issue_number, current)
 
-  devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
-  local issue = issue_from_current(issue_number, current)
-  local poll_key = m_claims.claim_admission_poll_epoch(event)
+      if current.state ~= "OPEN" then
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-closed", "fresh issue is not open")
+        return
+      end
+      if core.should_skip_known_intake_issue(current.labels) then
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-known-state", "fresh issue labels show an active devloop state")
+        return
+      end
+      local intake_fact = m_facts.intake_decision_fact(current.comments, proposal_id)
+      local correction = premise_correction.matching_correction_fact(current.comments, intake_fact)
+      if intake_fact ~= nil and correction == nil then
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
+        return
+      end
+      local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
+        context,
+        repo,
+        current,
+        poll_key
+      )
+      if not in_milestone_scope then
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
+        return
+      end
+      local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
+        if not claim_with_capacity(
+          context,
+          context.capacity.authorize,
+          repo,
+          issue_number,
+          current,
+          proposal_id,
+          claim_admission,
+          claim_detail
+        ) then
+          return
+        end
 
-  if current.state ~= "OPEN" then
-    reconcile_capacity(context, repo, proposal_id)
-    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-closed", "fresh issue is not open")
-    return
-  end
-  if core.should_skip_known_intake_issue(current.labels) then
-    reconcile_capacity(context, repo, proposal_id)
-    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-known-state", "fresh issue labels show an active devloop state")
-    return
-  end
-  local intake_fact = m_facts.intake_decision_fact(current.comments, proposal_id)
-  local correction = premise_correction.matching_correction_fact(current.comments, intake_fact)
-  if intake_fact ~= nil and correction == nil then
-    reconcile_capacity(context, repo, proposal_id)
-    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
-    return
-  end
-  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
-    context,
-    repo,
-    current,
-    poll_key
-  )
-  if not in_milestone_scope then
-    reconcile_capacity(context, repo, proposal_id)
-    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
-    return
-  end
-  local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
-    if not claim_with_capacity(
-      context,
-      context.capacity.authorize,
-      repo,
-      issue_number,
-      current,
-      proposal_id,
-      claim_admission,
-      claim_detail
-    ) then
-      return
-    end
-
-    local payload = correction ~= nil
-      and admission_core.build_premise_correction_candidate(repo, issue, correction)
-      or core.build_intake_admission_candidate(repo, issue, now())
-    devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-      "devloop_intake_candidate",
-    })
-    devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
-  end)
-  if not epoch_current then
-    devloop_logging.log_cas_decision(
-      "admission",
-      proposal_id,
-      { state = nil, version = nil },
-      "peer-activity-epoch",
-      "candidate",
-      "skip-stale",
-      "peer activity authorization epoch is stale before admission effects"
-    )
-  end
+        local payload = correction ~= nil
+          and admission_core.build_premise_correction_candidate(repo, issue, correction)
+          or core.build_intake_admission_candidate(repo, issue, now())
+        devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
+          "devloop_intake_candidate",
+        })
+        devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+      end)
+      if not epoch_current then
+        devloop_logging.log_cas_decision(
+          "admission",
+          proposal_id,
+          { state = nil, version = nil },
+          "peer-activity-epoch",
+          "candidate",
+          "skip-stale",
+          "peer activity authorization epoch is stale before admission effects"
+        )
+      end
+    end,
+  })
 end
 
 local function act_entity_changed(context, event)

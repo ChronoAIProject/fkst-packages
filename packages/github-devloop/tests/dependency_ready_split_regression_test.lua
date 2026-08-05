@@ -120,7 +120,7 @@ end
 local function mock_blocker_issue(issue_number, state_name)
   local comments = {}
   if state_name ~= nil then
-    table.insert(comments, core.state_marker(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
+    table.insert(comments, h.state_comment(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
   end
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
     stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n',
@@ -240,12 +240,20 @@ end
 
 local function assert_result_projection(raises, to_state, to_version)
   local comment = state_comment_request(raises, to_state, to_version)
-  local label = state_label_request(raises, to_state, to_version)
   t.is_true(comment ~= nil)
-  t.is_true(label ~= nil)
-  t.eq(label.payload.marker_guard.expected.state, to_state)
-  t.eq(label.payload.marker_guard.expected.version, to_version)
-  return comment.payload, label.payload
+  local direct_label = state_label_request(raises, to_state, to_version)
+  local handoff = comment.payload.handoff
+  local projected = type(handoff) == "table" and type(handoff.label_request) == "table"
+  if projected then
+    t.eq(direct_label, nil)
+  else
+    t.is_true(direct_label ~= nil)
+  end
+  local label = projected and handoff and handoff.label_request or direct_label.payload
+  t.is_true(type(label) == "table")
+  t.eq(label.marker_guard.expected.state, to_state)
+  t.eq(label.marker_guard.expected.version, to_version)
+  return comment.payload, label
 end
 
 local function marker_body(raises, needle)
@@ -266,7 +274,7 @@ local function assert_ready_split_effects(raises, to_state, to_version, blocked_
   t.is_true(comment_raise ~= nil)
   local body = comment_raise.payload.body
   t.is_true(body ~= nil)
-  t.is_true(body:find(core.state_marker(proposal_id, to_state, to_version, effects), 1, true) ~= nil)
+  t.is_true(body:find(h.state_comment(proposal_id, to_state, to_version, effects), 1, true) ~= nil)
 
   local direct_label_raise = find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
     return payload.expected_state == to_state and payload.expected_version == to_version
@@ -344,7 +352,7 @@ local function replay_ready_with_comments(comments)
         comments = comments,
       },
       dependency_gate = {
-        ok = true,
+        kind = "satisfied",
         reason = "test",
       },
     })
@@ -358,7 +366,7 @@ return {
   end,
 
   test_ready_hand_off_comment_id_requires_trusted_visible_ready_marker = function()
-    local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
     t.eq(core.ready_hand_off_comment_id({
       trusted_comment("IC_ready_1", marker),
     }, proposal_id, version), "IC_ready_1")
@@ -370,12 +378,12 @@ return {
       },
     }, proposal_id, version), nil)
     t.eq(core.ready_hand_off_comment_id({
-      trusted_comment("IC_missing_effects", core.state_marker(proposal_id, "ready", version)),
+      trusted_comment("IC_missing_effects", h.projected_state_comment(proposal_id, "ready", version)),
     }, proposal_id, version), nil)
   end,
 
   test_ready_redrive_with_visible_marker_carries_handoff_and_distinct_generation = function()
-    local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
     mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:ready" }, {
       trusted_comment("IC_ready_visible", marker),
     })
@@ -398,7 +406,7 @@ return {
 
   test_ready_redrive_generation_advances_with_timeout_attempt_markers = function()
     local marker_version = version
-    local marker = core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
     local attempt_1 = conv_attempts.timeout_attempt_marker(proposal_id, marker_version, "ready", 1, source_ref())
     local first_raises = replay_ready_with_comments({
       trusted_comment("IC_ready_visible", marker),
@@ -436,7 +444,7 @@ return {
   end,
 
   test_ready_redrive_generation_advances_after_accepted_reready_response = function()
-    local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
     local command = {
       command = "reready",
       key = "operator-command/IC_reready_ready",
@@ -460,7 +468,7 @@ return {
 
   test_ready_replay_ignores_prebuilt_payload_without_hand_off = function()
     local marker_version = version
-    local marker = core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
     local raises = capture_core_raises(function()
       core.replay_ready_state("observe_issue", h.issue(), {
         state = "ready",
@@ -480,7 +488,7 @@ return {
           },
         },
         dependency_gate = {
-          ok = true,
+          kind = "satisfied",
           reason = "test",
         },
         ready_payload = payloads_builders.build_devloop_ready_payload(core, {
@@ -505,7 +513,7 @@ return {
 
   test_ready_redrive_without_visible_ready_marker_fails_closed = function()
     mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:ready" }, {
-      core.state_marker(proposal_id, "ready", version),
+      h.projected_state_comment(proposal_id, "ready", version),
     })
     mock_blocked_by(42, {})
 
@@ -520,7 +528,7 @@ return {
     mock_blocked_by(42, { { number = 55 } })
     mock_blocked_by(55, {})
     mock_implement_issue({ "fkst-dev:impl-failed" }, {
-      core.state_marker(proposal_id, "ready", split_version),
+      h.projected_state_comment(proposal_id, "ready", split_version),
     })
 
     local result = run_implement(ready)
@@ -540,7 +548,7 @@ return {
 
   test_ready_replay_dependency_hold_projects_guarded_state_and_auxiliary_labels = function()
     mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, {
-      trusted_comment("IC_ready_visible", core.state_marker(proposal_id, "ready", version)),
+      trusted_comment("IC_ready_visible", h.projected_state_comment(proposal_id, "ready", version)),
     })
     mock_blocked_by(42, { { number = 55 } })
     mock_blocked_by(55, {})
@@ -570,7 +578,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:impl-failed", "fkst-dev:blocked-on-dependency" },
       {
-        core.state_marker(proposal_id, "ready", version),
+        h.projected_state_comment(proposal_id, "ready", version),
         "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
           .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
       }
@@ -593,7 +601,7 @@ return {
   test_consensus_result_reraises_partial_dependency_wait_effects = function()
     local current = reached()
     h.mock_issue_result({ "fkst-dev:enabled", "fkst-dev:blocked-on-dependency" }, {
-      core.state_marker(current.proposal_id, "dependency_wait", current.dedup_key),
+      h.projected_state_comment(current.proposal_id, "dependency_wait", current.dedup_key),
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
       "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
         .. core.dependency_wait_marker(current.proposal_id, current.dedup_key, { 51 }),
@@ -632,7 +640,7 @@ return {
     t.is_true(dependency_auxiliary_label_request(result.raises) ~= nil)
   end,
 
-  test_consensus_result_dependency_wait_comment_has_no_ready_handoff = function()
+  test_consensus_result_dependency_wait_comment_hands_off_only_the_label_projection = function()
     local current = reached()
     h.mock_issue_result({ "fkst-dev:thinking" }, {
       core.state_marker(current.proposal_id, "thinking", current.dedup_key),
@@ -650,7 +658,7 @@ return {
         and payload.body:find("fkst:github-devloop:result:v1", 1, true) ~= nil
     end)
     t.is_true(result_comment ~= nil)
-    t.is_nil(result_comment.payload.handoff)
+    t.eq(result_comment.payload.handoff.kind, "github-devloop.ready-split-label")
 
     local handoff = run_comment_handoff_from_request(
       result_comment.payload,
@@ -659,6 +667,7 @@ return {
     )
     t.eq(handoff.exit_code, 0)
     t.eq(find_raise(handoff.raises, "devloop_ready"), nil)
+    t.is_true(state_label_request(handoff.raises, "dependency_wait", current.dedup_key) ~= nil)
   end,
 
   test_consensus_result_ready_comment_keeps_ready_handoff = function()
@@ -713,7 +722,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:impl-failed", "fkst-dev:blocked-on-dependency" },
       {
-        core.state_marker(proposal_id, "dependency_wait", version),
+        h.projected_state_comment(proposal_id, "dependency_wait", version),
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 53 }),
       }
@@ -729,7 +738,7 @@ return {
     t.is_true(release_comment ~= nil)
     t.eq(release_comment.payload.handoff.marker_version, split_version)
     t.is_true(release_comment.payload.body:find(
-      core.state_marker(proposal_id, "ready", split_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", split_version, "result-marker,ready-label,devloop-ready"),
       1,
       true
     ) ~= nil)
@@ -752,7 +761,7 @@ return {
 
     local branch = devloop_base.implement_branch(repo, 42, ready.payload.dedup_key)
     mock_implement_issue({ "fkst-dev:ready" }, {
-      core.state_marker(proposal_id, "dependency_wait", version),
+      h.projected_state_comment(proposal_id, "dependency_wait", version),
     })
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_dependency_release_ready'", {
       stdout = '{"body":"' .. encode_json_string(release_comment.payload.body) .. '","user":{"login":"fkst-test-bot"}}\n',
@@ -764,10 +773,10 @@ return {
     h.mock_git_status(" M packages/github-devloop/core/ready_split.lua\n")
     h.mock_git_commit("def456", branch)
     mock_implement_issue({ "fkst-dev:ready" }, {
-      core.state_marker(proposal_id, "dependency_wait", version),
+      h.projected_state_comment(proposal_id, "dependency_wait", version),
     })
     mock_implement_issue({ "fkst-dev:ready" }, {
-      core.state_marker(proposal_id, "dependency_wait", version),
+      h.projected_state_comment(proposal_id, "dependency_wait", version),
     })
 
     local implemented = h.run_implement(ready.payload, h.opts("ready-split-regression-release-implement"))
@@ -791,7 +800,7 @@ return {
     local delegation = "g" .. tostring(core.implementation_delegation_generation(implementing_version))
     mock_blocked_by_failure(42)
     mock_implement_issue({ "fkst-dev:enabled", "fkst-dev:implementing" }, {
-      core.state_marker(proposal_id, "ready", version),
+      h.projected_state_comment(proposal_id, "ready", version),
       core.state_marker(proposal_id, "implementing", implementing_version),
       core.implement_attempt_marker(proposal_id, implementing_version, 1, "2026-06-03T01:01:00Z"),
       m_builders.implementing_marker(proposal_id, implementing_version, branch, "def456", "dev", "abc123"),

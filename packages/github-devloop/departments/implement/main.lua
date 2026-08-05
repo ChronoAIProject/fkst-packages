@@ -1,6 +1,7 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
@@ -54,6 +55,7 @@ local spec = {
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_blocked_by_request",
     "github-proxy.github_pr_comment_request",
   },
   stall_window = "10m",
@@ -84,8 +86,9 @@ local function decide_implementation_transition(repo, issue_number, lock_key, st
   return snapshot, decision
 end
 
-local function raise_impl_failed(repo, issue_number, ready, reason, detail, attempt)
-  local comment_request = requests_lifecycle.build_impl_failure_comment_request(core, repo, issue_number, ready, reason, detail, attempt)
+local function raise_impl_failed(repo, issue_number, ready, reason, fault_class, retryable, detail, attempt)
+  local comment_request = requests_lifecycle.build_impl_failure_comment_request(
+    core, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
   local label_request = requests_labels.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("impl-failed")
   devloop_logging.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -182,22 +185,6 @@ local function ready_for_implementation_version(ready, version)
   return copy
 end
 
-local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, status)
-  return {
-    kind = "implementing",
-    ready = ready,
-    worktree = worktree,
-    branch = branch,
-    head_sha = head_sha,
-    base_branch = base_branch,
-    base_sha = base_sha,
-    attempt = attempt,
-    started_at = started_at,
-    exec_ref = exec_ref,
-    finished_at = now(),
-    outcome = status or "completed",
-  }
-end
 
 local function raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
   local request = requests_lifecycle.build_implement_version_mismatch_comment_request(core,
@@ -320,6 +307,18 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
   if outcome == nil then
     return
   end
+  if outcome.kind == "worktree-missing" or outcome.kind == "worktree-unregistered" then
+    local error_class = outcome.kind == "worktree-missing" and "WORKTREE_MISSING" or "WORKTREE_UNREGISTERED"
+    devloop_logging.log_error_fact("warn", "implement", outcome.ready.proposal_id,
+      "WORKTREE_UNAVAILABLE", error_class, "devloop_ready",
+      "implementation worktree is unavailable during harvest: " .. tostring(outcome.reason), {
+        source_ref = outcome.ready.source_ref,
+        attempt = outcome.attempt,
+        terminal = false,
+        worktree = outcome.worktree,
+      })
+    return
+  end
   raise_implement_attempt(repo, issue_number, outcome.ready, outcome.attempt, outcome.started_at, outcome.exec_ref)
   if outcome.kind == "implementing" then
     publish_implementation_branch(repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
@@ -373,7 +372,8 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
     return
   end
   if outcome.kind == "impl-failed" then
-    raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
+    raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.fault_class,
+      outcome.retryable, outcome.detail, outcome.attempt)
     return
   end
   if outcome.kind == "implementation-refusal" then
@@ -592,7 +592,7 @@ local function process_ready_event(event)
         version = core.ready_payload_inner_version(ready.dedup_key),
         comments = current.comments,
       })
-      if not gate.ok then
+      if not dependency_gate.dependency_gate_is_satisfied(gate) then
         local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
         local dep_version = core.ready_split_version(inner_ready_version)
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
@@ -601,7 +601,7 @@ local function process_ready_event(event)
           number = issue_number,
           source_ref = ready.source_ref,
         }, ready.proposal_id, inner_ready_version, "dependency_wait", dep_version, gate,
-          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }))
+          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }))
         return
       end
     end
@@ -624,7 +624,7 @@ local function process_ready_event(event)
         })
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "impl-failed",
         "fail-closed(invalid-version-lineage)", "implementation retry lineage is malformed")
-      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage",
+      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage", "UNKNOWN", false,
         "Implementation retry lineage was rejected because its version suffix does not match the current or immediate-next structured attempt.",
         ready.impl_retry_attempt)
       return
@@ -698,7 +698,9 @@ local function process_ready_event(event)
       local attempts = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
       if attempts >= MAX_IMPLEMENT_ATTEMPTS and not has_recoverable_progress then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "impl-failed", "applied(attempts-exhausted)", "implementation attempts exhausted with no PR or branch progress")
-        raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "No linked PR, remote branch, or local branch progress was visible after " .. tostring(attempts) .. " attempts.", attempts)
+        raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "UNKNOWN", false,
+          "No linked PR, remote branch, or local branch progress was visible after "
+            .. tostring(attempts) .. " attempts.", attempts)
         return
       end
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing",

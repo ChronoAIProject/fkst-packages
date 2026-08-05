@@ -1,5 +1,6 @@
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
 local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
@@ -31,6 +32,7 @@ end
 M = {
   blueprint = blueprint,
   catalog = catalog,
+  child_disposition_receipt = child_disposition_receipt,
   child_result = child_result,
   default_catalog = default_catalog,
   digest = digest,
@@ -129,7 +131,7 @@ local function install_intake_surface(target)
   target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
   devloop_prompts.install(target, {
     prompts = {
-      intake = require("prompts.intake"),
+      intake = default_intake.prompt,
     },
   }, {
     intake = true,
@@ -145,6 +147,7 @@ M._test_bot_login = devloop_base._test_bot_login
 function M.install(target)
   blueprint.install(target)
   catalog.install(target)
+  child_disposition_receipt.install(target)
   child_result.install(target)
   default_catalog.install(target)
   digest.install(target)
@@ -158,7 +161,8 @@ function M.install(target)
   target.github_graphql_queries = devloop_dependency_gate.github_graphql_queries
   target.render_github_graphql_query = devloop_dependency_gate.render_github_graphql_query
   target.github_graphql = devloop_dependency_gate.github_graphql
-  target.dependency_gate = devloop_dependency_gate.new(target).dependency_gate
+  local dependency_resolver = devloop_dependency_gate.new(target)
+  target.dependency_gate = dependency_resolver.dependency_gate
 end
 
 M.install(M)

@@ -6,7 +6,7 @@ local forge_validators = require("devloop.forge_validators")
 
   local function require_safe_branch(name, branch)
     if not forge_validators.is_git_ref_safe(branch) then
-      error("github-devloop: invalid " .. tostring(name))
+      error("github-devloop: git-ref-invalid: invalid " .. tostring(name))
     end
     return tostring(branch)
   end
@@ -17,7 +17,7 @@ local forge_validators = require("devloop.forge_validators")
 
   local function require_safe_sha(name, sha)
     if not forge_validators.is_git_sha(sha) then
-      error("github-devloop: invalid " .. tostring(name))
+      error("github-devloop: git-sha-invalid: invalid " .. tostring(name))
     end
     return tostring(sha)
   end
@@ -25,14 +25,14 @@ local forge_validators = require("devloop.forge_validators")
   local function require_safe_repo(repo)
     local value = tostring(repo or "")
     if value == "" or base_ids.safe_repo(value) ~= value then
-      error("github-devloop: invalid branch sync repo")
+      error("github-devloop: branch-sync-repo-invalid: invalid branch sync repo")
     end
     return value
   end
 
   local function require_sync_result(result)
     if result ~= "clean" and result ~= "resolved" then
-      error("github-devloop: invalid branch sync result")
+      error("github-devloop: branch-sync-result-invalid: invalid branch sync result")
     end
     return result
   end
@@ -40,7 +40,7 @@ local forge_validators = require("devloop.forge_validators")
   local function runtime_root_path(M, runtime_root)
     local root = strings.trim(runtime_root)
     if root == "" or root:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid FKST_RUNTIME_ROOT")
+      error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
     end
     return root:gsub("/+$", "")
   end
@@ -54,7 +54,7 @@ local forge_validators = require("devloop.forge_validators")
     if type(result_or_error) == "table" and result_or_error.result ~= nil then
       return result_or_error.result
     end
-    error(tostring(label or "git-adapter operation") .. " failed: " .. tostring(result_or_error))
+    error("github-devloop: git-adapter-failed: " .. tostring(label or "git-adapter operation") .. " failed: " .. tostring(result_or_error))
   end
 
   local function run_git_ok(fn, label)
@@ -70,7 +70,7 @@ local forge_validators = require("devloop.forge_validators")
       .. base_ids.safe_repo(require_safe_repo(repo))
       .. "/fetch"
     if not strings.is_path_safe_key(key, require("devloop.base")._max_key_len) then
-      error("github-devloop: invalid git ref-store lock key")
+      error("github-devloop: git-ref-store-lock-key-invalid: invalid git ref-store lock key")
     end
     return key
   end
@@ -85,7 +85,7 @@ local forge_validators = require("devloop.forge_validators")
 
   function C.run_required(result, error_class)
     if result.exit_code ~= 0 then
-      error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
+      error("github-devloop: git-command-failed: " .. error_class .. " failed: " .. tostring(result.stderr))
     end
     return result
   end
@@ -106,7 +106,7 @@ local forge_validators = require("devloop.forge_validators")
     local result = C.run_required(git.remote_branch_head(require_safe_remote("origin"), require_safe_branch("remote branch", branch), 30), error_class)
     local head = trim_stdout(result)
     if not require("devloop.pr_safety").is_safe_head_sha(head) then
-      error("github-devloop: " .. unsafe_error)
+      error("github-devloop: git-sha-invalid: " .. unsafe_error)
     end
     return head
   end
@@ -119,7 +119,7 @@ local forge_validators = require("devloop.forge_validators")
     if result.exit_code == 1 then
       return false
     end
-    error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
+    error("github-devloop: git-command-failed: " .. error_class .. " failed: " .. tostring(result.stderr))
   end
 
   function C.runtime_root_with_exec(exec_sync_fn)
@@ -208,7 +208,7 @@ local forge_validators = require("devloop.forge_validators")
     end
     local head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
     if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
-      error("github-devloop: unsafe PR origin branch head sha")
+      error("github-devloop: git-sha-invalid: unsafe PR origin branch head sha")
     end
     return head_sha
   end

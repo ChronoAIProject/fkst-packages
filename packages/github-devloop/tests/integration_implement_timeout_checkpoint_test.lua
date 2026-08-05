@@ -50,7 +50,25 @@ local function mock_missing_remote_branch(branch)
   })
 end
 
-local function mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
+local function mock_harvest_worktree(event, branch)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+  local stable_root = devloop_base.implementation_worktree_root(durable_root)
+  local worktree = devloop_base.implement_worktree_path(stable_root, "owner/repo", 42, event.dedup_key)
+  for _ = 1, 2 do
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
   t.mock_command("git fetch 'origin' 'dev'", {
     stdout = "",
     stderr = "",
@@ -66,8 +84,13 @@ local function mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
     stderr = "",
     exit_code = 1,
   })
-  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "",
     stderr = "",
     exit_code = 0,
   })
@@ -123,11 +146,13 @@ local function mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
     stderr = "",
     exit_code = 0,
   })
+  mock_harvest_worktree(event, branch)
 end
 
 local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, checkpoint_head)
-  local runtime = "/tmp/fkst-packages-test/github-devloop/runtime"
-  local worktree = devloop_base.implement_worktree_path(runtime, "owner/repo", 42, event.dedup_key)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+  local stable_root = devloop_base.implementation_worktree_root(durable_root)
+  local worktree = devloop_base.implement_worktree_path(stable_root, "owner/repo", 42, event.dedup_key)
   t.mock_command("git fetch 'origin' 'dev'", {
     stdout = "",
     stderr = "",
@@ -143,8 +168,8 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-    stdout = runtime,
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+    stdout = durable_root,
     stderr = "",
     exit_code = 0,
   })
@@ -202,6 +227,7 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
+  mock_harvest_worktree(event, branch)
 end
 
 local function checkpoint_comment(result)
@@ -264,7 +290,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,
@@ -320,7 +346,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,
@@ -363,7 +389,7 @@ return {
     })
     mock_remote_branch(branch, checkpoint_head)
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
+    mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
     mock_implement_codex(0, "finished from checkpoint")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
@@ -395,7 +421,7 @@ return {
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
     mock_remote_branch(branch, checkpoint_head)
-    mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
+    mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
     mock_implement_codex(0, "finished from unmarked checkpoint")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)

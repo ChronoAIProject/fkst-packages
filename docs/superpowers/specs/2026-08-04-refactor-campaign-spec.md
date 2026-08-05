@@ -277,6 +277,17 @@ Evidence: `libraries/devloop/commands.lua:26-35` names its own binding a "Migrat
 `logging.lua:201` and `state.lua:325` retain `install(M)`. The corrected causal census is **18 real
 production reads** (`integration`=1, `ops`=12, `pr`=5) — *not* the 43 the current gate reports, which
 is why **T2.3 must land first** or this work will be aimed at 25 sites that do not exist.
+**The exact target list, derived from the corrected per-package ledger (T2.3), is 18 sites:**
+
+| package | sites | symbols |
+|---|---|---|
+| `github-devloop-integration` | 1 | `gh_pr_create_body` (release_notes.lua:211) |
+| `github-devloop-ops` | 12 | `gh_issue_list_observe_opts` ×2, `gh_pr_list_observe_opts` ×2, `gh_issue_view_observe` ×2, `gh_pr_view_observe` ×2, `gh_issue_list_recent_closed`, `gh_pr_list_recent_merged`, `gh_pr_close`, `gh_pr_comment` |
+| `github-devloop-pr` | 5 | `gh_pr_comment`, `gh_pr_ready`, `gh_pr_diff_name_only`, `log_forged_markers`, `payload_field` |
+
+Before T2.3 this list would have contained 25 additional sites that do not exist, concentrated in
+`github-proxy` (20) — which is why the ordering below is load-bearing rather than stylistic.
+
 **Explicit non-goal**: driving all 520 core member reads to zero. `worth` rejected that: the 52
 require sites span 18 packages and the checker cannot prove they are devloop-owned. Scope is the 18
 verified installer reads plus deletion of the now-empty scaffolds.

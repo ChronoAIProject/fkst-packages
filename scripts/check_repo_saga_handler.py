@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
-
-import ratchet_base
 
 
 ALLOWLIST = "migration/saga-handler.allowlist"
@@ -42,13 +39,6 @@ def ratchet_violations(
     return violations
 
 
-# Local variant: parses raw non-comment saga-handler entries from dev.
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {line.strip() for line in shown.splitlines() if line.strip() and not line.lstrip().startswith("#")}
-    except Exception:
-        return "unresolved", None
+# Local parser preserves raw non-comment saga-handler entries from dev.
+def parse_dev_allowlist_lines(lines: list[str]) -> set[str]:
+    return {line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")}

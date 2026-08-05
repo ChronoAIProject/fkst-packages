@@ -25,6 +25,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -60,6 +61,7 @@ local HEAD_SHA = "def456"
 local BASE_SHA = "abc123"
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#pr/7101" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop-pr/observe_pr", SOURCE_REF)
 local REVIEW_PROPOSAL = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, VERSION, HEAD_SHA)
 
 local FIXTURES = json_array({
@@ -198,7 +200,11 @@ local function capture_runtime(fixture)
     if not ok then error(issued, 0) end
     call.issued = issued == true; table.insert(calls, call); return issued
   end
-  local ok, result, captured = pcall(function() return observation_support.observe_department({ config = config, devloop_logging = devloop_logging, devloop_state = devloop_state, dept = "observe_pr", from_state = "reviewing", run = function() return testing.run_fake(department, event) end, codex_runs_for_read = json_array(), write_mode = "real" }) end)
+  local ok, result, captured = pcall(function() return observation_support.observe_department({ config = config, devloop_logging = devloop_logging, devloop_state = devloop_state, dept = "observe_pr", from_state = "reviewing", run = function()
+    return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+      return testing.run_fake(department, event)
+    end)
+  end, codex_runs_for_read = json_array(), write_mode = "real" }) end)
   replayer.replay_from_table = original
   if not ok then error(result, 0) end
   t.eq(#calls, 1, fixture.name .. ": real observe_pr dispatch reaches review replayer once")

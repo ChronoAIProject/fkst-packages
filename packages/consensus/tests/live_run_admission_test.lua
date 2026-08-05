@@ -315,6 +315,23 @@ return {
     end)
   end,
 
+  test_workflow_dispatch_carries_launcher_resolved_repository_locations = function()
+    with_dispatch_fakes({
+      FKST_CODEX_REPOSITORY_ROOTS = "/srv/host-repository\n/srv/platform-repository\n",
+    }, function(calls)
+      workflow_codex.dispatch(dispatch_identity(), { prompt = "original prompt", worktree = "/tmp/worktree" })
+
+      t.eq(#calls, 1)
+      local prompt = calls[1].opts.prompt
+      t.is_true(prompt:find("Repository locations resolved by the launcher:", 1, true) ~= nil)
+      t.is_true(prompt:find("- active worktree: /tmp/worktree", 1, true) ~= nil)
+      t.is_true(prompt:find("- repository root: /srv/host-repository", 1, true) ~= nil)
+      t.is_true(prompt:find("- repository root: /srv/platform-repository", 1, true) ~= nil)
+      t.is_true(prompt:find("Do not run `find`, `fd`, `locate`, or recursive directory walks to discover repository locations.", 1, true) ~= nil)
+      t.is_true(prompt:find("original prompt", 1, true) ~= nil)
+    end)
+  end,
+
   test_workflow_dispatch_maps_source_agnostic_invocation_identity = function()
     local run_identity = {
       role = "consensus",
@@ -369,6 +386,23 @@ return {
         local opts = workflow_codex.with_resolved_timeout(role, { prompt = "hello" })
         t.eq(opts.timeout, timeout)
       end
+    end)
+  end,
+
+  test_workflow_raw_resolver_carries_launcher_resolved_repository_locations = function()
+    with_timeout_env({
+      FKST_CODEX_REPOSITORY_ROOTS = "/srv/host-repository\n/srv/platform-repository\n",
+    }, function()
+      local opts = workflow_codex.with_resolved_timeout("intake", {
+        prompt = "original prompt",
+        worktree = "/tmp/worktree",
+      })
+
+      t.is_true(opts.prompt:find("- active worktree: /tmp/worktree", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("- repository root: /srv/host-repository", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("- repository root: /srv/platform-repository", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("Do not run `find`, `fd`, `locate`, or recursive directory walks to discover repository locations.", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("original prompt", 1, true) ~= nil)
     end)
   end,
 

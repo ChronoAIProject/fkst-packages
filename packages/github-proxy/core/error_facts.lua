@@ -9,9 +9,9 @@ end
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  local class = text:match("github%-proxy: [^:]+ failed: ([%w%-]+):")
-    or text:match("github%-proxy: ([%w%-]+):")
-  return class or "caught-failure"
+  local class =
+    text:match("github%-proxy: [^:]+ failed: ([%w%-]+):")
+  return class or error_facts.error_class_from_message(text)
 end
 
 function M.log_error_fact(level, dept, tag, error_class, queue, message, context)

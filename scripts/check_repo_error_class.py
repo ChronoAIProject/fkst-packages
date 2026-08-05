@@ -2,13 +2,90 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 
 import check_repo_config
+import ratchet_base
 
 
 ALLOWLIST = "migration/error-class.allowlist"
 LIBRARY_ALLOWLIST = "migration/library-error-class.allowlist"
+LIBRARY_ID_RE = re.compile(
+    r"(?P<path>libraries/.+\.lua):fingerprint=(?P<fingerprint>[0-9a-f]{64})"
+    r":occurrence=(?P<occurrence>[1-9][0-9]*)\Z"
+)
+ERROR_CALL_STRING_RE = re.compile(r"\berror\s*\(\s*(?P<quote>['\"])(?P<message>[^'\"]*)(?P=quote)")
+ERROR_ENVELOPE_GRAMMAR_SOURCE = Path(__file__).resolve().parents[1] / "libraries/contract/error_facts.lua"
+ERROR_ENVELOPE_GRAMMAR_TABLE_RE = re.compile(
+    r"F\.ERROR_ENVELOPE_GRAMMAR\s*=\s*\{(?P<body>.*?)\n\}",
+    re.DOTALL,
+)
+ERROR_ENVELOPE_GRAMMAR_FIELD_RE = re.compile(
+    r'^\s*(?P<name>[a-z_]+)\s*=\s*"(?P<value>[^"]*)",?\s*$',
+    re.MULTILINE,
+)
+
+
+def load_error_envelope_grammar() -> dict[str, str]:
+    source = ERROR_ENVELOPE_GRAMMAR_SOURCE.read_text(encoding="utf-8")
+    table_match = ERROR_ENVELOPE_GRAMMAR_TABLE_RE.search(source)
+    if table_match is None:
+        raise RuntimeError(f"missing F.ERROR_ENVELOPE_GRAMMAR in {ERROR_ENVELOPE_GRAMMAR_SOURCE}")
+    grammar = {
+        match.group("name"): match.group("value")
+        for match in ERROR_ENVELOPE_GRAMMAR_FIELD_RE.finditer(table_match.group("body"))
+    }
+    required = {
+        "subsystem_segment_initial",
+        "subsystem_segment_rest",
+        "hierarchy_separator",
+        "component_separator",
+        "class_initial",
+        "class_rest",
+        "class_terminator",
+        "fallback",
+    }
+    missing = required - grammar.keys()
+    if missing:
+        raise RuntimeError(f"incomplete error-envelope grammar: missing {sorted(missing)}")
+    return grammar
+
+
+def error_class_prefix_re(grammar: dict[str, str]) -> re.Pattern[str]:
+    subsystem_segment = (
+        f"[{re.escape(grammar['subsystem_segment_initial'])}]"
+        f"[{re.escape(grammar['subsystem_segment_rest'])}]*"
+    )
+    error_class = f"[{re.escape(grammar['class_initial'])}][{re.escape(grammar['class_rest'])}]*"
+    return re.compile(
+        "^"
+        + subsystem_segment
+        + "(?:"
+        + re.escape(grammar["hierarchy_separator"])
+        + subsystem_segment
+        + ")*"
+        + re.escape(grammar["component_separator"])
+        + error_class
+        + re.escape(grammar["class_terminator"])
+    )
+
+
+ERROR_ENVELOPE_GRAMMAR = load_error_envelope_grammar()
+ERROR_CLASS_PREFIX_RE = error_class_prefix_re(ERROR_ENVELOPE_GRAMMAR)
+
+
+def unclassified_error_calls(text: str, strip_lua_comments_and_strings, is_unmasked_range) -> list[tuple[int, str]]:
+    stripped = strip_lua_comments_and_strings(text)
+    calls: list[tuple[int, str]] = []
+    for match in ERROR_CALL_STRING_RE.finditer(text):
+        if not is_unmasked_range(text, stripped, match.start(), match.start("quote")):
+            continue
+        message = match.group("message")
+        if not ERROR_CLASS_PREFIX_RE.match(message):
+            calls.append((text.count("\n", 0, match.start()) + 1, message))
+    return calls
 
 
 def parse_scoped_allowlist_lines(lines: list[str], allowlist: str, prefix: str) -> set[str]:
@@ -31,14 +108,22 @@ def parse_allowlist_lines(lines: list[str]) -> set[str]:
 
 
 def parse_library_allowlist_lines(lines: list[str]) -> set[str]:
-    return parse_scoped_allowlist_lines(lines, LIBRARY_ALLOWLIST, "libraries/")
+    entries: set[str] = set()
+    for raw in lines:
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if LIBRARY_ID_RE.fullmatch(line) is None:
+            raise ValueError(f"invalid {LIBRARY_ALLOWLIST} line: {raw}")
+        entries.add(line)
+    return entries
 
 
 load_allowlist, allowlist_at_dev_base = check_repo_config.bind_allowlist_helpers(ALLOWLIST, parse_allowlist_lines)
-load_library_allowlist, library_allowlist_at_dev_base = check_repo_config.bind_allowlist_helpers(
-    LIBRARY_ALLOWLIST,
-    parse_library_allowlist_lines,
-)
+
+
+def load_library_allowlist(path: Path) -> set[str]:
+    return check_repo_config.load_allowlist(path, parse_allowlist_lines=parse_library_allowlist_lines)
 
 
 def current_sites(root, package_lua_files, read_text, rel, unclassified_error_call_lines) -> set[str]:
@@ -51,17 +136,55 @@ def current_sites(root, package_lua_files, read_text, rel, unclassified_error_ca
     return sites
 
 
-def current_library_sites(root, read_text, rel, unclassified_error_call_lines) -> set[str]:
+def library_sites_for_source(relative_path: str, text: str, unclassified_error_calls) -> dict[str, str]:
+    sites: dict[str, str] = {}
+    occurrences: dict[str, int] = {}
+    for line, message in unclassified_error_calls(text):
+        fingerprint = hashlib.sha256(message.encode("utf-8")).hexdigest()
+        occurrence = occurrences.get(fingerprint, 0) + 1
+        occurrences[fingerprint] = occurrence
+        identity = f"{relative_path}:fingerprint={fingerprint}:occurrence={occurrence}"
+        sites[identity] = f"{relative_path}:{line}"
+    return sites
+
+
+def current_library_diagnostics(root, read_text, rel, unclassified_error_calls) -> dict[str, str]:
     libraries = root / "libraries"
-    sites: set[str] = set()
+    sites: dict[str, str] = {}
     if not libraries.exists():
         return sites
     for path in sorted(libraries.rglob("*.lua")):
         if not path.is_file() or "tests" in path.relative_to(libraries).parts:
             continue
-        for line in unclassified_error_call_lines(read_text(path)):
-            sites.add(f"{rel(root, path)}:{line}")
+        sites.update(library_sites_for_source(rel(root, path), read_text(path), unclassified_error_calls))
     return sites
+
+
+def target_library_sites(root, current: dict[str, str], unclassified_error_calls) -> tuple[str, dict[str, str] | None]:
+    target_commit = ratchet_base.resolve_target_ref(root)
+    if target_commit is None:
+        return "unresolved", None
+    changed = ratchet_base.changed_paths(root, target_commit, "libraries")
+    if changed is None:
+        return "unresolved", None
+
+    changed_set = set(changed)
+    target = {
+        identity: location
+        for identity, location in current.items()
+        if identity.split(":fingerprint=", 1)[0] not in changed_set
+    }
+    for relative_path in sorted(changed_set):
+        path = Path(relative_path)
+        if path.suffix != ".lua" or "tests" in path.relative_to("libraries").parts:
+            continue
+        status, source = ratchet_base.file_at_commit(root, target_commit, relative_path)
+        if status == "unresolved":
+            return "unresolved", None
+        if status == "present":
+            assert source is not None
+            target.update(library_sites_for_source(relative_path, source, unclassified_error_calls))
+    return "present", target
 
 
 def scoped_ratchet_messages(
@@ -92,14 +215,22 @@ def ratchet_messages(
 
 
 def library_ratchet_messages(
-    current: set[str],
+    current: dict[str, str],
     allowlist: set[str],
-    base_allowlist: set[str] | None = None,
+    target_sites: dict[str, str] | None = None,
 ) -> list[str]:
-    return scoped_ratchet_messages(
-        current,
-        allowlist,
-        base_allowlist,
-        LIBRARY_ALLOWLIST,
-        "production library",
-    )
+    messages: list[str] = []
+    for identity in sorted(current):
+        location = current[identity]
+        if target_sites is not None:
+            if identity not in target_sites:
+                messages.append(
+                    f"{location} production library error(...) string is new relative to the target baseline; "
+                    f"diagnostic identity {identity}; classify the error string instead"
+                )
+        elif identity not in allowlist:
+            messages.append(
+                f"{location} production library error(...) string lacks a greppable class prefix; "
+                f"diagnostic identity {identity} is not in {LIBRARY_ALLOWLIST}"
+            )
+    return messages

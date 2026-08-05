@@ -136,7 +136,7 @@ end
 
 local function state_comment(state_name, state_version, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment(proposal_id, state_name, state_version),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -410,7 +410,9 @@ return {
     local event = h.ready()
     local comments = {
       state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
-      issue_comment(core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed", core._max_impl_auto_retry_attempts)),
+      issue_comment(core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed",
+        core._max_impl_auto_retry_attempts, "UNKNOWN", true)),
     }
 
     for sweep = 1, 3 do

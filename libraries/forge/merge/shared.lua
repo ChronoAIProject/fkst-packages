@@ -98,16 +98,16 @@ local function build_reason_class_map(entries)
     local key = entry.key
     local row = entry.row
     if type(key) ~= "string" or key == "" then
-      error("forge.merge: reason class key must be a non-empty string")
+      error("forge.merge: merge-reason-class-key-invalid: reason class key must be a non-empty string")
     end
     if type(row) ~= "table" then
-      error("forge.merge: reason class row must be a table: " .. key)
+      error("forge.merge: merge-reason-class-row-invalid: reason class row must be a table: " .. key)
     end
     if row.reason ~= key then
-      error("forge.merge: reason class key " .. key .. " does not match row reason " .. tostring(row.reason))
+      error("forge.merge: merge-reason-class-reason-mismatch: reason class key " .. key .. " does not match row reason " .. tostring(row.reason))
     end
     if map[key] ~= nil then
-      error("forge.merge: duplicate reason class key " .. key)
+      error("forge.merge: merge-reason-class-key-duplicate: duplicate reason class key " .. key)
     end
     map[key] = {
       class = row.class,

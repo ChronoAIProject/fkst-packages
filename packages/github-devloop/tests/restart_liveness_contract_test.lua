@@ -42,22 +42,6 @@ local function contains_error(errors, needle)
   return joined_errors(errors):find(needle, 1, true) ~= nil
 end
 
-local function assert_inventory_errors(inventory, state, expected)
-  local listed = inventory[state]
-  t.eq(type(listed), "table", state)
-  local count = 0
-  for err, enabled in pairs(listed) do
-    t.eq(enabled, true, err)
-    t.is_true(expected[err] == true, err)
-    count = count + 1
-  end
-  local expected_count = 0
-  for err, _ in pairs(expected) do
-    t.is_true(listed[err] == true, err)
-    expected_count = expected_count + 1
-  end
-  t.eq(count, expected_count, state)
-end
 
 local function assert_codex_run_row(row, expected_role, state)
   t.eq(row.actionable_epoch.source, "codex_run:v1", state)

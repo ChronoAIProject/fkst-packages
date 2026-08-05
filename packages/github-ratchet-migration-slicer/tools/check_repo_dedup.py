@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
-import check_repo_config
+import check_repo_lua
 import ratchet_base
 
 
@@ -19,7 +19,6 @@ FUNCTION_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:local\s+)?function\s+"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\("
 )
-LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
 @dataclass(frozen=True, order=True)
@@ -87,56 +86,17 @@ def function_basename(name: str) -> str:
     return re.split(r"[.:]", name.replace(" ", ""))[-1]
 
 
-def code_without_comments_and_strings(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            newline = text.find("\n", cursor)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-        char = text[cursor]
-        if char in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-        cursor += 1
-    return "".join(chars)
-
-
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
 def normalized_body(lines: list[str]) -> str:
     return "\n".join(stripped for line in lines if (stripped := line.strip()))
 
 
-def block_delta(line: str) -> int:
-    tokens = LUA_WORD_RE.findall(line)
-    delta = 0
-    for index, token in enumerate(tokens):
-        if token in {"function", "do", "repeat"}:
-            delta += 1
-        elif token == "then" and (index == 0 or tokens[index - 1] != "elseif"):
-            delta += 1
-        elif token in {"end", "until"}:
-            delta -= 1
-    return delta
-
-
 def matching_function_end(code_lines: list[str], signature_index: int) -> int | None:
-    depth = block_delta(code_lines[signature_index])
+    depth = check_repo_lua.block_delta(code_lines[signature_index])
     if depth <= 0:
         return signature_index
     cursor = signature_index + 1
     while cursor < len(code_lines):
-        depth += block_delta(code_lines[cursor])
+        depth += check_repo_lua.block_delta(code_lines[cursor])
         if depth <= 0:
             return cursor
         cursor += 1
@@ -145,7 +105,7 @@ def matching_function_end(code_lines: list[str], signature_index: int) -> int | 
 
 def module_scope_functions(path: str, source: str) -> list[FunctionBody]:
     original_lines = source.splitlines()
-    code_lines = code_without_comments_and_strings(source).splitlines()
+    code_lines = check_repo_lua.code_mask(source, recognize_long_brackets=False).splitlines()
     bodies: list[FunctionBody] = []
     index = 0
     block_depth = 0
@@ -161,7 +121,7 @@ def module_scope_functions(path: str, source: str) -> list[FunctionBody]:
                     bodies.append(FunctionBody(function_basename(match.group("name")), path, body))
                 index = body_end + 1
                 continue
-        block_depth = max(0, block_depth + block_delta(line))
+        block_depth = max(0, block_depth + check_repo_lua.block_delta(line))
         index += 1
     return bodies
 

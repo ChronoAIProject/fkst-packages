@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "8b1bbb32584acccdce05632f5c396b44f786f912a60596d8b1fb7972aef8cae8",
+  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -18964,7 +18964,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188306"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188306"
             },
             "queue": "consensus.proposal"
           }
@@ -19004,7 +19004,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188306"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188306"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19361,7 +19361,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188308"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188308"
             },
             "queue": "consensus.proposal"
           }
@@ -19396,7 +19396,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188308"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188308"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19568,7 +19568,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188310"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188310"
             },
             "queue": "consensus.proposal"
           }
@@ -19603,7 +19603,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188310"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188310"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
@@ -19781,7 +19781,7 @@
               },
               "title": "Review PR #7: Capture review proposal constructor",
               "verdict_mode": "gate",
-              "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188312"
+              "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188312"
             },
             "queue": "consensus.proposal"
           }
@@ -19821,7 +19821,7 @@
             "kind": "external",
             "ref": "owner/repo#pr/7"
           },
-          "worktree": "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-1409188312"
+          "worktree": "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-1409188312"
         },
         "source_boundary": "devloop_reviewing",
         "source_state": "reviewing",
