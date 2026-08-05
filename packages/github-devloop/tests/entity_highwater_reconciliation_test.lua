@@ -147,6 +147,9 @@ return {
       base_branch = "dev",
       times = 1,
     })
+    local cached = devloop_entity_view.fetch_pr_view_origin(repo, pr_number, version(1))
+    t.is_true(cached.stdout:find('"updatedAt":"' .. version(1) .. '"', 1, true) ~= nil)
+    t.eq(count_pr_rest_reads(pr_number), 0, "the test precondition must be a matching cached V1")
     local issue_reads = 0
 
     local original_assert = devloop_base.assert_trusted_bot_configured

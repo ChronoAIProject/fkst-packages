@@ -15,7 +15,6 @@ end
 local function fetch_current(event, pr)
   local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
     force_fresh = true,
-    allow_cached_validator = true,
     consumer = "observe_issue",
   })
   if pr_view.exit_code ~= 0 then
