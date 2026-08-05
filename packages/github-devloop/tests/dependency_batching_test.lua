@@ -86,7 +86,8 @@ end
 
 local function mock_blocker_issue(issue_number, state)
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  local marker = core.state_marker(proposal_id, state or "ready", "v-" .. tostring(issue_number))
+  local marker = h.projected_state_comment(
+    proposal_id, state or "ready", "v-" .. tostring(issue_number))
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
     stdout = '{"state":"OPEN","comments":[{"body":"' .. encode_json_string(marker)
       .. '","author":{"login":"fkst-test-bot"},"createdAt":"2026-06-03T01:00:00Z"}]'

@@ -547,7 +547,7 @@ function M.new(core)
 
     local merged, merged_reason = prove_blocker_merged(repo, blocker.number)
     if merged == nil then
-      return nil, merged_reason or "unknown-blocker"
+      return nil, merged_reason or "unknown-blocker", merged_reason ~= nil and blocker.number or nil
     end
     if merged then
       return true, nil
@@ -679,9 +679,15 @@ function M.new(core)
         local prefer_terminal_proof = blocker.state == "CLOSED"
         local satisfied = nil
         local satisfied_reason = nil
+        local observed_blocker_number = nil
 
         if prefer_terminal_proof then
-          satisfied, satisfied_reason = evaluate_terminal_blocker(repo, blocker, context, notes)
+          satisfied, satisfied_reason, observed_blocker_number = evaluate_terminal_blocker(
+            repo,
+            blocker,
+            context,
+            notes
+          )
         end
         if not prefer_terminal_proof
           or (satisfied == false and satisfied_reason ~= "dependency-waiver-required") then
@@ -705,9 +711,15 @@ function M.new(core)
           end
         end
         if not prefer_terminal_proof then
-          satisfied, satisfied_reason = evaluate_terminal_blocker(repo, blocker, context, notes)
+          satisfied, satisfied_reason, observed_blocker_number = evaluate_terminal_blocker(
+            repo,
+            blocker,
+            context,
+            notes
+          )
         end
         if satisfied == nil then
+          add_unmet(unmet, unmet_seen, observed_blocker_number)
           stack[key] = nil
           return gate("unavailable", satisfied_reason or "unknown-blocker", unmet)
         end

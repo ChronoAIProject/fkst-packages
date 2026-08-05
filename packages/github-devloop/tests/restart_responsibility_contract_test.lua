@@ -38,32 +38,7 @@ local function contains_error(errors, needle)
   return joined_errors(errors):find(needle, 1, true) ~= nil
 end
 
-local function successor_by_state(row, state)
-  for _, edge in ipairs(row.responsibility_signature and row.responsibility_signature.successors or {}) do
-    if edge.state == state then
-      return edge
-    end
-  end
-  return nil
-end
 
-local function assert_inventory_errors(inventory, state, expected)
-  local listed = inventory[state]
-  t.eq(type(listed), "table", state)
-  local count = 0
-  for err, reason in pairs(listed) do
-    t.eq(type(reason), "string", err)
-    t.is_true(reason ~= "", err)
-    t.is_true(expected[err] == true, err)
-    count = count + 1
-  end
-  local expected_count = 0
-  for err, _ in pairs(expected) do
-    t.is_true(listed[err] ~= nil, err)
-    expected_count = expected_count + 1
-  end
-  t.eq(count, expected_count, state)
-end
 
 local function clean_row()
   return {

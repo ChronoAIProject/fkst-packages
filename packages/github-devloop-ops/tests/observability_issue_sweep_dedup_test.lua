@@ -5,6 +5,7 @@ local testing = require("testkit_internal.testing")
 local github_fake = require("forge.github_fake")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
+local observe_commands = require("devloop.commands.observe_lists")
 local queue_starvation = require("devloop.queue_starvation")
 local observability = require("departments.observability.main")
 
@@ -27,9 +28,9 @@ local function mock_env()
 end
 
 local function with_fake_observability_reads(github, fn)
+  local original_issue_list_observe_opts = observe_commands.gh_issue_list_observe_opts
+  local original_pr_list_observe_opts = observe_commands.gh_pr_list_observe_opts
   local originals = {
-    gh_issue_list_observe_opts = core.gh_issue_list_observe_opts,
-    gh_pr_list_observe_opts = core.gh_pr_list_observe_opts,
     collect_recent_merged_prs = core.collect_recent_merged_prs,
     collect_recent_merged_issues = core.collect_recent_merged_issues,
     reap_orphan_prs = core.reap_orphan_prs,
@@ -40,14 +41,14 @@ local function with_fake_observability_reads(github, fn)
     observe_queue_starvation = queue_starvation.observe_queue_starvation,
   }
 
-  core.gh_issue_list_observe_opts = function(repo, label, page, include_headers)
+  observe_commands.gh_issue_list_observe_opts = function(repo, label, page, include_headers)
     return {
       run = function(timeout)
         return github.issue_list_observe(repo, label, page, include_headers, timeout)
       end,
     }
   end
-  core.gh_pr_list_observe_opts = function(repo, page, include_headers)
+  observe_commands.gh_pr_list_observe_opts = function(repo, page, include_headers)
     return {
       run = function(timeout)
         return github.pr_list_observe(repo, page, include_headers, timeout)
@@ -70,6 +71,8 @@ local function with_fake_observability_reads(github, fn)
   end
 
   local ok, result = pcall(fn)
+  observe_commands.gh_issue_list_observe_opts = original_issue_list_observe_opts
+  observe_commands.gh_pr_list_observe_opts = original_pr_list_observe_opts
   for name, original in pairs(originals) do
     if name == "observe_queue_starvation" then
       queue_starvation.observe_queue_starvation = original

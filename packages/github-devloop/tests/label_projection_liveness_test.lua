@@ -14,7 +14,7 @@ local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T0
 local function comment(state, marker_version, author_login, created_at, effects)
   return {
     id = "IC_" .. tostring(state) .. "_" .. tostring(marker_version),
-    body = core.state_marker(proposal_id, state, marker_version, effects),
+    body = h.state_comment(proposal_id, state, marker_version, effects),
     author_login = author_login or core._test_bot_login,
     created_at = created_at or "2026-06-03T00:00:00Z",
   }

@@ -1,6 +1,7 @@
 local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
 local devloop_state = require("devloop.state")
+local transition_version = require("contract.transition_version")
 
 local M = {}
 
@@ -128,6 +129,46 @@ function M.next_retry_attempt(fact)
   return M.valid_attempt(fact.attempt or 1) + 1
 end
 
+function M.implementation_base_version(version)
+  return transition_version.strip_trailing_reimplement(version)
+end
+
+function M.implementation_branch_version(version, attempt)
+  local replacement_round = transition_version.trailing_reimplement_round(version)
+  local retry_attempt = attempt == nil and nil or M.valid_attempt(attempt)
+  if attempt ~= nil and retry_attempt == nil then
+    error("github-devloop: invalid-attempt: invalid implementation branch attempt")
+  end
+  if replacement_round == 1 and (retry_attempt == nil or retry_attempt == replacement_round) then
+    return tostring(version or "")
+  end
+  if replacement_round ~= 0
+    and retry_attempt ~= nil
+    and replacement_round ~= retry_attempt
+    and replacement_round + 1 ~= retry_attempt
+  then
+    error("github-devloop: invalid-version-lineage: implementation retry suffix does not match structured attempt")
+  end
+  return M.implementation_base_version(version)
+end
+
+function M.implementation_attempt_version(version, attempt)
+  local n = attempt == nil and nil or M.valid_attempt(attempt)
+  if attempt ~= nil and n == nil then
+    error("github-devloop: invalid-attempt: invalid implementation attempt version")
+  end
+  if transition_version.trailing_reimplement_round(
+    M.implementation_branch_version(version, n)
+  ) == 1 then
+    return tostring(version or "")
+  end
+  local base = M.implementation_base_version(version)
+  if n == nil or n <= 1 then
+    return base
+  end
+  return transition_version.reimplement_at(base, n)
+end
+
 return {
   MAX_AUTO_RETRY_ATTEMPTS = M.MAX_AUTO_RETRY_ATTEMPTS,
   MAX_RETRY_ATTEMPTS = M.MAX_RETRY_ATTEMPTS,
@@ -137,4 +178,7 @@ return {
   current_fact = M.current_fact,
   retry_allowed = M.retry_allowed,
   next_retry_attempt = M.next_retry_attempt,
+  implementation_base_version = M.implementation_base_version,
+  implementation_branch_version = M.implementation_branch_version,
+  implementation_attempt_version = M.implementation_attempt_version,
 }

@@ -48,15 +48,6 @@ local function mock_branch_config_env()
   })
 end
 
-local function find_pr_comment_with(raises, needle)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == "github-proxy.github_pr_comment_request"
-      and tostring((raised.payload or {}).body or ""):find(needle, 1, true) ~= nil then
-      return raised
-    end
-  end
-  return nil
-end
 
 local function find_pr_label_raise(raises)
   return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
@@ -295,23 +286,6 @@ local function run_observe_pr_payload(payload, run_opts)
   }, run_opts)
 end
 
-local function reject_comment(fix)
-  return requests_review.build_review_result_comment_request(core,
-    "owner/repo",
-    "42",
-    fix.proposal_id,
-    fix.version,
-    {
-      proposal_id = fix.review_proposal_id,
-      decision = "reject",
-      body = "Reject because tests failed.",
-      blocking_gap = "missing regression guard",
-      dedup_key = fix.review_dedup_key,
-      source_ref = fix.source_ref,
-    },
-    fix.source_ref
-  ).body
-end
 
 local function advanced_fixing_fixture(extra)
   local event = fixing()

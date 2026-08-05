@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from host_run_test import HostRunHarness, commit_git_file, create_git_source
+from host_run_fixture import HostRunHarness, commit_git_file, create_git_source
 
 
 SOURCE_ID = "fkst-packages-platform"

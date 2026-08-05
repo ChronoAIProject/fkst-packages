@@ -1,5 +1,5 @@
 local C = {}
-local devloop_commands = require("devloop.commands")
+local issue_reads = require("devloop.commands.issue_reads")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
@@ -381,7 +381,7 @@ local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opt
     end
   end
 
-  local result = devloop_commands.gh_issue_view_intake_judge(
+  local result = issue_reads.gh_issue_view_intake_judge(
     repo,
     issue_number,
     tonumber(options.timeout) or 30

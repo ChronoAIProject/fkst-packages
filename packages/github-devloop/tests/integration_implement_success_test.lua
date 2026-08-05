@@ -90,7 +90,7 @@ local function find_comment_with(raises, text)
 end
 
 local function mock_candidate_local_red(_worktree, detail)
-  t.mock_command("scripts/run.sh test-affected", {
+  t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
     stdout = "",
     stderr = local_iteration_marker("SEMANTIC_FAIL") .. (detail or "candidate local iteration failed\n"),
     exit_code = 1,
@@ -138,7 +138,7 @@ local function mock_base_probe(worktree, options)
       exit_code = 0,
     })
     if values.head == nil or values.head.exit_code == 0 then
-      t.mock_command("scripts/run.sh test-affected", values.check or {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", values.check or {
         stdout = "",
         stderr = local_iteration_marker("PASS"),
         exit_code = 0,
@@ -344,12 +344,12 @@ return {
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "report-supervisor: timed out waiting for a slot\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -379,12 +379,12 @@ return {
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "first untyped nonzero\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "second untyped nonzero\n",
       exit_code = 2,
@@ -407,7 +407,7 @@ return {
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = local_iteration_marker("CONFIGURATION_FAIL") .. "no packages matched for 'missing-package'\n",
       exit_code = 1,

@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local impl_failure = require("devloop.impl_failure")
 local S = {}
 local C = {}
 local support = require("devloop.commands.support")
@@ -8,7 +9,7 @@ local forge_validators = require("devloop.forge_validators")
 function S.worktree_parent_dir(worktree)
   local value = tostring(worktree or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid worktree path")
+    error("github-devloop: worktree-path-invalid: invalid worktree path")
   end
   return value:gsub("/+$", ""):match("^(.*)/[^/]+$") or "."
 end
@@ -16,7 +17,7 @@ end
 function S.run_mkdir(_M, path, timeout)
   local result = exec_sync({ cmd = devloop_base.mkdir_p_cmd(path), timeout = timeout or 30 })
   if result.exit_code ~= 0 then
-    error("github-devloop: directory setup failed: " .. tostring(result.stderr))
+    error("github-devloop: directory-setup-failed: directory setup failed: " .. tostring(result.stderr))
   end
   return result
 end
@@ -74,7 +75,7 @@ end
 local function path_entry_exists_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid path")
+    error("github-devloop: path-invalid: invalid path")
   end
   local quoted = devloop_base._shell_single_quote(value)
   return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
@@ -91,7 +92,7 @@ end
   function C.git_commit(worktree, message, timeout)
     local bounded_message = tostring(message or "")
     if bounded_message == "" or #bounded_message > 200 then
-      error("github-devloop: invalid git commit message")
+      error("github-devloop: commit-message-invalid: invalid git commit message")
     end
     return support.git().commit_message(worktree, bounded_message, timeout)
   end
@@ -261,7 +262,7 @@ end
   function C.git_worktree_force_clean(worktree, timeout)
     local value = tostring(worktree or "")
     if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid worktree path")
+      error("github-devloop: worktree-path-invalid: invalid worktree path")
     end
     local remove_result = support.git().worktree_remove(value, timeout)
     local directory_result = exec_argv({
@@ -341,35 +342,52 @@ end
   end
 
   C.read_runtime_root_cmd = devloop_base.read_runtime_root_cmd
+  C.read_durable_root_cmd = devloop_base.read_durable_root_cmd
   C.mkdir_p_cmd = devloop_base.mkdir_p_cmd
 
   function C.path_is_directory_cmd(path)
     local value = tostring(path or "")
     if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid directory path")
+      error("github-devloop: directory-path-invalid: invalid directory path")
     end
     return "[ -d " .. devloop_base._shell_single_quote(value) .. " ]"
   end
 
-  function C.existing_implementation_worktree(repo, issue_number, impl_version)
+  function C.existing_implementation_worktree(repo, issue_number, impl_version, expected_branch)
     if issue_number == nil or impl_version == nil then
       return nil
     end
-    local runtime = exec_sync({ cmd = C.read_runtime_root_cmd(), timeout = 30 })
-    if type(runtime) ~= "table" or runtime.exit_code ~= 0 or tostring(runtime.stdout or "") == "" then
+    local durable = exec_sync({ cmd = C.read_durable_root_cmd(), timeout = 30 })
+    if type(durable) ~= "table" or durable.exit_code ~= 0 then
+      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: "
+        .. tostring(type(durable) == "table" and durable.stderr or "missing command result"))
+    end
+    local implementation_root = devloop_base.implementation_worktree_root(durable.stdout)
+    local worktree_version = impl_failure.implementation_branch_version(impl_version, nil)
+    local worktree = devloop_base.implement_worktree_path(
+      implementation_root, repo, issue_number, worktree_version)
+    local list = C.git_worktree_list(30)
+    if type(list) ~= "table" or list.exit_code ~= 0 then
+      error("github-devloop: worktree-list-failed: git worktree list failed: "
+        .. tostring(type(list) == "table" and list.stderr or "missing command result"))
+    end
+    if not C.worktree_registered_for_branch(list.stdout, worktree, expected_branch) then
       return nil
     end
-    local worktree = devloop_base.implement_worktree_path(runtime.stdout, repo, issue_number, impl_version)
     local directory = exec_sync({ cmd = C.path_is_directory_cmd(worktree), timeout = 30 })
     if type(directory) == "table" and directory.exit_code == 0 then
       return worktree
+    end
+    if type(directory) ~= "table" or directory.exit_code ~= 1 then
+      error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
+        .. tostring(type(directory) == "table" and directory.stderr or "missing command result"))
     end
     return nil
   end
 
   function C.find_worktrees_for_branch(stdout, branch)
     if not forge_validators.is_git_ref_safe(branch) then
-      error("github-devloop: invalid branch")
+      error("github-devloop: branch-invalid: invalid branch")
     end
     local wanted = "refs/heads/" .. tostring(branch)
     local path = nil
@@ -397,9 +415,35 @@ end
     return nil
   end
 
-  function C.find_worktree_for_branch_under_runtime(stdout, branch, runtime_root)
+  function C.worktree_registered_for_branch(stdout, worktree, branch)
+    local expected = tostring(worktree or "")
+    if expected == "" then
+      return false
+    end
+    for _, path in ipairs(C.find_worktrees_for_branch(stdout, branch)) do
+      if path == expected then
+        return true
+      end
+    end
+    return false
+  end
+
+  function C.worktree_registered(stdout, worktree)
+    local expected = tostring(worktree or "")
+    if expected == "" then
+      return false
+    end
+    for line in (tostring(stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+      if line == "worktree " .. expected then
+        return true
+      end
+    end
+    return false
+  end
+
+  function C.find_worktree_for_branch_under_root(stdout, branch, root)
     if not forge_validators.is_git_ref_safe(branch) then
-      error("github-devloop: invalid branch")
+      error("github-devloop: branch-invalid: invalid branch")
     end
     local wanted = "refs/heads/" .. tostring(branch)
     local path = nil
@@ -413,7 +457,7 @@ end
         elseif line == "branch " .. wanted
           and path ~= nil
           and path ~= ""
-          and devloop_base.path_under_runtime_root(runtime_root, path) then
+          and devloop_base.path_under_root(root, path) then
           return path
         end
       end
@@ -422,7 +466,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_runtime", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_oid", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
+  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_oid", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
 end
 C.install = S.install
 
