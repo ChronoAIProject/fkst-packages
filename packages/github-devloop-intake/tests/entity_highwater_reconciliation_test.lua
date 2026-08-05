@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
 local entity_lib = require("devloop.entity")
+local entity_list_cache = require("devloop.entity_list_cache")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
@@ -118,9 +119,10 @@ return {
     t.is_true(skip_fact:find("entity=owner/repo#issue/3093", 1, true) ~= nil)
   end,
 
-  test_admission_coalesces_equal_observations_and_refetches_newer_versions = function()
+  test_admission_reuses_equal_current_observations_and_refetches_superseded_delivery = function()
     h.mock_bot_env()
     cache_set(highwater_key, "")
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
 
     local v1 = "2026-08-04T00:01:00Z"
@@ -129,6 +131,13 @@ return {
       repo = repo,
       number = issue_number,
       title = "Admission V1",
+      state = "CLOSED",
+      updated_at = v1,
+    }, intake_fields, 1)
+    entity_read_mocks.mock_issue_view_selector(t, {
+      repo = repo,
+      number = issue_number,
+      title = "Admission stale delivery refresh",
       state = "CLOSED",
       updated_at = v1,
     }, intake_fields, 1)
@@ -148,11 +157,23 @@ return {
       },
     })
 
-    testing.run_fake(department, event(v1, "poll-1"))
-    testing.run_fake(department, event(v1, "poll-1"))
-    testing.run_fake(department, event(v2, "poll-2"))
+    local recorded_poll_1, poll_1 = entity_list_cache.record_poll_epoch(repo, "2026-08-04T00:10:00Z")
+    t.is_true(recorded_poll_1)
+    testing.run_fake(department, event(v1, poll_1))
+    testing.run_fake(department, event(v1, poll_1))
 
-    t.eq(count_intake_views(), 2, "equal versions share one view while a newer version re-fetches")
+    local recorded_poll_2, poll_2 = entity_list_cache.record_poll_epoch(repo, "2026-08-04T00:11:00Z")
+    t.is_true(recorded_poll_2)
+    testing.run_fake(department, event(v1, poll_2))
+    t.eq(count_intake_views(), 1, "a current later poll reuses the equal authoritative version")
+
+    testing.run_fake(department, event(v1, poll_1))
+    t.eq(count_intake_views(), 2, "a superseded poll delivery re-fetches instead of reusing cached stdout")
+
+    local recorded_poll_3, poll_3 = entity_list_cache.record_poll_epoch(repo, "2026-08-04T00:12:00Z")
+    t.is_true(recorded_poll_3)
+    testing.run_fake(department, event(v2, poll_3))
+    t.eq(count_intake_views(), 3, "a newer authoritative version re-fetches")
   end,
 
   test_admission_does_not_checkpoint_a_fetched_version_when_reconciliation_fails = function()
