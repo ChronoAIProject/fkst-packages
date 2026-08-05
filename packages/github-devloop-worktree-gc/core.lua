@@ -227,7 +227,12 @@ function M.branch_release_fact(comments, issue_ref, branch)
     proposal_id
   )
   if failure ~= nil then
-    local ok, failure_branch = pcall(base.implement_branch, issue_ref.repo, issue_ref.issue, failure.dedup_key)
+    local ok, failure_branch = pcall(
+      base.implement_branch,
+      issue_ref.repo,
+      issue_ref.issue,
+      impl_failure.implementation_branch_version(failure.dedup_key)
+    )
     if ok and failure_branch == branch then
       return {
         kind = "disposable-residue",

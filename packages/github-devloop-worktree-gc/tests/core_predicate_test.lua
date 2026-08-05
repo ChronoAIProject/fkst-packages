@@ -111,9 +111,10 @@ local function checkpoint_marker()
   )
 end
 
-local function failure_marker()
+local function failure_marker(dedup_key, attempt)
   return '<!-- fkst:github-devloop:impl-failure:v1 proposal="github-devloop/issue/'
-    .. REPO .. '/333" reason="local-iteration-failed" attempt="1" dedup="dedup-current" -->'
+    .. REPO .. '/333" reason="local-iteration-failed" attempt="' .. tostring(attempt or 1)
+    .. '" dedup="' .. tostring(dedup_key or "dedup-current") .. '" -->'
 end
 
 return {
@@ -184,6 +185,22 @@ return {
       comment(devloop_state.state_marker(proposal_id, "impl-failed", "dedup-current") .. "\n" .. failure_marker()),
     }
     local fact = core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH)
+    t.eq(fact.kind, "disposable-residue")
+    t.eq(fact.branch, CURRENT_BRANCH)
+  end,
+
+  test_retry_impl_failure_releases_reused_base_branch = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    local retry_dedup = "dedup-current/reimplement/2"
+    local comments = {
+      comment(devloop_state.state_marker(proposal_id, "impl-failed", retry_dedup)
+        .. "\n" .. failure_marker(retry_dedup, 2)),
+    }
+    local fact = core.branch_release_fact(
+      comments,
+      core.issue_ref_from_branch(CURRENT_BRANCH),
+      CURRENT_BRANCH
+    )
     t.eq(fact.kind, "disposable-residue")
     t.eq(fact.branch, CURRENT_BRANCH)
   end,
