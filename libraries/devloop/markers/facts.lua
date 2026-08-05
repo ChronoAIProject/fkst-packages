@@ -2,8 +2,8 @@ local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local base_ids = require("devloop.base_ids")
+local contract_pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
-local pr_origin = require("contract.github_devloop_pr_origin")
 local parsers_misc = require("devloop.parsers.misc")
 local C = {}
 local forge_validators = require("devloop.forge_validators")
@@ -741,11 +741,24 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
 end
 
 function C.pr_origin_fact(comments)
-  return pr_origin.fact(comments, {
-    trusted_bot_login = devloop_base.trusted_bot_login(),
-    fallback_author_login = devloop_base._test_bot_login,
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local authorities = {
+    parse_issue_proposal_id = base_ids.parse_proposal_id,
+    parse_pr_proposal_id = entity_lib.parse_pr_proposal_id,
     is_git_ref_safe = forge_validators.is_git_ref_safe,
-  })
+    is_implementation_version = function(value)
+      return strings.is_bounded_string(value, devloop_base._max_dedup_len)
+    end,
+  }
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    local fact = contract_pr_origin.fact(parsers_misc._comment_body(comment), authorities)
+    if fact ~= nil then
+      return fact
+    end
+  end
+  return nil
 end
 
 function C.has_orphan_reaped_marker(comments, proposal_id, pr_number)

@@ -3,6 +3,8 @@ local error_facts = require("contract.error_facts")
 local content_filter = require("forge.github.content_filter")
 local external_pr_bridge = require("contract.external_pr_bridge")
 local pr_origin = require("contract.github_devloop_pr_origin")
+local devloop_base_ids = require("devloop.base_ids")
+local devloop_entity = require("devloop.entity")
 local logging = require("workflow_internal.logging")
 local pr_owners = require("core.pr_owners")
 local strings = require("contract.strings")
@@ -449,11 +451,27 @@ local function marker_attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
 end
 
+local pr_origin_authorities = {
+  parse_issue_proposal_id = devloop_base_ids.parse_proposal_id,
+  parse_pr_proposal_id = devloop_entity.parse_pr_proposal_id,
+  is_git_ref_safe = forge_strings.is_git_ref_safe,
+  is_implementation_version = function(value)
+    return strings.is_bounded_string(value, devloop_base_ids.max_dedup_len)
+  end,
+}
+
 function M.find_trusted_issue_pr_origin(comments, repo)
-  local origin = pr_origin.fact(comments, {
-    trusted_bot_login = M.current_bot_login(),
-    is_git_ref_safe = forge_strings.is_git_ref_safe,
-  })
+  local origin = nil
+  local trusted_bot_login = content_filter.canon_login(M.current_bot_login())
+  for _, comment in ipairs(comments or {}) do
+    if trusted_bot_login ~= nil
+      and content_filter.canon_login(author_login(comment)) == trusted_bot_login then
+      origin = pr_origin.fact(tostring(comment.body or ""), pr_origin_authorities)
+      if origin ~= nil then
+        break
+      end
+    end
+  end
   local issue_number = origin and tonumber(origin.issue_number) or nil
   if origin == nil
     or origin.repo ~= tostring(repo)

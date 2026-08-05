@@ -1,6 +1,4 @@
 local core = require("core")
-local forge_strings = require("forge.strings")
-local pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local t = fkst.test
 
@@ -344,16 +342,24 @@ return {
     t.is_true(contains(errors, "requires kind"))
   end,
 
-  test_pr_origin_fact_normalizes_login_case_on_both_sides = function()
-    local origin = pr_origin.fact({ {
+  test_pr_origin_trust_normalizes_login_case_on_both_sides = function()
+    local previous_read_env = core.read_env
+    core.read_env = function(name)
+      return ({
+        FKST_GITHUB_BOT_LOGIN = "FKST-Test-Bot",
+        FKST_GITHUB_WRITE = "",
+      })[name] or ""
+    end
+    local ok, origin = pcall(core.find_trusted_issue_pr_origin, { {
       author_login = "fkst-test-bot[bot]",
       body = pr_origin_marker(42, "fix/generated", integration_branch),
-    } }, {
-      trusted_bot_login = "FKST-Test-Bot",
-      is_git_ref_safe = forge_strings.is_git_ref_safe,
-    })
+    } }, repo)
+    core.read_env = previous_read_env
+    if not ok then
+      error(origin, 0)
+    end
 
-    t.eq(origin.issue_number, "42")
+    t.eq(origin.issue_number, 42)
   end,
 
   test_runtime_classification_uses_trusted_origin_and_exact_rollup_facts = function()
