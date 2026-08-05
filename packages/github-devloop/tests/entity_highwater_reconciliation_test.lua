@@ -3,10 +3,10 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local base_ids = require("devloop.base_ids")
 local entity_highwater = require("devloop.entity_highwater")
 local entity_lib = require("devloop.entity")
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_facts = require("devloop.markers.facts")
 local parsers_issue = require("devloop.parsers.issue")
-local parsers_pr = require("devloop.parsers.pr")
 local testing = require("testkit_internal.testing")
 local observe_issue = require("departments.observe_issue.main")
 
@@ -15,6 +15,38 @@ local repo = "owner/repo"
 local issue_number = 3093
 local source_ref = entity_lib.issue_source_ref(repo, issue_number)
 local highwater_key = entity_highwater.key("github-devloop/observe_issue", source_ref)
+
+local function json_string(value)
+  local encoded = tostring(value or "")
+    :gsub("\\", "\\\\")
+    :gsub('"', '\\"')
+    :gsub("\n", "\\n")
+  return '"' .. encoded .. '"'
+end
+
+local function seed_cached_pr_view(number, updated_at)
+  local stdout = entity_read_mocks.pr_view_stdout({
+    repo = repo,
+    number = number,
+    updated_at = updated_at,
+    head = "fix/entity-highwater",
+    base_branch = "dev",
+  })
+  local key = devloop_entity_view.entity_view_cache_key(repo, "pr", number)
+  cache_set(key, '{"updated_at":' .. json_string(updated_at)
+    .. ',"producer":"test","stdout":' .. json_string(stdout) .. "}")
+end
+
+local function count_pr_rest_reads(number)
+  local expected = "gh api repos/" .. repo .. "/pulls/" .. number
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):gsub("'", "") == expected then
+      count = count + 1
+    end
+  end
+  return count
+end
 
 local function version(number)
   local offset = number - 1
@@ -106,32 +138,25 @@ return {
     )
     cache_set(pr_key, "")
     cache_set(parent_key, "")
-    local pr_reads = 0
+    seed_cached_pr_view(pr_number, version(1))
+    entity_read_mocks.mock_pr_read_forms(t, {
+      repo = repo,
+      number = pr_number,
+      updated_at = v432,
+      head = "fix/entity-highwater",
+      base_branch = "dev",
+      times = 1,
+    })
     local issue_reads = 0
 
     local original_assert = devloop_base.assert_trusted_bot_configured
     local original_fetch_issue = devloop_entity_view.fetch_issue_view_state
-    local original_fetch_pr = devloop_entity_view.fetch_pr_view_origin
     local original_origin = m_facts.pr_origin_fact
     local original_parse_issue = parsers_issue.parse_issue_view_state
-    local original_parse_pr = parsers_pr.parse_pr_view_origin
     devloop_base.assert_trusted_bot_configured = function() end
-    devloop_entity_view.fetch_pr_view_origin = function()
-      pr_reads = pr_reads + 1
-      return { stdout = "{}", stderr = "", exit_code = 0 }
-    end
     devloop_entity_view.fetch_issue_view_state = function()
       issue_reads = issue_reads + 1
       return { stdout = "{}", stderr = "", exit_code = 0 }
-    end
-    parsers_pr.parse_pr_view_origin = function()
-      return {
-        state = "OPEN",
-        updated_at = v432,
-        comments = {},
-        head_ref_name = "fix/entity-highwater",
-        base_ref_name = "dev",
-      }
     end
     parsers_issue.parse_issue_view_state = function()
       return { state = "CLOSED", updated_at = v432, labels = {}, comments = {}, assignees = {} }
@@ -148,21 +173,21 @@ return {
 
     local ok, err = pcall(function()
       testing.run_fake(observe_issue, pr_event(pr_number, version(1)))
+      t.eq(count_pr_rest_reads(pr_number), 1, "the child PR watermark read must bypass a matching cached validator")
+      t.eq(cache_get(pr_key), v432)
       for number = 2, 431 do
         testing.run_fake(observe_issue, pr_event(pr_number, version(number)))
       end
+      t.eq(count_pr_rest_reads(pr_number), 1, "V2 through V431 must not fetch after V1 checkpoints current V432")
     end)
     m_facts.pr_origin_fact = original_origin
-    parsers_pr.parse_pr_view_origin = original_parse_pr
     parsers_issue.parse_issue_view_state = original_parse_issue
-    devloop_entity_view.fetch_pr_view_origin = original_fetch_pr
     devloop_entity_view.fetch_issue_view_state = original_fetch_issue
     devloop_base.assert_trusted_bot_configured = original_assert
     if not ok then
       error(err, 0)
     end
 
-    t.eq(pr_reads, 1, "V1 fetching current V432 must make V2 through V431 zero-fetch no-ops")
     t.eq(issue_reads, 1)
     t.eq(cache_get(pr_key), v432)
     t.eq(cache_get(parent_key), "")

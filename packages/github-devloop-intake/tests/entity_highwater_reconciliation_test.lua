@@ -101,4 +101,39 @@ return {
     t.is_true(skip_fact:find("stored_updated_at=" .. version(432), 1, true) ~= nil)
     t.is_true(skip_fact:find("entity=owner/repo#issue/3093", 1, true) ~= nil)
   end,
+
+  test_admission_does_not_checkpoint_a_fetched_version_when_reconciliation_fails = function()
+    h.mock_bot_env()
+    cache_set(highwater_key, "")
+    local reads = 0
+
+    local function make_department(capacity)
+      return admission_department.make_department({
+        capacity = capacity,
+        read_current_issue = function()
+          reads = reads + 1
+          return repo, issue_number, closed_issue(version(432))
+        end,
+      })
+    end
+
+    local failed = pcall(function()
+      testing.run_fake(make_department({
+        reconcile = function()
+          error("test: capacity reconciliation failed")
+        end,
+      }), event(version(1)))
+    end)
+    t.eq(failed, false)
+    t.eq(cache_get(highwater_key), "")
+
+    testing.run_fake(make_department({
+      reconcile = function()
+        return true, "test-capacity-reconciled"
+      end,
+    }), event(version(2)))
+
+    t.eq(reads, 2, "V2 must refetch after V1 fetched V432 but failed reconciliation")
+    t.eq(cache_get(highwater_key), version(432))
+  end,
 }
