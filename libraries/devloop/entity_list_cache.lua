@@ -16,7 +16,7 @@ end
 local function list_cache_key(repo, kind, scope, poll_key)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
-    error("github-devloop: invalid entity list kind")
+    error("github-devloop: entity-list-kind-invalid: invalid entity list kind")
   end
   local normalized_poll_key = normalize_poll_key(poll_key)
   if normalized_poll_key == nil then
@@ -201,7 +201,7 @@ local function current_poll_epoch_state(repo)
   end
   local state = decode_poll_epoch_state(encoded)
   if state == nil then
-    error("github-devloop: cached poll epoch state is malformed")
+    error("github-devloop: poll-epoch-cache-malformed: cached poll epoch state is malformed")
   end
   return state
 end
@@ -212,7 +212,7 @@ end
 
 function C.fetch_shared_settled_list(repo, kind, scope, poll_key, exec_spec, validate_spec)
   if type(exec_spec) ~= "function" or type(validate_spec) ~= "function" then
-    error("github-devloop: settled entity list fetch requires exec and validation functions")
+    error("github-devloop: settled-list-fetch-contract-invalid: settled entity list fetch requires exec and validation functions")
   end
   return fetch_shared_settled_list(repo, kind, scope, poll_key, exec_spec, validate_spec)
 end
@@ -224,7 +224,7 @@ end
 function C.record_poll_epoch(repo, poll_key)
   local timestamp = tostring(poll_key or "")
   if timestamp == "" then
-    error("github-devloop: poll epoch must be non-empty")
+    error("github-devloop: poll-epoch-missing: poll epoch must be non-empty")
   end
   local key = poll_epoch_cache_key(repo)
   local recorded = false
@@ -254,7 +254,7 @@ end
 
 function C.with_current_poll_epoch(repo, poll_key, fn)
   if type(fn) ~= "function" then
-    error("github-devloop: poll epoch guard requires a function")
+    error("github-devloop: poll-epoch-guard-invalid: poll epoch guard requires a function")
   end
   if poll_key == nil or tostring(poll_key) == "" then
     return true, fn()

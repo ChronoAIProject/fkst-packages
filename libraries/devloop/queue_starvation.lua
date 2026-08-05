@@ -144,7 +144,7 @@ local function run_observability_adapter(M, read_fn, limits, deadline, error_cla
   end
   local ok, result = pcall(read_fn, timeout)
   if not ok then
-    error("github-devloop: " .. tostring(label) .. " failed: " .. tostring(result))
+    error("github-devloop: queue-starvation-observability-read-failed: " .. tostring(label) .. " failed: " .. tostring(result))
   end
   return result
 end

@@ -169,14 +169,14 @@ local RESTART_OP_KEYS = required_op_set()
 
 local function assert_restart_ops_table(ops)
   if type(ops) ~= "table" then
-    error("restart kernel: ops must be a table")
+    error("restart.kernel: restart-ops-not-table: ops must be a table")
   end
 end
 
 local function validate_restart_ops(ops, used_ops)
   for _, key in ipairs(REQUIRED_OPS) do
     if used_ops[key] and ops[key] == nil then
-      error("restart kernel: missing op " .. key)
+      error("restart.kernel: restart-op-missing: missing op " .. key)
     end
   end
 end
@@ -187,7 +187,7 @@ local function restart_build_env(values, ops, used_ops)
       if RESTART_OP_KEYS[key] then
         used_ops[key] = true
         if ops[key] == nil then
-          error("restart kernel: missing op " .. key)
+          error("restart.kernel: restart-op-missing: missing op " .. key)
         end
         return ops[key]
       end
