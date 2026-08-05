@@ -53,7 +53,7 @@ end
 local function gh_issue_view_argv(repo, issue_number, fields)
   local selected_fields = tostring(fields or "")
   if selected_fields == "" or selected_fields:match("[^%w_,]") or selected_fields:match("^,") or selected_fields:match(",$") or selected_fields:match(",,") then
-    error("forge.github: invalid issue view fields")
+    error("forge.github: issue-view-fields-invalid: invalid issue view fields")
   end
   return { "gh", "issue", "view", tostring(issue_number), "--repo", tostring(repo), "--json", selected_fields }
 end
@@ -191,7 +191,7 @@ local function comments_from_json(comments_json)
         created_at = comment.createdAt or comment.created_at,
       })
     elseif type(comment) == "string" then
-      error("forge.github: issue comments must be gh-shaped objects")
+      error("forge.github: issue-comment-shape-invalid: issue comments must be gh-shaped objects")
     end
   end
   return comments
@@ -210,14 +210,14 @@ local function parse_json_object(stdout, context)
   if ok and type(decoded) == "table" then
     return decoded
   end
-  error("forge.github: " .. tostring(context) .. " response is not valid JSON")
+  error("forge.github: response-json-invalid: " .. tostring(context) .. " response is not valid JSON")
 end
 
 local function issue_database_id(stdout, context)
   local decoded = parse_json_object(stdout, context)
   local id = tonumber(decoded.id)
   if id == nil then
-    error("forge.github: " .. tostring(context) .. " response is missing issue id")
+    error("forge.github: issue-id-missing: " .. tostring(context) .. " response is missing issue id")
   end
   return id
 end
@@ -452,6 +452,18 @@ function M.install(handle)
     )
     cache_successful_issue_view(key, out.stdout, options.consumer or "")
     return M.normalize_issue(out.stdout, source_ref)
+  end
+
+  -- Field-complete GraphQL issue view. Exists so consumers needing a full view under a REST
+  -- throttle do not have to import this module for `issue_view_fields`; the field list stays
+  -- owned by this adapter.
+  function handle.issue_view_full(repo, issue_number, timeout)
+    return handle._exec(
+      gh_issue_view_full_argv(repo, issue_number),
+      timeout,
+      "gh issue view",
+      stdout_policy.content_json("issue_view")
+    )
   end
 
   function handle.issue_rest_view(repo, issue_number, timeout)

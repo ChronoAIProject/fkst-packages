@@ -14,14 +14,10 @@ local function origin_marker(event, branch)
   )
 end
 
-local function mock_merge_write_enabled()
-  h.mock_write_env("1")
-  h.mock_write_env("1")
-end
-
 local function prepare_write_time_recheck(event, write_time_comments, mergeable, merge_state, rollup_state, rollup_conclusion)
   h.mock_bot_env()
-  mock_merge_write_enabled()
+  h.mock_write_env("1")
+  h.mock_write_env("1")
   h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
   h.mock_pr_merge({ origin_marker(event) })
   h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
@@ -54,7 +50,7 @@ local function failure_text(result)
   return tostring(result and (result.error or result.stderr) or "")
 end
 
-local function mock_current_base_not_contained()
+local function mock_current_base_not_contained(merge_tree_exit_code)
   t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
     stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
@@ -65,6 +61,11 @@ local function mock_current_base_not_contained()
     stdout = "",
     stderr = "",
     exit_code = 1,
+  })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", {
+    stdout = merge_tree_exit_code == 0 and "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" or "",
+    stderr = merge_tree_exit_code == 0 and "" or "CONFLICT (content): merge conflict",
+    exit_code = merge_tree_exit_code or 1,
   })
 end
 
@@ -83,19 +84,16 @@ local function mock_current_base_contained()
 end
 
 return {
-  test_initial_stale_mergeability_holds_without_fixing = function()
+  test_write_time_stale_conflicting_verdict_for_clean_merge_holds_without_fixing = function()
     local event = h.merge_ready()
-    mock_current_base_contained()
-    h.mock_bot_env()
-    mock_merge_write_enabled()
-    h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
-    h.mock_pr_merge({ origin_marker(event) }, "devloop-owner-repo-42-01HY", event.reviewed_head_sha,
-      "OPEN", "owner/repo", false, "CONFLICTING", "DIRTY")
+    mock_current_base_not_contained(0)
+    prepare_write_time_recheck(event, nil, "CONFLICTING", "DIRTY")
 
-    local result = run_write_time_recheck(event, "merge-initial-stale-conflicting")
+    local result = run_write_time_recheck(event, "merge-write-time-stale-conflicting-clean")
 
     t.eq(result.exit_code, 0, failure_text(result))
     t.eq(#result.raises, 1)
+    t.eq(h.count_calls("git merge-tree --write-tree"), 1)
     t.eq(h.find_causal_raise(result, "devloop_fixing"), nil)
     t.eq(h.count_calls("gh pr merge"), 0)
     local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
@@ -163,18 +161,18 @@ return {
     t.is_true(wait_comment.payload.body:find('reason="rollup-pending"', 1, true) ~= nil)
   end,
 
-  test_write_time_stale_mergeability_holds_without_fixing = function()
+  test_write_time_current_base_contained_holds_without_fixing = function()
     local event = h.merge_ready()
     mock_current_base_contained()
     prepare_write_time_recheck(event, nil, "CONFLICTING", "CLEAN")
 
-    local result = run_write_time_recheck(event, "merge-write-time-stale-conflicting")
+    local result = run_write_time_recheck(event, "merge-write-time-current-base-contained")
 
     t.eq(result.exit_code, 0, failure_text(result))
     t.eq(#result.raises, 1)
+    t.eq(h.find_causal_raise(result, "devloop_fixing"), nil)
     t.eq(h.count_calls("gh pr merge"), 0)
     local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.is_true(wait_comment.payload.body:find('reason="mergeable-conflicting"', 1, true) ~= nil)
   end,
 

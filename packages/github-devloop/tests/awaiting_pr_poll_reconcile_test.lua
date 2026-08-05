@@ -79,19 +79,13 @@ local function mock_issue_close()
   })
 end
 
-local function run_timeout_reconcile(payload, opts)
-  return t.run_department("departments/reconcile/main.lua", {
-    queue = "devloop_timeout_reconcile",
-    payload = payload,
-  }, opts)
-end
 
 local function parent_comments(fields)
   local f = fields or {}
   local state = f.state or "awaiting-pr"
   local state_version = f.version or version
   local comments = {
-    comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
+    comment(h.state_comment(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
     table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
@@ -110,7 +104,7 @@ local function child_comments(state, child_version, opts)
   local base_branch = options.base_branch or integration_branch
   local branch = options.branch or original_branch
   local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
-    .. "\n" .. core.state_marker(parent, state, effective_version)
+    .. "\n" .. h.state_comment(parent, state, effective_version)
   if state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
   end

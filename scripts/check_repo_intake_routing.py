@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_lua
+
 
 INTAKE_PACKAGE = "github-devloop-intake"
 POLICY_SLOT_MANIFEST = Path("scripts/intake_policy_slots.json")
@@ -166,61 +168,11 @@ def topology_exclusivity_messages(root: Path, loaded_packages: set[str]) -> list
     return messages
 
 
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    index = 0
-    while index < len(text):
-        if text.startswith("--", index):
-            newline = text.find("\n", index)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, index, end)
-            index = end
-            continue
-        char = text[index]
-        if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
-            _mask(chars, index, end)
-            index = end
-            continue
-        index += 1
-    return "".join(chars)
-
-
 def lua_string_literals(text: str) -> list[tuple[int, str]]:
-    literals: list[tuple[int, str]] = []
-    index = 0
-    while index < len(text):
-        if text.startswith("--", index):
-            newline = text.find("\n", index)
-            index = len(text) if newline == -1 else newline
-            continue
-        char = text[index]
-        if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
-            literals.append((index, text[index + 1:end - 1]))
-            index = end
-            continue
-        index += 1
-    return literals
-
-
-def quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
+    return [
+        (span.start, span.content(text) if span.terminated else span.content(text)[:-1])
+        for span in check_repo_lua.literal_spans(text, recognize_long_brackets=False)
+    ]
 
 
 def line_number(text: str, index: int) -> int:
@@ -303,7 +255,7 @@ def static_messages(all_sources: list[Source]) -> list[str]:
             elif queue_leaf(queue) in LIFECYCLE_FORWARD_QUEUES:
                 messages.append(f"{source.relpath}: github-devloop-intake must not produce lifecycle queue {queue!r}")
 
-        masked = lua_code_mask(source.text)
+        masked = check_repo_lua.code_mask(source.text, recognize_long_brackets=False)
         for match in ISSUE_LIST_RE.finditer(masked):
             messages.append(
                 f"{source.relpath}:{line_number(source.text, match.start())} github-devloop-intake must not self-read GitHub issue lists"

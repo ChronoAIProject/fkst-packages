@@ -1,7 +1,7 @@
 -- worktree_gc: level-triggered, stateless, fail-open sweep that removes EXPIRED
 -- deterministic github-devloop worktrees. "Expired" = proven not-live by the
--- ground-truth codex-run -> implement_branch join (never age). Current-runtime
--- deterministic worktrees additionally require a fresh lifecycle-owned release fact.
+-- ground-truth codex-run -> implement_branch join (never age). Worktrees in either
+-- the current runtime or stable implementation root require a terminal lifecycle fact.
 --
 -- Safety: nothing is removed unless core.classify proves it, and each candidate is
 -- re-validated against a FRESH codex_runs snapshot immediately before removal
@@ -25,6 +25,7 @@ local spec = {
 }
 
 local allowed_env = {
+  FKST_DURABLE_ROOT = true,
   FKST_RUNTIME_ROOT = true,
   -- Dangerous-posture host fact (same shape as FKST_GITHUB_WRITE): real worktree
   -- removal only happens when this is "1". Unset/anything-else = DRY-RUN: the sweep
@@ -155,7 +156,7 @@ local function make_department(ports)
     return caps.branch_release_fact(issue.comments, issue_ref, branch)
   end
 
-  local function current_runtime_released_branches(worktrees, live, current_rt)
+  local function owned_released_branches(worktrees, live, current_rt, implementation_root)
     local released = {}
     if not (live and live.complete) then
       return released
@@ -166,7 +167,8 @@ local function make_department(ports)
         and not live.set[w.branch] then
         local issue_ref = caps.issue_ref_from_branch(w.branch)
         if issue_ref ~= nil
-          and devloop_base.path_under_runtime_root(current_rt, w.path) then
+          and (devloop_base.path_under_root(current_rt, w.path)
+            or devloop_base.path_under_root(implementation_root, w.path)) then
           if issue_release_fact(issue_ref, w.branch) ~= nil then
             released[w.branch] = true
           end
@@ -184,14 +186,29 @@ local function make_department(ports)
     -- Dangerous-posture host fact: real removal only when FKST_WORKTREE_GC_REMOVE=1.
     local remove_enabled = tostring(read_env("FKST_WORKTREE_GC_REMOVE") or "") == "1"
 
-    -- (1) current runtime root — required to distinguish old-RT (removable) from current-RT (kept).
+    -- (1) resolve the two producer-owned roots. Any missing or malformed host fact
+    -- fails open because this department owns destructive reclamation.
     local current_rt = tostring(read_env("FKST_RUNTIME_ROOT") or "")
     if current_rt == "" then
       gc_log("skip-no-runtime-root", {})
       return
     end
+    local durable_root = tostring(read_env("FKST_DURABLE_ROOT") or "")
+    if durable_root == "" then
+      gc_log("skip-no-durable-root", {})
+      return
+    end
+    local root_ok = pcall(devloop_base.path_under_root, current_rt, current_rt)
+    local implementation_ok, implementation_root = pcall(
+      devloop_base.implementation_worktree_root,
+      durable_root
+    )
+    if not root_ok or not implementation_ok then
+      gc_log("skip-invalid-ownership-root", {})
+      return
+    end
 
-    -- (2) enumerate every registered worktree (all runtime roots, this clone only).
+    -- (2) enumerate every registered worktree (this clone only).
     local list = git.worktree_list(30)
     if type(list) ~= "table" or list.exit_code ~= 0 then
       gc_log("skip-worktree-list-failed", { "exit_code=" .. tostring(list and list.exit_code) })
@@ -206,10 +223,21 @@ local function make_department(ports)
       return
     end
 
-    -- (4) classify. Removable = deterministic devloop branch, not live, and either
-    -- old-RT or current-RT with a fresh lifecycle-owned release fact.
-    local released_branches = current_runtime_released_branches(worktrees, live, current_rt)
-    local result = caps.classify(worktrees, live, current_rt, { released_branches = released_branches })
+    -- (4) classify. Old generations are reclaimable once not live; current-runtime
+    -- and stable implementation worktrees additionally require terminal lifecycle release.
+    local released_branches = owned_released_branches(
+      worktrees,
+      live,
+      current_rt,
+      implementation_root
+    )
+    local result = caps.classify(
+      worktrees,
+      live,
+      current_rt,
+      implementation_root,
+      { released_branches = released_branches }
+    )
     gc_log("scanned", {
       "worktrees=" .. tostring(#worktrees),
       "removable=" .. tostring(#result.removable),
@@ -250,7 +278,7 @@ local function make_department(ports)
       end
     end
 
-    -- (6) prune registry-dangling entries (worktree dirs already gone). Best-effort.
+    -- (5) prune registry-dangling entries (worktree dirs already gone). Best-effort.
     local pruned_ok = pcall(function()
       return git.worktree_prune(30)
     end)

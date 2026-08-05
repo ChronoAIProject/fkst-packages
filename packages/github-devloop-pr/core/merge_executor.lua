@@ -14,7 +14,7 @@ local high_risk_merge_gate = require("core.high_risk_merge_gate")
 local fix_rounds = require("core.fix_rounds")
 local ci_verdict = require("core.ci_verdict")
 local check_runs = require("forge.github.check_runs")
-local merge_batch = require("devloop.merge_batch")
+local merge_batch = require("core.merge_batch")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local payloads_builders = require("devloop.payloads.builders")
 local v_merge_ready = require("devloop.validators.merge_ready")
@@ -74,8 +74,8 @@ local function gate_baseline_sha_from_pr(pr)
   end
   return baseline_sha
 end
-local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason)
-  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason)
+local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason, proposal_id)
+  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason, proposal_id)
 end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position, classification)
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
@@ -138,13 +138,11 @@ local function raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, curren
   return with_current_classification(repo, merge_ready.pr_number, expected_head, function(classification)
     local admission = raise_fixing(repo, issue_number, merge_ready, current_state, nil, "own-ci-red", queue_position, classification)
     if admission.kind == "not-own-ci" then
+      log_gate(merge_ready, "hold", admission.reason)
       return ci_wait.hold(core, merge_ready, repo, admission.current_pr, {
         kind = "CI_WAIT",
         reason = admission.reason,
       })
-    end
-    if admission.kind == "admit" then
-      log_gate(merge_ready, "fixing", admission.reason)
     end
     return admission
   end, {
@@ -503,8 +501,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       end
       local mergeable, mergeable_reason = check_runs.pr_mergeable(current_pr)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-        local stale_mergeability = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+          current_pr, branches, mergeable_reason, merge_ready.proposal_id)
         if stale_mergeability then
+          log_gate(merge_ready, "dry-run", stale_reason)
           return ci_wait.hold(core, merge_ready, repo, current_pr, {
             kind = "MERGEABILITY_WAIT",
             reason = mergeable_reason,
@@ -577,8 +577,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
         reason = mergeable_reason,
       })
     end
-    local stale_mergeability = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      current_pr, branches, mergeable_reason, merge_ready.proposal_id)
     if stale_mergeability then
+      log_gate(merge_ready, "dry-run", stale_reason)
       return ci_wait.hold(core, merge_ready, repo, current_pr, {
         kind = "MERGEABILITY_WAIT",
         reason = mergeable_reason,
@@ -743,14 +745,17 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and parsers_misc.is_ci_wait_reason(merge_reason) then
+    log_gate(merge_ready, "hold", merge_reason)
     return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
       reason = merge_reason,
     })
   end
   if not merge_ok and check_runs.is_not_mergeable_reason(merge_reason) then
-    local stale_mergeability = should_wait_for_stale_mergeability(merge_rechecked_pr, branches, merge_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      merge_rechecked_pr, branches, merge_reason, merge_ready.proposal_id)
     if stale_mergeability then
+      log_gate(merge_ready, "dry-run", stale_reason)
       return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr, {
         kind = "MERGEABILITY_WAIT",
         reason = merge_reason,

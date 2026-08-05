@@ -28,8 +28,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import ratchet_base
-
 ALLOWLIST = "migration/dept-failure-surface.allowlist"
 
 # `retry = {` at spec indentation, and the structured failure wrapper.
@@ -68,9 +66,9 @@ def exposed_departments(sources: dict[str, str]) -> set[str]:
     return exposed
 
 
-def parse_allowlist(text: str) -> set[str]:
+def parse_allowlist_lines(lines: list[str]) -> set[str]:
     entries: set[str] = set()
-    for raw in text.splitlines():
+    for raw in lines:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -78,17 +76,15 @@ def parse_allowlist(text: str) -> set[str]:
     return entries
 
 
+def parse_allowlist(text: str) -> set[str]:
+    return parse_allowlist_lines(text.splitlines())
+
+
+# Current-file loading preserves the complete-text parser surface.
 def load_allowlist(path: Path) -> set[str]:
     if not path.exists():
         return set()
     return parse_allowlist(path.read_text(encoding="utf-8"))
-
-
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    status, text = ratchet_base.file_at_base(root, ALLOWLIST)
-    if text is None:
-        return status, None
-    return status, parse_allowlist(text)
 
 
 def ratchet_messages(

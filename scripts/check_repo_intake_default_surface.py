@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_lua
+
 
 INTAKE_DEFAULT_PACKAGE = "github-devloop-intake-default"
 CANONICAL_RISK_PATH = "libraries/devloop/github_risk.lua"
@@ -38,76 +40,6 @@ class Source:
         return None
 
 
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
-
-
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def long_bracket_end(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    index = 0
-    while index < len(text):
-        if text.startswith("--", index):
-            long = long_bracket_at(text, index + 2)
-            if long is not None:
-                opener_len, closer = long
-                end = long_bracket_end(text, index + 2 + opener_len, closer)
-                _mask(chars, index, end)
-                index = end
-                continue
-            newline = text.find("\n", index)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, index, end)
-            index = end
-            continue
-        long = long_bracket_at(text, index)
-        if long is not None:
-            opener_len, closer = long
-            end = long_bracket_end(text, index + opener_len, closer)
-            _mask(chars, index, end)
-            index = end
-            continue
-        char = text[index]
-        if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
-            _mask(chars, index, end)
-            index = end
-            continue
-        index += 1
-    return "".join(chars)
-
-
 def line_number(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
 
@@ -132,7 +64,7 @@ def high_risk_definitions(sources: list[Source], name: str) -> list[tuple[Source
     for source in sources:
         if is_test_source(source):
             continue
-        masked = lua_code_mask(source.text)
+        masked = check_repo_lua.code_mask(source.text)
         for match in HIGH_RISK_DEF_RE.finditer(masked):
             if (match.group("function") or match.group("assign")) == name:
                 found.append((source, match.start()))
@@ -168,7 +100,7 @@ def intake_default_surface_messages(sources: list[Source]) -> list[str]:
     for source in sources:
         if source.package is None or is_test_source(source):
             continue
-        masked = lua_code_mask(source.text)
+        masked = check_repo_lua.code_mask(source.text)
         if source.relpath == f"packages/{INTAKE_DEFAULT_PACKAGE}/core.lua":
             for match in REQUIRE_CAPABILITIES_RE.finditer(source.text):
                 if masked[match.start():match.start("quote")].strip() == "":

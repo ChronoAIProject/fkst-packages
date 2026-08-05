@@ -18,7 +18,7 @@ local premise_correction = require("devloop.premise_correction")
 local function resolve_payload_token(token, context)
   local value, failure = payload_registry.resolve(token, context)
   if failure ~= nil then
-    error("github-devloop: payload token resolution failed: " .. tostring(failure), 0)
+    error("github-devloop: payload-token-resolution-failed: payload token resolution failed: " .. tostring(failure), 0)
   end
   return value
 end
@@ -100,7 +100,7 @@ function C.build_devloop_ready_payload(M, source)
     }),
   }
   if source.redrive_delivery ~= nil and source.operator_reimplement_delivery ~= nil then
-    error("github-devloop: conflicting implementation delivery identities")
+    error("github-devloop: implementation-delivery-identity-conflict: conflicting implementation delivery identities")
   end
   if source.redrive_delivery ~= nil then
     payload.implementation_version = ready_version
@@ -108,7 +108,7 @@ function C.build_devloop_ready_payload(M, source)
       generation_key = source.redrive_delivery.generation_key,
       attempt = source.redrive_delivery.attempt,
     }
-    payload.dedup_key = shared.ready_redrive_delivery_dedup_key(
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
       source.proposal_id,
       ready_version,
       payload.redrive_delivery
@@ -144,7 +144,7 @@ function C.build_devloop_ready_payload(M, source)
   local attempt = tonumber(source.impl_retry_attempt)
   if attempt ~= nil then
     if attempt < 1 or attempt ~= math.floor(attempt) or attempt > M._max_impl_retry_attempts then
-      error("github-devloop: invalid implementation retry attempt")
+      error("github-devloop: implementation-retry-attempt-invalid: invalid implementation retry attempt")
     end
     payload.impl_retry_attempt = attempt
   end
@@ -242,18 +242,18 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   end
   if review_fact.gate_baseline_sha ~= nil then
     if not forge_validators.is_git_sha(review_fact.gate_baseline_sha) then
-      error("github-devloop: invalid gate baseline sha")
+      error("github-devloop: gate-baseline-sha-invalid: invalid gate baseline sha")
     end
     payload.gate_baseline_sha = tostring(review_fact.gate_baseline_sha)
   end
   if review_fact.predecessor_set ~= nil then
     if not strings.is_path_safe_key(review_fact.predecessor_set, devloop_base._max_dedup_len) then
-      error("github-devloop: invalid predecessor set")
+      error("github-devloop: predecessor-set-invalid: invalid predecessor set")
     end
     payload.predecessor_set = tostring(review_fact.predecessor_set)
   end
   if payload.ci_failure_key ~= nil and not ci_failure_keys.is_valid(payload.ci_failure_key, devloop_base._max_dedup_len) then
-    error("github-devloop: invalid ci failure key")
+    error("github-devloop: ci-failure-key-invalid: invalid ci failure key")
   end
   payload.work_unit_key = C.fixing_work_unit_key(payload)
   local gate_failure_excerpt = shared.bounded_control_text(review_fact.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len)
@@ -270,14 +270,14 @@ end
 local function replay_fact_sha(value, fallback)
   if value ~= nil then
     if not forge_validators.is_git_sha(value) then
-      error("github-devloop: invalid replay fact sha")
+      error("github-devloop: replay-fact-sha-invalid: invalid replay fact sha")
     end
     return tostring(value)
   end
   return fallback
 end
 
-function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref)
+function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref, redrive_delivery)
   local payload = C.build_devloop_fixing_payload(origin, pr_number, {
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
@@ -301,6 +301,17 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
       tostring(feedback.ci_failure_key or "noci"),
       replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
     })
+  end
+  if redrive_delivery ~= nil then
+    payload.redrive_delivery = {
+      generation_key = redrive_delivery.generation_key,
+      attempt = redrive_delivery.attempt,
+    }
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      origin.proposal_id,
+      payload.dedup_key,
+      payload.redrive_delivery
+    )
   end
   return payload
 end
@@ -407,7 +418,7 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
   if has_premise ~= has_correction
     or (has_premise and not premise_correction.is_premise_fingerprint(opts.premise_fingerprint))
     or (has_correction and not premise_correction.is_correction_fingerprint(opts.correction_fingerprint)) then
-    error("github-devloop: invalid premise correction candidate identity")
+    error("github-devloop: premise-correction-candidate-identity-invalid: invalid premise correction candidate identity")
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local source_ref = {
@@ -425,8 +436,6 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
     proposal_id = proposal_id,
     dedup_key = dedup_key,
     effect_id = effect_id,
-    reintake_command_created_at = opts.reintake_command_created_at,
-    reintake_effect_updated_at = opts.reintake_effect_updated_at,
     premise_fingerprint = opts.premise_fingerprint,
     correction_fingerprint = opts.correction_fingerprint,
     source_ref = source_ref,
@@ -539,7 +548,7 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
       .. "\nJudge whether THE NAMED GAP is closed; new objections only for fix regressions inside the issue's stated bounds. For rollup-red or failing-check re-review, scope the question to the diff change and the named failing check, not to restoration of gate state."
   end
   if #body > M._max_body_len then
-    error("github-devloop: PR review proposal exceeds bounded body")
+    error("github-devloop: pr-review-proposal-body-limit-exceeded: PR review proposal exceeds bounded body")
   end
 
   return apply_high_risk_angles({

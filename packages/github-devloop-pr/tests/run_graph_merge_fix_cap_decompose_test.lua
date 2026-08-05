@@ -41,6 +41,11 @@ local function mock_base_head_for_merge_conflict()
     stderr = "",
     exit_code = 1,
   })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", {
+    stdout = "",
+    stderr = "CONFLICT (content): merge conflict",
+    exit_code = 1,
+  })
 end
 
 local function source_comments(event, source_state)

@@ -60,7 +60,7 @@ end
 
 function S.hex(value)
   if type(value) ~= "string" then
-    error("contract.sha256: input must be a string")
+    error("contract.sha256: sha256-input-not-string: input must be a string")
   end
 
   local state = { table.unpack(initial_state) }

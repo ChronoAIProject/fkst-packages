@@ -36,7 +36,7 @@ end
 local function impl_failed_comments(event, ready_version, command, earlier_comments)
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", ready_version),
-    core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2),
+    core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true),
   }
   for _, comment in ipairs(earlier_comments or {}) do
     table.insert(comments, comment)
@@ -81,7 +81,7 @@ local function admit_reimplementation(event, ready, name)
   local logical_version = ready.implementation_version
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", logical_version),
-    core.impl_failure_marker(event.proposal_id, logical_version, "codex-failed", 2),
+    core.impl_failure_marker(event.proposal_id, logical_version, "codex-failed", 2, "UNKNOWN", true),
   }
   for _ = 1, 3 do
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)

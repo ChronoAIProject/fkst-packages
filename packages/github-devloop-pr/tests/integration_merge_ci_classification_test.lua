@@ -62,7 +62,7 @@ end
 return {
   test_red_shared_rollup_with_green_pr_head_required_checks_holds_without_fixing = function()
     local event, result = run_rollup_red_merge("merge-external-red-holds", "success")
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(count_calls("gh pr merge"), 0)
@@ -114,11 +114,15 @@ return {
 
   test_blocked_pending_required_check_remains_merge_gate_wait = function()
     local _, result = run_rollup_red_merge("merge-blocked-required-pending", nil, 101, "in_progress", "BLOCKED")
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(count_calls(check_runs_cmd), 1)
     t.eq(count_calls("gh pr merge"), 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find('reason="merge-state-blocked"', 1, true) ~= nil)
   end,
 
   test_rerun_check_id_drift_keeps_same_structural_work_identity = function()
@@ -141,10 +145,14 @@ return {
 
   test_pending_required_check_does_not_route_to_fixing = function()
     local _, result = run_rollup_red_merge("merge-own-pending-holds", nil, 101, "in_progress")
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.eq(count_calls("gh pr merge"), 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment_raise ~= nil)
+    t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('reason="checks-pending"', 1, true) ~= nil)
   end,
 

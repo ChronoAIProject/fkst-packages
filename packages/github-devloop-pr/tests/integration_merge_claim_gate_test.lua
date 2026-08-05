@@ -196,23 +196,6 @@ local function mock_current_base_head(base_sha)
   })
 end
 
-local function mock_candidate_head_contains_base(event)
-  t.mock_command("git fetch 'origin' '" .. branch_for_pr(event.pr_number) .. "'", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git rev-parse --verify 'FETCH_HEAD^{commit}'", {
-    stdout = tostring(event.reviewed_head_sha) .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git merge-base --is-ancestor", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 local function mock_merge_command(event)
   t.mock_command("gh pr comment '" .. tostring(event.pr_number) .. "' --repo 'owner/repo' --body-file", {

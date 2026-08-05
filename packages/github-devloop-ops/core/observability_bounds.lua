@@ -1,4 +1,5 @@
 local S = {}
+local observe_commands = require("devloop.commands.observe_lists")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local sweep_bounds = require("devloop.sweep_bounds")
@@ -299,9 +300,9 @@ function M.observability_list_issue_candidates(repo, labels, limits, deadline, s
   local deferred_reason = nil
   for _, label in ipairs(labels or {}) do
     local listed, deferred, reason = list_rotating_pages(
-      M.gh_issue_list_observe_opts(repo, label, 1, true),
+      observe_commands.gh_issue_list_observe_opts(repo, label, 1, true),
       function(page)
-        return M.gh_issue_list_observe_opts(repo, label, page)
+        return observe_commands.gh_issue_list_observe_opts(repo, label, page)
       end,
       function(stdout)
         return parsers_issue.parse_issue_list_observe(stdout)
@@ -323,9 +324,9 @@ end
 
 function M.observability_list_pr_candidates(repo, limits, deadline, seed, exec)
   return list_rotating_pages(
-    M.gh_pr_list_observe_opts(repo, 1, true),
+    observe_commands.gh_pr_list_observe_opts(repo, 1, true),
     function(page)
-      return M.gh_pr_list_observe_opts(repo, page)
+      return observe_commands.gh_pr_list_observe_opts(repo, page)
     end,
     function(stdout)
       return parsers_pr.parse_pr_list_observe(stdout)

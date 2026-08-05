@@ -1,0 +1,12 @@
+# Unclassified production-library error() migration ratchet.
+# Format: path:fingerprint=<sha256>:occurrence=<positive integer>
+# New diagnostics fail relative to the target baseline; remove entries as errors receive narrow, greppable class prefixes.
+#
+# The single remaining row is NOT missing a class. markers/shared.lua:81 builds its
+# envelope as "github-devloop: " .. classification.reason_code .. ": " .. detail, so the
+# class is correct at runtime and only invisible to this static scan. Do NOT expand it
+# into a per-reason-code if/elseif chain to satisfy the scanner: that trades one correct
+# general expression for a second source of truth for the reason codes, and a new code
+# would then silently degrade. Either leave this row, or teach the scanner to recognise
+# the "<subsystem>: " .. <var> .. ": " construction.
+libraries/devloop/markers/shared.lua:fingerprint=708590c6a9820455f37a606e821995e4d3f53272a9bf255fa8f86fe212cb67b6:occurrence=1

@@ -43,6 +43,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+import check_repo_lua
+
 INVENTORY = "migration/lower-injected-m.inventory"
 LIBRARIES = ("workflow", "forge")
 LIBRARY_DIRECTORIES = {
@@ -62,102 +64,8 @@ ROUTES = {"contract", "workflow", "forge", "typed_port", "move_up"}
 M_PARAMETER_FUNCTION_RE = re.compile(
     r"\bfunction\b(?:\s+[A-Za-z_][A-Za-z0-9_.:]*)?\s*\(([^)]*)\)"
 )
-LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 M_MEMBER_RE = re.compile(r"(?<![A-Za-z0-9_.])M\s*[.:]\s*([A-Za-z_][A-Za-z0-9_]*)")
 M_BRACKET_START_RE = re.compile(r"(?<![A-Za-z0-9_.])M\s*\[")
-
-
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def _long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def _end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def _end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
-def lua_code_mask(text: str) -> str:
-    """Return code with comments and strings blanked while preserving offsets."""
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = _long_bracket_at(text, cursor + 2)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = _end_of_long_bracket(text, cursor + 2 + opener_len, closer)
-            else:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-
-        char = text[cursor]
-        if char in {"'", '"'}:
-            end = _end_of_quoted_string(text, cursor)
-            _mask(chars, cursor, end)
-            cursor = end
-            continue
-
-        if char == "[":
-            bracket = _long_bracket_at(text, cursor)
-            if bracket is not None:
-                opener_len, closer = bracket
-                end = _end_of_long_bracket(text, cursor + opener_len, closer)
-                _mask(chars, cursor, end)
-                cursor = end
-                continue
-
-        cursor += 1
-    return "".join(chars)
-
-
-def block_delta(line: str) -> int:
-    tokens = LUA_WORD_RE.findall(line)
-    delta = 0
-    loop_do_tokens = 0
-    for token in tokens:
-        if token in {"function", "if", "repeat"}:
-            delta += 1
-        elif token in {"for", "while"}:
-            delta += 1
-            loop_do_tokens += 1
-        elif token == "do":
-            if loop_do_tokens > 0:
-                loop_do_tokens -= 1
-            else:
-                delta += 1
-        elif token in {"end", "until"}:
-            delta -= 1
-    return delta
 
 
 def _has_bare_m_parameter(parameter_list: str) -> bool:
@@ -172,7 +80,7 @@ def _m_parameter_function_match(masked_line: str) -> re.Match[str] | None:
 
 
 def _install_block_spans(source: str) -> list[tuple[int, int, int]]:
-    code_lines = lua_code_mask(source).splitlines()
+    code_lines = check_repo_lua.code_mask(source).splitlines()
     blocks: list[tuple[int, int, int]] = []
     index = 0
     while index < len(code_lines):
@@ -180,11 +88,11 @@ def _install_block_spans(source: str) -> list[tuple[int, int, int]]:
         if match is None:
             index += 1
             continue
-        depth = block_delta(code_lines[index])
+        depth = check_repo_lua.block_delta(code_lines[index], count_header_keywords=True)
         end = index
         while depth > 0 and end + 1 < len(code_lines):
             end += 1
-            depth += block_delta(code_lines[end])
+            depth += check_repo_lua.block_delta(code_lines[end], count_header_keywords=True)
         blocks.append((index + 1, end + 1, match.end()))
         index = end + 1
     return blocks
@@ -243,7 +151,7 @@ def _direct_bracket_symbols(original_line: str, masked_line: str) -> list[str]:
 
 
 def injected_m_symbols(source: str) -> Counter[str]:
-    masked_lines = lua_code_mask(source).splitlines()
+    masked_lines = check_repo_lua.code_mask(source).splitlines()
     original_lines = source.splitlines()
     counts: Counter[str] = Counter()
     for start, end, scan_start in _install_block_spans(source):

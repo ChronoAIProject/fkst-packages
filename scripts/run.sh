@@ -157,6 +157,7 @@ usage() {
 
 cmd_check() {
   local fail=0 competence_base_ref="" pool
+  unset FKST_R9_TRACE_ROOT
   pool="$(detect_pool_size)"
   # Every unit below is an independent process (its own repo-read + unique tempdir),
   # so the check verdict is a commutative AND-fold — running them concurrently changes
@@ -187,6 +188,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_error_class_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_dependency_cycle_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py"'
@@ -200,6 +202,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_restart_test.py"'
     'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
@@ -211,6 +214,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
     'python3 -B "$ROOT/scripts/board_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_board_test.py"'
+    'python3 -B "$ROOT/scripts/dogfood_split_test.py"'
     'python3 -B "$ROOT/scripts/durable_health_test.py"'
     'python3 -B "$ROOT/scripts/tmp_receipt_sweep_test.py"'
     'python3 -B "$ROOT/scripts/doctor_test.py"'
@@ -503,6 +507,11 @@ cmd_test() {
   TEST_HERMETIC_PKG_ROOTS="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-pkgroots.XXXXXX")"
   export FKST_RUNTIME_ROOT="$TEST_HERMETIC_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$TEST_HERMETIC_DURABLE_ROOT"
+  export FKST_R9_TRACE_ROOT="$TEST_HERMETIC_RUNTIME_ROOT/r9-traces"
+  if ! mkdir -p "$FKST_R9_TRACE_ROOT"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  fi
   unset FKST_GITHUB_WRITE
   unset FKST_SUPERVISOR_PID
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
@@ -631,7 +640,7 @@ cmd_test_composed() {
   fi
 
   hermetic_env=(env)
-  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_DEVLOOP_CACHE_PREPARATION_COMMAND FKST_PROJECT_ROOT FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
+  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_DEVLOOP_LOCAL_TEST_COMMAND FKST_DEVLOOP_CACHE_PREPARATION_COMMAND FKST_PROJECT_ROOT FKST_CODEX_REPOSITORY_ROOTS FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
     hermetic_env+=(-u "$hermetic_var")
   done
 
@@ -750,6 +759,11 @@ cmd_supervise_old() {
   export FKST_RUNTIME_ROOT="$rt"
   export FKST_DURABLE_ROOT="$durable"
   export FKST_PROJECT_ROOT="$project_root"
+  local repository_roots=("$ROOT")
+  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
+    repository_roots+=("$BIN_REPOSITORY_ROOT")
+  fi
+  host_run_export_codex_repository_roots "${repository_roots[@]}" || exit $?
   export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
 
   echo "BIN=$BIN"

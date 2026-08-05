@@ -207,14 +207,14 @@ function C.merge_queue_head(M, repo, base_branch, current)
 
   local list = M.gh_pr_list_merge_queue(repo, base_branch, 30)
   if list.exit_code ~= 0 then
-    error("github-devloop: merge queue PR list failed: " .. tostring(list.stderr))
+    error("github-devloop: merge-queue-pr-list-failed: merge queue PR list failed: " .. tostring(list.stderr))
   end
   for _, pr_item in ipairs(parsers_pr.parse_pr_list_merge_queue(list.stdout)) do
     local pr_number = tonumber(pr_item.number)
     if pr_number ~= nil and not seen[tostring(pr_number)] then
       local view, command_result = support.github().gh_pr_view_merge(repo, pr_number, 30)
       if view == nil then
-        error("github-devloop: merge queue PR view failed: "
+        error("github-devloop: merge-queue-pr-view-failed: merge queue PR view failed: "
           .. tostring(command_result and command_result.stderr or "missing result"))
       end
       local pr = parsers_pr.parse_pr_view_merge(view)
@@ -362,7 +362,7 @@ end
 
 function C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry)
   if type(next_entry) ~= "table" then
-    error("github-devloop: invalid merge queue next entry")
+    error("github-devloop: merge-queue-next-entry-invalid: invalid merge queue next entry")
   end
   return base_ids.dedup_key({
     "merge-queue",
@@ -422,7 +422,7 @@ end
 
 function C.queue_starvation_reconcile_marker(issue_proposal_id, pr_number, version, head_sha, incident_identity, attempt_key, outcome)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid queue-starvation reconcile marker")
+    error("github-devloop: queue-starvation-reconcile-marker-invalid: invalid queue-starvation reconcile marker")
   end
   local incident = strings.sanitize_key(tostring(incident_identity or "merge-ready"), false)
   local attempt = strings.sanitize_key(tostring(attempt_key or "attempt"), false)
@@ -431,7 +431,7 @@ function C.queue_starvation_reconcile_marker(issue_proposal_id, pr_number, versi
     or not strings.is_path_safe_key(incident, devloop_base._max_dedup_len)
     or not strings.is_path_safe_key(attempt, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(proof, devloop_base._max_key_len) then
-    error("github-devloop: invalid queue-starvation reconcile marker")
+    error("github-devloop: queue-starvation-reconcile-marker-invalid: invalid queue-starvation reconcile marker")
   end
   return '<!-- fkst:github-devloop:queue-starvation-reconcile:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -494,7 +494,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
 
   local list = M.gh_issue_list_wip(repo, 30)
   if list.exit_code ~= 0 then
-    error("github-devloop: WIP issue list failed: " .. tostring(list.stderr))
+    error("github-devloop: wip-issue-list-failed: WIP issue list failed: " .. tostring(list.stderr))
   end
 
   local count = 0
@@ -503,7 +503,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
     if issue_number ~= nil and tostring(issue_number) ~= tostring(current_issue_number) then
       local view = M.gh_issue_view_state(repo, issue_number, 30)
       if view.exit_code ~= 0 then
-        error("github-devloop: WIP issue state view failed: " .. tostring(view.stderr))
+        error("github-devloop: wip-issue-state-view-failed: WIP issue state view failed: " .. tostring(view.stderr))
       end
       local current = parsers_issue.parse_issue_view_state(M, view.stdout)
       local proposal_id = base_ids.proposal_id(repo, issue_number)
@@ -525,7 +525,7 @@ end
 local function pr_merge_view_for_wip(M, repo, pr_number)
   local view, command_result = support.github().gh_pr_view_merge(repo, pr_number, 30)
   if view == nil then
-    error("github-devloop: WIP PR state view failed: "
+    error("github-devloop: wip-pr-state-view-failed: WIP PR state view failed: "
       .. tostring(command_result and command_result.stderr or "missing result"))
   end
   return parsers_pr.parse_pr_view_merge(view)

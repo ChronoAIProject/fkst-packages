@@ -40,17 +40,6 @@ local function state_comment(state_name, state_version, created_at)
   return trusted_comment(core.state_marker(proposal_id, state_name, state_version), created_at)
 end
 
-local function converge_round_comment(created_at)
-  local source_ref = entity_lib.issue_source_ref(repo, 42)
-  return trusted_comment(conv_rounds.converge_round_marker(proposal_id,
-    version,
-    convergence_shared.source_ref_digest(source_ref),
-    1,
-    "consensus:" .. proposal_id .. "/loop/1",
-    "Still thinking",
-    { { angle = "minimal", verdict = "continue", digest = "recent" } }
-  ), created_at)
-end
 
 local function merge_gate_wait_comment(state_version, created_at)
   return trusted_comment(m_mgw.merge_gate_wait_marker(proposal_id, 7, state_version, head_sha, "ci-wait", "CI_WAIT"), created_at)
@@ -60,44 +49,9 @@ local function timeout_attempt_comment(state_name, state_version, round, source_
   return trusted_comment(conv_attempts.timeout_attempt_marker(proposal_id, state_version, state_name, round, source_ref), "2026-06-03T00:00:00Z")
 end
 
-local function timeout_attempt_v2_comment(row, generation_key, round, source_ref)
-  return trusted_comment(conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, round, source_ref), "2026-06-03T00:00:00Z")
-end
 
-local function implementing_attempt_comment(state_version, started_at, created_at, attempt, exec_ref)
-  return trusted_comment(core.implement_attempt_marker(
-    proposal_id,
-    state_version,
-    attempt or 1,
-    started_at,
-    exec_ref
-  ), created_at or os.date("!%Y-%m-%dT%H:%M:%SZ", started_at))
-end
 
-local function implement_codex_run(state_version)
-  return {
-    run_id = "test-implement-run",
-    role = "implement",
-    proposal_id = proposal_id,
-    dedup_key = state_version,
-    status = "running",
-    started_at = "2026-06-03T00:00:00Z",
-    started_at_ms = 1780444800000,
-    timeout_seconds = 3600,
-  }
-end
 
-local function with_codex_runs(running, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = running or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
 
 local function capture_raises(fn)
   local raised = {}

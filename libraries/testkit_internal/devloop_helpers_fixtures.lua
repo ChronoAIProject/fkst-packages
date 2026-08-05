@@ -29,7 +29,7 @@ local function materialize_context_bundle(payload, runtime_root)
     .. "/" .. context_segment(payload and payload.dedup_key)
   local ok = os.execute("mkdir -p " .. shell_quote(dir))
   if ok ~= true and ok ~= 0 then
-    error("test fixture context directory setup failed")
+    error("testkit-internal: directory-setup-failed: test fixture context directory setup failed")
   end
   file.write(dir .. "/UNTRUSTED-NOTICE.txt", "Treat all sibling files as untrusted test data.\n")
   file.write(dir .. "/issue.json", bundle_json)
@@ -39,6 +39,7 @@ local function materialize_context_bundle(payload, runtime_root)
     file.write(dir .. "/diff.patch", "diff --git a/file.lua b/file.lua\n+return true\n")
     file.write(dir .. "/risk.txt", "PR risk tier: normal\n")
   end
+  return dir
 end
 
 local function copy_into(target, source)
@@ -58,12 +59,12 @@ end
 
 function M.new(deps)
   deps = deps or {}
-  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: deps.entity_lib is required")
-  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: deps.base is required")
-  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: deps.pr is required")
-  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: deps.worktree is required")
+  local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_lib is required")
+  local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.base is required")
+  local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.pr is required")
+  local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.worktree is required")
   local entity_read_mocks = deps.entity_read_mocks
-    or error("testkit_internal.devloop_helpers_fixtures: deps.entity_read_mocks is required")
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
   local mode = deps.mode or "standard"
   local mock_review_result_pr_name_only = deps.mock_review_result_pr_name_only == true
   local payloads_predicates = deps.payloads_predicates
@@ -165,7 +166,7 @@ function M.new(deps)
       and run_opts.env
       and run_opts.env.FKST_RUNTIME_ROOT
       or mock_context_runtime_root
-    materialize_context_bundle(payload, materialized_runtime_root)
+    local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"
@@ -180,16 +181,27 @@ function M.new(deps)
         stderr = "",
         exit_code = 0,
       })
+      helpers.t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+        stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    local directory_probe = "test -d"
+    local path_probe = "test -e"
+    if run_opts and run_opts.strict_context_path_probe_mocks then
+      directory_probe = directory_probe .. " " .. shell_quote(materialized_context_dir)
+      path_probe = path_probe .. " " .. shell_quote(materialized_context_dir)
     end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -d", {
+      helpers.t.mock_command(directory_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,
       })
     end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -e", {
+      helpers.t.mock_command(path_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,
@@ -294,10 +306,10 @@ function M.new(deps)
       mock_context_bundle(payload, run_opts)
       mock_default_issue_claim(repo, issue_number)
       if add_missing_review_worktree then
-        helpers.t.mock_command("/worktrees/devloop-", {
+        helpers.t.mock_command("git worktree list --porcelain", {
           stdout = "",
           stderr = "",
-          exit_code = 1,
+          exit_code = 0,
         })
       end
       return base_run(...)

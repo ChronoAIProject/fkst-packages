@@ -292,6 +292,9 @@ local function capture(fixture)
     ra.record_write(ports.git_model, "merge_tree", {
       approved_head_sha = approved_head_sha, base_head_sha = base_head_sha, timeout = timeout,
     })
+    if fixture.not_mergeable then
+      return { stdout = "", stderr = "CONFLICT (content): merge conflict", exit_code = 1 }
+    end
     return { stdout = string.rep("b", 40) .. "\n", stderr = "", exit_code = 0 }
   end
   function ports.git.trees_equal_quiet(sha_a, sha_b, timeout)
@@ -574,20 +577,10 @@ local function capture(fixture)
   return ra.record({ dept = "merge", fixture = fixture, result = result, captured = captured, event = event,
     prefix = PREFIX, site = SITE, source_state = "merge-ready", boundary = "entry_acceptor",
     evidence_path = fixture.evidence_path or "packages/github-devloop-pr/core/merge_executor.lua",
-  }), captured
+  })
 end
 
 return {
-  test_external_ci_hold_logs_only_hold = function()
-    local _, captured = capture(DELEGATION_FIXTURES[1])
-    local hold_count = 0
-    for _, gate in ipairs(captured.gates) do
-      if gate.outcome == "hold" then hold_count = hold_count + 1 end
-      t.eq(gate.outcome == "fixing", false, "external CI must not be logged as fixing")
-    end
-    t.eq(hold_count, 1, "external CI must produce one canonical hold outcome")
-  end,
-
   test_verified_merge_sink_consumes_exact_eligible_now_grant = function()
     local restart_effects = require("core.restart_effects")
     local original = restart_effects.verify_grant

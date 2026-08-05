@@ -77,26 +77,13 @@ local function parse_output_obligation_command(body, command)
   local pr_number = marker_attr(found, "pr")
   local head_sha = marker_attr(found, "head_sha")
   local target_version = marker_attr(found, "target_version")
-  local authorization_epoch = marker_attr(found, "authorization_epoch") or ""
-  local expected_decision = command == "rereview" and "rereview"
-    or (command == "reintake" and "abandon-recreate" or nil)
-  if decision ~= expected_decision
+  if command ~= "rereview"
+    or decision ~= "rereview"
     or not strings.is_bounded_string(escalation_dedup, devloop_base._max_dedup_len)
-    or not strings.is_bounded_string(terminal_version, devloop_base._max_dedup_len) then
-    return { invalid = true }
-  end
-  if command == "rereview" then
-    if not forge_validators.is_positive_pr_number(pr_number)
-      or not forge_validators.is_git_sha(head_sha)
-      or not strings.is_bounded_string(target_version, devloop_base._max_dedup_len)
-      or authorization_epoch ~= "" then
-      return { invalid = true }
-    end
-  elseif pr_number ~= ""
-    or head_sha ~= ""
-    or target_version ~= ""
-    or not strings.is_bounded_string(authorization_epoch, devloop_base._max_key_len)
-    or authorization_epoch:match("^[1-9][0-9]*$") == nil then
+    or not strings.is_bounded_string(terminal_version, devloop_base._max_dedup_len)
+    or not forge_validators.is_positive_pr_number(pr_number)
+    or not forge_validators.is_git_sha(head_sha)
+    or not strings.is_bounded_string(target_version, devloop_base._max_dedup_len) then
     return { invalid = true }
   end
   return {
@@ -107,7 +94,6 @@ local function parse_output_obligation_command(body, command)
     pr_number = tonumber(pr_number),
     head_sha = head_sha,
     target_version = target_version,
-    authorization_epoch = authorization_epoch,
   }
 end
 
@@ -122,20 +108,16 @@ local function output_obligation_command_key(authority)
     authority.terminal_version,
     authority.decision,
   }
-  if authority.decision == "rereview" then
-    table.insert(parts, authority.pr_number)
-    table.insert(parts, authority.head_sha)
-    table.insert(parts, authority.target_version)
-  else
-    table.insert(parts, authority.authorization_epoch)
-  end
+  table.insert(parts, authority.pr_number)
+  table.insert(parts, authority.head_sha)
+  table.insert(parts, authority.target_version)
   return base_ids.dedup_key(parts)
 end
 
 local function parse_command(body)
   local line = first_command_line(body)
   local command = line:match("^fkst:%s*([%w_-]+)")
-  if command == "rereview" or command == "reready" or command == "reintake" or command == "reimplement" then
+  if command == "rereview" or command == "reready" or command == "reimplement" then
     return {
       command = command,
       output_obligation = parse_output_obligation_command(body, command),
@@ -190,7 +172,7 @@ end
 
 function C.operator_rereview_version(current_version, head_sha)
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid operator rereview head sha")
+    error("github-devloop: operator-rereview-head-sha-invalid: invalid operator rereview head sha")
   end
   return transition_version.next_rereview(current_version, head_sha)
 end
@@ -298,7 +280,7 @@ function C.output_obligation_source_lineage_fact(fact, source_issue)
     return nil
   end
   local allowed_from_states = {}
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     if #devloop_state.state_successors(state) > 0 then
       allowed_from_states[state] = true
     end
@@ -452,27 +434,14 @@ function C.output_obligation_live_command_authorization(fact, source_issue, snap
       ),
     }, nil
   end
-  if not marker_facts.has_intake_decision_marker(source_issue.comments, fact.proposal_id)
-    or devloop_base.is_intake_held(source_issue.labels)
-    or C.reintake_has_active_devloop_state(
-      source_issue.labels,
-      source_issue.comments,
-      fact.proposal_id
-    ) then
-    return nil, "reintake-precondition-failed"
-  end
-  return { decision = "abandon-recreate" }, nil
+  return {
+    decision = "lineage-not-planned",
+    kind = "not_planned",
+    reason = "source-lineage-abandoned-no-live-pr",
+  }, nil
 end
 
-function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
-  return devloop_state.reintake_has_active_devloop_state(labels, comments, proposal_id)
-end
-
-function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
-  return devloop_state.reintake_effect_updated_at(issue, command, comments, proposal_id)
-end
-
-function C.reintake_source_refs_match(left, right, limit)
+function C.source_refs_match(left, right, limit)
   if not source_refs.has_bounded_source_ref(left, limit or devloop_base._max_key_len)
     or not source_refs.has_bounded_source_ref(right, limit or devloop_base._max_key_len) then
     return false
@@ -536,13 +505,12 @@ function C.operator_command_marker(command, outcome, reason)
   if type(command) ~= "table"
     or (command.command ~= "rereview"
       and command.command ~= "reready"
-      and command.command ~= "reintake"
       and command.command ~= "reimplement"
       and command.command ~= "dependency-waiver") then
-    error("github-devloop: invalid operator command marker")
+    error("github-devloop: operator-command-marker-invalid: invalid operator command marker")
   end
   if outcome ~= "applied" and outcome ~= "refused" then
-    error("github-devloop: invalid operator command outcome")
+    error("github-devloop: operator-command-outcome-invalid: invalid operator command outcome")
   end
   local safe_reason = strings.sanitize_key(reason or outcome, false):gsub("/", "-")
   return '<!-- fkst:github-devloop:operator-command:v1 command="' .. tostring(command.command)
@@ -626,28 +594,11 @@ function C.build_operator_issue_dependency_waiver_comment_request(M, repo, issue
   }), source_ref)
 end
 
-function C.build_operator_issue_reintake_comment_request(repo, issue_number, command, candidate, source_ref)
-  local marker = C.operator_command_marker(command, "applied", "reintake")
-  return entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = repo,
-    number = issue_number,
-  }, "github-devloop operator command accepted: reintake"
-    .. "\n\n" .. marker
-    .. "\n" .. ai_sentinel, base_ids.dedup_key({
-    "operator-command",
-    "comment",
-    tostring(command.key),
-    "applied",
-    tostring(candidate and candidate.dedup_key or "reintake"),
-  }), source_ref)
-end
-
 function C.build_output_obligation_command_guard(fact, decision, fields)
   local target = fields or {}
   if type(fact) ~= "table"
-    or (decision ~= "rereview" and decision ~= "abandon-recreate") then
-    error("github-devloop: invalid output obligation command guard")
+    or decision ~= "rereview" then
+    error("github-devloop: output-obligation-command-guard-invalid: invalid output obligation command guard")
   end
   return {
     schema = "github-devloop.output-obligation-command-guard.v1",
@@ -668,7 +619,6 @@ function C.build_output_obligation_command_guard(fact, decision, fields)
       pr_number = target.pr_number,
       head_sha = target.head_sha,
       target_version = target.target_version,
-      authorization_epoch = target.authorization_epoch,
     },
   }
 end
@@ -677,7 +627,7 @@ local function output_obligation_guard_fact(guard)
   local fact = type(guard) == "table" and guard.fact or nil
   if type(guard) ~= "table"
     or guard.schema ~= "github-devloop.output-obligation-command-guard.v1"
-    or (guard.decision ~= "rereview" and guard.decision ~= "abandon-recreate")
+    or guard.decision ~= "rereview"
     or type(fact) ~= "table"
     or not strings.is_bounded_string(fact.proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(fact.terminal_version, devloop_base._max_dedup_len)
@@ -728,9 +678,8 @@ local function output_obligation_command_effect_matches(guard, fact, effect)
   end
   local command = parse_command(effect.body)
   local authority = type(command) == "table" and command.output_obligation or nil
-  local expected_command = guard.decision == "rereview" and "rereview" or "reintake"
   if command == nil
-    or command.command ~= expected_command
+    or command.command ~= "rereview"
     or type(authority) ~= "table"
     or authority.invalid == true
     or authority.decision ~= guard.decision
@@ -738,19 +687,13 @@ local function output_obligation_command_effect_matches(guard, fact, effect)
     or authority.terminal_version ~= fact.terminal_version then
     return false
   end
-  if guard.decision == "rereview" then
-    local target = type(guard.target) == "table" and guard.target or nil
-    return type(target) == "table"
-      and effect.kind == "pr"
-      and tostring(effect.number or "") == tostring(target.pr_number or "")
-      and authority.pr_number == target.pr_number
-      and authority.head_sha == target.head_sha
-      and authority.target_version == target.target_version
-  end
-  return effect.kind == "issue"
-    and tostring(effect.number or "") == tostring(fact.source_issue_number or "")
-    and tostring(authority.authorization_epoch or "")
-      == tostring(guard.target and guard.target.authorization_epoch or "")
+  local target = type(guard.target) == "table" and guard.target or nil
+  return type(target) == "table"
+    and effect.kind == "pr"
+    and tostring(effect.number or "") == tostring(target.pr_number or "")
+    and authority.pr_number == target.pr_number
+    and authority.head_sha == target.head_sha
+    and authority.target_version == target.target_version
 end
 
 function C.output_obligation_command_write_authorized(github, guard, bot_login, effect)
@@ -802,13 +745,11 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
   if authorization == nil or authorization.decision ~= guard.decision then
     return false, reason or "command-decision-changed", true
   end
-  if guard.decision == "rereview" then
-    local target = guard.target or {}
-    if tostring(target.pr_number or "") ~= tostring(authorization.target.row.number)
-      or target.head_sha ~= authorization.target.current_pr.head_sha
-      or target.target_version ~= authorization.target_version then
-      return false, "command-target-changed", true
-    end
+  local target = guard.target or {}
+  if tostring(target.pr_number or "") ~= tostring(authorization.target.row.number)
+    or target.head_sha ~= authorization.target.current_pr.head_sha
+    or target.target_version ~= authorization.target_version then
+    return false, "command-target-changed", true
   end
   return true, "ok", false
 end
@@ -825,7 +766,7 @@ function C.build_output_obligation_command_write_refusal_body(body, reason)
   local parsed = parse_command(body)
   local key = parsed and output_obligation_command_key(parsed.output_obligation) or nil
   if parsed == nil or key == nil then
-    error("github-devloop: invalid output obligation command refusal")
+    error("github-devloop: output-obligation-command-refusal-invalid: invalid output obligation command refusal")
   end
   local command = {
     command = parsed.command,
@@ -841,12 +782,12 @@ end
 
 function C.build_operator_command_intent_request(target, command_name, dedup_key, source_ref, correlation_marker, command_guard)
   if type(target) ~= "table"
-    or (target.kind ~= "issue" and target.kind ~= "pr")
-    or (command_name ~= "rereview" and command_name ~= "reintake")
+    or target.kind ~= "pr"
+    or command_name ~= "rereview"
     or not strings.is_bounded_string(dedup_key, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(correlation_marker, devloop_base._max_body_len)
     or output_obligation_guard_fact(command_guard) == nil then
-    error("github-devloop: invalid operator command intent")
+    error("github-devloop: operator-command-intent-invalid: invalid operator command intent")
   end
   local request = entity_lib.build_entity_comment_request(
     target,
