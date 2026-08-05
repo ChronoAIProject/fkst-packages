@@ -18,7 +18,7 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "devloop_ready",
     "devloop_reconcile",
-    "github-devloop-decompose.devloop_decompose",
+    "github-devloop-decompose.devloop_implementation_decompose",
   },
   fanout = { "github-proxy.github_comment_written" },
   stall_window = "30s",
@@ -161,10 +161,10 @@ local function act_handoff(event)
   if handoff.kind == "github-devloop.implementation-escalation" then
     devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id,
       { state = "implementing", version = handoff.version },
-      "comment-written", "github-devloop-decompose.devloop_decompose",
+      "comment-written", "github-devloop-decompose.devloop_implementation_decompose",
       "applied(own-write-comment-id)", "typed implementation escalation evidence write was acknowledged")
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
-      "github-devloop-decompose.devloop_decompose", handoff)
+      "github-devloop-decompose.devloop_implementation_decompose", handoff)
     return
   end
 

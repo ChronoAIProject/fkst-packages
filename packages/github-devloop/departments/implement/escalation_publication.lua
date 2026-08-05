@@ -1,4 +1,5 @@
 local implementation_escalation = require("devloop.implementation_escalation")
+local devloop_state = require("devloop.state")
 
 local P = {}
 
@@ -11,6 +12,12 @@ function P.attach(request, ready, branch, attempt_result, escalation_evidence)
   end
 
   request.body = request.body .. "\n"
+    .. devloop_state.state_marker(
+      ready.proposal_id,
+      "implementation-escalating",
+      ready.dedup_key
+    )
+    .. "\n"
     .. implementation_escalation.escalation_marker(
       ready.proposal_id,
       ready.dedup_key,

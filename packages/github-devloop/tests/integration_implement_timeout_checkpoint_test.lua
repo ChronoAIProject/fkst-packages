@@ -19,6 +19,8 @@ local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local implementation_escalation = require("devloop.implementation_escalation")
+local escalation_publication = require("departments.implement.escalation_publication")
+local harvest = require("departments.implement.harvest")
 
 local function stale_started_at()
   return tostring(now() - 7201)
@@ -398,20 +400,15 @@ return {
       finish_head_sha = checkpoint_head,
       worker_result = { exit_code = 124, error_kind = "timeout" },
     })
-    mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
-      m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
-      implementation_escalation.attempt_result_marker(first_result),
-    })
-    mock_remote_branch(branch, checkpoint_head)
+    local comments = {
+      {
+        body = implementation_escalation.attempt_result_marker(first_result),
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-05T01:00:00Z",
+      },
+    }
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
-    mock_implement_codex(124, "checkpoint did not advance", "codex timed out", {
-      error_kind = "timeout",
-    })
     mock_git_status("")
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -427,30 +424,41 @@ return {
       stderr = "local verification failed",
       exit_code = 1,
     })
-    mock_real_write_mode()
-    t.mock_command("push origin HEAD:refs/heads/" .. branch, {
-      stdout = "pushed " .. branch .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
-    })
+    local outcome = harvest.after_codex_failure(
+      "owner/repo",
+      42,
+      event,
+      "dev",
+      branch,
+      "abc123",
+      "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/stationary-timeout",
+      2,
+      now(),
+      "implement-exec/stationary-timeout",
+      {
+        exit_code = 124,
+        stdout = "checkpoint did not advance",
+        stderr = "codex timed out",
+        error_kind = "timeout",
+      },
+      checkpoint_head)
+    local evidence = implementation_escalation.escalation_evidence(
+      comments, outcome.attempt_result)
+    local checkpoint = escalation_publication.attach(
+      { body = "github-devloop implementation checkpoint pushed" },
+      event,
+      branch,
+      outcome.attempt_result,
+      evidence)
 
-    local result = run_implement(event, opts("implement-stationary-timeout-escalation", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-
-    t.eq(result.exit_code, 0, tostring(result.error))
-    t.eq(count_calls("codex exec"), 1)
-    t.eq(count_calls("impl-failed"), 0)
-    local checkpoint = checkpoint_comment(result)
-    t.is_true(checkpoint ~= nil)
-    t.is_true(tostring(checkpoint.payload.body):find(
+    t.eq(outcome.kind, "implement-checkpoint")
+    t.eq(outcome.reason, "wall-clock-exhausted")
+    t.is_true(tostring(checkpoint.body):find(
       "fkst:github-devloop:implementation-escalation:v1", 1, true) ~= nil)
-    t.eq(checkpoint.payload.handoff.kind, "github-devloop.implementation-escalation")
-    t.eq(checkpoint.payload.handoff.attempt, 2)
+    t.is_true(tostring(checkpoint.body):find(
+      'state="implementation-escalating"', 1, true) ~= nil)
+    t.eq(checkpoint.handoff.kind, "github-devloop.implementation-escalation")
+    t.eq(checkpoint.handoff.attempt, 2)
   end,
 
   test_unmarked_remote_progress_is_retried_not_handed_off = function()

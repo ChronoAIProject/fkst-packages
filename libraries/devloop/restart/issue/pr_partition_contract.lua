@@ -5,6 +5,7 @@ local ISSUE_STATES = {
   "dependency_wait",
   "ready",
   "implementing",
+  "implementation-escalating",
   "awaiting-pr",
   "impl-failed",
   "declined",

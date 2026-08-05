@@ -93,6 +93,7 @@ M.restart_lifecycle_states = {
   "dependency_wait",
   "ready",
   "implementing",
+  "implementation-escalating",
   "awaiting-pr",
   "impl-failed",
   "declined",
@@ -125,10 +126,12 @@ local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
 M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 local ready_split_replayers = require("core.ready_split").install(M)
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
+local implementation_escalation_replayers = require("core.implementation_escalation_replayer").install(M)
 M.replayer_registry = {
   dependency_wait = ready_split_replayers.dependency_wait,
   ready = ready_split_replayers.ready,
   ["awaiting-pr"] = awaiting_pr_replayers["awaiting-pr"],
+  ["implementation-escalating"] = implementation_escalation_replayers["implementation-escalating"],
 }
 require("core.liveness_bounds").install(M)
 require("devloop.liveness").install(M, wiring.liveness(M))

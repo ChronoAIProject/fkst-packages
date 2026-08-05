@@ -88,7 +88,7 @@ return {
     t.eq(v_ready.is_supported_ready(core, ready), true)
   end,
 
-  test_comment_written_implementation_escalation_ack_raises_pre_pr_supervisor_seam = function()
+  test_comment_written_implementation_escalation_ack_raises_dedicated_pre_pr_supervisor_seam = function()
     local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
     local version = "ready/github-devloop/issue/owner/repo/42/intake/123"
     local handoff = implementation_escalation.build_payload({
@@ -117,7 +117,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    local raised = find_raise(result.raises, "github-devloop-decompose.devloop_decompose")
+    local raised = find_raise(result.raises, "github-devloop-decompose.devloop_implementation_decompose")
     t.eq(raised.payload.schema, "github-devloop.implementation-escalation.v1")
     t.eq(raised.payload.attempt, 2)
     t.eq(raised.payload.head_sha, "1111111111111111111111111111111111111111")

@@ -8,6 +8,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local forge_validators = require("devloop.forge_validators")
 local m_mgw = require("devloop.merge_gate_wait")
 local decompose_lib = require("devloop.decompose")
+local implementation_escalation = require("devloop.implementation_escalation")
 local transition_version = require("contract.transition_version")
 local replay_fields = require("devloop.replay_fields")
 
@@ -162,6 +163,47 @@ local function require_marker_fact(M, facts, family)
     end
     return M.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, attempt_version)
   end
+  if family == "implement-checkpoint" then
+    return m_facts.implement_checkpoint_fact(
+      facts.snapshot.comments, facts.proposal_id, facts.state.version)
+  end
+  if family == "implementation-escalation" then
+    return implementation_escalation.escalation_fact(
+      facts.snapshot.comments, facts.proposal_id, facts.state.version)
+  end
+  if family == "implementation-decomposition" then
+    return implementation_escalation.decomposition_fact(
+      facts.snapshot.comments, facts.proposal_id, facts.state.version)
+  end
+  if family == "implementation-child-linkage" then
+    local checkpoint = facts["implement-checkpoint"]
+    local evidence = facts["implementation-escalation"]
+    local decomposition = facts["implementation-decomposition"]
+    if checkpoint == nil or evidence == nil or decomposition == nil then
+      return nil
+    end
+    local payload = implementation_escalation.build_payload({
+      proposal_id = facts.proposal_id,
+      version = facts.state.version,
+      branch = checkpoint.branch,
+      source_ref = facts.issue.source_ref,
+    }, evidence)
+    if not implementation_escalation.is_supported_payload(payload)
+      or checkpoint.attempt ~= evidence.attempt
+      or checkpoint.head_sha ~= evidence.head_sha
+      or decomposition.attempt ~= payload.attempt
+      or decomposition.head_sha ~= payload.head_sha
+      or decomposition.evidence_policy ~= payload.evidence_policy then
+      return nil
+    end
+    facts.implementation_escalation_payload = payload
+    return implementation_escalation.child_linkage_fact(
+      facts.snapshot.comments,
+      facts.issue.repo,
+      facts.issue.number,
+      payload,
+      decomposition.count)
+  end
   if family == "impl-failure" then
     return M.impl_failure_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
@@ -240,6 +282,14 @@ local function store_gathered_marker_fact(facts, family, value)
     facts.decomposed = value
   elseif family == "impl-failure" then
     facts.impl_failure = value
+  elseif family == "implement-checkpoint" then
+    facts.implement_checkpoint = value
+  elseif family == "implementation-escalation" then
+    facts.implementation_escalation = value
+  elseif family == "implementation-decomposition" then
+    facts.implementation_decomposition = value
+  elseif family == "implementation-child-linkage" then
+    facts.implementation_child_linkage = value
   elseif family == "merge-ready" then
     facts["merge-ready"] = value
     facts.merge_ready = value

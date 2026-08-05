@@ -8,6 +8,7 @@ local strings = require("contract.strings")
 local E = {}
 
 local POLICY_ID = "adjacent-wall-clock-exhaustion-stationary-head-v1"
+local MAX_CHILDREN = 3
 
 local function marker_attr(marker, name)
   return marker:match("%s" .. name .. '="([^"]*)"')
@@ -198,6 +199,211 @@ function E.escalation_fact(comments, proposal_id, version)
     end
   end
   return latest
+end
+
+function E.parse_decomposition_plan(stdout)
+  local ok, decoded = pcall(json.decode, tostring(stdout or ""))
+  if not ok or type(decoded) ~= "table" or type(decoded.issues) ~= "table" then
+    return nil
+  end
+  local issues = {}
+  for _, issue in ipairs(decoded.issues) do
+    if #issues >= MAX_CHILDREN
+      or type(issue) ~= "table"
+      or not strings.is_bounded_string(issue.title, devloop_base._max_title_len)
+      or not strings.is_bounded_string(issue.body, devloop_base._max_body_len) then
+      return nil
+    end
+    table.insert(issues, {
+      title = tostring(issue.title),
+      body = tostring(issue.body),
+    })
+  end
+  if #issues < 1 then
+    return nil
+  end
+  return issues
+end
+
+local function child_dedup_key(payload, index)
+  return base_ids.dedup_key({
+    "implementation-decompose",
+    tostring(payload.proposal_id),
+    tostring(payload.version),
+    tostring(payload.attempt),
+    tostring(payload.head_sha),
+    tostring(index),
+  })
+end
+
+local function blocked_by_dedup_key(payload, index)
+  return base_ids.dedup_key({
+    "implementation-decompose",
+    "blocked-by",
+    tostring(payload.proposal_id),
+    tostring(payload.version),
+    tostring(payload.attempt),
+    tostring(payload.head_sha),
+    tostring(index),
+  })
+end
+
+function E.build_child_issue_request(repo, issue_number, payload, issue, index)
+  local child_index = valid_attempt(index)
+  if not E.is_supported_payload(payload)
+    or child_index == nil
+    or child_index > MAX_CHILDREN
+    or type(issue) ~= "table"
+    or not strings.is_bounded_string(issue.title, devloop_base._max_title_len)
+    or not strings.is_bounded_string(issue.body, devloop_base._max_body_len) then
+    error("github-devloop: implementation-decomposition-child-invalid: child request is invalid")
+  end
+  local expected_repo, expected_issue = base_ids.parse_proposal_id(payload.proposal_id)
+  if tostring(repo or "") ~= tostring(expected_repo or "")
+    or tonumber(issue_number) ~= tonumber(expected_issue) then
+    error("github-devloop: implementation-decomposition-child-invalid: parent identity is invalid")
+  end
+  local body = table.concat({
+    "Parent issue: #" .. tostring(issue_number),
+    "Parent implementation checkpoint: " .. tostring(payload.head_sha),
+    "Escalation evidence: " .. tostring(payload.evidence_policy),
+    "",
+    "Smaller scope:",
+    devloop_base.neutralize_untrusted_comment_text(issue.body),
+    "",
+    "Non-goals:",
+    "- Do not repeat the same stationary implementation attempt.",
+    "",
+    "Acceptance:",
+    "- The work is independently reviewable through the normal github-devloop pipeline.",
+    "",
+    '<!-- fkst:github-devloop:implementation-decomposition-child:v1 parent="'
+      .. tostring(payload.proposal_id)
+      .. '" version="' .. tostring(payload.version)
+      .. '" attempt="' .. tostring(payload.attempt)
+      .. '" index="' .. tostring(child_index)
+      .. '" -->',
+  }, "\n")
+  if not strings.is_bounded_string(body, devloop_base._max_body_len) then
+    error("github-devloop: implementation-decomposition-child-invalid: child body is too large")
+  end
+  return {
+    schema = "github-proxy.issue-create.v1",
+    repo = tostring(repo),
+    title = tostring(issue.title),
+    body = body,
+    labels = {},
+    parent = tonumber(issue_number),
+    parent_comment_target = {
+      repo = tostring(repo),
+      issue_number = tonumber(issue_number),
+    },
+    post_create_blocked_by = {
+      blocked_issue_number = tonumber(issue_number),
+      dedup_key = blocked_by_dedup_key(payload, child_index),
+    },
+    dedup_key = child_dedup_key(payload, child_index),
+    source_ref = base_ids.normalize_source_ref(payload.source_ref),
+  }
+end
+
+local function decomposition_marker_fields(proposal_id, version, attempt, head_sha, count, evidence_policy)
+  return '<!-- fkst:github-devloop:implementation-decomposition:v1 proposal="'
+    .. proposal_id
+    .. '" version="' .. version
+    .. '" attempt="' .. tostring(attempt)
+    .. '" head_sha="' .. head_sha
+    .. '" count="' .. tostring(count)
+    .. '" evidence_policy="' .. evidence_policy
+    .. '" -->'
+end
+
+function E.decomposition_marker(payload, count)
+  local child_count = tonumber(count)
+  if not E.is_supported_payload(payload)
+    or child_count == nil
+    or child_count < 1
+    or child_count > MAX_CHILDREN
+    or child_count ~= math.floor(child_count) then
+    error("github-devloop: implementation-decomposition-marker-invalid: marker is invalid")
+  end
+  return decomposition_marker_fields(payload.proposal_id, payload.version, payload.attempt,
+    payload.head_sha, child_count, payload.evidence_policy)
+end
+
+function E.decomposition_fact(comments, proposal_id, version)
+  local pattern = "<!%-%- fkst:github%-devloop:implementation%-decomposition:v1.-%-%->"
+  local latest = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+    for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
+      local fact = {
+        proposal_id = marker_attr(marker, "proposal"),
+        version = marker_attr(marker, "version"),
+        attempt = valid_attempt(marker_attr(marker, "attempt")),
+        head_sha = marker_attr(marker, "head_sha"),
+        count = valid_attempt(marker_attr(marker, "count")),
+        evidence_policy = marker_attr(marker, "evidence_policy"),
+        comment_created_at = parsers_misc._comment_created_at(comment),
+      }
+      if fact.proposal_id == tostring(proposal_id)
+        and fact.version == tostring(version)
+        and fact.count ~= nil
+        and fact.count <= MAX_CHILDREN
+        and forge_validators.is_git_sha(fact.head_sha)
+        and fact.evidence_policy == POLICY_ID
+        and marker == decomposition_marker_fields(fact.proposal_id, fact.version, fact.attempt,
+          fact.head_sha, fact.count, fact.evidence_policy)
+        and (latest == nil or fact.attempt > latest.attempt) then
+        latest = fact
+      end
+    end
+  end
+  return latest
+end
+
+local function marker_by_dedup(comments, pattern, dedup_key)
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+    for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
+      if marker_attr(marker, "dedup") == tostring(dedup_key) then
+        return marker
+      end
+    end
+  end
+  return nil
+end
+
+function E.child_linkage_fact(comments, repo, issue_number, payload, count)
+  local child_count = tonumber(count)
+  if not E.is_supported_payload(payload)
+    or child_count == nil
+    or child_count < 1
+    or child_count > MAX_CHILDREN
+    or child_count ~= math.floor(child_count) then
+    return nil
+  end
+  local issue_numbers = {}
+  for index = 1, child_count do
+    local created = marker_by_dedup(comments,
+      "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->",
+      child_dedup_key(payload, index))
+    local child_number = created and tonumber(marker_attr(created, "issue")) or nil
+    local linked = marker_by_dedup(comments,
+      "<!%-%- fkst:github%-proxy:blocked%-by:v1.-%-%->",
+      blocked_by_dedup_key(payload, index))
+    if child_number == nil
+      or linked == nil
+      or tonumber(marker_attr(linked, "blocked")) ~= tonumber(issue_number)
+      or tonumber(marker_attr(linked, "blocking")) ~= child_number then
+      return nil
+    end
+    issue_numbers[index] = child_number
+  end
+  return {
+    repo = tostring(repo),
+    issue_number = tonumber(issue_number),
+    count = child_count,
+    issue_numbers = issue_numbers,
+  }
 end
 
 function E.build_payload(context, evidence)

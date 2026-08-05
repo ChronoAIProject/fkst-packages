@@ -194,6 +194,7 @@ local milestone_domains = {
     dependency_wait = true,
     ready = true,
     implementing = true,
+    ["implementation-escalating"] = true,
     ["awaiting-pr"] = true,
     ["impl-failed"] = true,
     declined = true,

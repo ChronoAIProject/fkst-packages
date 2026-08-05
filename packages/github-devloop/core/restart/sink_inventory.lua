@@ -23,6 +23,7 @@ end
 
 queue("comment_handoff", "devloop_ready", "lifecycle-authoritative", "ready:v1/proposal+version")
 queue("comment_handoff", "devloop_reconcile", "lifecycle-authoritative", "reconcile:v1/proposal+round")
+queue("comment_handoff", "github-devloop-decompose.devloop_implementation_decompose", "lifecycle-authoritative", "implementation-escalation:v1/proposal+version+attempt+head")
 queue("consensus_result", "devloop_consensus_continue", "lifecycle-authoritative", "consensus-converge:v1/proposal+dedup")
 queue("execute_start", "devloop_consensus_request", "lifecycle-authoritative", "consensus-proposal:v1/proposal+dedup")
 queue("liveness_scan", "devloop_observe_issue", "grantless-telemetry", "observe-issue:v1/source-ref+dedup")

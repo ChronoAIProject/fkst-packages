@@ -336,6 +336,23 @@ function M.build_decompose_prompt(decompose, current_issue, content_manifest)
 end
 end
 
+local function install_implementation_decompose(M, resolved)
+  local load_prompt = prompt_loader(resolved)
+function M.build_implementation_decompose_prompt(escalation, current_issue, content_manifest)
+  local prompt = load_prompt("implementation_decompose")
+  return M.render_prompt_template(prompt.template, {
+    proposal_id = devloop_base.neutralize_untrusted_prompt_text(escalation.proposal_id),
+    head_sha = devloop_base.neutralize_untrusted_prompt_text(escalation.head_sha),
+    previous_attempt = devloop_base.neutralize_untrusted_prompt_text(escalation.previous_attempt),
+    attempt = devloop_base.neutralize_untrusted_prompt_text(escalation.attempt),
+    evidence_policy = devloop_base.neutralize_untrusted_prompt_text(escalation.evidence_policy),
+    title = M.quote_untrusted_prompt_text(current_issue.title),
+    content_fetch_block = local_context_block(M, content_manifest),
+    execution_boundary = M.execution_boundary_clause("Read GitHub context only from the local files named below."),
+  }, nil, { entity_history = true })
+end
+end
+
 local function install_intake_parser(M)
 local function is_intake_action(value)
   return value == "enable" or value == "track" or value == "decline" or value == "escalate-to-class"
@@ -452,6 +469,7 @@ local role_installers = {
   review_meta = install_review_meta,
   intake = install_intake,
   decompose = install_decompose,
+  implementation_decompose = install_implementation_decompose,
   intake_parser = install_intake_parser,
   review_meta_parser = install_review_meta_parser,
 }
@@ -463,6 +481,7 @@ local role_order = {
   "review_meta",
   "intake",
   "decompose",
+  "implementation_decompose",
   "intake_parser",
   "review_meta_parser",
 }

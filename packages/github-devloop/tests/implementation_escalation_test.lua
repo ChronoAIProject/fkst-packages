@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local escalation = require("devloop.implementation_escalation")
+local replay_fields = require("devloop.replay_fields")
 local t = h.t
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -90,5 +91,81 @@ return {
     local fact = escalation.escalation_fact({ trusted_comment(marker) }, proposal_id, version)
     t.eq(fact.attempt, 2)
     t.eq(fact.head_sha, head_a)
+  end,
+
+  test_pre_pr_decomposition_plan_is_strict_and_bounded = function()
+    local plan = escalation.parse_decomposition_plan(
+      '{"issues":[{"title":"Extract parser","body":"Scope the parser change."}]}'
+    )
+
+    t.eq(#plan, 1)
+    t.eq(plan[1].title, "Extract parser")
+    t.eq(escalation.parse_decomposition_plan('{"issues":[] }'), nil)
+    t.eq(escalation.parse_decomposition_plan('{"issues":"not-an-array"}'), nil)
+  end,
+
+  test_pre_pr_child_request_creates_native_and_blocked_by_edges = function()
+    local payload = escalation.build_payload({
+      proposal_id = proposal_id,
+      version = version,
+      branch = "devloop-owner-repo-42-123",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+    }, {
+      policy_id = "adjacent-wall-clock-exhaustion-stationary-head-v1",
+      previous_attempt = 1,
+      attempt = 2,
+      head_sha = head_a,
+    })
+
+    local request = escalation.build_child_issue_request("owner/repo", 42, payload, {
+      title = "Extract parser",
+      body = "Scope the parser change.",
+    }, 1)
+
+    t.eq(request.schema, "github-proxy.issue-create.v1")
+    t.eq(request.parent, 42)
+    t.eq(request.parent_comment_target.issue_number, 42)
+    t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
+    t.eq(request.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_parent_waits_until_every_planned_child_is_created_and_linked = function()
+    local payload = escalation.build_payload({
+      proposal_id = proposal_id,
+      version = version,
+      branch = "devloop-owner-repo-42-123",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+    }, {
+      policy_id = "adjacent-wall-clock-exhaustion-stationary-head-v1",
+      previous_attempt = 1,
+      attempt = 2,
+      head_sha = head_a,
+    })
+    local request = escalation.build_child_issue_request("owner/repo", 42, payload, {
+      title = "Extract parser",
+      body = "Scope the parser change.",
+    }, 1)
+    local created = '<!-- fkst:github-proxy:issue-created:v1 dedup="'
+      .. request.dedup_key .. '" issue="101" -->'
+    local linked = '<!-- fkst:github-proxy:blocked-by:v1 dedup="'
+      .. request.post_create_blocked_by.dedup_key .. '" blocked="42" blocking="101" -->'
+
+    t.eq(escalation.child_linkage_fact({ trusted_comment(created) }, "owner/repo", 42, payload, 1), nil)
+    local fact = escalation.child_linkage_fact({ trusted_comment(created .. "\n" .. linked) },
+      "owner/repo", 42, payload, 1)
+    t.eq(fact.count, 1)
+    t.eq(fact.issue_numbers[1], 101)
+  end,
+
+  test_implementation_escalating_has_one_nonterminal_supervisor_contract = function()
+    local row = replay_fields.restart_transition_row(
+      h.core.restart_transition_table(), "implementation-escalating")
+
+    t.is_true(row ~= nil)
+    t.eq(row.terminal, false)
+    t.eq(row.driving_queue, "github-devloop-decompose.devloop_implementation_decompose")
+    t.eq(row.responsibility_signature.receiver_kind, "decomposition-supervisor")
+    t.eq(row.liveness_contract.real_execution.match.role, "decompose")
+    t.eq(table.concat(row.to_states, ","), "dependency_wait,ready")
   end,
 }

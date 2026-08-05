@@ -52,6 +52,7 @@
 {"path":"packages/github-devloop/core/restart/transitions/dependency_wait.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/transitions/impl_failed.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/transitions/implementing.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/transitions/implementation_escalating.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/transitions/index.lua","owner":"issue","reason":"transition index belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/transitions/merged.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/transitions/ready.lua","owner":"issue","reason":"transition row belongs to the parent issue saga authority."}
@@ -230,7 +231,10 @@
 {"path":"packages/github-devloop/core/restart/marker_fields/dependency_waiver.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/marker_fields/impl_failure.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/marker_fields/implement_attempt.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/marker_fields/implement_checkpoint.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/marker_fields/implementing.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/marker_fields/implementation_decomposition.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/marker_fields/implementation_escalation.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/marker_fields/index.lua","owner":"issue","reason":"marker fields belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/marker_fields/merged.lua","owner":"shared","reason":"marker fields are shared by the issue/PR seam."}
 {"path":"packages/github-devloop/core/restart/marker_fields/pr_delegation.lua","owner":"shared","reason":"marker fields are shared by the issue/PR seam."}

@@ -7,6 +7,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local t = fkst.test
 local decompose_lib = require("devloop.decompose")
+local implementation_escalation = require("devloop.implementation_escalation")
 local m_builders = require("devloop.markers.builders")
 
 local function load_department(path, module_name)
@@ -18,6 +19,7 @@ end
 
 local departments = conformance.loaded_departments({
   load_department("departments/decompose/main.lua", "departments.decompose.main"),
+  load_department("departments/implementation_decompose/main.lua", "departments.implementation_decompose.main"),
 })
 
 local function production_decompose_payload()
@@ -34,6 +36,19 @@ end
 local function payload_for_queue(_path, queue)
   if queue == "devloop_decompose" then
     return production_decompose_payload()
+  end
+  if queue == "devloop_implementation_decompose" then
+    return implementation_escalation.build_payload({
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      version = "ready/github-devloop/issue/owner/repo/42/intake/123",
+      branch = "devloop-owner-repo-42-123",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+    }, {
+      policy_id = "adjacent-wall-clock-exhaustion-stationary-head-v1",
+      previous_attempt = 1,
+      attempt = 2,
+      head_sha = "1111111111111111111111111111111111111111",
+    })
   end
   error("github-devloop-decompose: no production-shaped queue fixture for " .. tostring(queue))
 end
@@ -62,6 +77,13 @@ local function mock_decompose_reads(payload)
 end
 
 local function opts_for_case(_path, _queue, event)
+  if _queue == "devloop_implementation_decompose" then
+    return {
+      run_opts = {
+        env = { FKST_GITHUB_BOT_LOGIN = "fkst-test-bot" },
+      },
+    }
+  end
   mock_decompose_reads(event.payload)
   return {
     run_opts = {

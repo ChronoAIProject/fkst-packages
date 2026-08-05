@@ -75,7 +75,7 @@ M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_aft
 require("devloop.logging").install(M)
 require("devloop.state").install(M)
 local prompts = require("devloop.prompts")
-prompts.install(M, wiring.prompts(), { decompose = true })
+prompts.install(M, wiring.prompts(), { decompose = true, implementation_decompose = true })
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 require("core.saga").install(M)

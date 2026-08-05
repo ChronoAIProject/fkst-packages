@@ -5,6 +5,7 @@ L.label_by_state = {
   dependency_wait = "fkst-dev:ready",
   ready = "fkst-dev:ready",
   implementing = "fkst-dev:implementing",
+  ["implementation-escalating"] = "fkst-dev:implementing",
   ["awaiting-pr"] = "fkst-dev:awaiting-pr",
   ["pr-open"] = "fkst-dev:pr-open",
   reviewing = "fkst-dev:reviewing",
@@ -29,7 +30,8 @@ L.state_graph = {
   thinking = { "dependency_wait", "ready", "declined", "blocked" },
   dependency_wait = { "dependency_wait", "ready", "blocked" },
   ready = { "dependency_wait", "implementing", "blocked" },
-  implementing = { "awaiting-pr", "blocked", "impl-failed" },
+  implementing = { "implementation-escalating", "awaiting-pr", "blocked", "impl-failed" },
+  ["implementation-escalating"] = { "dependency_wait", "ready" },
   ["awaiting-pr"] = { "merged", "ready", "blocked" },
   ["pr-open"] = { "reviewing", "blocked" },
   reviewing = { "merge-ready", "fixing", "review-meta" },
@@ -49,6 +51,7 @@ L.lifecycle_state_order = {
   "dependency_wait",
   "ready",
   "implementing",
+  "implementation-escalating",
   "pr-open",
   "reviewing",
   "merge-ready",
@@ -67,6 +70,7 @@ L.state_order = {
   "dependency_wait",
   "ready",
   "implementing",
+  "implementation-escalating",
   "pr-open",
   "reviewing",
   "merge-ready",
@@ -86,6 +90,7 @@ L.state_stage_rank = {
   dependency_wait = 500,
   ready = 500,
   implementing = 600,
+  ["implementation-escalating"] = 610,
   ["awaiting-pr"] = 625,
   ["pr-open"] = 650,
   reviewing = 675,
@@ -123,7 +128,7 @@ end
 function L.state_label_changes(to_state)
   local add_label = L.state_label(to_state)
   if add_label == nil then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-label-invalid: invalid state")
   end
 
   local remove_labels = {}
@@ -141,7 +146,7 @@ end
 function L.state_label_reconcile_changes(labels, to_state)
   local expected_label = L.state_label(to_state)
   if expected_label == nil then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-label-invalid: invalid state")
   end
 
   local add_labels = {}
