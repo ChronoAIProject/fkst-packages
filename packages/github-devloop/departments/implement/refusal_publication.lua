@@ -9,9 +9,6 @@ local M = {}
 function M.publish(core, repo, issue_number, outcome)
   local precursor_missing = outcome.reason == "precursor-missing"
   local target_state = precursor_missing and "dependency_wait" or "blocked"
-  local target_version = precursor_missing
-      and core.ready_split_version(outcome.ready.dedup_key)
-    or outcome.ready.dedup_key
   local comment_request = requests_lifecycle.build_implementation_refusal_comment_request(
     core,
     repo,
@@ -24,6 +21,9 @@ function M.publish(core, repo, issue_number, outcome)
     outcome.exec_ref,
     outcome.blocker
   )
+  local target_version = precursor_missing
+      and comment_request.handoff.marker_version
+    or outcome.ready.dedup_key
   local label_request = precursor_missing
       and comment_request.handoff.label_request
     or requests_labels.build_state_label_request(
