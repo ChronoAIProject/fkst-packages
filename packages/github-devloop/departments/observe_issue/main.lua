@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
+local dependency_gate = require("devloop.dependency_gate")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
@@ -274,7 +275,7 @@ local function raise_stale_dependency_label_clear(issue, proposal_id, state, cur
   end
   local ready = state.state == "ready"
   local gate = ready and derive_dependency_gate(issue, proposal_id, state, current.comments) or nil
-  if not has_label or (ready and not gate.ok) then
+  if not has_label or (ready and not dependency_gate.dependency_gate_is_satisfied(gate)) then
     return false, gate
   end
   devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, {
