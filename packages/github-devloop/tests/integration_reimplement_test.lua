@@ -49,7 +49,7 @@ local function lean_receipt(event, version, status, phase, attempt)
   return "{" .. table.concat(fields, ",") .. "}"
 end
 
-local function implementation_receipt(event, version, outcome, attempt, reason, evidence)
+local function implementation_receipt(event, version, outcome, attempt, reason, evidence, blocker)
   local fields = {
     '"schema":"github-devloop.implementation-result.v1"',
     '"outcome":' .. strings.json_string(outcome),
@@ -60,8 +60,64 @@ local function implementation_receipt(event, version, outcome, attempt, reason, 
   if outcome == "cannot-implement-here" then
     table.insert(fields, '"reason":' .. strings.json_string(reason))
     table.insert(fields, '"evidence":' .. strings.json_string(evidence))
+    if blocker ~= nil then
+      table.insert(fields, '"blocker":{"repo":' .. strings.json_string(blocker.repo)
+        .. ',"issue_number":' .. tostring(blocker.issue_number) .. "}")
+    end
   end
   return "{" .. table.concat(fields, ",") .. "}"
+end
+
+local function blocked_by_json(nodes)
+  local rendered = {}
+  for _, node in ipairs(nodes or {}) do
+    table.insert(rendered, string.format(
+      '{"number":%d,"state":"OPEN","stateReason":"","repository":{"nameWithOwner":"%s"}}',
+      node.issue_number,
+      json_string(node.repo or "owner/repo")
+    ))
+  end
+  return '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":'
+    .. tostring(#rendered)
+    .. ',"pageInfo":{"hasNextPage":false},"nodes":['
+    .. table.concat(rendered, ",")
+    .. "]}}}}}\n"
+end
+
+local function mock_blocked_by(issue_number, nodes)
+  t.mock_command(core.gh_blocked_by_cmd("owner/repo", issue_number), {
+    stdout = blocked_by_json(nodes),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_blocker_state(issue_number, state_name)
+  local blocker_proposal = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
+  local comments = state_name and { h.state_comment(blocker_proposal, state_name, "blocker-v1") } or {}
+  local rendered = {}
+  for _, comment in ipairs(comments) do
+    table.insert(rendered, render_comment(comment))
+  end
+  t.mock_command(core.gh_issue_view_observe_cmd("owner/repo", issue_number), {
+    stdout = '{"state":"OPEN","comments":[' .. table.concat(rendered, ",")
+      .. '],"author":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_observe_direct(name)
+  return h.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = issue({ labels = { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" } }),
+  }, opts(name))
+end
+
+local function state_comment(raises, state_name)
+  return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find('state="' .. state_name .. '"', 1, true) ~= nil
+  end)
 end
 
 local function mock_issue_implement_view_only(labels, comments, times)
@@ -262,6 +318,48 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   t.is_true(output ~= nil, reason .. ": reimplementation did not publish normal implementation output")
   t.is_true(output.payload.body:find('dedup="' .. retry_version .. '"', 1, true) ~= nil,
     reason .. ": reimplementation output did not use the fresh implementation version")
+end
+
+local function run_precursor_refusal(blocker)
+  local event = reached()
+  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  mock_issue_implement_view_only({ "fkst-dev:ready" }, {
+    h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
+  }, 3)
+  mock_existing_empty_implement_worktree({
+    impl_version = ready.dedup_key,
+    harvest_checks = 1,
+  })
+  mock_implement_codex(0, implementation_receipt(
+    event,
+    ready.dedup_key,
+    "cannot-implement-here",
+    1,
+    "precursor-missing",
+    "Issue #99 must land before this implementation can proceed.",
+    blocker
+  ))
+  mock_git_status("")
+  t.mock_command("rev-list --count", {
+    stdout = "0\n",
+    stderr = "",
+    exit_code = 0,
+  })
+
+  return run_implement(ready, opts("implement-precursor-dependency-wait")), event, ready
+end
+
+local function mock_precursor_observation(comments, blockers, blocker_state)
+  mock_issue_state(
+    { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
+    "OPEN",
+    comments
+  )
+  mock_blocked_by(42, blockers)
+  if #blockers > 0 then
+    mock_blocked_by(blockers[1].issue_number, {})
+    mock_blocker_state(blockers[1].issue_number, blocker_state)
+  end
 end
 
 local function run_first_clean_implementation_attempt(name, build_stdout)
@@ -615,16 +713,81 @@ return {
     t.eq(count_calls("git -C"), 0)
   end,
 
-  test_precursor_missing_refusal_blocks_then_reimplements_from_trusted_fact = function()
-    run_refusal_reimplementation_case(
-      "precursor-missing",
-      "The required generated parser is absent from packages/parser.")
+  test_precursor_missing_refusal_replays_dropped_edge_request_until_visible_then_releases_fresh_ready = function()
+    local blocker = { repo = "owner/repo", issue_number = 99 }
+    local refused, event, ready = run_precursor_refusal(blocker)
+
+    t.eq(refused.exit_code, 0)
+    local wait_version = core.ready_split_version(ready.dedup_key)
+    local refusal = state_comment(refused.raises, "dependency_wait")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.payload.body:find(
+      core.dependency_wait_marker(
+        event.proposal_id, wait_version, { 99 }, "expected-edge", "precursor-edge-not-visible"),
+      1,
+      true
+    ) ~= nil)
+    t.eq(state_comment(refused.raises, "blocked"), nil)
+    t.eq(refusal.payload.handoff.kind, "github-devloop.ready-split-label")
+    t.eq(refusal.payload.handoff.marker_version, wait_version)
+    t.eq(refusal.payload.handoff.label_request.expected_state, "dependency_wait")
+    t.eq(refusal.payload.handoff.label_request.expected_version, wait_version)
+    t.is_true(table.concat(
+      refusal.payload.handoff.label_request.add_labels,
+      ","
+    ):find(core._blocked_on_dependency_label, 1, true) ~= nil)
+    local direct_wait_label = find_raise(
+      refused.raises,
+      "github-proxy.github_issue_label_request",
+      function(payload) return payload.expected_state == "dependency_wait" end
+    )
+    t.eq(direct_wait_label, nil)
+
+    local edge_request = find_raise(
+      refused.raises, "github-proxy.github_issue_blocked_by_request")
+    t.is_true(edge_request ~= nil)
+    t.eq(edge_request.payload.repo, "owner/repo")
+    t.eq(edge_request.payload.blocked_issue_number, 42)
+    t.eq(edge_request.payload.blocking_issue_number, 99)
+    local refusal_comments = { refusal.payload.body }
+
+    mock_precursor_observation(refusal_comments, {}, nil)
+    local edge_absent = run_observe_direct("precursor-edge-absent")
+    t.eq(edge_absent.exit_code, 0)
+    t.eq(state_comment(edge_absent.raises, "ready"), nil)
+    local replayed_edge_request = find_raise(
+      edge_absent.raises, "github-proxy.github_issue_blocked_by_request")
+    t.is_true(replayed_edge_request ~= nil)
+    t.eq(replayed_edge_request.payload.repo, edge_request.payload.repo)
+    t.eq(replayed_edge_request.payload.blocked_issue_number, edge_request.payload.blocked_issue_number)
+    t.eq(replayed_edge_request.payload.blocking_issue_number, edge_request.payload.blocking_issue_number)
+    t.eq(replayed_edge_request.payload.dedup_key, edge_request.payload.dedup_key)
+
+    mock_precursor_observation(refusal_comments, { blocker }, "ready")
+    local blocker_open = run_observe_direct("precursor-edge-visible-blocker-open")
+    t.eq(blocker_open.exit_code, 0)
+    t.eq(state_comment(blocker_open.raises, "ready"), nil)
+
+    mock_precursor_observation(refusal_comments, { blocker }, "merged")
+    local blocker_merged = run_observe_direct("precursor-edge-visible-blocker-merged")
+    t.eq(blocker_merged.exit_code, 0)
+    local released = state_comment(blocker_merged.raises, "ready")
+    t.is_true(released ~= nil)
+    local released_version = core.ready_split_version(wait_version)
+    t.is_true(released.payload.body:find(
+      h.projected_state_comment(
+        event.proposal_id, "ready", released_version, "result-marker,ready-label,devloop-ready"),
+      1,
+      true
+    ) ~= nil)
+    t.is_true(released_version ~= ready.dedup_key)
+    t.is_true(released_version ~= wait_version)
   end,
 
   test_same_version_second_attempt_refusal_uses_trusted_attempt_fact = function()
     run_refusal_reimplementation_case(
-      "precursor-missing",
-      "The required generated parser is absent from packages/parser.",
+      "wrong-layer",
+      "The required primitive belongs in fkst-substrate.",
       2,
       true)
   end,

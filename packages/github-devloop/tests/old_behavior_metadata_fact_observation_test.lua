@@ -28,6 +28,20 @@ local TIMEOUT_RECONCILE_LABEL_SINK = {
   authority_class = "lifecycle-authoritative",
   family = "state-label:blocked;dedup=timeout-reconcile/label",
 }
+local PRECURSOR_BLOCKED_BY_ADAPTER_SINK = {
+  effect_id = "adapter:github.issue-blocked-by",
+  department = "implement",
+  sink_kind = "adapter",
+  authority_class = "lifecycle-authoritative",
+  family = "issue-blocked-by/precursor/proposal+version+blocker",
+}
+local PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK = {
+  effect_id = "adapter:github.issue-blocked-by-replay",
+  department = "observe_issue",
+  sink_kind = "adapter",
+  authority_class = "lifecycle-authoritative",
+  family = "issue-blocked-by/precursor/proposal+version+blocker",
+}
 local CURRENT_SINK_FAMILIES = {
   ["comment:issue:consensus-result"] =
     "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
@@ -327,7 +341,9 @@ local function committed_records()
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
-      record.old_inputs.current_fact.record_count = 84
+      record.old_inputs.current_fact.record_count = 86
+      table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
+      table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
       for _, sink in ipairs(record.old_outcome.observable_writes) do
         sink.family = CURRENT_SINK_FAMILIES[sink.effect_id] or sink.family

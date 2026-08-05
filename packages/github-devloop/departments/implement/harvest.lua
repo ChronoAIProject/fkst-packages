@@ -134,6 +134,7 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
     ready = ready,
     reason = receipt.reason,
     evidence = receipt.evidence,
+    blocker = receipt.blocker,
     receipt = receipt,
     attempt = attempt,
     started_at = started_at,

@@ -58,6 +58,11 @@ local function receipt(outcome, fields)
   return "{" .. table.concat(values, ",") .. "}"
 end
 
+local function blocker_field(repo, issue_number)
+  return '"blocker":{"repo":' .. strings.json_string(repo)
+    .. ',"issue_number":' .. tostring(issue_number) .. "}"
+end
+
 local function expected(overrides)
   local value = {
     proposal_id = proposal_id,
@@ -94,16 +99,50 @@ return {
   test_supported_refusal_receipts_preserve_exact_reason_and_non_empty_evidence = function()
     for _, reason in ipairs(refusal_reasons) do
       local evidence = "Worker-reported evidence for " .. reason .. "."
-      local value, err = implementation_result.decode(receipt("cannot-implement-here", {
+      local fields = {
         '"reason":' .. strings.json_string(reason),
         '"evidence":' .. strings.json_string(evidence),
+      }
+      if reason == "precursor-missing" then
+        table.insert(fields, blocker_field("owner/repo", 99))
+      end
+      local value, err = implementation_result.decode(receipt("cannot-implement-here", {
+        table.unpack(fields),
       }), expected())
 
       t.eq(err, nil, reason)
       t.eq(value.outcome, "cannot-implement-here", reason)
       t.eq(value.reason, reason, reason)
       t.eq(value.evidence, evidence, reason)
+      if reason == "precursor-missing" then
+        t.eq(value.blocker.repo, "owner/repo")
+        t.eq(value.blocker.issue_number, 99)
+      else
+        t.eq(value.blocker, nil)
+      end
     end
+  end,
+
+  test_precursor_missing_requires_one_same_repository_issue_ref = function()
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"precursor-missing"',
+      '"evidence":"The required precursor has not landed."',
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"precursor-missing"',
+      '"evidence":"The required precursor has not landed."',
+      blocker_field("other/repo", 99),
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"precursor-missing"',
+      '"evidence":"The required precursor has not landed."',
+      '"blocker":{"repo":"owner/repo","issue_number":"99"}',
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"wrong-layer"',
+      '"evidence":"The requested change belongs in the engine repository."',
+      blocker_field("owner/repo", 99),
+    }))
   end,
 
   test_production_refusal_receipts_preserve_disposition_through_fact_round_trip = function()
@@ -163,6 +202,7 @@ return {
     decode_fails(receipt("cannot-implement-here", {
       '"reason":"precursor-missing"',
       '"evidence":"   "',
+      blocker_field("owner/repo", 99),
     }))
   end,
 
