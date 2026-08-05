@@ -23,9 +23,11 @@ COCHANGE_GRANT_SCHEMA = "fkst.restart-cochange-grant.v1"
 CHECKER_CONTROLS = {
     "scripts/check_repo_intent_bounded_replay.py",
     "scripts/check_repo_restart_preflight.py",
+    "scripts/intent_diff_rollup_attestation.py",
     "scripts/intent_bounded_replay/compare.py",
     "scripts/intent_bounded_replay/corpus_manifest.json",
     "scripts/intent_bounded_replay/normalize.py",
+    "scripts/intent_bounded_replay/rollup_attestation.py",
     SEMANTIC_TREE_CONTROL,
 }
 COCHANGE_GRANT_FIELDS = {"schema", "entries", "grant_sha256"}

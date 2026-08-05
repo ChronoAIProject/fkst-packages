@@ -19,6 +19,18 @@ from intent_bounded_replay.normalize import (
     loads_json,
 )
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
+from intent_bounded_replay.rollup_attestation import (
+    CarrierPullRequest,
+    CarriedManifest,
+    RollupAttestationError,
+    RollupAuthorizationDecision,
+    RollupPrecheck,
+    TracePair,
+    carrier_pull_request_from_environment,
+    complete_rollup_precheck,
+    derive_rollup_authorization,
+    precheck_carried_manifest,
+)
 
 import ratchet_base
 
@@ -88,8 +100,10 @@ ADMISSION_TRACE_SPECS = (
      "restart-pr-merge-trace.v1", "pr-merge", "github-devloop-pr"),
 )
 PROTECTED_MODULES = (
+    "scripts/intent_diff_rollup_attestation.py",
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
+    "scripts/intent_bounded_replay/rollup_attestation.py",
     "scripts/intent_bounded_replay/semantic_tree.py",
 )
 MANIFEST_RE = re.compile(r"(?P<pr>[1-9][0-9]*)\.json")
@@ -541,6 +555,53 @@ def _manifest_messages(
     return messages
 
 
+def rollup_carrier_precheck(
+    root: Path,
+    *,
+    carrier_pr_number: int,
+    base_sha: str,
+    head_sha: str,
+    authorization: RollupAuthorizationDecision,
+) -> CarriedManifest | None:
+    return precheck_carried_manifest(
+        root,
+        carrier_pr_number=carrier_pr_number,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        authorization=authorization,
+        intent_diff_dir=INTENT_DIFF_DIR,
+        allowlist_path=ALLOWLIST,
+        validate_manifest=_manifest_messages,
+        parse_allowlist=_parse_allowlist,
+    )
+
+
+def rollup_precheck(
+    root: Path,
+    *,
+    carrier_pr_number: int,
+    base_sha: str,
+    head_sha: str,
+    trace_root: Path,
+    authorization: RollupAuthorizationDecision,
+    trace_pairs: tuple[TracePair, ...],
+) -> RollupPrecheck | None:
+    return complete_rollup_precheck(
+        root,
+        carrier_pr_number=carrier_pr_number,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        trace_root=trace_root,
+        authorization=authorization,
+        trace_pairs=trace_pairs,
+        intent_diff_dir=INTENT_DIFF_DIR,
+        allowlist_path=ALLOWLIST,
+        validate_manifest=_manifest_messages,
+        parse_allowlist=_parse_allowlist,
+        validate_trace=_admission_trace_shape_messages,
+    )
+
+
 def _bound_manifest_messages(
     root: Path,
     artifact: dict[str, Any],
@@ -706,11 +767,28 @@ def repository_messages(
     root: Path,
     enforce_base: bool = False,
     trace_root: Path | None = None,
+    carrier: CarrierPullRequest | None = None,
 ) -> list[str]:
     from check_repo_restart_preflight import _step8_complete  # Lazy to avoid the checker import cycle.
 
     root = Path(root)
-    messages = _admission_trace_messages(root, trace_root)
+    messages: list[str] = []
+    carried_manifest: CarriedManifest | None = None
+    try:
+        if carrier is not None:
+            authorization = derive_rollup_authorization(carrier.authorization_facts)
+            if authorization.authorized:
+                carried_manifest = rollup_carrier_precheck(
+                    root,
+                    carrier_pr_number=carrier.carrier_pr_number,
+                    base_sha=carrier.base_sha,
+                    head_sha=carrier.head_sha,
+                    authorization=authorization,
+                )
+    except RollupAttestationError as error:
+        messages.append(f"authorized rollup carrier precheck failed: {error}")
+
+    messages.extend(_admission_trace_messages(root, trace_root))
     messages.extend(
         f"missing protected input: {relative}"
         for relative in PROTECTED_MODULES
@@ -775,11 +853,18 @@ def repository_messages(
 
     for entry in sorted(growth):
         artifact = manifests.get(entry)
+        carried_entry = (
+            carried_manifest.subject.manifest_path
+            if carried_manifest is not None
+            else None
+        )
         bound_messages = (
             [f"{entry} has no structurally valid manifest"]
             if artifact is None
             else [f"cannot resolve protected merge-base for {entry}"]
             if protected_base is None
+            else []
+            if entry == carried_entry
             else _bound_manifest_messages(root, artifact, entry, protected_base)
         )
         messages.extend(bound_messages)
@@ -794,8 +879,16 @@ def repository_messages(
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
     explicit_trace_root = trace_root_from_environment()
+    try:
+        current_carrier = carrier_pull_request_from_environment(os.environ)
+    except RollupAttestationError as error:
+        print(f"R9-INTENT-BOUNDED-REPLAY: cannot load carrier context: {error}")
+        raise SystemExit(1)
     violations = repository_messages(
-        project_root, enforce_base=True, trace_root=explicit_trace_root
+        project_root,
+        enforce_base=True,
+        trace_root=explicit_trace_root,
+        carrier=current_carrier,
     )
     if violations:
         for violation in violations:

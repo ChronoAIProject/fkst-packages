@@ -170,6 +170,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_dedup_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_checker_test.py"'
+    'python3 -B "$ROOT/scripts/intent_diff_rollup_attestation_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intent_delivery_authorization_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_semantic_tree_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_content_truncation_test.py"'
@@ -484,6 +485,24 @@ finish_test_reports() {
   rm -rf "$dir"
 }
 
+publish_r9_traces() {
+  local dir="$1" dest="${FKST_R9_TRACE_OUTPUT_DIR:-}"
+  [ -n "$dest" ] || return 0
+  if [ ! -d "$dir" ]; then
+    echo "error: R9 trace root is missing: $dir" >&2
+    return 1
+  fi
+  if [ -e "$dest" ]; then
+    echo "error: R9 trace publication destination already exists: $dest" >&2
+    return 1
+  fi
+  if ! mkdir -p "$dest" || ! cp -R "$dir"/. "$dest"/; then
+    echo "error: could not publish R9 traces to $dest" >&2
+    return 1
+  fi
+  echo "R9 traces published to $dest"
+}
+
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
@@ -590,6 +609,12 @@ cmd_test() {
     fi
     finish_test_reports "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
+  fi
+  if ! publish_r9_traces "$FKST_R9_TRACE_ROOT"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    finish_test_reports "$report_dir"
+    echo "FAILED: R9 trace publication failed" >&2
+    exit 1
   fi
   finish_test_reports "$report_dir"
   echo "OK: $ran package(s)"

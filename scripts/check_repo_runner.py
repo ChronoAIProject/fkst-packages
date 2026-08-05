@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 import check_repo_config
 import check_repo_codex_timeout
 import check_repo_content_truncation
@@ -216,6 +218,17 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
 
 def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
     root = config.project_root
+    try:
+        carrier = check_repo_intent_bounded_replay.carrier_pull_request_from_environment(
+            os.environ
+        )
+    except check_repo_intent_bounded_replay.RollupAttestationError as error:
+        carrier = None
+        c.add(
+            violations,
+            "G-INTENT-BOUNDED-REPLAY",
+            f"cannot load carrier context: {error}",
+        )
     for message in check_repo_fanout_only.repository_messages(root, enforce_base=True):
         c.add(violations, "G-FANOUT-ONLY", message)
     for message in check_repo_restart_preflight.repository_messages(root):
@@ -224,6 +237,7 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         root,
         enforce_base=True,
         trace_root=check_repo_intent_bounded_replay.trace_root_from_environment(),
+        carrier=carrier,
     ):
         c.add(violations, "G-INTENT-BOUNDED-REPLAY", message)
     c.check_github_content_ingress(root, violations)

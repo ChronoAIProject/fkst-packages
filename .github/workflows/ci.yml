@@ -95,10 +95,28 @@ jobs:
         env:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
+          FKST_R9_TRACE_OUTPUT_DIR: ${{ github.workspace }}/.fkst/run/intent-diff-traces
           FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
           test -x "$BIN"
           scripts/run.sh test
+
+      - name: Attest one carried intent-diff manifest
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/intent_diff_rollup_attestation.py \
+            --repo-root . \
+            --github-event "$GITHUB_EVENT_PATH" \
+            --trace-root .fkst/run/intent-diff-traces \
+            --output-dir .fkst/run/intent-diff-rollup-attestations
+
+      - name: Upload intent-diff rollup attestation
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: intent-diff-rollup-attestation-${{ github.event.pull_request.number }}
+          path: .fkst/run/intent-diff-rollup-attestations/*.json
+          if-no-files-found: ignore
 
       # Per-test outcomes exist in every run as `--report-json` files and were discarded with
       # their scratch dir, so a CI run's per-test results could not be inspected afterwards and

@@ -89,6 +89,26 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_rollup_attestation_uses_one_entrypoint_after_trace_emission(self) -> None:
+        workflow = self.read_workflow()
+
+        tests_at = workflow.index("scripts/run.sh test")
+        entrypoint_at = workflow.index("scripts/intent_diff_rollup_attestation.py")
+        upload_at = workflow.index("name: intent-diff-rollup-attestation-", entrypoint_at)
+        self.assertLess(tests_at, entrypoint_at)
+        self.assertLess(entrypoint_at, upload_at)
+        self.assertIn(
+            "FKST_R9_TRACE_OUTPUT_DIR: ${{ github.workspace }}/.fkst/run/intent-diff-traces",
+            workflow,
+        )
+        self.assertIn('--github-event "$GITHUB_EVENT_PATH"', workflow)
+        self.assertNotIn("FKST_INTENT_DIFF_HEAD_REPOSITORY", workflow)
+        self.assertNotIn("--carrier-pr-number", workflow)
+        self.assertNotIn("--base-sha", workflow)
+        self.assertNotIn("--head-sha", workflow)
+        self.assertIn(".fkst/run/intent-diff-rollup-attestations/*.json", workflow)
+        self.assertIn("if-no-files-found: ignore", workflow[upload_at:])
+
 
 if __name__ == "__main__":
     unittest.main()
