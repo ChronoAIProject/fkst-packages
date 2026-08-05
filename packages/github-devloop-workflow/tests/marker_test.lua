@@ -9,6 +9,8 @@ local predecessor_ref_digest = "d-1111111111"
 local gen_contract_digest = "d-2222222222"
 local gen_spec_digest = "d-3333333333"
 local child_dedup = "workflow/owner/repo/42/slot-one"
+local predecessor_source_ref = { kind = "external", ref = "owner/repo#issue/108" }
+local successor_source_ref = { kind = "external", ref = "owner/repo#issue/109" }
 
 local function build_blueprint_or_error(origin_proposal_id, workflow, plan_digest)
   local built, err = marker.build_blueprint_marker(origin_proposal_id, workflow, plan_digest)
@@ -353,6 +355,72 @@ local tests = {
       .. '" -->'
     t.is_nil(marker.parse_lineage_header(malformed))
     t.is_nil(marker.parse_lineage_header("ordinary body"))
+  end,
+
+  test_transfer_accept_marker_round_trips_the_exact_handoff_identity = function()
+    local identity = {
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      predecessor_source_ref = predecessor_source_ref,
+      successor_source_ref = successor_source_ref,
+    }
+    local built, err = marker.build_transfer_accept_marker(identity)
+
+    t.is_nil(err)
+    t.eq(
+      built,
+      '<!-- fkst:github-devloop-workflow:transfer-accept:v1 origin="github-devloop/issue/owner/repo/42" blueprint_digest="d-1234567890" slot="slot-one" predecessor_kind="external" predecessor_ref="owner/repo#issue/108" successor_kind="external" successor_ref="owner/repo#issue/109" -->'
+    )
+    local parsed = marker.parse_transfer_accept_marker("Accepted.\n" .. built, identity)
+    t.eq(parsed.origin, origin)
+    t.eq(parsed.blueprint_digest, digest)
+    t.eq(parsed.slot, slot)
+    t.eq(parsed.predecessor_source_ref.kind, "external")
+    t.eq(parsed.predecessor_source_ref.ref, "owner/repo#issue/108")
+    t.eq(parsed.successor_source_ref.kind, "external")
+    t.eq(parsed.successor_source_ref.ref, "owner/repo#issue/109")
+  end,
+
+  test_transfer_accept_marker_is_not_consumed_for_a_mismatched_identity = function()
+    local identity = {
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      predecessor_source_ref = predecessor_source_ref,
+      successor_source_ref = successor_source_ref,
+    }
+    local built = assert(marker.build_transfer_accept_marker(identity))
+
+    local mismatched = {
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      predecessor_source_ref = predecessor_source_ref,
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/110" },
+    }
+    t.is_nil(marker.parse_transfer_accept_marker(built, mismatched))
+    t.is_nil(marker.parse_transfer_accept_marker(built, {
+      origin = origin,
+      blueprint_digest = "d-9999999999",
+      slot = slot,
+      predecessor_source_ref = predecessor_source_ref,
+      successor_source_ref = successor_source_ref,
+    }))
+  end,
+
+  test_transfer_accept_marker_rejects_malformed_source_refs = function()
+    local built, err = marker.build_transfer_accept_marker({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      predecessor_source_ref = { kind = "external", ref = "owner/repo#issue/not-a-number" },
+      successor_source_ref = successor_source_ref,
+    })
+
+    t.is_nil(built)
+    t.eq(err.path, "predecessor_source_ref")
+    t.eq(err.code, "invalid_issue_source_ref")
   end,
 }
 

@@ -23,6 +23,20 @@ local function fact(overrides)
   return value
 end
 
+local function transferred_fact(overrides)
+  local value = fact({
+    disposition = "transferred",
+    successor_source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/788439",
+    },
+  })
+  for key, field in pairs(overrides or {}) do
+    value[key] = field
+  end
+  return value
+end
+
 local function result(stdout, stderr, exit_code)
   return {
     stdout = stdout or "",
@@ -200,6 +214,46 @@ local tests = {
     t.eq(count_calls(replay_model, "ls-remote"), 1)
     t.eq(count_calls(replay_model, "fetch"), 1)
     t.eq(count_calls(replay_model, "cat-file"), 1)
+  end,
+
+  test_put_once_persists_a_transferred_receipt_bound_to_the_successor = function()
+    local model, commands = new_git_process()
+    local store = receipt.new({ commands = commands })
+
+    local created = store.put_once(transferred_fact())
+
+    t.eq(created.schema, receipt.RECEIPT_SCHEMA)
+    t.eq(created.disposition, "transferred")
+    t.eq(created.successor_source_ref.kind, "external")
+    t.eq(created.successor_source_ref.ref, "owner/repo#issue/788439")
+    local replayed = store.read(transferred_fact())
+    t.eq(replayed.disposition, "transferred")
+    t.eq(replayed.successor_source_ref.ref, "owner/repo#issue/788439")
+  end,
+
+  test_put_once_keeps_the_first_disposition_for_the_child_identity = function()
+    local _, commands = new_git_process()
+    local store = receipt.new({ commands = commands })
+
+    local satisfied = store.put_once(fact())
+    local transfer_attempt = store.put_once(transferred_fact())
+
+    t.eq(satisfied.disposition, "satisfied")
+    t.eq(transfer_attempt.disposition, "satisfied")
+    t.is_nil(transfer_attempt.successor_source_ref)
+  end,
+
+  test_put_once_rejects_a_transferred_receipt_without_a_successor = function()
+    local model, commands = new_git_process()
+    local store = receipt.new({ commands = commands })
+
+    local ok, err = pcall(function()
+      store.put_once(fact({ disposition = "transferred" }))
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
+    t.eq(#model.calls, 0)
   end,
 
   test_put_once_accepts_only_the_matching_source_visible_race_winner = function()

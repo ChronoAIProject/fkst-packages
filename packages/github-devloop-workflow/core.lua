@@ -2,6 +2,7 @@ local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
 local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
+local child_transfer = require("core.child_transfer")
 local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
 local frontier = require("core.frontier")
@@ -34,6 +35,7 @@ M = {
   catalog = catalog,
   child_disposition_receipt = child_disposition_receipt,
   child_result = child_result,
+  child_transfer = child_transfer,
   default_catalog = default_catalog,
   digest = digest,
   frontier = frontier,
@@ -149,6 +151,7 @@ function M.install(target)
   catalog.install(target)
   child_disposition_receipt.install(target)
   child_result.install(target)
+  child_transfer.install(target)
   default_catalog.install(target)
   digest.install(target)
   frontier.install(target)

@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local commands = require("devloop.commands")
+local devloop_base = require("devloop.base")
 local gitref = require("forge.gitref")
 local marker = require("core.marker")
 local sha256 = require("contract.sha256")
@@ -95,16 +96,45 @@ function M.receipt_ref(value)
   return REF_PREFIX .. sha256.hex(M.canonical_identity(value))
 end
 
-local function encode_receipt(identity)
-  return "{"
+local function normalize_successor_source_ref(value, repo)
+  local successor_repo, successor_issue = devloop_base.parse_issue_source_ref(value)
+  if successor_repo == nil or successor_repo ~= repo then
+    fail("receipt-successor-invalid", "successor_source_ref must be a canonical issue ref in repo")
+  end
+  return {
+    kind = "external",
+    ref = tostring(successor_repo) .. "#issue/" .. tostring(successor_issue),
+  }
+end
+
+local function normalize_disposition(value, identity)
+  if value.disposition == "satisfied" then
+    if value.successor_source_ref ~= nil then
+      fail("receipt-successor-invalid", "satisfied receipts must not carry a successor")
+    end
+    return "satisfied", nil
+  end
+  if value.disposition == "transferred" then
+    return "transferred", normalize_successor_source_ref(value.successor_source_ref, identity.repo)
+  end
+  fail("receipt-disposition-invalid", "disposition must be satisfied or transferred")
+end
+
+local function encode_receipt(identity, disposition, successor_source_ref)
+  local encoded = "{"
     .. '"schema":' .. strings.json_string(M.RECEIPT_SCHEMA)
     .. ',"repo":' .. strings.json_string(identity.repo)
     .. ',"origin":' .. strings.json_string(identity.origin)
     .. ',"blueprint_digest":' .. strings.json_string(identity.blueprint_digest)
     .. ',"slot":' .. strings.json_string(identity.slot)
     .. ',"child_issue":' .. strings.json_string(identity.child_issue)
-    .. ',"disposition":"satisfied"'
-    .. "}"
+    .. ',"disposition":' .. strings.json_string(disposition)
+  if successor_source_ref ~= nil then
+    encoded = encoded
+      .. ',"successor_kind":' .. strings.json_string(successor_source_ref.kind)
+      .. ',"successor_ref":' .. strings.json_string(successor_source_ref.ref)
+  end
+  return encoded .. "}"
 end
 
 local function operation_result(result, error_class, operation)
@@ -165,6 +195,8 @@ local receipt_fields = {
   slot = true,
   child_issue = true,
   disposition = true,
+  successor_kind = true,
+  successor_ref = true,
 }
 
 local function decode_receipt(decoder, message, expected, commit_sha)
@@ -177,7 +209,7 @@ local function decode_receipt(decoder, message, expected, commit_sha)
       fail("receipt-invalid", "receipt contains an unsupported field")
     end
   end
-  if decoded.schema ~= M.RECEIPT_SCHEMA or decoded.disposition ~= "satisfied" then
+  if decoded.schema ~= M.RECEIPT_SCHEMA then
     fail("receipt-invalid", "receipt schema or disposition is invalid")
   end
   local normalized_ok, embedded = pcall(normalize_identity, decoded)
@@ -189,16 +221,29 @@ local function decode_receipt(decoder, message, expected, commit_sha)
       fail("receipt-identity-mismatch", "receipt identity differs at " .. field)
     end
   end
-  return {
+  local receipt_value = {
     schema = M.RECEIPT_SCHEMA,
     repo = embedded.repo,
     origin = embedded.origin,
     blueprint_digest = embedded.blueprint_digest,
     slot = embedded.slot,
     child_issue = embedded.child_issue,
-    disposition = "satisfied",
+    disposition = decoded.disposition,
     commit_sha = commit_sha,
   }
+  if decoded.disposition == "satisfied" then
+    if decoded.successor_kind ~= nil or decoded.successor_ref ~= nil then
+      fail("receipt-invalid", "satisfied receipt carries successor fields")
+    end
+  elseif decoded.disposition == "transferred" then
+    receipt_value.successor_source_ref = normalize_successor_source_ref({
+      kind = decoded.successor_kind,
+      ref = decoded.successor_ref,
+    }, embedded.repo)
+  else
+    fail("receipt-invalid", "receipt schema or disposition is invalid")
+  end
+  return receipt_value
 end
 
 local function body_file(identity)
@@ -209,6 +254,18 @@ end
 function M.new(deps)
   local selected = deps or {}
   local adapter = selected.commands or commands
+  if selected.git ~= nil then
+    local git = selected.git
+    adapter = {
+      git_ls_remote_ref = function(...) return git.ls_remote_ref(...) end,
+      git_fetch_ref = function(...) return git.fetch_ref(...) end,
+      git_cat_file_pretty = function(...) return git.cat_file_pretty(...) end,
+      git_rev_parse_ref_commit = function(...) return git.rev_parse_ref_commit(...) end,
+      git_rev_parse_ref_tree = function(...) return git.rev_parse_ref_tree(...) end,
+      git_commit_tree = function(...) return git.commit_tree(...) end,
+      git_push_ref_update = function(...) return git.push_ref_update(...) end,
+    }
+  end
   local file_port = selected.file or file
   local decoder = selected.json or json
 
@@ -246,10 +303,11 @@ function M.new(deps)
   end
 
   local function put_once(value)
-    if type(value) ~= "table" or value.disposition ~= "satisfied" then
-      fail("receipt-disposition-invalid", "only disposition=satisfied is supported")
+    if type(value) ~= "table" then
+      fail("receipt-disposition-invalid", "receipt must be a table")
     end
     local identity = normalize_identity(value)
+    local disposition, successor_source_ref = normalize_disposition(value, identity)
     local existing = read(identity)
     if existing ~= nil then
       return existing
@@ -265,7 +323,7 @@ function M.new(deps)
       fail("receipt-tree-invalid", "receipt tree SHA is invalid")
     end
     local path = body_file(identity)
-    file_port.write(path, encode_receipt(identity) .. "\n")
+    file_port.write(path, encode_receipt(identity, disposition, successor_source_ref) .. "\n")
     local committed = operation_result(
       adapter.git_commit_tree(tree_sha, nil, path, READ_TIMEOUT_SECONDS),
       "receipt-commit-failed",

@@ -1,12 +1,15 @@
 local base_ids = require("devloop.base_ids")
 local child_result = require("core.child_result")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local commands = require("devloop.commands")
+local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
 local devloop_marker_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_pr = require("devloop.parsers.pr")
+local marker = require("core.marker")
 
 local M = {}
 
@@ -55,7 +58,11 @@ local function pr_is_merged(current_pr)
   return type(current_pr.merged_at) == "string" and current_pr.merged_at ~= ""
 end
 
-local function production_child_status_deps(core, repo)
+local function production_child_status_deps(core, repo, opts)
+  local selected = opts or {}
+  local github = selected.github
+  local receipt_store = selected.receipt_store
+    or child_disposition_receipt.new({ git = selected.git })
   local issue_cache = {}
   local pr_cache = {}
   local impl_failure_cache = {}
@@ -63,7 +70,18 @@ local function production_child_status_deps(core, repo)
   local function issue(child_ref)
     local number = tostring(child_ref.issue_number or child_ref.number or "")
     if issue_cache[number] == nil then
-      issue_cache[number] = child_issue_view(core, repo, number)
+      if type(github) == "table" and type(github.read_issue) == "function" then
+        issue_cache[number] = github.read_issue(base_ids.issue_source_ref(repo, number), {
+          force_fresh = true,
+          consumer = "github-devloop-workflow:child-status",
+          timeout = M.ISSUE_VIEW_TIMEOUT_SECONDS,
+        })
+        issue_cache[number].repo = repo
+        issue_cache[number].number = number
+        issue_cache[number].proposal_id = base_ids.proposal_id(repo, number)
+      else
+        issue_cache[number] = child_issue_view(core, repo, number)
+      end
     end
     return issue_cache[number]
   end
@@ -101,7 +119,7 @@ local function production_child_status_deps(core, repo)
     return impl_failure_cache[number]
   end
 
-  return {
+  local child_deps = {
     has_merged_marker = function(child_ref)
       local link = linked_pr(child_ref)
       if link == nil then
@@ -173,6 +191,57 @@ local function production_child_status_deps(core, repo)
       return current.fact and current.fact.reason or nil
     end,
   }
+
+  local function accepted_successor(child_ref)
+    if type(child_ref.origin) ~= "string"
+      or type(child_ref.blueprint_digest) ~= "string"
+      or type(child_ref.slot) ~= "string" then
+      return nil
+    end
+    local receipt_value = receipt_store.read({
+      repo = repo,
+      origin = child_ref.origin,
+      blueprint_digest = child_ref.blueprint_digest,
+      slot = child_ref.slot,
+      child_issue = tostring(child_ref.issue_number or child_ref.number or ""),
+    })
+    if type(receipt_value) ~= "table" or receipt_value.disposition ~= "transferred" then
+      return nil
+    end
+    local successor_repo, successor_issue = devloop_base.parse_issue_source_ref(
+      receipt_value.successor_source_ref
+    )
+    if successor_repo ~= repo then
+      return nil
+    end
+    local successor_ref = {
+      kind = "issue",
+      repo = repo,
+      issue_number = tostring(successor_issue),
+      proposal_id = base_ids.proposal_id(repo, successor_issue),
+      source_ref = base_ids.issue_source_ref(repo, successor_issue),
+    }
+    local expected = {
+      origin = child_ref.origin,
+      blueprint_digest = child_ref.blueprint_digest,
+      slot = child_ref.slot,
+      predecessor_source_ref = child_ref.source_ref,
+      successor_source_ref = successor_ref.source_ref,
+    }
+    local successor = issue(successor_ref)
+    for _, comment in ipairs(parsers_misc._trusted_marker_comments(successor.comments or {})) do
+      if marker.parse_transfer_accept_marker(parsers_misc.comment_body(comment), expected) ~= nil then
+        return successor_ref
+      end
+    end
+    return nil
+  end
+
+  local function child_is_closed(child_ref)
+    return tostring(issue(child_ref).state or ""):upper() == "CLOSED"
+  end
+
+  return child_deps, accepted_successor, child_is_closed
 end
 
 function M.reader(core, deps, repo)
@@ -181,9 +250,17 @@ function M.reader(core, deps, repo)
       return deps.child_status(core, child_ref)
     end
   end
-  local child_deps = production_child_status_deps(core, repo)
+  local child_deps, accepted_successor, child_is_closed = production_child_status_deps(core, repo, deps)
   return function(child_ref)
-    return child_result.child_result_status(child_deps, child_ref)
+    local status, detail = child_result.child_result_status(child_deps, child_ref)
+    if status ~= child_result.STATUS_FATAL or not child_is_closed(child_ref) then
+      return status, detail
+    end
+    local successor = accepted_successor(child_ref)
+    if successor == nil then
+      return status, detail
+    end
+    return child_result.child_result_status(child_deps, successor)
   end
 end
 

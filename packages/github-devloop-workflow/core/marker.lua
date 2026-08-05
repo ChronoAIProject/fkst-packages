@@ -1,4 +1,6 @@
 local strings = require("contract.strings")
+local source_refs = require("contract.source_ref")
+local devloop_base = require("devloop.base")
 local fail = require("core.errors").fail
 
 local M = {}
@@ -12,6 +14,7 @@ M.MAX_CHILD_DEDUP_KEY_BYTES = 512
 M.MAX_CHILD_ISSUE_BYTES = 30
 M.MAX_TERMINAL_REASON_CODE_BYTES = 128
 M.MAX_LABEL_PROJECTION_GENERATION = 2147483647
+M.MAX_SOURCE_REF_BYTES = 240
 
 M.MATERIALIZATION_STATES = {
   pending = true,
@@ -41,6 +44,7 @@ local MATERIALIZATION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:ma
 local TERMINAL_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:terminal:v1.-%-%->"
 local LABEL_PROJECTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:label%-projection:v1.-%-%->"
 local LINEAGE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
+local TRANSFER_ACCEPT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:transfer%-accept:v1.-%-%->"
 
 local function attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
@@ -150,6 +154,47 @@ end
 
 local function validate_reason_code(value, path)
   return validate_attr(value, path, M.MAX_TERMINAL_REASON_CODE_BYTES)
+end
+
+local function validate_issue_source_ref(value, path)
+  local repo, issue_number = devloop_base.parse_issue_source_ref(value)
+  if repo == nil or issue_number == nil then
+    return false, fail(path, "invalid_issue_source_ref", "must be a canonical external issue source_ref")
+  end
+  local canonical_ref = tostring(repo) .. "#issue/" .. tostring(issue_number)
+  local ok, err = validate_attr(value.kind, path .. ".kind", M.MAX_SOURCE_REF_BYTES)
+  if not ok then return false, err end
+  ok, err = validate_attr(canonical_ref, path .. ".ref", M.MAX_SOURCE_REF_BYTES)
+  if not ok then return false, err end
+  return true, nil, {
+    kind = "external",
+    ref = canonical_ref,
+  }
+end
+
+local function validate_transfer_accept_identity(value)
+  if type(value) ~= "table" then
+    return false, fail("identity", "not_table", "must be a table")
+  end
+  local ok, err = validate_origin(value.origin, "origin")
+  if not ok then return false, err end
+  ok, err = validate_digest(value.blueprint_digest, "blueprint_digest")
+  if not ok then return false, err end
+  ok, err = validate_slot(value.slot, "slot")
+  if not ok then return false, err end
+  local predecessor
+  ok, err, predecessor = validate_issue_source_ref(value.predecessor_source_ref, "predecessor_source_ref")
+  if not ok then return false, err end
+  local successor
+  ok, err, successor = validate_issue_source_ref(value.successor_source_ref, "successor_source_ref")
+  if not ok then return false, err end
+  return true, nil, {
+    origin = value.origin,
+    blueprint_digest = value.blueprint_digest,
+    slot = value.slot,
+    predecessor_source_ref = predecessor,
+    successor_source_ref = successor,
+  }
 end
 
 function M.build_blueprint_marker(origin_proposal_id, workflow_id, plan_digest)
@@ -521,6 +566,64 @@ function M.parse_lineage_header(text)
     return lineage_fact_from_marker(marker)
   end
   return nil
+end
+
+function M.build_transfer_accept_marker(value)
+  local ok, err, identity = validate_transfer_accept_identity(value)
+  if not ok then return nil, err end
+  return '<!-- fkst:github-devloop-workflow:transfer-accept:v1 origin="' .. identity.origin
+    .. '" blueprint_digest="' .. identity.blueprint_digest
+    .. '" slot="' .. identity.slot
+    .. '" predecessor_kind="' .. identity.predecessor_source_ref.kind
+    .. '" predecessor_ref="' .. identity.predecessor_source_ref.ref
+    .. '" successor_kind="' .. identity.successor_source_ref.kind
+    .. '" successor_ref="' .. identity.successor_source_ref.ref
+    .. '" -->',
+    nil
+end
+
+local function transfer_accept_fact_from_marker(transfer_marker)
+  local candidate = {
+    origin = attr(transfer_marker, "origin"),
+    blueprint_digest = attr(transfer_marker, "blueprint_digest"),
+    slot = attr(transfer_marker, "slot"),
+    predecessor_source_ref = {
+      kind = attr(transfer_marker, "predecessor_kind"),
+      ref = attr(transfer_marker, "predecessor_ref"),
+    },
+    successor_source_ref = {
+      kind = attr(transfer_marker, "successor_kind"),
+      ref = attr(transfer_marker, "successor_ref"),
+    },
+  }
+  local ok, _, identity = validate_transfer_accept_identity(candidate)
+  if not ok then
+    return nil
+  end
+  return identity
+end
+
+function M.parse_transfer_accept_marker(text, expected)
+  if type(text) ~= "string" then
+    return nil
+  end
+  local ok, _, identity = validate_transfer_accept_identity(expected)
+  if not ok then
+    return nil
+  end
+  local matched = nil
+  for transfer_marker in text:gmatch(TRANSFER_ACCEPT_MARKER_PATTERN) do
+    local fact = transfer_accept_fact_from_marker(transfer_marker)
+    if fact ~= nil
+      and fact.origin == identity.origin
+      and fact.blueprint_digest == identity.blueprint_digest
+      and fact.slot == identity.slot
+      and source_refs.same(fact.predecessor_source_ref, identity.predecessor_source_ref)
+      and source_refs.same(fact.successor_source_ref, identity.successor_source_ref) then
+      matched = fact
+    end
+  end
+  return matched
 end
 
 function M.install(target)
