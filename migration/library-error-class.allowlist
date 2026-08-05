@@ -27,14 +27,6 @@ libraries/devloop/base.lua:325
 libraries/devloop/base.lua:329
 libraries/devloop/base.lua:334
 libraries/devloop/base.lua:648
-libraries/devloop/base.lua:656
-libraries/devloop/base.lua:667
-libraries/devloop/base.lua:684
-libraries/devloop/base.lua:692
-libraries/devloop/base.lua:728
-libraries/devloop/base.lua:731
-libraries/devloop/base.lua:737
-libraries/devloop/base.lua:850
 libraries/devloop/base_ids.lua:14
 libraries/devloop/base_ids.lua:26
 libraries/devloop/base_ids.lua:92
@@ -43,14 +35,6 @@ libraries/devloop/claims.lua:517
 libraries/devloop/claims.lua:626
 libraries/devloop/claims.lua:644
 libraries/devloop/claims.lua:734
-libraries/devloop/commands/git_ops.lua:11
-libraries/devloop/commands/git_ops.lua:19
-libraries/devloop/commands/git_ops.lua:264
-libraries/devloop/commands/git_ops.lua:349
-libraries/devloop/commands/git_ops.lua:372
-libraries/devloop/commands/git_ops.lua:402
-libraries/devloop/commands/git_ops.lua:77
-libraries/devloop/commands/git_ops.lua:94
 libraries/devloop/commands/issue_reads.lua:145
 libraries/devloop/commands/observe_lists.lua:13
 libraries/devloop/commands/support.lua:45
@@ -664,7 +648,6 @@ libraries/testkit_internal/devloop_pr_fixtures.lua:7
 libraries/testkit_internal/devloop_pr_fixtures.lua:8
 libraries/testkit_internal/devloop_pr_fixtures.lua:88
 libraries/testkit_internal/devloop_worktree_fixtures.lua:12
-libraries/testkit_internal/devloop_worktree_fixtures.lua:124
 libraries/testkit_internal/devloop_worktree_fixtures.lua:13
 libraries/testkit_internal/devloop_worktree_fixtures.lua:14
 libraries/testkit_internal/gh_argv_mock.lua:60
@@ -739,4 +722,3 @@ libraries/workflow_internal/ports.lua:41
 libraries/workflow_internal/ports.lua:49
 libraries/workflow_internal/ports.lua:52
 libraries/workflow_internal/restart_liveness_contract.lua:15
-

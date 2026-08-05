@@ -842,7 +842,7 @@ return {
       ready_version .. "/redrive/ready/1",
     })
     implement_fixtures.mock_fresh_implement_worktree({
-      runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child",
+      durable_root = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child-durable",
       repo = repo,
       issue_number = created_child_issue,
       impl_version = implementation_version,

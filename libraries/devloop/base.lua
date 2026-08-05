@@ -650,21 +650,33 @@ function C.implement_branch(repo, issue_number, impl_version)
   return branch
 end
 
-function C.implement_worktree_path(runtime_root, repo, issue_number, impl_version)
-  local root = trim(runtime_root)
+function C.implementation_worktree_root(durable_root)
+  local raw = tostring(durable_root or "")
+  if raw == "" or raw:find("[\r\n]") ~= nil then
+    error("github-devloop: durable-root-invalid: invalid FKST_DURABLE_ROOT")
+  end
+  local root = trim(raw)
+  if root == "" then
+    error("github-devloop: durable-root-invalid: invalid FKST_DURABLE_ROOT")
+  end
+  return root:gsub("/+$", "") .. "-worktrees"
+end
+
+function C.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
+  local root = trim(implementation_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: implementation-worktree-root-invalid: invalid implementation worktree root")
   end
   local slug = C.safe_issue_slug(repo, issue_number)
   local suffix = decimal_checksum(tostring(repo) .. "#" .. tostring(issue_number) .. "#" .. tostring(impl_version))
   return root:gsub("/+$", "") .. "/worktrees/devloop-" .. slug .. "-" .. suffix
 end
 
-function C.path_under_runtime_root(runtime_root, path)
-  local root = trim(runtime_root)
+function C.path_under_root(root_path, path)
+  local root = trim(root_path)
   local target = trim(path)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: root-path-invalid: invalid root path")
   end
   if target == "" or target:find("[\r\n]") ~= nil then
     return false
@@ -678,10 +690,14 @@ function C.read_runtime_root_cmd()
   return 'printf %s "$FKST_RUNTIME_ROOT"'
 end
 
+function C.read_durable_root_cmd()
+  return 'printf %s "$FKST_DURABLE_ROOT"'
+end
+
 function C.mkdir_p_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid directory path")
+    error("github-devloop: directory-path-invalid: invalid directory path")
   end
   return "mkdir -p " .. shell_single_quote(value)
 end
@@ -689,7 +705,7 @@ end
 function C.judgment_worktree_path(runtime_root, role, identity)
   local root = trim(runtime_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   local slug = strings.sanitize_key(tostring(role or "") .. "-" .. tostring(identity or ""), false):gsub("/", "-")
   slug = slug:gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
@@ -725,16 +741,16 @@ end
 
 function C.render_template(template, vars)
   if type(template) ~= "string" then
-    error("github-devloop: template must be a string")
+    error("github-devloop: template-invalid: template must be a string")
   end
   if type(vars) ~= "table" then
-    error("github-devloop: template vars must be a table")
+    error("github-devloop: template-invalid: template vars must be a table")
   end
 
   return (template:gsub("{{([%w_]+)}}", function(name)
     local value = vars[name]
     if value == nil then
-      error("github-devloop: missing template var " .. name)
+      error("github-devloop: template-var-missing: missing template var " .. name)
     end
     return tostring(value)
   end))
@@ -847,7 +863,7 @@ function C.trusted_bot_login()
     return login
   end
   if C.read_env("FKST_GITHUB_WRITE") == "1" then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
   end
   return test_bot_login
 end

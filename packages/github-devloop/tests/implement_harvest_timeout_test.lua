@@ -36,6 +36,17 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
+    local worktree = "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/committed-unknown"
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
     for _ = 1, 2 do
       t.mock_command("scripts/run.sh test-affected", {
         stdout = "",
@@ -51,7 +62,7 @@ return {
       "dev",
       branch,
       "abc123",
-      "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/committed-unknown",
+      worktree,
       1,
       now() - 60,
       "implement/exec/committed-unknown",
@@ -74,12 +85,23 @@ return {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
     })
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("[ -d '/tmp/fkst-packages-test/github-devloop/runtime/worktrees/dirty-timeout' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree /tmp/fkst-packages-test/github-devloop/runtime/worktrees/dirty-timeout"
+        .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("rev-list --count", {
       stdout = "0\n",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,

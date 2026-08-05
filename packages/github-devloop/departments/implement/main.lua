@@ -304,6 +304,18 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
   if outcome == nil then
     return
   end
+  if outcome.kind == "worktree-missing" or outcome.kind == "worktree-unregistered" then
+    local error_class = outcome.kind == "worktree-missing" and "WORKTREE_MISSING" or "WORKTREE_UNREGISTERED"
+    devloop_logging.log_error_fact("warn", "implement", outcome.ready.proposal_id,
+      "WORKTREE_UNAVAILABLE", error_class, "devloop_ready",
+      "implementation worktree is unavailable during harvest: " .. tostring(outcome.reason), {
+        source_ref = outcome.ready.source_ref,
+        attempt = outcome.attempt,
+        terminal = false,
+        worktree = outcome.worktree,
+      })
+    return
+  end
   raise_implement_attempt(repo, issue_number, outcome.ready, outcome.attempt, outcome.started_at, outcome.exec_ref)
   if outcome.kind == "implementing" then
     publish_implementation_branch(repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
