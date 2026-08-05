@@ -13,12 +13,6 @@ local function assert_language_preamble(prompt)
   t.is_true(prompt:find("Write all output in English; quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
 end
 
-local function assert_judge_preamble_slots(prompt)
-  assert_language_preamble(prompt)
-  t.is_true(prompt:find("Before judging, identify the established theory or industry best practice governing this problem class", 1, true) ~= nil)
-  t.is_true(prompt:find("grounds for rejection or narrowing", 1, true) ~= nil)
-  t.is_nil(prompt:find("Before acting, identify the established theory or industry best practice governing this change", 1, true))
-end
 
 local function assert_actor_preamble_slots(prompt)
   assert_language_preamble(prompt)

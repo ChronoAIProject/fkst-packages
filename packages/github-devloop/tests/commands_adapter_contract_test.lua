@@ -72,7 +72,7 @@ return {
     end)
 
     t.eq(ok, false)
-    t.is_true(tostring(err):find("forge.merge: github_handle is required", 1, true) ~= nil)
+    t.is_true(tostring(err):find("forge.merge: github-handle-required: github_handle is required", 1, true) ~= nil)
   end,
 
   test_sweep_exec_accepts_typed_run_command = function()

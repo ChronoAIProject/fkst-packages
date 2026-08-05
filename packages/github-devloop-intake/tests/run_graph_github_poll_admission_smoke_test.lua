@@ -6,6 +6,7 @@ local t = fkst.test
 local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local entity_list_cache = require("devloop.entity_list_cache")
+local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local author_policy = require("testkit_internal.github_author_policy")
 local h = require("tests.devloop_helpers")
 
@@ -125,6 +126,7 @@ end
 
 return {
   test_run_graph_github_poll_reaches_intake_admission_candidate_without_intake_poll = function()
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     mock_env()
     mock_proxy_poll_lists()
@@ -169,6 +171,7 @@ return {
   end,
 
   test_configured_prefix_issue_replays_after_transient_peer_failure_and_reaches_admission_effect = function()
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     mock_transient_peer_replay_env()
     mock_labelled_poll_snapshot()

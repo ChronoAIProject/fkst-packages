@@ -103,12 +103,19 @@ local function assert_pr_label_guard(payload, expected_state, expected_version)
   t.eq(payload.expected_version, expected_version)
 end
 local function mock_existing_review_worktree(impl_version)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local worktree = devloop_base.implement_worktree_path(
-    "/tmp/fkst-packages-test/github-devloop/runtime",
+    devloop_base.implementation_worktree_root(durable_root),
     "owner/repo",
     42,
     impl_version
   )
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/devloop-owner-repo-42-01HY\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command(core.path_is_directory_cmd(worktree), {
     stdout = "",
     stderr = "",

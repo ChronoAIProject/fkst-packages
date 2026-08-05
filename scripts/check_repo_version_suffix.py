@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
-import ratchet_base
+import check_repo_lua
 
 
 ALLOWLIST = "migration/version-suffix.allowlist"
@@ -77,76 +77,11 @@ class VersionSuffixAllowlistEntry:
         return f"{self.path}:{self.line}"
 
 
-def mask_span(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, min(end, len(chars))):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is None:
-                newline = text.find("\n", cursor)
-                end = len(text) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        if text[cursor] in ("'", '"'):
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-        if bracket is not None:
-            opener_len, closer = bracket
-            end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
-            mask_span(chars, cursor, end)
-            cursor = end
-            continue
-        cursor += 1
-    return "".join(chars)
-
-
 def lua_string_literals(text: str) -> list[LuaStringLiteral]:
-    literals: list[LuaStringLiteral] = []
-    cursor = 0
-    while cursor < len(text):
-        if text.startswith("--", cursor):
-            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
-            if bracket is None:
-                newline = text.find("\n", cursor)
-                cursor = len(text) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
-            continue
-        if text[cursor] in ("'", '"'):
-            start = cursor
-            end = check_repo_config.lua_quoted_string_end(text, cursor)
-            content_end = end - 1 if end <= len(text) and text[end - 1] == text[cursor] else end
-            literals.append(LuaStringLiteral(start=start, end=end, content=text[cursor + 1 : content_end]))
-            cursor = end
-            continue
-        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
-        if bracket is not None:
-            start = cursor
-            opener_len, closer = bracket
-            body_start = cursor + opener_len
-            close_start = text.find(closer, body_start)
-            body_end = len(text) if close_start == -1 else close_start
-            end = len(text) if close_start == -1 else close_start + len(closer)
-            literals.append(LuaStringLiteral(start=start, end=end, content=text[body_start:body_end]))
-            cursor = end
-            continue
-        cursor += 1
-    return literals
+    return [
+        LuaStringLiteral(start=span.start, end=span.end, content=span.content(text))
+        for span in check_repo_lua.literal_spans(text)
+    ]
 
 
 def line_start(text: str, index: int) -> int:
@@ -214,7 +149,7 @@ def is_parsing_pattern(masked: str, literal: LuaStringLiteral) -> bool:
 
 
 def source_sites(path: str, source: str) -> set[VersionSuffixSite]:
-    masked = lua_code_mask(source)
+    masked = check_repo_lua.code_mask(source)
     sites: set[VersionSuffixSite] = set()
     for literal in lua_string_literals(source):
         if contains_banned_suffix_literal(literal.content) and has_concat_neighbor(masked, literal):
@@ -269,6 +204,14 @@ def load_allowlist(path: Path) -> set[VersionSuffixAllowlistEntry]:
     return entries
 
 
+def parse_dev_allowlist_lines(lines: list[str]) -> set[VersionSuffixAllowlistEntry]:
+    return {
+        VersionSuffixAllowlistEntry.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def ratchet_messages(
     current: set[VersionSuffixSite],
     allowlist: set[VersionSuffixAllowlistEntry],
@@ -291,21 +234,6 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[VersionSuffixAllowlistEntry] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            VersionSuffixAllowlistEntry.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(
     root: Path,
     allowlist_dir: Path | None = None,
@@ -314,7 +242,15 @@ def repository_messages(
     current = sites(root)
     allow_path = root / ALLOWLIST if allowlist_dir is None else allowlist_dir / Path(ALLOWLIST).name
     allowlist = load_allowlist(allow_path)
-    base_status, base_allowlist = allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    base_status, base_allowlist = (
+        check_repo_config.allowlist_at_dev_base(
+            root,
+            allowlist=ALLOWLIST,
+            parse_allowlist_lines=parse_dev_allowlist_lines,
+        )
+        if enforce_base
+        else ("absent", None)
+    )
     messages: list[str] = []
     if base_status == "unresolved":
         messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")

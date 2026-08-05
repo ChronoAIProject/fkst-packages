@@ -10,6 +10,11 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+      stdout = "/runtime/dogfood-durable-packages",
+      stderr = "",
+      exit_code = 0,
+    })
     -- Dry-run posture (removal disabled) — the dept reads this host fact each pass.
     t.mock_command('printf %s "$FKST_WORKTREE_GC_REMOVE"', { stdout = "", stderr = "", exit_code = 0 })
     -- No worktrees registered this pass: the sweep is a clean no-op.
