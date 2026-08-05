@@ -394,9 +394,8 @@ local function pipeline_fix(event)
     end
 
     local action = "drop"
-    local reason = reconcile.reason_class == fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
-      and fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
-      or "fix-loop-max-rounds-after-" .. tostring(reconcile.round) .. "-rounds"
+    local reason = fix_rounds.FIX_LOOP_MAX_ROUNDS
+      .. "-after-" .. tostring(reconcile.round) .. "-rounds"
     local grant = restart_effects.mint_grant(snapshot, decision, "comment:pr:reconcile-blocked")
     if grant == nil then
       error("github-devloop: restart-effect-grant-mint-failed: PR fix reconcile grant was not minted")
