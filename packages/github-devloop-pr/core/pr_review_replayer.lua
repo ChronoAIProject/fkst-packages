@@ -134,9 +134,10 @@ local function fixing_replay_comment_request(issue, pr_number, fix_payload, feed
     reason = feedback and feedback.reason,
   }, source_ref)
   request.handoff.dedup_key = fix_payload.dedup_key
+  request.handoff.redrive_delivery = fix_payload.redrive_delivery
+  request.dedup_key = fix_payload.redrive_delivery ~= nil and fix_payload.dedup_key or request.dedup_key
   return request
 end
-
 local function comments_for_pr_facts(facts, current_pr)
   local comments = {}
   local seen = false
@@ -302,7 +303,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then
       return tools.log_skip(dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
     end
-    return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, "push already visible; self-healing missing reviewing marker")
+    return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, "push already visible; self-healing missing reviewing marker", facts.redrive_delivery)
   end
   if feedback.ci_failure_key ~= nil then
     local decision = ci_repair_retry.evaluate(M, state, {
@@ -336,7 +337,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
       if not pr_open_state(decision.current_pr) then
         return tools.log_skip(dept, proposal_id, state, "fixing", "reviewing", "skip-stale(pr-closed)", "fresh CI retry admission observed a non-open PR")
       end
-      return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, decision.current_pr, feedback, decision.reason)
+      return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, decision.current_pr, feedback, decision.reason, facts.redrive_delivery)
     end
     if decision.kind == "applied" then
       return decision.result
@@ -348,6 +349,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
   local payload = payloads_builders.build_replayed_fixing_payload({
     proposal_id = proposal_id,
     impl_version = state.version,
+    redrive_delivery = facts.redrive_delivery,
   }, link.pr_number, feedback, entity_lib.pr_source_ref(issue.repo, link.pr_number))
   devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "trusted fix feedback fact is visible")
   if dept == "observe_pr" then

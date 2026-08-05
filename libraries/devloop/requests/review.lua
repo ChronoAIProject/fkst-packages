@@ -422,7 +422,8 @@ function C.build_merge_gate_fix_comment_request(M, repo, issue_number, merge_rea
 end
 
 function C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_head_sha, new_head_sha, new_version)
-  local state_marker = devloop_state.state_marker(fix.proposal_id, "reviewing", new_version or fix.version)
+  local reviewing_version = new_version or fix.version
+  local state_marker = devloop_state.state_marker(fix.proposal_id, "reviewing", reviewing_version)
   local marker = m_builders.fix_marker(fix.proposal_id, fix.review_proposal_id, fix.review_dedup_key, old_head_sha, new_head_sha)
   local summary = ""
   if fix.fix_summary ~= nil and tostring(fix.fix_summary) ~= "" then
@@ -444,7 +445,18 @@ function C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_h
     tostring(fix.review_dedup_key),
     tostring(new_head_sha),
   }), fix.source_ref)
-  return C.attach_reviewing_handoff(request, fix.proposal_id, fix.pr_number, new_version or fix.version, fix.source_ref)
+  local review_delivery_dedup_key
+  if fix.redrive_delivery ~= nil then
+    review_delivery_dedup_key = devloop_base.pr_review_redrive_delivery_dedup_key(
+      devloop_base.pr_review_proposal_id(repo, fix.pr_number, reviewing_version, new_head_sha),
+      fix.redrive_delivery.generation_key,
+      fix.redrive_delivery.attempt
+    )
+  end
+  return C.attach_reviewing_handoff(
+    request, fix.proposal_id, fix.pr_number, reviewing_version, fix.source_ref,
+    review_delivery_dedup_key
+  )
 end
 
 function C.raise_fix_review_meta(caps, repo, issue_number, fix, reason, detail)
@@ -509,7 +521,7 @@ function C.raise_fix_reviewing(M, opts)
   end
 end
 
-function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, reason)
+function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, reason, redrive_delivery)
   local new_version = devloop_state.next_fix_version(state.version)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
   local fix = {
@@ -519,6 +531,7 @@ function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, pr
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
     reviewed_head_sha = feedback.reviewed_head_sha,
+    redrive_delivery = redrive_delivery,
     source_ref = source_ref,
   }
   local label_request = issue.number ~= nil and labels.build_state_label_request(

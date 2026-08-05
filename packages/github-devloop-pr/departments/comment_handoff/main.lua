@@ -12,6 +12,7 @@ local ci_failure_keys = require("devloop.ci_failure_keys")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
+local payloads_shared = require("devloop.payloads.shared")
 local v_review_meta = require("devloop.validators.review_meta")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -76,7 +77,18 @@ local function valid_merge_ready_handoff(handoff)
 end
 
 local function valid_fixing_handoff(handoff)
-  return valid_review_handoff(handoff)
+  local valid_redrive_delivery = true
+  if handoff.redrive_delivery ~= nil then
+    local ok, expected = pcall(
+      payloads_shared.issue_redrive_delivery_dedup_key,
+      handoff.proposal_id,
+      handoff.version,
+      handoff.redrive_delivery
+    )
+    valid_redrive_delivery = ok and handoff.dedup_key == expected
+  end
+  return valid_redrive_delivery
+    and valid_review_handoff(handoff)
     and (handoff.current_head_sha == nil or require("devloop.pr_safety").is_safe_head_sha(handoff.current_head_sha))
     and (handoff.blocking_gap == nil or strings.is_bounded_string(handoff.blocking_gap, devloop_base._max_blocking_gap_len))
     and (handoff.framing == nil or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
@@ -183,6 +195,12 @@ local function emit_fixing(payload, handoff)
   }, handoff.source_ref)
   if handoff.dedup_key ~= nil then
     fixing.dedup_key = handoff.dedup_key
+  end
+  if handoff.redrive_delivery ~= nil then
+    fixing.redrive_delivery = {
+      generation_key = handoff.redrive_delivery.generation_key,
+      attempt = handoff.redrive_delivery.attempt,
+    }
   end
   devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "fixing", version = handoff.version }, "comment-written", "devloop_fixing", "applied(own-write-comment-id)", "fixing marker comment write was acknowledged")
   devloop_logging.log_raise("comment_handoff", handoff.proposal_id, "devloop_fixing", fixing)

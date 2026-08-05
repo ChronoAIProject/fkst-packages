@@ -81,6 +81,8 @@ local function fixing_replay_comment_request(M, issue, pr_number, fix_payload, f
     }
   )
   request.handoff.dedup_key = fix_payload.dedup_key
+  request.handoff.redrive_delivery = fix_payload.redrive_delivery
+  request.dedup_key = fix_payload.redrive_delivery ~= nil and fix_payload.dedup_key or request.dedup_key
   return request
 end
 
@@ -191,7 +193,7 @@ local function replay_impl_failed(M, dept, issue, state, row, facts)
   })
 end
 
-local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, source_ref)
+local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, source_ref, redrive_delivery)
   local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
   if intended_head_sha == nil then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "retry-pending(head-advanced)", "PR head changed and deterministic branch head is not readable")
@@ -213,6 +215,7 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
     reviewed_head_sha = feedback.reviewed_head_sha,
+    redrive_delivery = redrive_delivery,
     source_ref = source_ref,
   }
   requests_review.raise_fix_reviewing(M, {
@@ -256,7 +259,7 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-foreign(fix-feedback-binding)", "trusted fix feedback marker lacks review binding")
     end
     if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
-      return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number))
+      return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number), facts.redrive_delivery)
     end
     local reviewing_version = M.next_fix_version(state.version)
     if M.has_state_marker(facts.snapshot.comments, proposal_id, "reviewing", reviewing_version)
@@ -273,6 +276,7 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
     local fix_payload = payloads_builders.build_replayed_fixing_payload({
       proposal_id = fields.proposal_id,
       impl_version = fields.version,
+      redrive_delivery = facts.redrive_delivery,
     }, fields.pr_number, feedback, fields.source_ref)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "trusted feedback fact is visible")
     if dept == "observe_pr" then

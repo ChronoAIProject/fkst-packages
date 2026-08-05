@@ -302,6 +302,17 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
       replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
     })
   end
+  if origin.redrive_delivery ~= nil then
+    payload.redrive_delivery = {
+      generation_key = origin.redrive_delivery.generation_key,
+      attempt = origin.redrive_delivery.attempt,
+    }
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      origin.proposal_id,
+      payload.version,
+      payload.redrive_delivery
+    )
+  end
   return payload
 end
 

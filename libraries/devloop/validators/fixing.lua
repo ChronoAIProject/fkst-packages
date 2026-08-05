@@ -6,8 +6,22 @@ local source_refs = require("contract.source_ref")
 local forge_validators = require("devloop.forge_validators")
 local entity_lib = require("devloop.entity")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local payloads_shared = require("devloop.payloads.shared")
 
 local C = {}
+local function is_supported_redrive_delivery(payload)
+  if payload.redrive_delivery == nil then
+    return true
+  end
+  local ok, expected = pcall(
+    payloads_shared.issue_redrive_delivery_dedup_key,
+    payload.proposal_id,
+    payload.version,
+    payload.redrive_delivery
+  )
+  return ok and payload.dedup_key == expected
+end
+
 function C.is_supported_fixing(payload)
   if type(payload) ~= "table"
     or payload.schema ~= "github-devloop.fixing.v1"
@@ -28,6 +42,9 @@ function C.is_supported_fixing(payload)
   end
 
   if not entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key) then
+    return false
+  end
+  if not is_supported_redrive_delivery(payload) then
     return false
   end
   local repair_input = payload.repair_input or "review-feedback"
