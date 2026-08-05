@@ -10,7 +10,7 @@ local config = require("devloop.config")
 -- consumed by one matching read (queued FIFO), mirroring claim_contract_test.lua's
 -- mock_bot, which re-registers FKST_GITHUB_WRITE write_reads times. We register a
 -- generous count so a whole claim flow's repeated env reads stay answered.
-local function mock_env(login, claim_mode, write_mode, reads)
+local function mock_env(login, claim_mode, write_mode, reads, managed_bot_logins)
   local n = reads or 12
   for _ = 1, n do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -30,6 +30,11 @@ local function mock_env(login, claim_mode, write_mode, reads)
     })
     t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', {
       stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+      stdout = managed_bot_logins or "",
       stderr = "",
       exit_code = 0,
     })
@@ -154,12 +159,29 @@ return {
   -- (b) label-mode claim state + ownership derived from the claimed label.
   test_label_mode_claim_state_derives_from_claimed_label = function()
     mock_env("fkst-test-bot", "label", "")
-    -- No claimed label => unclaimed regardless of assignees.
+    -- No claimed label, no managed-bot assignee => unclaimed.
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
+    -- Assignee is an unknown (non-managed) login => still unassigned.
     t.eq(m_claims.issue_claim_state({ { login = "someone" } }, "fkst-test-bot", { "fkst-dev:enabled" }), "unassigned")
     -- Claimed label present => self.
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { claimed_label }), "self")
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { "fkst-dev:enabled", claimed_label }), "self")
+  end,
+
+  -- label mode: assignee held by a known peer managed bot => "other" (skip).
+  test_label_mode_claim_state_returns_other_when_assignee_is_managed_peer = function()
+    -- "ElonSG" is a known peer; "fkst-test-bot" is self.
+    mock_env("fkst-test-bot", "label", "", 12, "ElonSG,fkst-test-bot")
+    -- Peer bot holds the assignee => "other".
+    t.eq(m_claims.issue_claim_state({ { login = "ElonSG" } }, "fkst-test-bot", {}), "other")
+    -- [bot]-suffixed peer login normalized on both sides.
+    t.eq(m_claims.issue_claim_state({ { login = "ElonSG[bot]" } }, "fkst-test-bot", {}), "other")
+    -- Self-assignee is never "other" even when self is in the managed list.
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot", {}), "unassigned")
+    -- Claimed label wins over peer assignee => self.
+    t.eq(m_claims.issue_claim_state({ { login = "ElonSG" } }, "fkst-test-bot", { claimed_label }), "self")
+    -- Unknown login (not in managed list) => still unassigned.
+    t.eq(m_claims.issue_claim_state({ { login = "random-human" } }, "fkst-test-bot", {}), "unassigned")
   end,
 
   test_label_mode_is_self_owned_uses_label_presence = function()

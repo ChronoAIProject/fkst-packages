@@ -387,6 +387,22 @@ function C.issue_claim_state(assignees, owner, labels)
     if restart_metadata.has_label(labels, claimed_label) then
       return "self"
     end
+    -- Even in label mode, respect an assignee lock held by a known peer bot
+    -- (any managed-bot login that is not this host's own login). This requires
+    -- no extra API call: `read_current_issue_ownership` already fetches assignees
+    -- in label mode and the information is in hand.
+    local logins = C.assignee_logins(assignees)
+    if #logins > 0 then
+      local managed = C.managed_bot_logins()
+      local stripped_owner = devloop_base.strip_bot_login_suffix(tostring(owner or ""))
+      for _, login in ipairs(logins) do
+        local stripped = devloop_base.strip_bot_login_suffix(login)
+        if stripped ~= nil and stripped ~= "" and stripped ~= stripped_owner
+          and C.is_managed_bot_login(login, managed) then
+          return "other"
+        end
+      end
+    end
     return "unassigned"
   end
   local logins = C.assignee_logins(assignees)
