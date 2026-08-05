@@ -127,6 +127,42 @@ return {
     t.eq(count_calls(probe_command), 0)
   end,
 
+  test_intake_issue_view_same_poll_and_validator_reuses_full_cached_view = function()
+    mock_author_policy()
+    local repo = "owner/intake-cache-hit"
+    local issue_number = 4248
+    local updated_at = "2026-06-03T01:02:03Z"
+    seam.mock_issue_view_selector(t, {
+      repo = repo,
+      number = issue_number,
+      title = "Cached intake poll 1",
+      updated_at = updated_at,
+    }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
+    seam.mock_issue_view_selector(t, {
+      repo = repo,
+      number = issue_number,
+      title = "Fresh intake poll 2",
+      updated_at = updated_at,
+    }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
+
+    local first = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = "poll-1",
+    })
+    local second = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = "poll-1",
+    })
+    local next_poll = devloop_entity_view.fetch_issue_view_intake_judge(repo, issue_number, updated_at, {
+      coalesce_scope = "poll-2",
+    })
+
+    t.eq(first.exit_code, 0)
+    t.eq(second.exit_code, 0)
+    t.eq(next_poll.exit_code, 0)
+    t.is_true(first.stdout:find('"Cached intake poll 1"', 1, true) ~= nil)
+    t.is_true(second.stdout:find('"Cached intake poll 1"', 1, true) ~= nil)
+    t.is_true(next_poll.stdout:find('"Fresh intake poll 2"', 1, true) ~= nil)
+  end,
+
   test_validator_match_can_coalesce_explicit_force_fresh = function()
     mock_author_policy()
     local repo = "owner/legacy-force-fresh"

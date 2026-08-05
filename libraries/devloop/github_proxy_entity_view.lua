@@ -1,4 +1,5 @@
 local C = {}
+local devloop_commands = require("devloop.commands")
 local github_view = require("forge.github_view")
 local github_factory = require("devloop.github_factory")
 
@@ -16,6 +17,7 @@ local repo_owner_login = github_view.repo_owner_login
 local decode_comments_json = function(stdout) return github_view.decode_comments_json(stdout, "github-devloop: REST") end
 
 local max_cache_key_segment_len = 120
+local intake_issue_view_cache_kind = "issue-intake-judge"
 
 local function github()
   if type(exec_argv) ~= "function" then
@@ -338,9 +340,14 @@ local function rest_entity_view_result(repo, kind, number, timeout)
   return rest_issue_view_result(repo, number, timeout)
 end
 
-local function encode_cached_view(stdout, updated_at, producer)
+local function encode_cached_view(stdout, updated_at, producer, scope)
+  local scope_field = ""
+  if scope ~= nil then
+    scope_field = ',"scope":' .. json_string(scope)
+  end
   return '{"updated_at":' .. json_string(updated_at)
     .. ',"producer":' .. json_string(producer)
+    .. scope_field
     .. ',"stdout":' .. json_string(stdout or "")
     .. "}"
 end
@@ -353,11 +360,34 @@ local function success_from_cache(cached)
   }
 end
 
-local function cache_successful_view(key, result, producer)
+local function cache_successful_view(key, result, producer, scope)
   local view_updated_at = parse_view_updated_at(result and result.stdout)
   if type(result) == "table" and result.exit_code == 0 and view_updated_at ~= nil then
-    cache_set(key, encode_cached_view(result.stdout or "", view_updated_at, producer))
+    cache_set(key, encode_cached_view(result.stdout or "", view_updated_at, producer, scope))
   end
+end
+
+local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  local options = opts or {}
+  local validator = tostring(updated_at or "")
+  local coalesce_scope = tostring(options.coalesce_scope or "")
+  local key = entity_view_cache_key(repo, intake_issue_view_cache_kind, issue_number)
+  local cached = decode_cached_view(cache_get(key))
+  if validator ~= ""
+    and coalesce_scope ~= ""
+    and cached ~= nil
+    and cached.updated_at == validator
+    and cached.scope == coalesce_scope then
+    return success_from_cache(cached)
+  end
+
+  local result = devloop_commands.gh_issue_view_intake_judge(
+    repo,
+    issue_number,
+    tonumber(options.timeout) or 30
+  )
+  cache_successful_view(key, result, options.consumer or "admission", coalesce_scope)
+  return result
 end
 
 local function fetch_entity_view(repo, kind, number, updated_at, opts)
@@ -423,6 +453,9 @@ function C.invalidate_entity_after_write(repo, kind, number)
   with_lock(entity_key, function()
     cache_set(entity_key, "")
     cache_set(view_key, "")
+    if selected_kind == "issue" then
+      cache_set(entity_view_cache_key(repo, intake_issue_view_cache_kind, number), "")
+    end
   end)
 end
 
@@ -444,6 +477,10 @@ end
 
 function C.fetch_issue_view(repo, issue_number, updated_at, opts)
   return fetch_entity_view(repo, "issue", issue_number, updated_at, opts)
+end
+
+function C.fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
+  return fetch_issue_view_intake_judge(repo, issue_number, updated_at, opts)
 end
 
 function C.fetch_pr_view(repo, pr_number, updated_at, opts)

@@ -94,11 +94,11 @@ local function admit_issue_event(context, event, entity)
     lock_key = lock_key,
     work = function()
       devloop_base.assert_trusted_bot_configured()
-      local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+      local poll_key = m_claims.claim_admission_poll_epoch(event)
+      local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
 
       devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
       local issue = issue_from_current(issue_number, current)
-      local poll_key = m_claims.claim_admission_poll_epoch(event)
 
       if current.state ~= "OPEN" then
         reconcile_capacity(context, repo, proposal_id)
