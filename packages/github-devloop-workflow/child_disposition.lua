@@ -18,7 +18,6 @@ local marker = require("core.marker")
 local M = {}
 
 M.REQUEST_QUEUE = "workflow_child_disposition_request"
-M.HANDOFF_KIND = "github-devloop-workflow.child-disposition"
 M.TIMEOUT_SECONDS = 30
 
 local function fail(code, message)
@@ -345,60 +344,10 @@ local function visible_disposition_line(request)
   return "Workflow child disposition: satisfied."
 end
 
-local function comment_dedup_key(request)
-  return base_ids.dedup_key({
-    "workflow",
-    "child-disposition",
-    request.origin,
-    request.blueprint_digest,
-    request.slot,
-    tostring(request.child_issue_number),
-  })
-end
-
-local function comment_request(request)
-  local dedup_key = comment_dedup_key(request)
-  local outbound = {
-    schema = "github-proxy.v1",
-    repo = request.repo,
-    issue_number = request.child_issue_number,
-    body = visible_disposition_line(request)
-      .. "\n\n" .. request.marker
-      .. "\n" .. request_shared.ai_sentinel,
-    dedup_key = dedup_key,
-    source_ref = request.child_source_ref,
-    handoff = {
-      kind = M.HANDOFF_KIND,
-      repo = request.repo,
-      origin_issue_number = request.origin_issue_number,
-      child_issue_number = request.child_issue_number,
-      blueprint_digest = request.blueprint_digest,
-      slot = request.slot,
-      disposition = request.disposition,
-      successor_source_ref = request.successor_source_ref,
-      reason_code = request.reason_code,
-      request_dedup_key = request.dedup_key,
-      comment_dedup_key = dedup_key,
-      source_ref = request.child_source_ref,
-    },
-  }
-  return devloop_claims.attach_issue_claim(outbound, request.child_source_ref)
-end
-
-local function request_from_handoff(handoff)
-  return normalized_request({
-    schema = "github-devloop-workflow.child-disposition.v1",
-    repo = handoff.repo,
-    origin_issue_number = handoff.origin_issue_number,
-    child_issue_number = handoff.child_issue_number,
-    blueprint_digest = handoff.blueprint_digest,
-    slot = handoff.slot,
-    disposition = handoff.disposition,
-    successor_source_ref = handoff.successor_source_ref,
-    reason_code = handoff.reason_code,
-    dedup_key = handoff.request_dedup_key,
-    source_ref = handoff.source_ref,
-  })
+local function receipt_body(request)
+  return visible_disposition_line(request)
+    .. "\n\n" .. request.marker
+    .. "\n" .. request_shared.ai_sentinel
 end
 
 local function write_enabled(deps)
@@ -421,6 +370,22 @@ local function issue_close(deps, request, disposition)
     request.repo,
     request.child_issue_number,
     disposition,
+    M.TIMEOUT_SECONDS
+  )
+end
+
+local function write_receipt(deps, request, body)
+  if type(deps.write_receipt) == "function" then
+    return deps.write_receipt(request, body, M.TIMEOUT_SECONDS)
+  end
+  local repo_key = request.repo:gsub("[^%w_.-]", "-")
+  local path = "/tmp/fkst-github-devloop-workflow-child-disposition-"
+    .. repo_key .. "-" .. tostring(request.child_issue_number) .. ".md"
+  file.write(path, body)
+  return github().issue_comment_create(
+    request.repo,
+    request.child_issue_number,
+    path,
     M.TIMEOUT_SECONDS
   )
 end
@@ -463,53 +428,15 @@ function M.request_handlers(opts)
         if tostring(child.state or ""):upper() == "CLOSED" and current_fact ~= nil then
           return
         end
-        local outbound = comment_request(request)
-        devloop_logging.log_raise(
-          "workflow_child_disposition",
-          request.origin,
-          "github-proxy.github_issue_comment_request",
-          outbound
-        )
-      end)
-    end,
-    wrap = devloop_logging.wrap_pipeline_failure,
-    name = "workflow_child_disposition",
-  }
-end
-
-function M.handoff_handlers(opts)
-  local deps = opts and opts.deps or {}
-  return {
-    accept = function(event)
-      local handoff = event and event.payload and event.payload.handoff
-      return type(handoff) == "table" and handoff.kind == M.HANDOFF_KIND
-    end,
-    done = function() return false end,
-    act = function(event)
-      local payload = event and event.payload or {}
-      local handoff = payload.handoff
-      if type(handoff) ~= "table" or handoff.kind ~= M.HANDOFF_KIND then
-        return
-      end
-      local request = request_from_handoff(handoff)
-      if payload.schema ~= "github-proxy.comment-written.v1"
-        or payload.target ~= "issue"
-        or tostring(payload.repo) ~= request.repo
-        or tostring(payload.issue_number) ~= tostring(request.child_issue_number)
-        or tostring(payload.request_dedup_key) ~= tostring(handoff.comment_dedup_key)
-        or not devloop_operator_commands.source_refs_match(payload.source_ref, request.child_source_ref) then
-        fail("invalid-disposition-handoff", "comment acknowledgement does not match the disposition receipt")
-      end
-      with_authority_locks(deps, request, function()
-        local child, current_fact = assert_authority(deps, request)
-        if current_fact == nil or not same_disposition(current_fact, request) then
-          fail("disposition-receipt-missing", "trusted disposition receipt is not visible on the child")
-        end
-        if tostring(child.state or ""):upper() == "CLOSED" then
-          return
-        end
         if not write_enabled(deps) then
           return
+        end
+        if current_fact == nil then
+          local receipt = write_receipt(deps, request, receipt_body(request))
+          if type(receipt) ~= "table" or receipt.exit_code ~= 0 then
+            fail("child-disposition-receipt-failed", tostring(receipt and receipt.stderr or "missing result"))
+          end
+          invalidate(deps, request)
         end
         local result = issue_close(deps, request, close_disposition(request))
         if type(result) ~= "table" or result.exit_code ~= 0 then
@@ -519,7 +446,7 @@ function M.handoff_handlers(opts)
       end)
     end,
     wrap = devloop_logging.wrap_pipeline_failure,
-    name = "workflow_child_disposition_handoff",
+    name = "workflow_child_disposition",
   }
 end
 

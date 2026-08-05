@@ -40,12 +40,11 @@ the general model, **dynamic result-driven materialization**.
 - **`workflow_child_disposition`** is the published operation for closing an unmerged workflow
   child. It re-reads the origin blueprint, created-slot ledger, child lineage, and (for a transfer)
   successor lineage before writing one typed `satisfied`, `transferred`, or `undeliverable` receipt.
-  One disposition-invariant receipt identity makes the first persisted outcome authoritative, while
-  origin/child/merge-lane locking and fresh linked-PR evidence reject a late `transferred` or
-  `undeliverable` outcome after the child has merged.
-  `workflow_child_disposition_handoff` closes the child only after github-proxy acknowledges that
-  receipt and the same authority revalidates. `satisfied` completes the slot, `transferred` follows
-  the same-lineage successor, and `undeliverable` keeps the parent terminal `blocked` with its WHY.
+  The operation persists the receipt and closes the child in the same origin/child/merge-lane
+  critical section, so the first persisted outcome is authoritative: an earlier merge rejects the
+  disposition, while a later merge cannot override it. `satisfied` completes the slot, `transferred`
+  follows the same-lineage successor, and `undeliverable` keeps the parent terminal `blocked` with
+  its WHY.
   A raw external close has no typed receipt and remains fatal; this operation does not migrate
   already-closed children or create a new slot generation.
 

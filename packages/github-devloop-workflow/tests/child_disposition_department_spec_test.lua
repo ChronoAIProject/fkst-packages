@@ -1,5 +1,4 @@
 local request_department = require("departments.workflow_child_disposition.main")
-local handoff_department = require("departments.workflow_child_disposition_handoff.main")
 
 local t = fkst.test
 
@@ -11,8 +10,7 @@ local function assert_bounded_retry(department)
 end
 
 return {
-  test_child_disposition_departments_declare_bounded_durable_retry = function()
+  test_child_disposition_department_declares_bounded_durable_retry = function()
     assert_bounded_retry(request_department)
-    assert_bounded_retry(handoff_department)
   end,
 }

@@ -1,6 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local child_disposition = require("child_disposition")
 local child_result = require("core.child_result")
+local devloop_entity = require("devloop.entity")
 local digest = require("core.digest")
 local frontier = require("core.frontier")
 local marker = require("core.marker")
@@ -120,8 +121,10 @@ end
 
 local function fake_deps(entities, prs)
   local closes = {}
+  local receipts = {}
   return {
     closes = closes,
+    receipts = receipts,
     with_lock = function(_key, fn)
       return fn()
     end,
@@ -143,6 +146,15 @@ local function fake_deps(entities, prs)
     end,
     write_enabled = function()
       return true
+    end,
+    write_receipt = function(request, body, timeout)
+      receipts[#receipts + 1] = {
+        request = request,
+        body = body,
+        timeout = timeout,
+      }
+      entities[tonumber(request.child_issue_number)].comments[#entities[tonumber(request.child_issue_number)].comments + 1] = trusted_comment(body)
+      return { exit_code = 0, stdout = "created" }
     end,
     issue_close = function(close_repo, issue_number, disposition, timeout)
       closes[#closes + 1] = {
@@ -182,14 +194,7 @@ end
 
 local request_spec = {
   consumes = { "workflow_child_disposition_request" },
-  produces = { "github-proxy.github_issue_comment_request" },
-  stall_window = "30s",
-}
-
-local handoff_spec = {
-  consumes = { "github-proxy.github_comment_written" },
   produces = {},
-  fanout = { "github-proxy.github_comment_written" },
   stall_window = "30s",
 }
 
@@ -209,29 +214,6 @@ local function run_request_failure(deps, payload)
   })
 end
 
-local function handoff_event(request)
-  return {
-    queue = "github-proxy.github_comment_written",
-    payload = {
-      schema = "github-proxy.comment-written.v1",
-      repo = repo,
-      target = "issue",
-      issue_number = child_issue,
-      comment_id = "IC_child_disposition",
-      dedup_key = request.dedup_key .. "/written/IC_child_disposition",
-      request_dedup_key = request.dedup_key,
-      handoff = request.handoff,
-      source_ref = request.source_ref,
-    },
-  }
-end
-
-local function acknowledge_comment(deps, entities, request)
-  entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(request.body)
-  local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-  return testing.run_fake(dept, handoff_event(request))
-end
-
 local function disposition_fact(entity)
   return child_disposition.current_fact(entity, {
     origin = origin,
@@ -248,12 +230,11 @@ local tests = {
       [child_issue] = child_entity(child_issue),
     }
     local deps = fake_deps(entities)
-    local requested = run_request(deps, request_payload("satisfied"))
-    t.eq(#requested.raises, 1)
-    t.eq(requested.raises[1].queue, "github-proxy.github_issue_comment_request")
-    local request = requested.raises[1].payload
+    local result = run_request(deps, request_payload("satisfied"))
+    t.eq(#result.raises, 0)
+    t.eq(#deps.receipts, 1)
     local pending_fact = marker.parse_child_disposition_marker(
-      request.body,
+      deps.receipts[1].body,
       origin,
       blueprint_digest,
       "first",
@@ -261,7 +242,6 @@ local tests = {
     )
     t.eq(pending_fact.disposition, "satisfied")
 
-    acknowledge_comment(deps, entities, request)
     t.eq(#deps.closes, 1)
     t.eq(deps.closes[1].disposition.kind, "completed")
     t.eq(entities[child_issue].state, "CLOSED")
@@ -294,11 +274,11 @@ local tests = {
       [successor_issue] = child_entity(successor_issue),
     }
     local deps = fake_deps(entities)
-    local requested = run_request(deps, request_payload("transferred", {
+    local result = run_request(deps, request_payload("transferred", {
       successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
     }))
-    local request = requested.raises[1].payload
-    acknowledge_comment(deps, entities, request)
+    t.eq(#result.raises, 0)
+    t.eq(#deps.receipts, 1)
     t.eq(#deps.closes, 1)
     t.eq(deps.closes[1].disposition.kind, "duplicate")
     t.eq(deps.closes[1].disposition.duplicate_of, successor_issue)
@@ -312,11 +292,11 @@ local tests = {
       [child_issue] = child_entity(child_issue),
     }
     local deps = fake_deps(entities)
-    local requested = run_request(deps, request_payload("undeliverable", {
+    local result = run_request(deps, request_payload("undeliverable", {
       reason_code = "premise-refuted",
     }))
-    local request = requested.raises[1].payload
-    acknowledge_comment(deps, entities, request)
+    t.eq(#result.raises, 0)
+    t.eq(#deps.receipts, 1)
     t.eq(deps.closes[1].disposition.kind, "not_planned")
     local fact = disposition_fact(entities[child_issue])
     local decision = frontier.compute_frontier(plan, {
@@ -358,45 +338,21 @@ local tests = {
     t.eq(#deps.closes, 0)
   end,
 
-  test_handoff_requires_visible_typed_receipt_before_close = function()
+  test_competing_dispositions_preserve_first_persisted_receipt = function()
     local entities = {
       [origin_issue] = origin_entity(),
       [child_issue] = child_entity(child_issue),
     }
     local deps = fake_deps(entities)
-    local requested = run_request(deps, request_payload("satisfied"))
-    local request = requested.raises[1].payload
-    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-    local failed = testing.run_fake_expecting_failure(dept, {
-      queue = "github-proxy.github_comment_written",
-      payload = {
-        schema = "github-proxy.comment-written.v1",
-        repo = repo,
-        target = "issue",
-        issue_number = child_issue,
-        comment_id = "IC_missing_receipt",
-        request_dedup_key = request.dedup_key,
-        handoff = request.handoff,
-        source_ref = request.source_ref,
-      },
-    })
-    t.is_true(tostring(failed.failure.error):find("disposition-receipt-missing", 1, true) ~= nil)
-    t.eq(#deps.closes, 0)
-  end,
-
-  test_competing_dispositions_share_one_proxy_receipt_identity = function()
-    local entities = {
-      [origin_issue] = origin_entity(),
-      [child_issue] = child_entity(child_issue),
-    }
-    local deps = fake_deps(entities)
-    local satisfied = run_request(deps, request_payload("satisfied")).raises[1].payload
-    local undeliverable = run_request(deps, request_payload("undeliverable", {
+    run_request(deps, request_payload("satisfied"))
+    local failed = run_request_failure(deps, request_payload("undeliverable", {
       reason_code = "premise-refuted",
-    })).raises[1].payload
+    }))
 
-    t.eq(satisfied.dedup_key, undeliverable.dedup_key)
-    t.is_true(satisfied.body ~= undeliverable.body)
+    t.is_true(tostring(failed.failure.error):find("conflicting-child-disposition", 1, true) ~= nil)
+    t.eq(#deps.receipts, 1)
+    t.eq(#deps.closes, 1)
+    t.eq(disposition_fact(entities[child_issue]).disposition, "satisfied")
   end,
 
   test_request_rejects_transfer_after_trusted_child_merge = function()
@@ -406,11 +362,33 @@ local tests = {
       [successor_issue] = child_entity(successor_issue),
     }
     entities[child_issue].comments = child_pr_comments(true)
-    local failed = run_request_failure(fake_deps(entities), request_payload("transferred", {
+    local deps = fake_deps(entities)
+    local failed = run_request_failure(deps, request_payload("transferred", {
       successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
     }))
 
     t.is_true(tostring(failed.failure.error):find("child-already-merged", 1, true) ~= nil)
+    t.eq(#deps.receipts, 0)
+    t.eq(#deps.closes, 0)
+    local status = child_result.child_result_status({
+      has_merged_marker = function() return true end,
+      current_obligation_disposition = function()
+        return disposition_fact(entities[child_issue])
+      end,
+    }, {
+      proposal_id = child_proposal,
+      source_ref = base_ids.issue_source_ref(repo, child_issue),
+    })
+    local decision = frontier.compute_frontier(plan, {
+      first = {
+        state = "created",
+        child_ref = { issue_number = child_issue },
+      },
+    }, function()
+      return status
+    end)
+    t.eq(decision.action, "terminal")
+    t.eq(decision.state, "done")
   end,
 
   test_request_rejects_undeliverable_after_native_pr_merge = function()
@@ -433,7 +411,7 @@ local tests = {
     t.is_true(tostring(failed.failure.error):find("child-already-merged", 1, true) ~= nil)
   end,
 
-  test_handoff_preserves_transfer_when_pr_merges_after_receipt_request = function()
+  test_operation_persists_receipt_and_closes_inside_merge_lane_before_late_merge = function()
     local entities = {
       [origin_issue] = origin_entity(),
       [child_issue] = child_entity(child_issue),
@@ -448,55 +426,79 @@ local tests = {
       },
     }
     local deps = fake_deps(entities, prs)
-    local request = run_request(deps, request_payload("transferred", {
+    local held = {}
+    local merge_lock = devloop_entity.merge_lane_lock_key(repo)
+    deps.with_lock = function(key, fn)
+      t.is_nil(held[key])
+      held[key] = true
+      local ok, result = pcall(fn)
+      held[key] = nil
+      if not ok then
+        error(result)
+      end
+      return result
+    end
+    deps.write_receipt = function(_request, body)
+      t.eq(held[merge_lock], true)
+      entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(body)
+      return { exit_code = 0, stdout = "created" }
+    end
+    local close = deps.issue_close
+    deps.issue_close = function(...)
+      t.eq(held[merge_lock], true)
+      return close(...)
+    end
+
+    local result = run_request(deps, request_payload("transferred", {
       successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
-    })).raises[1].payload
-    entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(request.body)
-    local fact = disposition_fact(entities[child_issue])
-    t.is_true(fact ~= nil)
-    t.eq(fact.disposition, "transferred")
+    }))
+    t.eq(#result.raises, 0)
+    t.eq(#deps.closes, 1)
+    t.eq(disposition_fact(entities[child_issue]).disposition, "transferred")
+
     prs[child_pr].state = "MERGED"
     prs[child_pr].merged_at = "2026-08-05T00:05:00Z"
-
-    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-    testing.run_fake(dept, handoff_event(request))
-    t.eq(#deps.closes, 1)
-    t.eq(deps.closes[1].disposition.kind, "duplicate")
-    t.eq(deps.closes[1].disposition.duplicate_of, successor_issue)
-    t.eq(entities[child_issue].state, "CLOSED")
+    local status = child_result.child_result_status({
+      has_merged_marker = function() return true end,
+      current_obligation_disposition = function()
+        local fact = disposition_fact(entities[child_issue])
+        fact.successor_ref = base_ids.issue_source_ref(repo, successor_issue)
+        return fact
+      end,
+      transferred_child_status = function()
+        return "running", { disposition = "transferred" }
+      end,
+    }, {
+      proposal_id = child_proposal,
+      source_ref = base_ids.issue_source_ref(repo, child_issue),
+    })
+    local decision = frontier.compute_frontier(plan, {
+      first = {
+        state = "created",
+        child_ref = { issue_number = child_issue },
+      },
+    }, function()
+      return status
+    end)
+    t.eq(decision.action, "wait")
+    t.eq(decision.why, "children-not-yet-ready")
   end,
 
-  test_handoff_revalidates_child_claim_after_receipt = function()
+  test_completed_operation_replay_is_idempotent_after_origin_closes = function()
     local entities = {
       [origin_issue] = origin_entity(),
       [child_issue] = child_entity(child_issue),
     }
     local deps = fake_deps(entities)
-    local request = run_request(deps, request_payload("satisfied")).raises[1].payload
-    entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(request.body)
-    entities[child_issue].assignees = { "human" }
-
-    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-    local failed = testing.run_fake_expecting_failure(dept, handoff_event(request))
-    t.is_true(tostring(failed.failure.error):find("child-claim-not-self", 1, true) ~= nil)
-    t.eq(#deps.closes, 0)
-  end,
-
-  test_completed_handoff_replay_is_idempotent_after_origin_closes = function()
-    local entities = {
-      [origin_issue] = origin_entity(),
-      [child_issue] = child_entity(child_issue),
-    }
-    local deps = fake_deps(entities)
-    local request = run_request(deps, request_payload("satisfied")).raises[1].payload
-    acknowledge_comment(deps, entities, request)
+    run_request(deps, request_payload("satisfied"))
     t.eq(#deps.closes, 1)
+    t.eq(#deps.receipts, 1)
 
     entities[origin_issue].state = "CLOSED"
-    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-    testing.run_fake(dept, handoff_event(request))
+    run_request(deps, request_payload("satisfied"))
 
     t.eq(#deps.closes, 1)
+    t.eq(#deps.receipts, 1)
   end,
 
   test_completed_transfer_replay_is_idempotent_after_linked_pr_merges = function()
@@ -514,18 +516,19 @@ local tests = {
       },
     }
     local deps = fake_deps(entities, prs)
-    local request = run_request(deps, request_payload("transferred", {
+    local payload = request_payload("transferred", {
       successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
-    })).raises[1].payload
-    acknowledge_comment(deps, entities, request)
+    })
+    run_request(deps, payload)
     t.eq(#deps.closes, 1)
+    t.eq(#deps.receipts, 1)
 
     prs[child_pr].state = "MERGED"
     prs[child_pr].merged_at = "2026-08-05T00:05:00Z"
-    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
-    testing.run_fake(dept, handoff_event(request))
+    run_request(deps, payload)
 
     t.eq(#deps.closes, 1)
+    t.eq(#deps.receipts, 1)
   end,
 
   test_raw_closed_child_cannot_be_retrofitted_by_the_operation = function()

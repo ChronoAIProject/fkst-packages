@@ -118,7 +118,7 @@ local function fixture_markers()
   }
 end
 
-local function mock_authority_and_proxy(markers)
+local function mock_authority_and_writes(markers)
   devloop_base.configure_trusted_bot_login("fkst-test-bot")
   mock_command_times(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
     stdout = "1",
@@ -199,43 +199,31 @@ local function initial_event()
 end
 
 return {
-  test_run_graph_records_receipt_before_exactly_one_child_close = function()
-    mock_authority_and_proxy(fixture_markers())
+  test_run_graph_child_disposition_records_receipt_before_exactly_one_close = function()
+    mock_authority_and_writes(fixture_markers())
 
-    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 5 }))
-    graph.assert_covers(trace, {
-      "github-proxy.github_comment_written -> github-devloop-workflow.workflow_child_disposition_handoff",
-    })
+    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 2 }))
 
-    local request_step, request_index = graph.require_delivery(trace, {
+    local request_step = graph.require_delivery(trace, {
       queue = "github-devloop-workflow.workflow_child_disposition_request",
       consumer = "github-devloop-workflow.workflow_child_disposition",
     })
     t.eq(request_step.exit_code, 0)
-    local written, _, written_index = graph.require_raise(
-      trace,
-      "github-proxy.github_comment_written",
-      function(raised)
-        return raised.payload.handoff ~= nil
-          and raised.payload.handoff.kind == "github-devloop-workflow.child-disposition"
-      end
-    )
-    t.is_true(written_index > request_index)
-
-    local handoff_step, handoff_index = graph.require_delivery(trace, {
-      queue = "github-proxy.github_comment_written",
-      consumer = "github-devloop-workflow.workflow_child_disposition_handoff",
-    })
-    t.eq(handoff_step.exit_code, 0)
-    t.is_true(handoff_index > written_index)
 
     local close_command = core.gh_issue_close_cmd(repo, child_issue, { kind = "completed" })
-    local close_calls = 0
-    for _, call in ipairs(t.command_calls()) do
+    local receipt_index = nil
+    local close_index = nil
+    for index, call in ipairs(t.command_calls()) do
+      if gh_argv.call_contains(call, "gh api --method POST repos/owner/repo/issues/108/comments") then
+        receipt_index = index
+      end
       if gh_argv.call_contains(call, close_command) then
-        close_calls = close_calls + 1
+        t.is_nil(close_index)
+        close_index = index
       end
     end
-    t.eq(close_calls, 1)
+    t.is_true(receipt_index ~= nil)
+    t.is_true(close_index ~= nil)
+    t.is_true(receipt_index < close_index)
   end,
 }
