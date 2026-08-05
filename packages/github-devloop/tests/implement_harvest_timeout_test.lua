@@ -36,6 +36,17 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
+    local worktree = "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/committed-unknown"
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
     for _ = 1, 2 do
       t.mock_command("scripts/run.sh test-affected", {
         stdout = "",
@@ -51,7 +62,7 @@ return {
       "dev",
       branch,
       "abc123",
-      "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/committed-unknown",
+      worktree,
       1,
       now() - 60,
       "implement/exec/committed-unknown",
