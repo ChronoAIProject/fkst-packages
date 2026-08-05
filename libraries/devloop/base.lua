@@ -299,8 +299,9 @@ local function pr_review_redrive_generation_parts(review_repo, generation_key)
   end
   local generation_prefix, heartbeat_state, epoch_text = generation_key:match("^(restart%-liveness%-v2.-)/reviewing/reviewing%.active/live_defer_heartbeat%-v1/review%-converge%-round%-(%a+)/([%d%.]+)$")
   if generation_prefix == nil then
-    generation_prefix, epoch_text = generation_key:match("^(restart%-liveness%-v2.-)/fixing/fixing%.actionable/codex_run_with_durable_hold%-v1/state%-entry%-v1%-.+/([%d%.]+)$")
-    heartbeat_state = generation_prefix ~= nil and "fixing" or nil
+    local fixing_generation_opened_by
+    generation_prefix, fixing_generation_opened_by, epoch_text = generation_key:match("^(restart%-liveness%-v2.-)/fixing/fixing%.actionable/codex_run_with_durable_hold%-v1/(.+)/([%d%.]+)$")
+    heartbeat_state = generation_prefix ~= nil and (fixing_generation_opened_by:match("^state%-entry%-v1%-.+") ~= nil or fixing_generation_opened_by:match("^ci%-repair%-attempt%-v1%-.+%-due$") ~= nil) and "fixing" or nil
   end
   local issue_proposal_id = generation_prefix and generation_prefix:match("^restart%-liveness%-v2/(github%-devloop/issue/.+)$") or nil
   local issue_repo = issue_proposal_id and base_ids.parse_proposal_id(issue_proposal_id) or nil

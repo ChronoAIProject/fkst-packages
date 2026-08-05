@@ -1,4 +1,5 @@
 local contract_time = require("contract.time")
+local ci_repair_attempts = require("core.ci_repair_attempts")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
 local entity_lib = require("devloop.entity")
@@ -64,8 +65,11 @@ local function fixing_comment_bodies(event)
   }
 end
 
-local function timeout_facts(event, current_head)
+local function timeout_facts(event, current_head, extra_bodies, now_iso)
   local bodies = fixing_comment_bodies(event)
+  for _, body in ipairs(extra_bodies or {}) do
+    table.insert(bodies, body)
+  end
   local comments = {}
   for _, body in ipairs(bodies) do
     table.insert(comments, trusted_comment(body))
@@ -102,7 +106,7 @@ local function timeout_facts(event, current_head)
       state = state,
     },
     fresh_current_state = state,
-    now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+    now_seconds = contract_time.iso_timestamp_epoch_seconds(now_iso or "2026-06-03T03:00:00Z"),
   }
 end
 
@@ -118,8 +122,8 @@ local function with_no_codex_runs(fn)
   end
 end
 
-local function capture_timeout_redrive(event, current_head)
-  local state, facts = timeout_facts(event, current_head)
+local function capture_timeout_redrive(event, current_head, extra_bodies, now_iso)
+  local state, facts = timeout_facts(event, current_head, extra_bodies, now_iso)
   local raised = {}
   local original = devloop_logging.log_raise
   devloop_logging.log_raise = function(_, _, queue, payload)
@@ -149,6 +153,27 @@ local function find_raise(raised, queue, predicate)
     end
   end
   return nil
+end
+
+local function assert_reviewing_receiver(event, raised, state, comment_id, test_name)
+  local request = find_raise(raised, "github-proxy.github_pr_comment_request", function(payload)
+    return payload.handoff ~= nil and payload.handoff.kind == "github-devloop.reviewing"
+  end)
+  t.is_true(request ~= nil)
+  local delivery_key = request.payload.handoff.review_delivery_dedup_key
+  t.eq(request.payload.dedup_key, delivery_key)
+  t.is_true(#delivery_key <= devloop_base._max_key_len)
+  local review_version = core.next_fix_version(state.version)
+  local review_id = devloop_base.pr_review_proposal_id(repo, event.pr_number, review_version, advanced_head)
+  t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(delivery_key), review_id)
+
+  local handed_off = h.run_comment_handoff_from_request(request.payload, comment_id, test_name)
+  t.eq(handed_off.exit_code, 0)
+  local reviewing = h.find_raise(handed_off.raises, "devloop_reviewing")
+  t.is_true(reviewing ~= nil)
+  t.eq(reviewing.payload.dedup_key, delivery_key)
+  t.eq(reviewing.payload.review_delivery_dedup_key, delivery_key)
+  t.eq(v_reviewing.is_supported_reviewing(core, reviewing.payload), true)
 end
 
 return {
@@ -211,27 +236,41 @@ return {
     })
 
     local raised, state = capture_timeout_redrive(event, advanced_head)
-    local request = find_raise(raised, "github-proxy.github_pr_comment_request", function(payload)
-      return payload.handoff ~= nil and payload.handoff.kind == "github-devloop.reviewing"
-    end)
-    t.is_true(request ~= nil)
-    local delivery_key = request.payload.handoff.review_delivery_dedup_key
-    t.eq(request.payload.dedup_key, delivery_key)
-    t.is_true(#delivery_key <= devloop_base._max_key_len)
-    local review_version = core.next_fix_version(state.version)
-    local review_id = devloop_base.pr_review_proposal_id(repo, event.pr_number, review_version, advanced_head)
-    t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(delivery_key), review_id)
-
-    local handed_off = h.run_comment_handoff_from_request(
-      request.payload,
+    assert_reviewing_receiver(
+      event, raised, state,
       "IC_fixing_redrive_reviewing_1",
       "fixing-redrive-reviewing-handoff"
     )
-    t.eq(handed_off.exit_code, 0)
-    local reviewing = h.find_raise(handed_off.raises, "devloop_reviewing")
-    t.is_true(reviewing ~= nil)
-    t.eq(reviewing.payload.dedup_key, delivery_key)
-    t.eq(reviewing.payload.review_delivery_dedup_key, delivery_key)
-    t.eq(v_reviewing.is_supported_reviewing(core, reviewing.payload), true)
+  end,
+
+  test_fixing_timeout_durable_hold_generation_reaches_reviewing_receiver = function()
+    local event = h.fixing({
+      repair_input = "ci-failure",
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    })
+    local attempt_body = ci_repair_attempts.comment_request(
+      repo, event, "no-fix", "No repaired revision was published."
+    ).body
+    t.mock_command("git fetch origin " .. branch, {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git rev-parse --verify 'FETCH_HEAD^{commit}'", {
+      stdout = advanced_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local raised, state, facts = capture_timeout_redrive(
+      event, advanced_head, { attempt_body }, "2026-06-03T04:00:00Z"
+    )
+    t.eq(facts.actionable_epoch_eval.status, "actionable")
+    t.is_true(facts.actionable_epoch_eval.generation_key:find("-due/", 1, true) ~= nil)
+    assert_reviewing_receiver(
+      event, raised, state,
+      "IC_fixing_durable_hold_redrive_reviewing_1",
+      "fixing-durable-hold-redrive-reviewing-handoff"
+    )
   end,
 }
