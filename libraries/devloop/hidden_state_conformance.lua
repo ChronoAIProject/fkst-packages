@@ -43,14 +43,14 @@ local function production_replay_dept(core)
   local package = package_name(core)
   local dept = ({ ["github-devloop"] = "observe_issue", ["github-devloop-pr"] = "observe_pr" })[package]
   if dept == nil then
-    error("devloop: hidden-state conformance has no production replay department for package " .. package)
+    error("devloop: hidden-state-replay-department-package-unsupported: hidden-state conformance has no production replay department for package " .. package)
   end
   for _, source in ipairs(core.restart_consumer_sources or {}) do
     if tostring(source or ""):match("departments/" .. dept .. "/main%.lua$") then
       return dept
     end
   end
-  error("devloop: hidden-state conformance production replay department is not declared in restart_consumer_sources: " .. dept)
+  error("devloop: hidden-state-replay-department-source-undeclared: hidden-state conformance production replay department is not declared in restart_consumer_sources: " .. dept)
 end
 
 local function marker_author(core)

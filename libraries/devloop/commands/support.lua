@@ -42,7 +42,7 @@ end
 function S.git()
   if git_handle == nil then
     if type(exec_argv) ~= "function" then
-      error("github-devloop: git adapter requires exec_argv")
+      error("github-devloop: git-adapter-missing-exec-argv: git adapter requires exec_argv")
     end
     git_handle = require("forge.git").new(exec_argv)
   end

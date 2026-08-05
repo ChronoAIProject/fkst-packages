@@ -56,7 +56,7 @@ local PR_TERMINAL_STATE_SET = set_from(PR_TERMINAL_STATES)
 
 for state, _ in pairs(ISSUE_STATE_SET) do
   if PR_PHASE_STATE_SET[state] then
-    error("github-devloop: PR partition contract states must be disjoint")
+    error("github-devloop: pr-partition-state-overlap: PR partition contract states must be disjoint")
   end
 end
 

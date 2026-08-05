@@ -47,14 +47,14 @@ local allowed_presence_env = {
 
 local function read_env_command(name)
   if not allowed_env[name] then
-    error("github-devloop: env name is not allowed")
+    error("github-devloop: invalid-env-name: env name is not allowed")
   end
   return 'printf %s "$' .. name .. '"'
 end
 
 local function env_present_command(name)
   if not allowed_presence_env[name] then
-    error("github-devloop: env name is not allowed")
+    error("github-devloop: invalid-env-name: env name is not allowed")
   end
   return 'if [ -n "${' .. name .. ':-}" ]; then printf present; fi'
 end
@@ -115,7 +115,7 @@ function C.rollup_runtime_soak_minutes(exec)
   end
   local parsed = tonumber(raw)
   if parsed == nil or parsed ~= math.floor(parsed) or parsed < 1 or parsed > 1440 then
-    error("github-devloop: invalid FKST_DEVLOOP_ROLLUP_RUNTIME_SOAK_MINUTES")
+    error("github-devloop: rollup-runtime-soak-invalid: invalid FKST_DEVLOOP_ROLLUP_RUNTIME_SOAK_MINUTES")
   end
   return parsed
 end
@@ -131,7 +131,7 @@ function C.max_inflight(exec)
   end
   local parsed = tonumber(value)
   if parsed == nil or parsed ~= math.floor(parsed) or parsed < 1 or parsed > 100 then
-    error("github-devloop: invalid FKST_DEVLOOP_MAX_INFLIGHT")
+    error("github-devloop: max-inflight-invalid: invalid FKST_DEVLOOP_MAX_INFLIGHT")
   end
   return parsed
 end
@@ -152,7 +152,7 @@ function C.intake_milestone_numbers(exec)
       or number < 1
       or number > 2147483647
       or number ~= math.floor(number) then
-      error("github-devloop: invalid FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS")
+      error("github-devloop: intake-milestones-invalid: invalid FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS")
     end
     milestones[number] = true
   end
@@ -225,18 +225,18 @@ end
 local function current_checkout_branch(exec)
   local run = exec or exec_argv
   if type(run) ~= "function" then
-    error("github-devloop: branch config requires exec_argv")
+    error("github-devloop: git-adapter-missing-exec-argv: branch config requires exec_argv")
   end
   local git = require("forge.git").new(run)
   local ok, out = pcall(function()
     return git.current_branch(30)
   end)
   if not ok or type(out) ~= "table" or out.exit_code ~= 0 then
-    error("github-devloop: current checkout branch read failed")
+    error("github-devloop: current-branch-read-failed: current checkout branch read failed")
   end
   local branch = strings.trim(out.stdout)
   if branch == "HEAD" or not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid current checkout branch")
+    error("github-devloop: branch-invalid: invalid current checkout branch")
   end
   return branch
 end
@@ -244,7 +244,7 @@ end
 local function validated_branch(name, branch)
   branch = strings.trim(branch)
   if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: invalid " .. name)
+    error("github-devloop: branch-invalid: invalid " .. name)
   end
   return branch
 end
@@ -272,7 +272,7 @@ function C.devloop_config(exec)
   local rollup_merge = C.read_env("FKST_DEVLOOP_ROLLUP_MERGE", exec) or "auto"
   rollup_merge = strings.trim(rollup_merge)
   if rollup_merge ~= "auto" and rollup_merge ~= "manual" then
-    error("github-devloop: invalid FKST_DEVLOOP_ROLLUP_MERGE")
+    error("github-devloop: rollup-merge-mode-invalid: invalid FKST_DEVLOOP_ROLLUP_MERGE")
   end
   return {
     repo = C.read_env("FKST_GITHUB_REPO", exec),

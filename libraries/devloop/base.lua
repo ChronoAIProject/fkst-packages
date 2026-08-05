@@ -175,7 +175,7 @@ function C.assert_trusted_bot_configured()
   end
 
   if C.read_env("FKST_GITHUB_WRITE") == "1" and trusted_bot_login_current == nil then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
   end
   return trusted_bot_login_current
 end
@@ -223,17 +223,17 @@ end
 
 function C.safe_head_segment(head_sha)
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid head sha")
+    error("github-devloop: git-sha-invalid: invalid head sha")
   end
   return tostring(head_sha)
 end
 
 function C.pr_review_proposal_id(repo, pr_number, version, head_sha)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: invalid pr number")
+    error("github-devloop: invalid-pr-number: invalid pr number")
   end
   if head_sha == nil then
-    error("github-devloop: missing reviewed head sha")
+    error("github-devloop: reviewed-head-missing: missing reviewed head sha")
   end
   return "github-devloop/pr-review/"
     .. C.safe_pr_review_repo_segment(repo)
@@ -281,7 +281,7 @@ end
 
 function C.pr_review_proposal_dedup_key(review_proposal_id)
   if C.parse_pr_review_proposal_id(review_proposal_id) == nil then
-    error("github-devloop: invalid PR review proposal id")
+    error("github-devloop: review-proposal-id-invalid: invalid PR review proposal id")
   end
   return dedup_key({
     tostring(review_proposal_id),
@@ -318,20 +318,20 @@ end
 function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_key, attempt)
   local review_repo = C.parse_pr_review_proposal_id(review_proposal_id)
   if review_repo == nil then
-    error("github-devloop: invalid PR review proposal id")
+    error("github-devloop: review-proposal-id-invalid: invalid PR review proposal id")
   end
   local heartbeat_code, epoch_ms = pr_review_redrive_generation_parts(review_repo, generation_key)
   if heartbeat_code == nil then
-    error("github-devloop: invalid PR review redrive generation: " .. tostring(generation_key))
+    error("github-devloop: review-redrive-generation-invalid: invalid PR review redrive generation: " .. tostring(generation_key))
   end
   local round = tonumber(attempt)
   if round == nil or round < 1 or round ~= math.floor(round) then
-    error("github-devloop: invalid PR review redrive attempt")
+    error("github-devloop: review-redrive-attempt-invalid: invalid PR review redrive attempt")
   end
   local key = tostring(review_proposal_id) .. "/r/" .. heartbeat_code .. "/" .. epoch_ms
     .. "/attempt/" .. tostring(round)
   if not is_path_safe_key(key, max_key_len) then
-    error("github-devloop: PR review redrive delivery dedup exceeds the consensus key bound")
+    error("github-devloop: review-redrive-dedup-key-too-long: PR review redrive delivery dedup exceeds the consensus key bound")
   end
   return key
 end
@@ -645,7 +645,7 @@ function C.implement_branch(repo, issue_number, impl_version)
 
   local branch = prefix .. safe_version .. suffix
   if not forge_validators.is_git_ref_safe(branch) or #branch > max_branch_len then
-    error("github-devloop: invalid deterministic implementation branch")
+    error("github-devloop: implementation-branch-invalid: invalid deterministic implementation branch")
   end
   return branch
 end

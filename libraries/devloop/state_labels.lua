@@ -123,7 +123,7 @@ end
 function L.state_label_changes(to_state)
   local add_label = L.state_label(to_state)
   if add_label == nil then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
 
   local remove_labels = {}
@@ -141,7 +141,7 @@ end
 function L.state_label_reconcile_changes(labels, to_state)
   local expected_label = L.state_label(to_state)
   if expected_label == nil then
-    error("github-devloop: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
 
   local add_labels = {}

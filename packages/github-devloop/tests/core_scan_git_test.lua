@@ -29,7 +29,7 @@ return {
   test_run_required_raises_with_github_devloop_prefix = function()
     assert_error_contains(function()
       git_mechanics.run_required(result(7, "", "bad ref"), "scan op")
-    end, "github-devloop: scan op failed: bad ref")
+    end, "github-devloop: git-command-failed: scan op failed: bad ref")
   end,
 
   test_scan_git_is_ancestor_maps_zero_to_true = function()
@@ -71,6 +71,6 @@ return {
 
     assert_error_contains(function()
       git_mechanics.is_ancestor(git, "aaaa1111", "bbbb2222", "scan ancestor check")
-    end, "github-devloop: scan ancestor check failed: fatal")
+    end, "github-devloop: git-command-failed: scan ancestor check failed: fatal")
   end,
 }
