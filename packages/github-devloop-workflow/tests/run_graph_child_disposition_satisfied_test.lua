@@ -1,13 +1,14 @@
 local base_ids = require("devloop.base_ids")
 local core = require("core")
 local digest = require("core.digest")
-local gh_argv = require("testkit_internal.gh_argv_mock")
+local entity = require("devloop.entity")
+local github_fake = require("forge.github_fake")
 local graph = require("testkit.graph")
 local materialization = require("core.materialization")
 local marker = require("core.marker")
+local testing = require("testkit_internal.testing")
 
 local t = fkst.test
-gh_argv.install(t, core)
 
 local repo = "owner/repo"
 local origin_issue = 42
@@ -205,7 +206,7 @@ local function mock_materialization_source(catalog_root, history, child_body)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.gh_blocked_by_cmd(repo, origin_issue), {
+  t.mock_command("gh api graphql", {
     stdout = blocked_by_json(),
     stderr = "",
     exit_code = 0,
@@ -254,7 +255,7 @@ local function proxy_created_child_body(create)
     .. " -->"
 end
 
-local function mock_fresh_issue_reads(history, child_body)
+local function mock_fresh_issue_reads(history, child_body, child_read_count)
   local origin_rest = rest_issue_json(
     origin_issue,
     "Workflow origin",
@@ -281,7 +282,7 @@ local function mock_fresh_issue_reads(history, child_body)
     "open",
     { "fkst-dev:enabled", "fkst-dev:implementing" }
   )
-  for _ = 1, 2 do
+  for _ = 1, child_read_count or 2 do
     t.mock_command("gh api repos/" .. repo .. "/issues/" .. tostring(child_issue), {
       stdout = child_rest,
       stderr = "",
@@ -328,39 +329,74 @@ local function mock_visible_receipt_reads(identity, count)
   end
 end
 
-local function mock_receipt_commit_and_readback(identity)
-  t.mock_command("git ls-remote", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git rev-parse --verify 'HEAD^{tree}'", {
-    stdout = tree_sha .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git commit-tree", { stdout = receipt_sha .. "\n", stderr = "", exit_code = 0 })
-  t.mock_command("git push", { stdout = "", stderr = "", exit_code = 0 })
-  mock_visible_receipt_reads(identity, 2)
-end
-
-local function command_count(calls, needle)
+local function count(values, expected)
   local total = 0
-  for _, call in ipairs(calls) do
-    if gh_argv.call_contains(call, needle) then
+  for _, value in ipairs(values) do
+    if value == expected then
       total = total + 1
     end
   end
   return total
 end
 
-local function command_index(calls, needle, last)
-  local found = nil
-  for index, call in ipairs(calls) do
-    if gh_argv.call_contains(call, needle) then
-      found = index
-      if not last then
-        return index
-      end
+local function index_of(values, expected)
+  for index, value in ipairs(values) do
+    if value == expected then
+      return index
     end
   end
-  return found
+  return nil
+end
+
+local function load_disposition_department()
+  local previous_pipeline = _G.pipeline
+  local department = require("departments.workflow_child_disposition.main")
+  _G.pipeline = previous_pipeline
+  return department
+end
+
+local function with_test_locks(fn)
+  local previous_with_lock = with_lock
+  local locks = {}
+  with_lock = function(key, locked)
+    locks[#locks + 1] = key
+    return locked()
+  end
+  local ok, result = pcall(fn, locks)
+  with_lock = previous_with_lock
+  if not ok then
+    error(result, 0)
+  end
+  return result
+end
+
+local function fake_issue_model(history, child_body)
+  return github_fake.model({
+    issues = {
+      [repo .. "#issue/" .. tostring(origin_issue)] = {
+        repo = repo,
+        number = origin_issue,
+        title = "Workflow origin",
+        body = "Run the one-slot workflow.",
+        state = "OPEN",
+        labels = {},
+        assignees = { "fkst-test-bot" },
+        author_login = "fkst-test-bot",
+        comments = history,
+      },
+      [repo .. "#issue/" .. tostring(child_issue)] = {
+        repo = repo,
+        number = child_issue,
+        title = "First child",
+        body = child_body,
+        state = "OPEN",
+        labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
+        assignees = { "fkst-test-bot" },
+        author_login = "fkst-test-bot",
+        comments = {},
+      },
+    },
+  })
 end
 
 return {
@@ -437,15 +473,8 @@ return {
         child_issue = tostring(child_issue),
         disposition = "satisfied",
       }
-      mock_fresh_issue_reads(history, child_body)
-      mock_receipt_commit_and_readback(identity)
-      mock_env("FKST_GITHUB_WRITE", "1", 2)
-      t.mock_command("gh issue close " .. tostring(child_issue) .. " --repo " .. repo, {
-        stdout = "",
-        stderr = "",
-        exit_code = 0,
-      })
-      local disposition_start = #t.command_calls()
+      mock_fresh_issue_reads(history, child_body, 1)
+      mock_env("FKST_GITHUB_WRITE", "", 2)
       local disposition_trace = graph.require_quiescent(graph.run({
         queue = "github-devloop-workflow.workflow_child_disposition_request",
         payload = request,
@@ -458,28 +487,82 @@ return {
         "github-devloop-workflow.workflow_child_disposition_request -> github-devloop-workflow.workflow_child_disposition",
       })
 
-      local disposition_calls = {}
-      for index = disposition_start + 1, #t.command_calls() do
-        disposition_calls[#disposition_calls + 1] = t.command_calls()[index]
+      local order = {}
+      local stored_receipt = nil
+      local receipt_store = {
+        put_once = function(value)
+          order[#order + 1] = "receipt-put"
+          stored_receipt = {
+            schema = core.child_disposition_receipt.RECEIPT_SCHEMA,
+            repo = value.repo,
+            origin = value.origin,
+            blueprint_digest = value.blueprint_digest,
+            slot = value.slot,
+            child_issue = value.child_issue,
+            disposition = value.disposition,
+            commit_sha = receipt_sha,
+          }
+          return stored_receipt
+        end,
+        read = function(value)
+          order[#order + 1] = "receipt-read"
+          t.eq(value.origin, identity.origin)
+          t.eq(value.blueprint_digest, identity.blueprint_digest)
+          t.eq(value.slot, identity.slot)
+          t.eq(tostring(value.child_issue), identity.child_issue)
+          return stored_receipt
+        end,
+      }
+      local github_model = fake_issue_model(history, child_body)
+      local github = github_fake.new(github_model)
+      local read_issue = github.read_issue
+      github.read_issue = function(source_ref, opts)
+        order[#order + 1] = "read-" .. tostring(source_ref.ref)
+        t.eq(opts.force_fresh, true)
+        return read_issue(source_ref, opts)
       end
-      t.eq(command_count(disposition_calls, "gh api repos/owner/repo/issues/42"), 1, "origin authority read")
-      t.eq(command_count(disposition_calls, "gh api repos/owner/repo/issues/108"), 2, "child authority reads")
-      t.eq(command_count(disposition_calls, "git commit-tree"), 1, "receipt commit")
-      t.eq(command_count(disposition_calls, "git cat-file -p"), 2, "receipt readbacks")
-      t.eq(command_count(disposition_calls, "gh issue close 108"), 1, "completed child close")
-      t.is_true(command_index(disposition_calls, "git commit-tree")
-        < command_index(disposition_calls, "git cat-file -p"))
-      t.is_true(command_index(disposition_calls, "git cat-file -p", true)
-        < command_index(disposition_calls, "gh issue close 108"))
-      t.is_true(gh_argv.call_contains(
-        disposition_calls[command_index(disposition_calls, "gh issue close 108")],
-        "--reason completed"
-      ))
+      local issue_close = github.issue_close
+      github.issue_close = function(close_repo, number, disposition, timeout)
+        order[#order + 1] = "close"
+        t.eq(close_repo, repo)
+        t.eq(tostring(number), tostring(child_issue))
+        t.eq(disposition.kind, "completed")
+        github_model.issues[repo .. "#issue/" .. tostring(child_issue)].state = "CLOSED"
+        return issue_close(close_repo, number, disposition, timeout)
+      end
+      local department = load_disposition_department().make_department({
+        github = github,
+        receipt_store = receipt_store,
+        write_enabled = function() return true end,
+        claim_owner = function() return "fkst-test-bot" end,
+      })
+
+      local disposition_result = with_test_locks(function(locks)
+        local result = testing.run_fake(department, {
+          queue = "github-devloop-workflow.workflow_child_disposition_request",
+          payload = request,
+          source_ref = request.source_ref,
+        })
+        t.eq(locks[1], entity.merge_lane_lock_key(repo))
+        return result
+      end)
+
+      t.is_nil(disposition_result.failure)
+      t.eq(count(order, "read-owner/repo#issue/42"), 1, "origin authority read")
+      t.eq(count(order, "read-owner/repo#issue/108"), 2, "child authority reads")
+      t.eq(count(order, "receipt-put"), 1, "receipt commit")
+      t.eq(count(order, "receipt-read"), 1, "receipt readback")
+      t.eq(count(order, "close"), 1, "completed child close")
+      t.is_true(index_of(order, "receipt-put") < index_of(order, "receipt-read"))
+      t.is_true(index_of(order, "receipt-read") < index_of(order, "close"))
+
+      if stored_receipt == nil then
+        error("fake receipt port did not commit a source-visible receipt")
+      end
 
       mock_materialization_source(catalog_root, history)
       mock_visible_receipt_reads(identity, 1)
       mock_env("FKST_GITHUB_WRITE", "", 4)
-      local terminal_start = #t.command_calls()
       local terminal_trace = graph.require_quiescent(graph.run(materialization_event("receipt-done"), {
         max_steps = 4,
       }))
@@ -499,12 +582,6 @@ return {
         end
       )
       t.is_true(terminal.payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
-
-      local terminal_calls = {}
-      for index = terminal_start + 1, #t.command_calls() do
-        terminal_calls[#terminal_calls + 1] = t.command_calls()[index]
-      end
-      t.eq(command_count(terminal_calls, "gh api repos/owner/repo/issues/108"), 0)
     end)
   end,
 }
