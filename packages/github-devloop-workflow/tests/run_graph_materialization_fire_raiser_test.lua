@@ -3,6 +3,7 @@ local transition_version = require("contract.transition_version")
 local t = fkst.test
 local core = require("core")
 local actions = require("core.materialize.actions")
+local materialize_helpers = require("tests.materialize_reconcile_helpers")
 local graph = require("testkit.graph")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local base_ids = require("devloop.base_ids")
@@ -388,6 +389,7 @@ end
 
 local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout, blocker_state)
   mock_origin_dependency(blocker_state)
+  materialize_helpers.mock_missing_disposition_receipts(repo, origin, first_child_issue, revived_state and revived_child_issue or nil)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
     stderr = "",

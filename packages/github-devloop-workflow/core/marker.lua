@@ -161,6 +161,38 @@ local function validate_reason_code(value, path)
   return validate_attr(value, path, M.MAX_TERMINAL_REASON_CODE_BYTES)
 end
 
+local function child_disposition_dedup_key(origin, blueprint_digest, slot, child_issue)
+  return base_ids.dedup_key({
+    "workflow",
+    "child-disposition",
+    origin,
+    blueprint_digest,
+    slot,
+    child_issue,
+  })
+end
+
+function M.child_disposition_dedup_key(origin, blueprint_digest, slot, child_issue)
+  local ok, err = validate_origin(origin, "origin")
+  if not ok then return nil, err end
+  ok, err = validate_digest(blueprint_digest, "blueprint_digest")
+  if not ok then return nil, err end
+  ok, err = validate_slot(slot, "slot")
+  if not ok then return nil, err end
+  local normalized_child_issue
+  ok, err, normalized_child_issue = validate_child_issue(child_issue, "child_issue")
+  if not ok then return nil, err end
+  if normalized_child_issue == "" then
+    return nil, fail("child_issue", "empty", "must not be empty")
+  end
+  return child_disposition_dedup_key(
+    origin,
+    blueprint_digest,
+    slot,
+    normalized_child_issue
+  ), nil
+end
+
 local function validate_issue_source_ref(value, path)
   if type(value) ~= "table" then
     return false, fail(path, "not_source_ref", "must be an issue source_ref")
@@ -221,14 +253,12 @@ local function validate_child_disposition_fields(fields)
     return nil, fail("reason_code", "forbidden_for_disposition", "is only allowed for undeliverable")
   end
 
-  local dedup_key = base_ids.dedup_key({
-    "workflow",
-    "child-disposition",
+  local dedup_key = child_disposition_dedup_key(
     fields.origin,
     fields.blueprint_digest,
     fields.slot,
-    child_issue,
-  })
+    child_issue
+  )
   if fields.dedup_key ~= nil and fields.dedup_key ~= dedup_key then
     return nil, fail("dedup_key", "disposition_identity_mismatch", "must match the workflow slot receipt identity")
   end

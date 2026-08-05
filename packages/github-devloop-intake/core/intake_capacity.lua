@@ -86,15 +86,6 @@ local function normalize_grant(record, repo, owner, sha)
   }
 end
 
-local function commit_message(stdout)
-  local text = tostring(stdout or ""):gsub("\r\n", "\n")
-  local boundary = text:find("\n\n", 1, true)
-  if boundary == nil then
-    return nil
-  end
-  return text:sub(boundary + 2):gsub("%s+$", "")
-end
-
 local function result_required(result, error_class, operation)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-intake: capacity-adapter-operation-failed: error_class=" .. error_class
@@ -405,7 +396,7 @@ local function production_read_grant(adapter, repo, owner)
   end
   result_required(adapter.commands.git_fetch_ref("origin", ref, 30), "capacity-grant-fetch-failed", "capacity grant fetch")
   local commit = result_required(adapter.commands.git_cat_file_pretty(sha, 30), "capacity-grant-read-failed", "capacity grant read")
-  local message = commit_message(commit.stdout)
+  local message = commands.git_commit_object_message(commit.stdout)
   local ok, decoded = pcall(adapter.json.decode, message or "")
   if not ok then
     error("github-devloop-intake: capacity-grant-decode-failed: capacity grant commit message is not valid JSON")

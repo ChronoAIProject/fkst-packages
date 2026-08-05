@@ -12,6 +12,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local strings = require("contract.strings")
 local child_completion = require("core.child_completion")
+local child_disposition_receipt = require("core.child_disposition_receipt")
 local discovery = require("core.materialize.discovery")
 local marker = require("core.marker")
 
@@ -123,25 +124,39 @@ local function trusted_lineage(issue)
   return nil
 end
 
-local function trusted_disposition_fact(issue, expected)
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue and issue.comments or {})) do
-    local fact = marker.parse_child_disposition_marker(
-      parsers_misc.comment_body(comment),
-      expected.origin,
-      expected.blueprint_digest,
-      expected.slot,
-      expected.child_issue
-    )
-    if fact ~= nil then
-      return fact
-    end
-  end
-  return nil
+local function receipt_identity(value)
+  return {
+    repo = value.repo,
+    origin = value.origin,
+    blueprint_digest = value.blueprint_digest,
+    slot = value.slot,
+    child_issue = tostring(value.child_issue or value.child_issue_number or ""),
+  }
 end
 
-function M.current_fact(issue, expected)
-  return trusted_disposition_fact(issue, expected)
+local function read_receipt(deps, value)
+  local reader = deps.read_receipt or deps.read_disposition_receipt
+  if type(reader) == "function" then
+    return reader(receipt_identity(value))
+  end
+  return child_disposition_receipt.production_adapter().read(receipt_identity(value))
 end
+
+local function compare_and_swap_receipt(deps, request, body)
+  if type(deps.compare_and_swap_receipt) == "function" then
+    return deps.compare_and_swap_receipt(request, body, M.TIMEOUT_SECONDS)
+  end
+  return child_disposition_receipt.production_adapter().compare_and_swap(
+    receipt_identity(request),
+    body
+  )
+end
+
+function M.current_fact(deps, expected)
+  return read_receipt(deps or {}, expected)
+end
+
+M.production_receipt_adapter = child_disposition_receipt.production_adapter
 
 local function normalized_request(payload)
   if type(payload) ~= "table" or payload.schema ~= "github-devloop-workflow.child-disposition.v1" then
@@ -235,15 +250,6 @@ local function expected_lineage(request)
   }
 end
 
-local function expected_disposition(request)
-  return {
-    origin = request.origin,
-    blueprint_digest = request.blueprint_digest,
-    slot = request.slot,
-    child_issue = tostring(request.child_issue_number),
-  }
-end
-
 local function assert_self_claim(child)
   local claim_state = devloop_claims.issue_claim_state(
     child.assignees,
@@ -289,7 +295,7 @@ local function assert_authority(deps, request)
   if not same_lineage(trusted_lineage(child), expected_lineage(request)) then
     fail("child-lineage-mismatch", "child does not carry trusted lineage for the created slot")
   end
-  local current_fact = trusted_disposition_fact(child, expected_disposition(request))
+  local current_fact = read_receipt(deps, request)
   if current_fact ~= nil and not same_disposition(current_fact, request) then
     fail("conflicting-child-disposition", "child already has a different trusted disposition")
   end
@@ -377,22 +383,6 @@ local function issue_close(deps, request, disposition)
   )
 end
 
-local function write_receipt(deps, request, body)
-  if type(deps.write_receipt) == "function" then
-    return deps.write_receipt(request, body, M.TIMEOUT_SECONDS)
-  end
-  local repo_key = request.repo:gsub("[^%w_.-]", "-")
-  local path = "/tmp/fkst-github-devloop-workflow-child-disposition-"
-    .. repo_key .. "-" .. tostring(request.child_issue_number) .. ".md"
-  file.write(path, body)
-  return github().issue_comment_create(
-    request.repo,
-    request.child_issue_number,
-    path,
-    M.TIMEOUT_SECONDS
-  )
-end
-
 local function invalidate(deps, request)
   if type(deps.invalidate_entity_after_write) == "function" then
     deps.invalidate_entity_after_write(request.repo, "issue", request.child_issue_number)
@@ -402,19 +392,14 @@ local function invalidate(deps, request)
 end
 
 local function confirm_receipt(deps, request)
-  local child = read_issue(
-    deps,
-    request.child_source_ref,
-    "github-devloop-workflow.child-disposition-receipt-confirm"
-  )
-  local fact = trusted_disposition_fact(child, expected_disposition(request))
+  local fact = read_receipt(deps, request)
   if fact == nil then
-    fail("child-disposition-receipt-pending", "trusted disposition receipt is not source-visible after write")
+    fail("child-disposition-receipt-pending", "committed disposition receipt is not source-visible after CAS")
   end
   if not same_disposition(fact, request) then
-    fail("conflicting-child-disposition", "the first trusted disposition receipt has a different outcome")
+    fail("conflicting-child-disposition", "the committed slot receipt has a different outcome")
   end
-  return child, fact
+  return fact
 end
 
 local function close_disposition(request)
@@ -451,12 +436,8 @@ function M.request_handlers(opts)
           return
         end
         if current_fact == nil then
-          local receipt = write_receipt(deps, request, receipt_body(request))
-          if type(receipt) ~= "table" or receipt.exit_code ~= 0 then
-            fail("child-disposition-receipt-failed", tostring(receipt and receipt.stderr or "missing result"))
-          end
-          invalidate(deps, request)
-          confirm_receipt(deps, request)
+          compare_and_swap_receipt(deps, request, receipt_body(request))
+          current_fact = confirm_receipt(deps, request)
         end
         local result = issue_close(deps, request, close_disposition(request))
         if type(result) ~= "table" or result.exit_code ~= 0 then

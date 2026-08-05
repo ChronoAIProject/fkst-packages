@@ -33,7 +33,7 @@ local function child_ref(issue_number)
   }
 end
 
-local function disposition_comment(issue_number, disposition, fields)
+local function disposition_fact(issue_number, disposition, fields)
   local extra = fields or {}
   local built, err = marker.build_child_disposition_marker({
     origin = origin,
@@ -45,7 +45,13 @@ local function disposition_comment(issue_number, disposition, fields)
     reason_code = extra.reason_code,
   })
   t.is_nil(err)
-  return trusted_comment(built)
+  return marker.parse_child_disposition_marker(
+    built,
+    origin,
+    blueprint_digest,
+    slot,
+    tostring(issue_number)
+  )
 end
 
 local function entity(issue_number, state, comments)
@@ -77,11 +83,14 @@ local function append_late_merge(comments, issue_number, pr_number)
   ))
 end
 
-local function reader(entities)
+local function reader(entities, receipts)
   return child_status.reader(core, {
     read_child_issue = function(_core, read_repo, issue_number)
       t.eq(read_repo, repo)
       return entities[tonumber(issue_number)]
+    end,
+    read_disposition_receipt = function(expected)
+      return (receipts or {})[tonumber(expected.child_issue)]
     end,
   }, repo)
 end
@@ -89,27 +98,28 @@ end
 local tests = {
   test_production_reader_treats_satisfied_closed_child_as_ready = function()
     local entities = {
-      [108] = entity(108, "CLOSED", {
-        disposition_comment(108, "satisfied"),
-      }),
+      [108] = entity(108, "CLOSED"),
     }
-    local status = reader(entities)(child_ref(108))
+    local status = reader(entities, {
+      [108] = disposition_fact(108, "satisfied"),
+    })(child_ref(108))
     t.eq(status, "result_ready")
   end,
 
   test_production_reader_follows_transferred_successor_until_it_is_satisfied = function()
     local entities = {
-      [108] = entity(108, "CLOSED", {
-        disposition_comment(108, "transferred", {
-          successor_source_ref = base_ids.issue_source_ref(repo, 109),
-        }),
-      }),
+      [108] = entity(108, "CLOSED"),
       [109] = entity(109, "OPEN"),
     }
-    t.eq(reader(entities)(child_ref(108)), "running")
+    local receipts = {
+      [108] = disposition_fact(108, "transferred", {
+          successor_source_ref = base_ids.issue_source_ref(repo, 109),
+      }),
+    }
+    t.eq(reader(entities, receipts)(child_ref(108)), "running")
 
     append_late_merge(entities[108].comments, 108, 111)
-    t.eq(reader(entities)(child_ref(108)), "running")
+    t.eq(reader(entities, receipts)(child_ref(108)), "running")
 
     local successor_proposal = base_ids.proposal_id(repo, 109)
     local successor_version = "ready/consensus-successor-v1"
@@ -129,23 +139,24 @@ local tests = {
         "0123456789abcdef0123456789abcdef01234567"
       )),
     })
-    t.eq(reader(entities)(child_ref(108)), "result_ready")
+    t.eq(reader(entities, receipts)(child_ref(108)), "result_ready")
   end,
 
   test_production_reader_preserves_undeliverable_why = function()
     local entities = {
-      [108] = entity(108, "CLOSED", {
-        disposition_comment(108, "undeliverable", {
+      [108] = entity(108, "CLOSED"),
+    }
+    local receipts = {
+      [108] = disposition_fact(108, "undeliverable", {
           reason_code = "premise-refuted",
-        }),
       }),
     }
-    local status, detail = reader(entities)(child_ref(108))
+    local status, detail = reader(entities, receipts)(child_ref(108))
     t.eq(status, "fatal")
     t.eq(detail.fatal_reason, "premise-refuted")
 
     append_late_merge(entities[108].comments, 108, 111)
-    status, detail = reader(entities)(child_ref(108))
+    status, detail = reader(entities, receipts)(child_ref(108))
     t.eq(status, "fatal")
     t.eq(detail.fatal_reason, "premise-refuted")
   end,
@@ -156,7 +167,14 @@ local tests = {
     }
     t.eq(reader(raw_entities)(child_ref(108)), "fatal")
 
-    local forged = disposition_comment(108, "satisfied")
+    local forged_marker = assert(marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = blueprint_digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "satisfied",
+    }))
+    local forged = trusted_comment(forged_marker)
     forged.author_login = "human"
     local forged_entities = {
       [108] = entity(108, "CLOSED", { forged }),

@@ -130,10 +130,17 @@ local function production_child_status_deps(core, repo, deps)
     end,
     current_obligation_disposition = function(child_ref)
       local lineage = child_ref.workflow_lineage
-      if type(lineage) ~= "table" then
+      if type(lineage) ~= "table"
+        or type(lineage.origin) ~= "string"
+        or lineage.origin == ""
+        or type(lineage.blueprint_digest) ~= "string"
+        or lineage.blueprint_digest == ""
+        or type(lineage.slot) ~= "string"
+        or lineage.slot == "" then
         return nil
       end
-      local fact = workflow_child_disposition.current_fact(issue(child_ref), {
+      local fact = workflow_child_disposition.current_fact(deps, {
+        repo = repo,
         origin = lineage.origin,
         blueprint_digest = lineage.blueprint_digest,
         slot = lineage.slot,

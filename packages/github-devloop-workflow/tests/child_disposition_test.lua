@@ -122,7 +122,8 @@ end
 local function fake_deps(entities, prs)
   local closes = {}
   local receipts = {}
-  return {
+  local receipt_fact = nil
+  local deps = {
     closes = closes,
     receipts = receipts,
     with_lock = function(_key, fn)
@@ -147,14 +148,28 @@ local function fake_deps(entities, prs)
     write_enabled = function()
       return true
     end,
-    write_receipt = function(request, body, timeout)
+    read_receipt = function()
+      return receipt_fact
+    end,
+    compare_and_swap_receipt = function(request, body, timeout)
       receipts[#receipts + 1] = {
         request = request,
         body = body,
         timeout = timeout,
       }
-      entities[tonumber(request.child_issue_number)].comments[#entities[tonumber(request.child_issue_number)].comments + 1] = trusted_comment(body)
-      return { exit_code = 0, stdout = "created" }
+      if receipt_fact ~= nil then
+        return false, nil, "receipt already exists"
+      end
+      receipt_fact = marker.parse_child_disposition_marker(
+        body,
+        request.origin,
+        request.blueprint_digest,
+        request.slot,
+        tostring(request.child_issue_number)
+      )
+      t.is_true(type(receipt_fact) == "table")
+      receipt_fact.commit_sha = string.rep("a", 40)
+      return true, receipt_fact.commit_sha, nil
     end,
     issue_close = function(close_repo, issue_number, disposition, timeout)
       closes[#closes + 1] = {
@@ -168,6 +183,7 @@ local function fake_deps(entities, prs)
     end,
     invalidate_entity_after_write = function() end,
   }
+  return deps
 end
 
 local function child_pr_comments(merged)
@@ -214,13 +230,45 @@ local function run_request_failure(deps, payload)
   })
 end
 
-local function disposition_fact(entity)
-  return child_disposition.current_fact(entity, {
+local function disposition_fact(deps)
+  return child_disposition.current_fact(deps, {
+    repo = repo,
     origin = origin,
     blueprint_digest = blueprint_digest,
     slot = "first",
     child_issue = tostring(child_issue),
   })
+end
+
+local function install_receipt_cas(deps)
+  local committed = nil
+  local writes = 0
+  deps.read_receipt = function()
+    return committed
+  end
+  deps.compare_and_swap_receipt = function(request, body)
+    writes = writes + 1
+    if committed ~= nil then
+      return false, nil, "receipt already exists"
+    end
+    committed = marker.parse_child_disposition_marker(
+      body,
+      request.origin,
+      request.blueprint_digest,
+      request.slot,
+      tostring(request.child_issue_number)
+    )
+    t.is_true(type(committed) == "table")
+    committed.commit_sha = string.rep("a", 40)
+    return true, committed.commit_sha, nil
+  end
+  deps.write_receipt = function()
+    error("unconditional receipt write used", 0)
+  end
+  return {
+    fact = function() return committed end,
+    writes = function() return writes end,
+  }
 end
 
 local tests = {
@@ -246,7 +294,7 @@ local tests = {
     t.eq(deps.closes[1].disposition.kind, "completed")
     t.eq(entities[child_issue].state, "CLOSED")
 
-    local fact = disposition_fact(entities[child_issue])
+    local fact = disposition_fact(deps)
     local status = child_result.child_result_status({
       has_merged_marker = function() return false end,
       github_closed_with_merged_pr = function() return false end,
@@ -282,7 +330,7 @@ local tests = {
     t.eq(#deps.closes, 1)
     t.eq(deps.closes[1].disposition.kind, "duplicate")
     t.eq(deps.closes[1].disposition.duplicate_of, successor_issue)
-    local fact = disposition_fact(entities[child_issue])
+    local fact = disposition_fact(deps)
     t.eq(fact.successor_source_ref.ref, repo .. "#issue/" .. tostring(successor_issue))
   end,
 
@@ -298,7 +346,7 @@ local tests = {
     t.eq(#result.raises, 0)
     t.eq(#deps.receipts, 1)
     t.eq(deps.closes[1].disposition.kind, "not_planned")
-    local fact = disposition_fact(entities[child_issue])
+    local fact = disposition_fact(deps)
     local decision = frontier.compute_frontier(plan, {
       first = {
         state = "created",
@@ -352,57 +400,156 @@ local tests = {
     t.is_true(tostring(failed.failure.error):find("conflicting-child-disposition", 1, true) ~= nil)
     t.eq(#deps.receipts, 1)
     t.eq(#deps.closes, 1)
-    t.eq(disposition_fact(entities[child_issue]).disposition, "satisfied")
+    t.eq(disposition_fact(deps).disposition, "satisfied")
   end,
 
-  test_stale_receipt_replay_waits_for_visibility_and_preserves_first_outcome = function()
+  test_process_loss_after_receipt_cas_replays_without_a_second_write = function()
     local entities = {
       [origin_issue] = origin_entity(),
       [child_issue] = child_entity(child_issue),
     }
     local deps = fake_deps(entities)
-    local pending_comments = {}
-    local child_reads = 0
-    local read_issue = deps.read_issue
-    deps.read_issue = function(source_ref, ...)
-      local _repo, number = require("devloop.base").parse_issue_source_ref(source_ref)
-      if tonumber(number) == child_issue then
-        child_reads = child_reads + 1
-        if child_reads == 4 then
-          for _, comment in ipairs(pending_comments) do
-            entities[child_issue].comments[#entities[child_issue].comments + 1] = comment
-          end
-        end
+    local receipt_cas = install_receipt_cas(deps)
+    local close = deps.issue_close
+    local close_attempts = 0
+    deps.issue_close = function(...)
+      close_attempts = close_attempts + 1
+      if close_attempts == 1 then
+        error("simulated-process-loss-after-receipt-cas", 0)
       end
-      return read_issue(source_ref, ...)
-    end
-    deps.write_receipt = function(request, body, timeout)
-      deps.receipts[#deps.receipts + 1] = {
-        request = request,
-        body = body,
-        timeout = timeout,
-      }
-      pending_comments[#pending_comments + 1] = trusted_comment(body)
-      return { exit_code = 0, stdout = "created" }
+      return close(...)
     end
 
     local first = run_request_failure(deps, request_payload("satisfied"))
-    t.is_true(tostring(first.failure.error):find("child-disposition-receipt-pending", 1, true) ~= nil)
-    t.eq(#deps.receipts, 1)
+    t.is_true(tostring(first.failure.error):find("simulated-process-loss-after-receipt-cas", 1, true) ~= nil)
+    t.eq(receipt_cas.writes(), 1)
+    t.eq(receipt_cas.fact().disposition, "satisfied")
     t.eq(#deps.closes, 0)
-
-    local competing = run_request_failure(deps, request_payload("undeliverable", {
-      reason_code = "premise-refuted",
-    }))
-    t.is_true(tostring(competing.failure.error):find("conflicting-child-disposition", 1, true) ~= nil)
-    t.eq(#deps.receipts, 2)
-    t.eq(#deps.closes, 0)
-    t.eq(disposition_fact(entities[child_issue]).disposition, "satisfied")
 
     run_request(deps, request_payload("satisfied"))
-    t.eq(#deps.receipts, 2)
+    t.eq(receipt_cas.writes(), 1)
+    t.eq(close_attempts, 2)
     t.eq(#deps.closes, 1)
     t.eq(entities[child_issue].state, "CLOSED")
+  end,
+
+  test_conflicting_replay_cannot_replace_the_committed_slot_receipt = function()
+    local entities = {
+      [origin_issue] = origin_entity(),
+      [child_issue] = child_entity(child_issue),
+    }
+    local deps = fake_deps(entities)
+    local receipt_cas = install_receipt_cas(deps)
+    local close_attempts = 0
+    deps.issue_close = function()
+      close_attempts = close_attempts + 1
+      error("simulated-process-loss-after-receipt-cas", 0)
+    end
+
+    local first = run_request_failure(deps, request_payload("satisfied"))
+    t.is_true(tostring(first.failure.error):find("simulated-process-loss-after-receipt-cas", 1, true) ~= nil)
+    t.eq(receipt_cas.writes(), 1)
+
+    local conflicting = run_request_failure(deps, request_payload("undeliverable", {
+      reason_code = "premise-refuted",
+    }))
+    t.is_true(tostring(conflicting.failure.error):find("conflicting-child-disposition", 1, true) ~= nil)
+    t.eq(receipt_cas.writes(), 1)
+    t.eq(receipt_cas.fact().disposition, "satisfied")
+    t.eq(close_attempts, 1)
+  end,
+
+  test_production_receipt_adapter_uses_one_create_only_slot_ref = function()
+    t.is_true(type(child_disposition.production_receipt_adapter) == "function")
+    local tree_sha = string.rep("1", 40)
+    local first_sha = string.rep("2", 40)
+    local second_sha = string.rep("3", 40)
+    local remote_sha = nil
+    local next_sha = first_sha
+    local files = {}
+    local messages = {}
+    local pushes = {}
+    local adapter = child_disposition.production_receipt_adapter({
+      commands = {
+        git_ls_remote_ref = function(_remote, ref)
+          return {
+            stdout = remote_sha and (remote_sha .. "\t" .. ref .. "\n") or "",
+            stderr = "",
+            exit_code = 0,
+          }
+        end,
+        git_fetch_ref = function()
+          return { stdout = "", stderr = "", exit_code = 0 }
+        end,
+        git_cat_file_pretty = function(sha)
+          return {
+            stdout = "tree " .. tree_sha .. "\n\n" .. assert(messages[sha]),
+            stderr = "",
+            exit_code = 0,
+          }
+        end,
+        git_commit_object_message = require("devloop.commands").git_commit_object_message,
+        git_rev_parse_ref_tree = function()
+          return { stdout = tree_sha .. "\n", stderr = "", exit_code = 0 }
+        end,
+        git_commit_tree = function(actual_tree, parent_sha, message_file)
+          t.eq(actual_tree, tree_sha)
+          t.is_nil(parent_sha)
+          messages[next_sha] = assert(files[message_file])
+          return { stdout = next_sha .. "\n", stderr = "", exit_code = 0 }
+        end,
+        git_push_ref_update = function(_remote, sha, ref, lease)
+          pushes[#pushes + 1] = { sha = sha, ref = ref, lease = lease }
+          if remote_sha ~= nil then
+            return { stdout = "", stderr = "non-fast-forward", exit_code = 1 }
+          end
+          remote_sha = sha
+          return { stdout = "", stderr = "", exit_code = 0 }
+        end,
+      },
+      file = {
+        write = function(path, body)
+          files[path] = body
+        end,
+      },
+    })
+    local expected = {
+      repo = repo,
+      origin = origin,
+      blueprint_digest = blueprint_digest,
+      slot = "first",
+      child_issue = tostring(child_issue),
+    }
+    local satisfied_marker = assert(marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = blueprint_digest,
+      slot = "first",
+      child_issue = tostring(child_issue),
+      disposition = "satisfied",
+    }))
+    local created, created_sha = adapter.compare_and_swap(expected, satisfied_marker)
+    t.eq(created, true)
+    t.eq(created_sha, first_sha)
+    t.eq(pushes[1].lease, false)
+
+    next_sha = second_sha
+    local conflicting_marker = assert(marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = blueprint_digest,
+      slot = "first",
+      child_issue = tostring(child_issue),
+      disposition = "undeliverable",
+      reason_code = "premise-refuted",
+    }))
+    local changed = adapter.compare_and_swap(expected, conflicting_marker)
+    t.eq(changed, false)
+    t.eq(pushes[2].ref, pushes[1].ref)
+    t.eq(pushes[2].lease, false)
+
+    local committed = adapter.read(expected)
+    t.eq(committed.disposition, "satisfied")
+    t.eq(committed.commit_sha, first_sha)
+    t.eq(remote_sha, first_sha)
   end,
 
   test_request_rejects_transfer_after_trusted_child_merge = function()
@@ -423,7 +570,7 @@ local tests = {
     local status = child_result.child_result_status({
       has_merged_marker = function() return true end,
       current_obligation_disposition = function()
-        return disposition_fact(entities[child_issue])
+        return disposition_fact(deps)
       end,
     }, {
       proposal_id = child_proposal,
@@ -488,10 +635,10 @@ local tests = {
       end
       return result
     end
-    deps.write_receipt = function(_request, body)
+    local compare_and_swap_receipt = deps.compare_and_swap_receipt
+    deps.compare_and_swap_receipt = function(request, body, timeout)
       t.eq(held[merge_lock], true)
-      entities[child_issue].comments[#entities[child_issue].comments + 1] = trusted_comment(body)
-      return { exit_code = 0, stdout = "created" }
+      return compare_and_swap_receipt(request, body, timeout)
     end
     local close = deps.issue_close
     deps.issue_close = function(...)
@@ -504,14 +651,14 @@ local tests = {
     }))
     t.eq(#result.raises, 0)
     t.eq(#deps.closes, 1)
-    t.eq(disposition_fact(entities[child_issue]).disposition, "transferred")
+    t.eq(disposition_fact(deps).disposition, "transferred")
 
     prs[child_pr].state = "MERGED"
     prs[child_pr].merged_at = "2026-08-05T00:05:00Z"
     local status = child_result.child_result_status({
       has_merged_marker = function() return true end,
       current_obligation_disposition = function()
-        local fact = disposition_fact(entities[child_issue])
+        local fact = disposition_fact(deps)
         fact.successor_ref = base_ids.issue_source_ref(repo, successor_issue)
         return fact
       end,

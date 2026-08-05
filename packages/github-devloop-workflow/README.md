@@ -40,11 +40,12 @@ the general model, **dynamic result-driven materialization**.
 - **`workflow_child_disposition`** is the published operation for closing an unmerged workflow
   child. It re-reads the origin blueprint, created-slot ledger, child lineage, and (for a transfer)
   successor lineage before writing one typed `satisfied`, `transferred`, or `undeliverable` receipt.
-  The operation persists the receipt and closes the child in the same origin/child/merge-lane
-  critical section, so the first persisted outcome is authoritative: an earlier merge rejects the
-  disposition, while a later merge cannot override it. `satisfied` completes the slot, `transferred`
-  follows the same-lineage successor, and `undeliverable` keeps the parent terminal `blocked` with
-  its WHY.
+  The operation persists the receipt through a slot-stable, create-only git-ref CAS, reads that
+  committed fact back, and closes the child in the same origin/child/merge-lane critical section.
+  The first committed outcome is authoritative: process-loss replay reads the same fact, a
+  conflicting write cannot replace it, an earlier merge rejects the disposition, and a later merge
+  cannot override it. `satisfied` completes the slot, `transferred` follows the same-lineage
+  successor, and `undeliverable` keeps the parent terminal `blocked` with its WHY.
   A raw external close has no typed receipt and remains fatal; this operation does not migrate
   already-closed children or create a new slot generation.
 
@@ -143,10 +144,11 @@ colliding ids.
   whether the terminal is monotonic; full prose in the comment body).
 - `fkst:github-devloop-workflow:lineage:v1` — in a materialized child's issue body (origin + blueprint
   digest + slot), so the child is recognized as an ordinary workflow-step issue.
-- `fkst:github-devloop-workflow:child-disposition:v1` — on a child closed through the workflow-owned
-  operation; binds the disposition to origin + blueprint digest + slot + child issue. `transferred`
-  requires an issue `successor_source_ref`; `undeliverable` requires a bounded `reason_code`; the
-  other combinations are rejected.
+- `fkst:github-devloop-workflow:child-disposition:v1` — the commit payload at the slot-stable
+  `refs/fkst/github-devloop-workflow/child-disposition/...` receipt ref; binds the disposition to
+  origin + blueprint digest + slot + child issue. `transferred` requires an issue
+  `successor_source_ref`; `undeliverable` requires a bounded `reason_code`; the other combinations
+  are rejected.
 
 The published `workflow_child_disposition_request` payload uses schema
 `github-devloop-workflow.child-disposition.v1` and carries `repo`, `origin_issue_number`,

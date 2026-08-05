@@ -4,6 +4,7 @@ local digest = require("core.digest")
 local graph = require("testkit.graph")
 local marker = require("core.marker")
 local materialization = require("core.materialization")
+local receipt_store = require("core.child_disposition_receipt")
 local core = require("core")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 
@@ -165,8 +166,47 @@ local function mock_authority_and_writes(markers)
     exit_code = 0,
   })
 
-  t.mock_command("gh api --method POST repos/owner/repo/issues/108/comments --field 'body=", {
-    stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
+  local receipt_ref = receipt_store.receipt_ref({
+    repo = repo,
+    origin = origin,
+    blueprint_digest = blueprint_digest,
+    slot = "first",
+    child_issue = tostring(child_issue),
+  })
+  local tree_sha = string.rep("1", 40)
+  local receipt_sha = string.rep("2", 40)
+  t.mock_command("git ls-remote origin " .. receipt_ref, {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git rev-parse --verify 'HEAD^{tree}'", {
+    stdout = tree_sha .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git commit-tree " .. tree_sha, {
+    stdout = receipt_sha .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git push origin " .. receipt_sha .. ":" .. receipt_ref, {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git ls-remote origin " .. receipt_ref, {
+    stdout = receipt_sha .. "\t" .. receipt_ref .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch origin " .. receipt_ref, {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git cat-file -p " .. receipt_sha, {
+    stdout = "tree " .. tree_sha .. "\n\n" .. markers.disposition .. "\n",
     stderr = "",
     exit_code = 0,
   })
@@ -175,6 +215,10 @@ local function mock_authority_and_writes(markers)
     stderr = "",
     exit_code = 0,
   })
+  return {
+    receipt_ref = receipt_ref,
+    receipt_sha = receipt_sha,
+  }
 end
 
 local function initial_event()
@@ -200,7 +244,7 @@ end
 
 return {
   test_run_graph_child_disposition_records_receipt_before_exactly_one_close = function()
-    mock_authority_and_writes(fixture_markers())
+    local receipt = mock_authority_and_writes(fixture_markers())
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 2 }))
 
@@ -214,7 +258,7 @@ return {
     local receipt_index = nil
     local close_index = nil
     for index, call in ipairs(t.command_calls()) do
-      if gh_argv.call_contains(call, "gh api --method POST repos/owner/repo/issues/108/comments") then
+      if gh_argv.call_contains(call, "git push origin " .. receipt.receipt_sha .. ":" .. receipt.receipt_ref) then
         receipt_index = index
       end
       if gh_argv.call_contains(call, close_command) then

@@ -4,6 +4,7 @@ local digest = require("core.digest")
 local materialization = require("core.materialization")
 local materialize_reconcile = require("materialize_reconcile")
 local marker = require("core.marker")
+local receipt_store = require("core.child_disposition_receipt")
 local testing = require("testkit_internal.testing")
 local t = fkst.test
 
@@ -241,6 +242,24 @@ local function only_queue(raised, queue)
   return out
 end
 
+local function mock_missing_disposition_receipts(repo_name, origin_id, first_issue, revived_issue)
+  local bp = core.default_catalog.records()[2].blueprint
+  local function mock(issue_number, slot)
+    local ref = receipt_store.receipt_ref({
+      repo = repo_name,
+      origin = origin_id,
+      blueprint_digest = digest.blueprint_digest(bp),
+      slot = slot,
+      child_issue = tostring(issue_number),
+    })
+    t.mock_command("git ls-remote origin " .. ref, { stdout = "", stderr = "", exit_code = 0 })
+  end
+  mock(first_issue, bp.steps[1].id)
+  if revived_issue ~= nil then
+    mock(revived_issue, bp.steps[2].id)
+  end
+end
+
 return {
   base_ids = base_ids,
   core = core,
@@ -271,4 +290,5 @@ return {
   raise_capture = raise_capture,
   run_with = run_with,
   only_queue = only_queue,
+  mock_missing_disposition_receipts = mock_missing_disposition_receipts,
 }

@@ -10,6 +10,9 @@ local author_policy = require("testkit_internal.github_author_policy")
 local t = fkst.test
 
 local repo = "owner/repo"
+local no_disposition_receipt = {
+  read_disposition_receipt = function() return nil end,
+}
 
 local function blueprint()
   return {
@@ -338,7 +341,7 @@ local tests = {
     local version = "ready/consensus-github-devloop/issue/owner/repo/90/2026-07-04T00-00-00Z"
     local comments = child_comments_with_delegated_merged_pr(child_proposal_id, 92, version)
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
 
     t.is_nil(m_facts.pr_link_fact(comments, child_proposal_id))
     t.eq(m_facts.pr_delegation_fact(comments, child_proposal_id, nil).pr_number, 92)
@@ -380,7 +383,7 @@ local tests = {
     local version = "ready/consensus-github-devloop/issue/owner/repo/90/2026-07-04T00-00-00Z"
     local comments = child_comments_delegated_open_pr(child_proposal_id, 153, version)
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
     -- The delegation link resolves, but there is NO merged marker on the child.
     t.eq(m_facts.pr_delegation_fact(comments, child_proposal_id, nil).pr_number, 153)
     t.is_nil(m_facts.merged_fact(comments, child_proposal_id, 153, nil))
@@ -412,7 +415,7 @@ local tests = {
     local first_version = "ready/consensus-github-devloop/issue/owner/repo/201/2026-07-04T00-00-00Z"
     local second_version = "ready/consensus-github-devloop/issue/owner/repo/202/2026-07-04T00-00-00Z"
     local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
     local second_fact = {
       state = "created",
       origin = "github-devloop/issue/owner/repo/90",
@@ -471,7 +474,7 @@ local tests = {
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
     local version = "ready/consensus-github-devloop/issue/owner/repo/251/2026-07-04T00-00-00Z"
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
 
     t.mock_command("gh issue view", {
       stdout = issue_view_stdout(
@@ -496,7 +499,7 @@ local tests = {
     local blocked_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-00-00Z/intake/1"
     local thinking_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-01-00Z/intake/2"
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
 
     t.mock_command("gh issue view", {
       stdout = issue_view_stdout(child_issue, "OPEN", {
@@ -517,7 +520,7 @@ local tests = {
     local child_issue = 253
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
 
     t.mock_command("gh issue view", {
       stdout = issue_view_stdout(child_issue, "OPEN", {
@@ -541,7 +544,7 @@ local tests = {
     local comments = impl_failed_comments(child_proposal_id, failed_version, "codex-failed", 1)
     comments[#comments + 1] = comment(core.state_marker(child_proposal_id, "implementing", current_version))
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
 
     t.mock_command("gh issue view", {
       stdout = issue_view_stdout(child_issue, "OPEN", comments, { "fkst-dev:impl-failed" }),
@@ -564,7 +567,7 @@ local tests = {
     local stale_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-00-00Z"
     local current_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-01-00Z"
     local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, no_disposition_receipt, repo)
     local second_fact = {
       state = "created",
       origin = "github-devloop/issue/owner/repo/90",
