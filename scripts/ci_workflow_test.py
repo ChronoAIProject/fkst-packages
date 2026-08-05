@@ -104,6 +104,10 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertLess(tests_at, attestation_at)
         self.assertIn("github.event.pull_request.number", workflow)
         self.assertIn("github.event.pull_request.head.sha", workflow)
+        self.assertIn(
+            "FKST_R9_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
+            workflow,
+        )
         self.assertIn("origin/${{ github.base_ref }}", workflow)
         self.assertIn(
             "FKST_R9_TRACE_OUTPUT_DIR: ${{ github.workspace }}/.fkst/run/intent-diff-traces",

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
+import check_repo_intent_bounded_replay as checker
 import generate_intent_diff_attestation as generator
 from intent_bounded_replay.attestation import (
     AttestationError,
@@ -145,6 +148,14 @@ class AttestationGenerationTest(unittest.TestCase):
         git(self.root, "config", "user.email", "attestation@example.invalid")
         git(self.root, "config", "user.name", "Attestation Test")
         (self.root / ".gitignore").write_text("/.fkst/run/\n", encoding="utf-8")
+        for relative in checker.PROTECTED_MODULES:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# protected fixture\n", encoding="utf-8")
+        (self.root / checker.ALLOWLIST).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / checker.ALLOWLIST).write_text("# protected allowlist\n", encoding="utf-8")
+        (self.root / checker.INTENT_DIFF_DIR).mkdir(parents=True, exist_ok=True)
+        (self.root / checker.INTENT_DIFF_DIR / ".gitkeep").write_text("", encoding="utf-8")
         write_json(self.root, PAIR.old_path, trace("old"))
         (self.root / "tracked.txt").write_text("base\n", encoding="utf-8")
         git(self.root, "add", "-A")
@@ -161,6 +172,20 @@ class AttestationGenerationTest(unittest.TestCase):
         pr_number: int = 123,
         trace_hashes: dict[str, str] | None = None,
     ) -> dict[str, object]:
+        manifest_relative = f"migration/intent-diffs/{pr_number}.json"
+        allowlist_path = self.root / checker.ALLOWLIST
+        allowlist_entries = {
+            line
+            for line in allowlist_path.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        }
+        allowlist_entries.add(manifest_relative)
+        allowlist_path.write_text(
+            "# protected allowlist\n" + "\n".join(sorted(allowlist_entries)) + "\n",
+            encoding="utf-8",
+        )
+        git(self.root, "add", checker.ALLOWLIST)
+        git(self.root, "commit", "-qm", f"admit intent manifest {pr_number}")
         if trace_hashes is None:
             trace_hashes = recompute_trace_hashes(
                 self.root,
@@ -186,10 +211,24 @@ class AttestationGenerationTest(unittest.TestCase):
             "manifest_sha256": "",
         }
         manifest["manifest_sha256"] = canonical_artifact_hash_v1(manifest)
-        write_json(self.root, f"migration/intent-diffs/{pr_number}.json", manifest)
+        write_json(self.root, manifest_relative, manifest)
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "intent manifest")
         return manifest
+
+    def rollup_environment(self):
+        return mock.patch.dict(
+            os.environ,
+            {
+                "FKST_R9_PR_HEAD_REPOSITORY": "owner/repo",
+                "FKST_RESTART_PREFLIGHT_BASE_REF": self.base_sha,
+                "GITHUB_BASE_REF": "dev",
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_HEAD_REF": "integration-test-device",
+                "GITHUB_REPOSITORY": "owner/repo",
+            },
+            clear=False,
+        )
 
     def generate(
         self,
@@ -267,7 +306,20 @@ class AttestationGenerationTest(unittest.TestCase):
             124: self.add_manifest(pr_number=124),
         }
 
-        artifact = self.generate(pr_number=999)
+        with self.rollup_environment(), mock.patch.object(
+            checker,
+            "_admission_trace_messages",
+            return_value=[],
+        ), mock.patch(
+            "check_repo_restart_preflight._step8_complete",
+            return_value=True,
+        ):
+            precheck_messages = checker.repository_messages(
+                self.root,
+                enforce_base=True,
+            )
+            self.assertEqual(precheck_messages, [])
+            artifact = self.generate(pr_number=999)
 
         self.assertIsNotNone(artifact)
         assert artifact is not None
@@ -295,6 +347,31 @@ class AttestationGenerationTest(unittest.TestCase):
             artifact["attestation_sha256"],
             canonical_attestation_sha256(artifact),
         )
+
+    def test_ordinary_pr_cannot_attest_an_edited_prior_manifest_as_rollup(self) -> None:
+        manifest = self.add_manifest(pr_number=124)
+        git(self.root, "branch", "-f", "protected-base", "HEAD")
+        manifest["cause"] = "ordinary PR edit"
+        manifest["manifest_sha256"] = canonical_artifact_hash_v1(manifest)
+        write_json(self.root, "migration/intent-diffs/124.json", manifest)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "edit prior manifest")
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "FKST_R9_PR_HEAD_REPOSITORY": "owner/repo",
+                "GITHUB_BASE_REF": "integration-test-device",
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_HEAD_REF": "feature/edit-prior-manifest",
+                "GITHUB_REPOSITORY": "owner/repo",
+            },
+            clear=False,
+        ), self.assertRaisesRegex(
+            AttestationError,
+            "rollup attestation requires the configured same-repository integration-to-dev topology",
+        ):
+            self.generate(pr_number=999)
 
     def test_deleted_manifest_fails_closed(self) -> None:
         self.add_manifest()

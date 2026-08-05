@@ -40,6 +40,8 @@ jobs:
   test:
     needs: git-239-compat
     runs-on: ubuntu-latest
+    env:
+      FKST_R9_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
     steps:
       - name: Checkout fkst-packages
         uses: actions/checkout@v4

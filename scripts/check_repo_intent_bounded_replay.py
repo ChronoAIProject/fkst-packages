@@ -13,7 +13,11 @@ from typing import Any
 
 from intent_bounded_replay.compare import compare_report
 from intent_bounded_replay import delivery_authorization
-from intent_bounded_replay.attestation import TRACE_PAIRS, attestation_messages
+from intent_bounded_replay.attestation import (
+    TRACE_PAIRS,
+    attestation_messages,
+    rollup_provenance_messages,
+)
 from intent_bounded_replay.normalize import (
     canonical_artifact_hash_v1,
     canonical_json,
@@ -659,6 +663,7 @@ def repository_messages(
         else:
             identities[identity] = relative
 
+    rollup_authorized = not rollup_provenance_messages()
     for entry in sorted(growth):
         artifact = manifests.get(entry)
         bound_messages = (
@@ -666,6 +671,8 @@ def repository_messages(
             if artifact is None
             else [f"cannot resolve protected merge-base for {entry}"]
             if protected_base is None
+            else []
+            if rollup_authorized
             else _bound_manifest_messages(root, artifact, entry, protected_base)
         )
         messages.extend(bound_messages)

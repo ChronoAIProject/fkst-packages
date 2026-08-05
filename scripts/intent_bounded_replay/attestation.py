@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -49,10 +50,34 @@ ATTESTATION_HASH_FIELDS = {
     "attestation_sha256",
 }
 GIT_SHA_RE = re.compile(r"[0-9a-f]{40,64}")
+ROLLUP_HEAD_REF_RE = re.compile(r"integration(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?")
+ROLLUP_PROVENANCE_ERROR = (
+    "rollup attestation requires the configured same-repository "
+    "integration-to-dev topology"
+)
 
 
 class AttestationError(RuntimeError):
     """Raised when verifier-owned attestation evidence is incomplete or invalid."""
+
+
+def rollup_provenance_messages(
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Validate producer-owned GitHub facts that authorize rollup semantics."""
+    values = os.environ if environ is None else environ
+    repository = values.get("GITHUB_REPOSITORY", "")
+    head_repository = values.get("FKST_R9_PR_HEAD_REPOSITORY", "")
+    head_ref = values.get("GITHUB_HEAD_REF", "")
+    base_ref = values.get("GITHUB_BASE_REF", "")
+    authorized = (
+        values.get("GITHUB_EVENT_NAME") == "pull_request"
+        and repository != ""
+        and head_repository == repository
+        and ROLLUP_HEAD_REF_RE.fullmatch(head_ref) is not None
+        and base_ref == "dev"
+    )
+    return [] if authorized else [ROLLUP_PROVENANCE_ERROR]
 
 
 @dataclass(frozen=True)

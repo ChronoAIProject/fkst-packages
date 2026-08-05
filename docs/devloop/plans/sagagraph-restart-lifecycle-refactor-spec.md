@@ -1802,8 +1802,11 @@ fails closed. A feature PR that changes its own numbered intent-diff manifest mu
 exactly `migration/intent-diffs/<actual-pr-number>.json`. A rollup that carries prior
 manifests emits `fkst.intent-diff-rollup-attestation.v1`; its byte-ordered subject list
 binds each manifest path, raw blob SHA-256, and canonical `manifest_sha256` independently
-of the carrier PR number. A PR without a changed manifest has no attestation claim. The
-generated attestations remain outside the tracked tree and are uploaded as CI artifacts.
+of the carrier PR number. Rollup mode is authorized only by GitHub pull-request facts for
+a same-repository `integration` or `integration-<device>` head targeting `dev`; changed
+manifest paths never authorize that mode. A PR without a changed manifest has no
+attestation claim. The generated attestations remain outside the tracked tree and are
+uploaded as CI artifacts.
 
 ### 9.7 Preflight
 

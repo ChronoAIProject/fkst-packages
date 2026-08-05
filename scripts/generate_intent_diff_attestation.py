@@ -19,6 +19,7 @@ from intent_bounded_replay.attestation import (
     TracePair,
     canonical_attestation_sha256,
     recompute_trace_hashes,
+    rollup_provenance_messages,
 )
 from intent_bounded_replay.normalize import (
     canonical_json,
@@ -118,6 +119,10 @@ def generate_attestation(
     expected_manifest = f"{checker.INTENT_DIFF_DIR}/{pr_number}.json"
     changed_manifests = _changed_manifest_paths(root, base_sha, head_sha)
     output_path = Path(output_dir) / f"{pr_number}.json"
+    if changed_manifests and expected_manifest not in changed_manifests:
+        provenance_messages = rollup_provenance_messages()
+        if provenance_messages:
+            raise AttestationError("; ".join(provenance_messages))
     trace_hashes = recompute_trace_hashes(
         root,
         trace_pairs,
