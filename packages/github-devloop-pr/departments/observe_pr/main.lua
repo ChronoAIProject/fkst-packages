@@ -449,12 +449,12 @@ local function maybe_heal_pr_base_unmanaged_block(origin, pr_number, current_pr,
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, blocked_state, "blocked", "reviewing", "skip-stale(pr-closed)", "re-derived PR is not open")
     return true
   end
-  local self_owned, status = m_claims.verify_pr_review_issue_claim(
+  local claim_decision = m_claims.pr_review_issue_claim_decision(
     "observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id)
-  if not self_owned then
+  if not claim_decision.owned then
     local outcome = "skip-not-owned(pr-base-unmanaged-self-heal)"
     local reason = "backing issue is not self-owned"
-    if status == "other" then
+    if claim_decision.claim_state == "other" then
       outcome = "skip-claimed-by-other(pr-base-unmanaged-self-heal)"
       reason = "backing issue assignee claim is held by another login"
     end
