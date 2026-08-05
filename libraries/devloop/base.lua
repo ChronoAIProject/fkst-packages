@@ -32,7 +32,7 @@ local max_worktree_prefix_len = base_constants.max_worktree_prefix_len
 local max_branch_len = base_constants.max_branch_len
 local max_pr_title_len = base_constants.max_pr_title_len
 local max_judgment_prefix_len = base_constants.max_judgment_prefix_len
-local redrive_generation_fingerprint_hex_len = 32
+local redrive_delivery_fingerprint_hex_len = 32
 local action_label = base_constants.action_label
 local intake_label = base_constants.intake_label
 local class_label = base_constants.class_label
@@ -295,7 +295,7 @@ function C.pr_review_consensus_dedup_key(review_proposal_id)
   return "consensus:" .. C.pr_review_proposal_dedup_key(review_proposal_id)
 end
 
-local function pr_review_redrive_generation_parts(review_repo, generation_key)
+local function pr_review_redrive_generation_code(review_repo, generation_key)
   if not is_path_safe_key(generation_key, max_dedup_len) then
     return nil
   end
@@ -309,7 +309,7 @@ local function pr_review_redrive_generation_parts(review_repo, generation_key)
       or epoch_ms ~= math.floor(epoch_ms) then
       return nil
     end
-    return generation_code, string.format("%.0f", epoch_ms)
+    return generation_code
   end
 
   generation_prefix = generation_key:match(
@@ -324,7 +324,7 @@ local function pr_review_redrive_generation_parts(review_repo, generation_key)
       and (issue_repo == nil or C.safe_pr_review_repo_segment(issue_repo) ~= review_repo)) then
     return nil
   end
-  return "f", sha256.hex(generation_key):sub(1, redrive_generation_fingerprint_hex_len)
+  return "f"
 end
 
 function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_key, attempt)
@@ -332,16 +332,18 @@ function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_k
   if review_repo == nil then
     error("github-devloop: review-proposal-id-invalid: invalid PR review proposal id")
   end
-  local heartbeat_code, generation_identity = pr_review_redrive_generation_parts(review_repo, generation_key)
-  if heartbeat_code == nil then
+  local generation_code = pr_review_redrive_generation_code(review_repo, generation_key)
+  if generation_code == nil then
     error("github-devloop: review-redrive-generation-invalid: invalid PR review redrive generation: " .. tostring(generation_key))
   end
   local round = tonumber(attempt)
   if round == nil or round < 1 or round ~= math.floor(round) then
     error("github-devloop: review-redrive-attempt-invalid: invalid PR review redrive attempt")
   end
-  local key = tostring(review_proposal_id) .. "/r/" .. heartbeat_code .. "/" .. generation_identity
-    .. "/attempt/" .. tostring(round)
+  local attempt_text = string.format("%.0f", round)
+  local delivery_fingerprint = sha256.hex(generation_key .. "/attempt/" .. attempt_text)
+    :sub(1, redrive_delivery_fingerprint_hex_len)
+  local key = tostring(review_proposal_id) .. "/r/" .. generation_code .. "/" .. delivery_fingerprint
   if not is_path_safe_key(key, max_key_len) then
     error("github-devloop: review-redrive-dedup-key-too-long: PR review redrive delivery dedup exceeds the consensus key bound")
   end
@@ -357,20 +359,14 @@ local function parse_pr_review_proposal_dedup_key(dedup_key)
   if review_proposal ~= nil and C.parse_pr_review_proposal_id(review_proposal) ~= nil then
     return review_proposal, C.pr_review_proposal_dedup_key(review_proposal), "canonical"
   end
-  local heartbeat_code, generation_identity, attempt
-  review_proposal, heartbeat_code, generation_identity, attempt = without_loop:match(
-    "^(github%-devloop/pr%-review/[^/]+/%d+/[^/]+/[^/]+)/r/([fms])/([^/]+)/attempt/(%d+)$"
+  local generation_code, delivery_fingerprint
+  review_proposal, generation_code, delivery_fingerprint = without_loop:match(
+    "^(github%-devloop/pr%-review/[^/]+/%d+/[^/]+/[^/]+)/r/([fms])/([0-9a-f]+)$"
   )
-  local valid_generation_identity = heartbeat_code == "f"
-    and #tostring(generation_identity or "") == redrive_generation_fingerprint_hex_len
-    and tostring(generation_identity):match("^[0-9a-f]+$") ~= nil
-    or (heartbeat_code == "m" or heartbeat_code == "s")
-      and tostring(generation_identity or ""):match("^[1-9]%d*$") ~= nil
   if review_proposal == nil
     or not is_path_safe_key(without_loop, max_key_len)
-    or not valid_generation_identity
-    or tonumber(attempt) == nil
-    or tonumber(attempt) < 1
+    or generation_code == nil
+    or #tostring(delivery_fingerprint or "") ~= redrive_delivery_fingerprint_hex_len
     or C.parse_pr_review_proposal_id(review_proposal) == nil then
     return nil
   end
