@@ -172,11 +172,10 @@ return {
     t.eq(fact.branch, CURRENT_BRANCH)
   end,
 
-  test_checkpointed_output_releases_exact_branch = function()
+  test_checkpoint_does_not_release_inflight_branch = function()
     local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
     local fact = core.branch_release_fact({ comment(checkpoint_marker()) }, issue_ref, CURRENT_BRANCH)
-    t.eq(fact.kind, "checkpointed")
-    t.eq(fact.branch, CURRENT_BRANCH)
+    t.eq(fact, nil)
   end,
 
   test_current_impl_failure_classifies_residue_disposable = function()

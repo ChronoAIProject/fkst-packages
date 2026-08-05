@@ -82,11 +82,11 @@ local function running_row(issue, dedup, role)
   }
 end
 
-local function issue_fixture(issue_number, state_name, lifecycle_marker)
+local function issue_fixture(issue_number, state_name, lifecycle_marker, state_version)
   local marker_body = devloop_state.state_marker(
     "github-devloop/issue/" .. REPO .. "/" .. tostring(issue_number),
     state_name,
-    "dedup-current"
+    state_version or "dedup-current"
   )
   if lifecycle_marker ~= nil then
     marker_body = marker_body .. "\n" .. lifecycle_marker
@@ -106,10 +106,11 @@ local function issue_fixture(issue_number, state_name, lifecycle_marker)
   }
 end
 
-local function fake_github(issue_state, lifecycle_marker)
+local function fake_github(issue_state, lifecycle_marker, state_version)
   local issues = {}
   if issue_state ~= nil then
-    issues[REPO .. "#issue/333"] = issue_fixture(333, issue_state, lifecycle_marker)
+    issues[REPO .. "#issue/333"] = issue_fixture(
+      333, issue_state, lifecycle_marker, state_version)
   end
   return github_fake.new(github_fake.model({ issues = issues }))
 end
@@ -124,10 +125,11 @@ local function sequenced_github(snapshots, reads)
   }
 end
 
-local function department_with(removed, running_rows, remove_env, issue_state, lifecycle_marker, github_override)
+local function department_with(
+    removed, running_rows, remove_env, issue_state, lifecycle_marker, github_override, state_version)
   return worktree_gc.make_department({
     git = fake_git(removed),
-    github = github_override or fake_github(issue_state, lifecycle_marker),
+    github = github_override or fake_github(issue_state, lifecycle_marker, state_version),
     read_env = function(name)
       if name == "FKST_RUNTIME_ROOT" then
         return CUR_RT
@@ -309,12 +311,20 @@ return {
     t.eq(contains(removed, STABLE_PATH), false)
   end,
 
-  test_releases_checkpointed_stable_worktree = function()
+  test_retry_harvest_keeps_stable_worktree_despite_stale_checkpoint = function()
     local removed = {}
-    local dept = department_with(removed, {}, "1", "implementing", checkpoint_marker())
+    local dept = department_with(
+      removed,
+      {},
+      "1",
+      "implementing",
+      checkpoint_marker(),
+      nil,
+      "dedup-current/reimplement/2"
+    )
     testing.run_fake(dept, tick())
 
-    t.eq(contains(removed, STABLE_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 
   test_releases_stable_impl_failed_disposable_residue = function()

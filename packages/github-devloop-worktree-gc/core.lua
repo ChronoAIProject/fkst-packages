@@ -174,7 +174,9 @@ function M.fix_owner_branch(comments, proposal_id)
 end
 
 -- Derive lifecycle-owned release eligibility for one exact deterministic branch.
--- Required output is releasable only after its published/checkpoint fact is durable.
+-- Required output is releasable only after its published fact is durable. A
+-- checkpoint is retry input, not lifecycle completion, and cannot release the
+-- branch while a later attempt may still be harvesting it.
 -- A current implementation failure is the lifecycle's explicit classification that
 -- the remaining local residue is disposable. Terminal issue rows are final as before.
 function M.branch_release_fact(comments, issue_ref, branch)
@@ -200,23 +202,6 @@ function M.branch_release_fact(comments, issue_ref, branch)
       proposal_id = proposal_id,
       dedup_key = published.dedup_key,
       head_sha = published.head_sha,
-    }
-  end
-
-  local checkpoint = progress_fact_for_branch(
-    comments,
-    proposal_id,
-    branch,
-    "<!%-%- fkst:github%-devloop:implement%-checkpoint:v1.-%-%->",
-    m_facts.implement_checkpoint_fact
-  )
-  if checkpoint ~= nil then
-    return {
-      kind = "checkpointed",
-      branch = checkpoint.branch,
-      proposal_id = proposal_id,
-      dedup_key = checkpoint.dedup_key,
-      head_sha = checkpoint.head_sha,
     }
   end
 
