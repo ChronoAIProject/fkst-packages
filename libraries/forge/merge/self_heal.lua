@@ -10,6 +10,8 @@ local github = opts.github_handle
 local git = git_adapter.production_handle
 local read_runtime_root_cmd = opts.read_runtime_root_cmd
 local mkdir_p_cmd = opts.mkdir_p_cmd
+local log_info = opts.log_info
+local invalidate_pr_after_write = opts.invalidate_pr_after_write
 local pr_rollup_green = check_runs.pr_rollup_green
 
 local function merge_ci_selfheal_worktree(repo, pr_number, head_sha)
@@ -41,7 +43,7 @@ local function rerequest_head_check_runs(repo, pr_number, head_sha, runs, propos
       error("forge.merge: gh-check-run-rerequest-failed: check-run rerequest failed: " .. tostring(result.stderr))
     end
   end
-  M.log_line("info", "merge", proposal_id, "ci-selfheal-rerequest", {
+  log_info("merge", proposal_id, "ci-selfheal-rerequest", {
     "repo=" .. tostring(repo),
     "pr=" .. tostring(pr_number),
     "head_sha=" .. tostring(head_sha),
@@ -95,8 +97,8 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
   if not forge_validators.is_git_sha(new_head_sha) or new_head_sha == head_sha then
     error("forge.merge: ci-selfheal-fresh-head-missing: merge CI self-heal did not create a fresh head")
   end
-  M.invalidate_entity_after_write(repo, "pr", pr_number)
-  M.log_line("info", "merge", proposal_id, "ci-selfheal-head-nudge", {
+  invalidate_pr_after_write(repo, pr_number)
+  log_info("merge", proposal_id, "ci-selfheal-head-nudge", {
     "repo=" .. tostring(repo),
     "pr=" .. tostring(pr_number),
     "old_head_sha=" .. tostring(head_sha),

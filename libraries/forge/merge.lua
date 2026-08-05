@@ -15,6 +15,12 @@ end
 if type(merge_opts.mkdir_p_cmd) ~= "function" then
   error("forge.merge: mkdir-command-required: mkdir_p_cmd is required")
 end
+if type(merge_opts.log_info) ~= "function" then
+  error("forge.merge: log-info-required: log_info is required")
+end
+if type(merge_opts.invalidate_pr_after_write) ~= "function" then
+  error("forge.merge: invalidate-pr-after-write-required: invalidate_pr_after_write is required")
+end
 local shared_helpers = shared.install(M, merge_opts)
 local ci_gate_exports = ci_gate.install(M, shared_helpers, merge_opts)
 self_heal.install(M, shared_helpers, ci_gate_exports, merge_opts)
