@@ -11,7 +11,7 @@ local config = require("devloop.config")
 -- are reached directly), so departments can `require("devloop.logging")` and call them without
 -- routing through the composed-core ambient table. S.install(M) still binds the methods onto M
 -- as a migration scaffold so readers not yet rewired keep working; it is deleted once the
--- G-DEVLOOP-INSTALLER ratchet shows zero logging reads through the ambient M.
+-- G-DEVLOOP-INSTALLER count reaches zero AND libraries/ has no ambient read (see the endpoint doc).
 
 function C.error_fingerprint(error_class, queue, dept, message)
   return error_facts.error_fingerprint(error_class, queue, dept, message)

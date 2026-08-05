@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import check_repo_config
+import check_repo_lua
 
 
 INTAKE_DEFAULT_PACKAGE = "github-devloop-intake-default"
@@ -40,46 +40,6 @@ class Source:
         return None
 
 
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    index = 0
-    while index < len(text):
-        if text.startswith("--", index):
-            long = check_repo_config.lua_long_bracket_at(text, index + 2)
-            if long is not None:
-                opener_len, closer = long
-                end = check_repo_config.lua_long_bracket_end(text, index + 2 + opener_len, closer)
-                _mask(chars, index, end)
-                index = end
-                continue
-            newline = text.find("\n", index)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, index, end)
-            index = end
-            continue
-        long = check_repo_config.lua_long_bracket_at(text, index)
-        if long is not None:
-            opener_len, closer = long
-            end = check_repo_config.lua_long_bracket_end(text, index + opener_len, closer)
-            _mask(chars, index, end)
-            index = end
-            continue
-        char = text[index]
-        if char in {"'", '"'}:
-            end = check_repo_config.lua_quoted_string_end(text, index)
-            _mask(chars, index, end)
-            index = end
-            continue
-        index += 1
-    return "".join(chars)
-
-
 def line_number(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
 
@@ -104,7 +64,7 @@ def high_risk_definitions(sources: list[Source], name: str) -> list[tuple[Source
     for source in sources:
         if is_test_source(source):
             continue
-        masked = lua_code_mask(source.text)
+        masked = check_repo_lua.code_mask(source.text)
         for match in HIGH_RISK_DEF_RE.finditer(masked):
             if (match.group("function") or match.group("assign")) == name:
                 found.append((source, match.start()))
@@ -140,7 +100,7 @@ def intake_default_surface_messages(sources: list[Source]) -> list[str]:
     for source in sources:
         if source.package is None or is_test_source(source):
             continue
-        masked = lua_code_mask(source.text)
+        masked = check_repo_lua.code_mask(source.text)
         if source.relpath == f"packages/{INTAKE_DEFAULT_PACKAGE}/core.lua":
             for match in REQUIRE_CAPABILITIES_RE.finditer(source.text):
                 if masked[match.start():match.start("quote")].strip() == "":
