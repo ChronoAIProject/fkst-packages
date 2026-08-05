@@ -9,5 +9,6 @@ observe_commands.gh_pr_list_observe_opts = core.gh_pr_list_observe_opts
 return {
   core = core,
   t = t,
+  projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
   argv_rendered = gh_argv.argv_rendered,
 }

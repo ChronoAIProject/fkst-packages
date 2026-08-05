@@ -113,7 +113,7 @@ local function sink_probe_cases()
   return {
     {
       id = "r9-shadow-implement-success", event = ready_apply, labels = { "fkst-dev:ready" },
-      comments = { core.state_marker(ready_apply.proposal_id, "ready", ready_apply.dedup_key) },
+      comments = { h.projected_state_comment(ready_apply.proposal_id, "ready", ready_apply.dedup_key) },
       same_attempt_handoff = true,
       entitlements = {
         codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
@@ -271,7 +271,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
     mock_existing_empty_implement_worktree()
     mock_implement_codex(0, "implemented")

@@ -180,7 +180,7 @@ local function ready_to_dependency_wait()
     proposal_id = proposal_id,
     current = {
       labels = { "fkst-dev:enabled", "fkst-dev:ready" },
-      comments = { trusted_comment("IC_ready_input", core.state_marker(proposal_id, "ready", version)) },
+      comments = { trusted_comment("IC_ready_input", h.projected_state_comment(proposal_id, "ready", version)) },
     },
     dependency_gate = {
       ok = false,
@@ -197,7 +197,7 @@ local function dependency_wait_to_ready()
     current = {
       labels = { "fkst-dev:enabled", "fkst-dev:ready", blocked_label },
       comments = {
-        trusted_comment("IC_dependency_input", core.state_marker(proposal_id, "dependency_wait", version)),
+        trusted_comment("IC_dependency_input", h.projected_state_comment(proposal_id, "dependency_wait", version)),
       },
     },
     dependency_gate = {
@@ -274,7 +274,7 @@ end
 local function fresh_ready_comment(id)
   return trusted_comment(
     id,
-    core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready"),
+    h.projected_state_comment(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready"),
     os.date("!%Y-%m-%dT%H:%M:%SZ", now())
   )
 end

@@ -133,7 +133,7 @@ local function capture_current_state_fact()
   h.mock_bot_env()
   local comments = json_array({
     trusted(core.state_marker(PROPOSAL_ID, "thinking", OLDER_VERSION), "2026-06-03T01:00:00Z"),
-    trusted(core.state_marker(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
+    trusted(h.projected_state_comment(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
     trusted(core.state_marker("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9")),
     {
       body = core.state_marker(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10"),
@@ -317,6 +317,11 @@ local function committed_records()
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
       record.old_inputs.current_fact.record_count = 84
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        if sink.effect_id == "label:issue:dependency-canonicalization" then
+          sink.family = "state-label:ready|dependency_wait+label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request"
+        end
+      end
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)
       end)

@@ -123,7 +123,7 @@ end
 local function mock_blocker_issue(issue_number, state_name)
   local comments = {}
   if state_name ~= nil then
-    table.insert(comments, core.state_marker(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
+    table.insert(comments, h.state_comment(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
   end
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
     stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n',
@@ -155,7 +155,7 @@ local function mock_blocker_issue_with_pr_link(issue_number, pr_number, state_na
   local impl_version = "v-" .. tostring(issue_number)
   local comments = {}
   if state_name ~= nil then
-    table.insert(comments, core.state_marker(blocker_proposal_id, state_name, impl_version))
+    table.insert(comments, h.state_comment(blocker_proposal_id, state_name, impl_version))
   end
   table.insert(comments, m_builders.pr_link_marker(blocker_proposal_id, pr_number, branch, impl_version, "dev"))
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
@@ -206,13 +206,13 @@ local function mock_observe_issue(labels, comments)
     number = 42,
     labels = labels or { "fkst-dev:enabled", "fkst-dev:ready" },
     comments = comments or {
-      core.state_marker(proposal_id, "ready", version),
+      h.projected_state_comment(proposal_id, "ready", version),
     },
     times = 1,
   })
   t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), {
     stdout = issue_view_json(labels or { "fkst-dev:enabled", "fkst-dev:ready" }, comments or {
-      core.state_marker(proposal_id, "ready", version),
+      h.projected_state_comment(proposal_id, "ready", version),
     }),
     stderr = "",
     exit_code = 0,
@@ -222,7 +222,7 @@ end
 local function mock_implement_issue(labels, comments)
   t.mock_command(core.gh_issue_view_implement_cmd(repo, 42), {
     stdout = issue_view_json(labels or { "fkst-dev:ready" }, comments or {
-      core.state_marker(proposal_id, "ready", h.ready().dedup_key),
+      h.projected_state_comment(proposal_id, "ready", h.ready().dedup_key),
     }),
     stderr = "",
     exit_code = 0,

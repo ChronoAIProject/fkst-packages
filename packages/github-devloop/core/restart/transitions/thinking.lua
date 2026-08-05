@@ -105,7 +105,6 @@ return function(M, h)
               id = "github-devloop/thinking/autonomous/consensus-reached/apply",
               effect_ids = {
                 "github-proxy.github_issue_comment_request",
-                "github-proxy.github_issue_label_request",
               },
             },
             idempotent = {
@@ -135,7 +134,6 @@ return function(M, h)
               id = "github-devloop/thinking/autonomous/consensus-reached-dependency-held/apply",
               effect_ids = {
                 "github-proxy.github_issue_comment_request",
-                "github-proxy.github_issue_label_request",
               },
             },
             idempotent = {

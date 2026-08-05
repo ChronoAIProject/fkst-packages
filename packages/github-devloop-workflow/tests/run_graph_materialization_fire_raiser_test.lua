@@ -8,6 +8,7 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local base_ids = require("devloop.base_ids")
 local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
+local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state"))
 gh_argv.install(t, core)
 
 local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
@@ -813,7 +814,7 @@ return {
     local ready_version = "consensus:" .. created_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
-      body = core.state_marker(
+      body = projected_state_comment(
         created_child,
         "ready",
         ready_version,
