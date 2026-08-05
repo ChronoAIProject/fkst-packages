@@ -3,6 +3,7 @@ local config = require("devloop.config")
 local decompose_lib = require("devloop.decompose")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -34,6 +35,7 @@ local BASE_BRANCH = "dev"
 local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 
 local function event_payload()
   return h.issue({
@@ -130,7 +132,9 @@ local function capture_runtime()
       from_state = "blocked",
       write_mode = "real",
       run = function()
-        return testing.run_fake(observe_issue_department, event)
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
       end,
       codex_runs_for_read = json_array(),
     })

@@ -92,9 +92,10 @@ local function admit_issue_event(context, event, entity)
     consumer = "github-devloop-intake/admission",
     event = event,
     lock_key = lock_key,
-    work = function()
+    work = function(_, record_authoritative_version)
       devloop_base.assert_trusted_bot_configured()
       local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+      record_authoritative_version(current.updated_at)
 
       devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
       local issue = issue_from_current(issue_number, current)
