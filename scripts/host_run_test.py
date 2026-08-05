@@ -541,7 +541,7 @@ class HostRunTest(unittest.TestCase):
 
                     checkout = pathlib.Path({json.dumps(str(source_repo))})
                     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
-                    pathlib.Path({json.dumps(str(capture))}).write_text(json.dumps({{"argv": sys.argv, "head": head, "runtime": os.environ.get("FKST_RUNTIME_ROOT"), "durable": os.environ.get("FKST_DURABLE_ROOT"), "project_root": os.environ.get("FKST_PROJECT_ROOT")}}, sort_keys=True) + "\\n", encoding="utf-8")
+                    pathlib.Path({json.dumps(str(capture))}).write_text(json.dumps({{"argv": sys.argv, "head": head, "runtime": os.environ.get("FKST_RUNTIME_ROOT"), "durable": os.environ.get("FKST_DURABLE_ROOT"), "project_root": os.environ.get("FKST_PROJECT_ROOT"), "repository_roots": os.environ.get("FKST_CODEX_REPOSITORY_ROOTS")}}, sort_keys=True) + "\\n", encoding="utf-8")
                     """
                 ),
                 encoding="utf-8",
@@ -554,6 +554,7 @@ class HostRunTest(unittest.TestCase):
                     source scripts/host_run.sh
                     BIN={shell_quote(fake_bin)}
                     export FKST_PROJECT_ROOT=/untrusted/launch-directory
+                    export FKST_CODEX_REPOSITORY_ROOTS=/untrusted/ambient-repository
                     host_run_supervise_contract --project-root {shell_quote(h.website_host)} --platform-root {shell_quote(source_repo)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)}
                     """
                 )
@@ -577,6 +578,10 @@ class HostRunTest(unittest.TestCase):
             self.assertEqual(payload["runtime"], str(h.runtime))
             self.assertEqual(payload["durable"], str(h.durable))
             self.assertEqual(Path(payload["project_root"]).resolve(), h.website_host.resolve())
+            self.assertEqual(
+                payload["repository_roots"].splitlines(),
+                [str(h.website_host.resolve()), str(source_repo.resolve())],
+            )
         finally:
             h.close()
 

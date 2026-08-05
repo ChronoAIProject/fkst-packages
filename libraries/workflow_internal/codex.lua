@@ -36,7 +36,7 @@ local allowed_timeout_env = {}
 for _, env_name in pairs(role_timeout_env) do
   allowed_timeout_env[env_name] = true
 end
-
+local with_repository_context
 local function timeout_env_command(name)
   if not allowed_timeout_env[name] then
     error("workflow_internal.codex: invalid-env-name: env name is not allowed")
@@ -89,7 +89,7 @@ end
 function M.with_resolved_timeout(role, opts)
   local dispatch_opts = copy_opts(opts)
   dispatch_opts.timeout = resolved_role_timeout(role, dispatch_opts)
-  return dispatch_opts
+  return with_repository_context(dispatch_opts)
 end
 
 function M.judgment_codex_opts(prompt, worktree)
@@ -182,6 +182,7 @@ function M.dispatch(identity, opts)
   end
   local dispatch_opts = copy_opts(opts)
   dispatch_opts.timeout = resolved_role_timeout(role, dispatch_opts)
+  with_repository_context(dispatch_opts)
   local sync = dispatch_opts.sync == true
   dispatch_opts.sync = nil
   dispatch_opts.role = role
@@ -191,6 +192,65 @@ function M.dispatch(identity, opts)
     return spawn_codex_sync(dispatch_opts)
   end
   return spawn_codex(dispatch_opts)
+end
+
+local repository_roots_env = "FKST_CODEX_REPOSITORY_ROOTS"
+
+local function repository_roots_env_command(name)
+  if name ~= repository_roots_env then
+    error("workflow_internal.codex: repository-roots-env-name-invalid: invalid repository-roots env name")
+  end
+  return 'printf %s "$' .. name .. '"'
+end
+
+local read_repository_roots_env = workflow_env.read_env(repository_roots_env_command)
+
+local function parse_repository_roots(raw)
+  local value = tostring(raw or "")
+  if value:find("\r", 1, true) ~= nil then
+    error("workflow_internal.codex: repository-roots-carriage-return: carriage returns are forbidden")
+  end
+  local roots = {}
+  local seen = {}
+  for line in (value .. "\n"):gmatch("(.-)\n") do
+    local root = trim(line)
+    if root ~= "" then
+      if root:sub(1, 1) ~= "/" or root:find("%c") ~= nil then
+        error("workflow_internal.codex: repository-root-invalid: expected absolute single-line path")
+      end
+      if not seen[root] then
+        seen[root] = true
+        table.insert(roots, root)
+      end
+    end
+  end
+  return roots
+end
+
+
+with_repository_context = function(opts)
+  if opts.prompt == nil then
+    return opts
+  end
+  local roots = parse_repository_roots(read_repository_roots_env(repository_roots_env, exec_sync))
+  local lines = { "Repository locations resolved by the launcher:" }
+  local worktree = trim(opts.worktree)
+  if worktree ~= "" then
+    if worktree:find("%c") ~= nil then
+      error("workflow_internal.codex: worktree-invalid: expected single-line path")
+    end
+    table.insert(lines, "- active worktree: " .. worktree)
+  end
+  for _, root in ipairs(roots) do
+    table.insert(lines, "- repository root: " .. root)
+  end
+  if #roots == 0 then
+    table.insert(lines, "- repository roots: none provided; report the missing context instead of searching the filesystem")
+  end
+  table.insert(lines, "Repository locations are authoritative and already provided.")
+  table.insert(lines, "Do not run `find`, `fd`, `locate`, or recursive directory walks to discover repository locations.")
+  opts.prompt = table.concat(lines, "\n") .. "\n\n" .. tostring(opts.prompt)
+  return opts
 end
 
 return M

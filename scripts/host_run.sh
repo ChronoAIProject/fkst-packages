@@ -36,6 +36,39 @@ host_run_same_path() {
   [ "$left_phys" = "$right_phys" ]
 }
 
+host_run_export_codex_repository_roots() {
+  local root physical existing duplicate
+  local roots=()
+  for root in "$@"; do
+    case "$root" in
+      ""|*$'\n'*|*$'\r'*)
+        echo "error: codex repository roots must be non-empty single-line paths" >&2
+        return 1
+        ;;
+    esac
+    physical="$(cd "$root" 2>/dev/null && pwd -P)" || {
+      echo "error: codex repository root does not exist: $root" >&2
+      return 1
+    }
+    duplicate=0
+    for existing in ${roots[@]+"${roots[@]}"}; do
+      if [ "$existing" = "$physical" ]; then
+        duplicate=1
+        break
+      fi
+    done
+    if [ "$duplicate" -eq 0 ]; then
+      roots+=("$physical")
+    fi
+  done
+  if [ "${#roots[@]}" -eq 0 ]; then
+    echo "error: at least one codex repository root is required" >&2
+    return 1
+  fi
+  printf -v FKST_CODEX_REPOSITORY_ROOTS '%s\n' "${roots[@]}"
+  export FKST_CODEX_REPOSITORY_ROOTS
+}
+
 host_run_resolve_target_platform_roots() {
   local output line
   output="$(python3 - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
@@ -642,6 +675,7 @@ host_run_supervise_contract() {
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
   export FKST_PROJECT_ROOT="$HOST_RUN_PROJECT_ROOT"
+  host_run_export_codex_repository_roots "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_ROOT" || return $?
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")
