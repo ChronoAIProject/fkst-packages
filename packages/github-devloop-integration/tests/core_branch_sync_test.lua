@@ -294,6 +294,8 @@ return {
     t.eq(result.exit_code, 75, result.output)
     t.eq(exit_codes[1], 0, status)
     t.eq(exit_codes[2], 75, status)
+    t.eq(read_file(state_dir .. "/ready"), "ready\n")
+    t.eq(read_file(state_dir .. "/release"), "release\n")
     local deferred_output = read_file(state_dir .. (tonumber(sync_rc) == 75 and "/sync.out" or "/rollup.out"))
     t.is_true(
       deferred_output:find("with_lock lock busy: github-devloop/git/owner/repo/fetch", 1, true) ~= nil,
