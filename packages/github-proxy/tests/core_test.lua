@@ -355,7 +355,7 @@ return {
     local result = core.fetch_rest_issue_view("owner/repo", 3)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_issue_view_fails_closed_on_empty_success_stdout = function()
@@ -374,7 +374,7 @@ return {
     local result = core.fetch_rest_issue_view("owner/repo", 3)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_pr_view_fails_closed_on_malformed_success_stdout = function()
@@ -393,7 +393,7 @@ return {
     local result = core.fetch_rest_pr_view("owner/repo", 7)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_pr_view_fails_closed_on_empty_success_stdout = function()
@@ -412,7 +412,7 @@ return {
     local result = core.fetch_rest_pr_view("owner/repo", 7)
     t.is_true(result.exit_code ~= 0)
     t.eq(result.stdout, "")
-    t.is_true(result.stderr:find("forge.github.content_filter: JSON decode failed", 1, true) ~= nil)
+    t.is_true(result.stderr:find("forge.github.content_filter: json-document-invalid: JSON decode failed", 1, true) ~= nil)
   end,
 
   test_rest_issue_view_empty_comments_stdout_uses_empty_comments_fallback = function()

@@ -66,10 +66,10 @@ end
 function C.decomposed_marker(proposal_id, version, pr_number, count)
   local issue_count = tonumber(count)
   if issue_count == nil or issue_count < 1 or issue_count > max_decompose_issues or issue_count % 1 ~= 0 then
-    error("github-devloop: invalid decomposed count")
+    error("github-devloop: decomposed-count-invalid: invalid decomposed count")
   end
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: invalid decomposed pr number")
+    error("github-devloop: invalid-pr-number: invalid decomposed pr number")
   end
   return '<!-- fkst:github-devloop:decomposed:v1 proposal="' .. tostring(proposal_id)
     .. '" version="' .. tostring(version)
@@ -255,7 +255,7 @@ end
 function C.decompose_lineage_marker(root_proposal_id, depth)
   local n = tonumber(depth)
   if n == nil or n < 0 or n % 1 ~= 0 then
-    error("github-devloop: invalid decompose lineage depth")
+    error("github-devloop: decompose-lineage-depth-invalid: invalid decompose lineage depth")
   end
   return '<!-- fkst:github-devloop:decompose-lineage:v1 root="' .. tostring(root_proposal_id)
     .. '" depth="' .. tostring(n)

@@ -18,21 +18,21 @@ function M.new(primitives)
 
   function K.derive_generation(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner_edges must be an array")
+      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
     end
     if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness_index must be a table")
+      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
     end
 
     local edge_count = 0
     for key, edge in pairs(owner_edges) do
       if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner_edges must be an array of tables")
+        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
       end
       edge_count = edge_count + 1
     end
     if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner_edges must be a dense array")
+      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
     end
 
     local obligations = {}
@@ -46,20 +46,20 @@ function M.new(primitives)
           or (generation.mode ~= "preserve"
             and generation.mode ~= "bump"
             and generation.mode ~= "open") then
-        error("devloop.restart_obligations: edge.generation_epoch.mode is invalid")
+        error("devloop.restart_obligations: generation-mode-invalid: edge.generation_epoch.mode is invalid")
       end
       require_dense_string_array(generation.keys, "owner_edges edge.generation_epoch.keys")
       require_dense_string_array(edge.lineage_keys, "owner_edges edge.lineage_keys")
       if generation.mode == "preserve" and #generation.keys ~= 0 then
-        error("devloop.restart_obligations: preserving edge generation keys must be empty")
+        error("devloop.restart_obligations: generation-preserve-keys-not-empty: preserving edge generation keys must be empty")
       end
 
       if generation.mode == "bump" or generation.mode == "open" then
         if #generation.keys == 0 or #edge.lineage_keys == 0 then
-          error("devloop.restart_obligations: generation edge keys must be non-empty")
+          error("devloop.restart_obligations: generation-edge-keys-missing: generation edge keys must be non-empty")
         end
         if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate generation edge id " .. edge.id)
+          error("devloop.restart_obligations: duplicate-edge-id: duplicate generation edge id " .. edge.id)
         end
         seen_edge_ids[edge.id] = true
         local witness = witness_index[edge.id]

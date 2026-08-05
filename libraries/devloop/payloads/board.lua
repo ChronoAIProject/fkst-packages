@@ -118,7 +118,7 @@ local function fetch_board_feed(M)
   end
   local result = exec_sync({ cmd = cmd, timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
-    error("github-devloop: FKST_DEVLOOP_BOARD_CMD failed")
+    error("github-devloop: board-feed-command-failed: FKST_DEVLOOP_BOARD_CMD failed")
   end
   local stdout = tostring(result.stdout or "")
   if stdout == "" then
@@ -205,7 +205,7 @@ function C.append_board_digest_to_proposal(M, proposal, repo, tick)
   end
   proposal.body = body .. prefix .. neutralized
   if #proposal.body > M._max_body_len then
-    error("github-devloop: proposal board digest exceeds bounded body")
+    error("github-devloop: board-digest-body-limit-exceeded: proposal board digest exceeds bounded body")
   end
   return proposal
 end
