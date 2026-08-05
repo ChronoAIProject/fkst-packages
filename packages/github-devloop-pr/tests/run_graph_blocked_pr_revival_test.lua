@@ -268,14 +268,6 @@ return {
       dedup_key = review_dedup_key,
       pr_number = rereview_pr_number,
     })
-<<<<<<< HEAD
-    t.mock_command("gh pr diff " .. tostring(rereview_pr_number) .. " --repo " .. repo .. " --name-only", {
-      stdout = "file.lua\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
-=======
     for _ = 1, 2 do
       t.mock_command("gh pr diff " .. tostring(rereview_pr_number) .. " --repo " .. repo .. " --name-only", {
         stdout = "file.lua\n",
@@ -283,7 +275,6 @@ return {
         exit_code = 0,
       })
     end
->>>>>>> cdc5e9dbe8517e76b2ddfacff110ed48945c3bde
     local implementation_worktree = devloop_base.implement_worktree_path(
       devloop_base.implementation_worktree_root(durable_root),
       repo,

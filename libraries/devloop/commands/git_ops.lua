@@ -9,7 +9,7 @@ local forge_validators = require("devloop.forge_validators")
 function S.worktree_parent_dir(worktree)
   local value = tostring(worktree or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid worktree path")
+    error("github-devloop: worktree-path-invalid: invalid worktree path")
   end
   return value:gsub("/+$", ""):match("^(.*)/[^/]+$") or "."
 end
@@ -17,7 +17,7 @@ end
 function S.run_mkdir(_M, path, timeout)
   local result = exec_sync({ cmd = devloop_base.mkdir_p_cmd(path), timeout = timeout or 30 })
   if result.exit_code ~= 0 then
-    error("github-devloop: directory setup failed: " .. tostring(result.stderr))
+    error("github-devloop: directory-setup-failed: directory setup failed: " .. tostring(result.stderr))
   end
   return result
 end
@@ -75,7 +75,7 @@ end
 local function path_entry_exists_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid path")
+    error("github-devloop: path-invalid: invalid path")
   end
   local quoted = devloop_base._shell_single_quote(value)
   return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
@@ -92,7 +92,7 @@ end
   function C.git_commit(worktree, message, timeout)
     local bounded_message = tostring(message or "")
     if bounded_message == "" or #bounded_message > 200 then
-      error("github-devloop: invalid git commit message")
+      error("github-devloop: commit-message-invalid: invalid git commit message")
     end
     return support.git().commit_message(worktree, bounded_message, timeout)
   end
@@ -262,7 +262,7 @@ end
   function C.git_worktree_force_clean(worktree, timeout)
     local value = tostring(worktree or "")
     if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid worktree path")
+      error("github-devloop: worktree-path-invalid: invalid worktree path")
     end
     local remove_result = support.git().worktree_remove(value, timeout)
     local directory_result = exec_argv({
@@ -348,7 +348,7 @@ end
   function C.path_is_directory_cmd(path)
     local value = tostring(path or "")
     if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid directory path")
+      error("github-devloop: directory-path-invalid: invalid directory path")
     end
     return "[ -d " .. devloop_base._shell_single_quote(value) .. " ]"
   end
@@ -387,7 +387,7 @@ end
 
   function C.find_worktrees_for_branch(stdout, branch)
     if not forge_validators.is_git_ref_safe(branch) then
-      error("github-devloop: invalid branch")
+      error("github-devloop: branch-invalid: invalid branch")
     end
     local wanted = "refs/heads/" .. tostring(branch)
     local path = nil
@@ -443,7 +443,7 @@ end
 
   function C.find_worktree_for_branch_under_root(stdout, branch, root)
     if not forge_validators.is_git_ref_safe(branch) then
-      error("github-devloop: invalid branch")
+      error("github-devloop: branch-invalid: invalid branch")
     end
     local wanted = "refs/heads/" .. tostring(branch)
     local path = nil

@@ -326,30 +326,7 @@ local function mock_stale_worker_recovery()
       exit_code = 1,
     })
   end
-<<<<<<< HEAD
-  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
-    stdout = durable_root,
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree list --porcelain", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-=======
   h.mock_force_clean("stale-worker-recovery-worktree")
->>>>>>> cdc5e9dbe8517e76b2ddfacff110ed48945c3bde
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",

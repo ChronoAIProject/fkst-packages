@@ -172,7 +172,7 @@ function M.new(deps)
   local function ensure_dir(path)
     local ok = os.execute("mkdir -p " .. shell_quote(path))
     if ok ~= true and ok ~= 0 then
-      error("github-devloop test: mkdir failed for " .. tostring(path))
+      error("github-devloop-test: directory-setup-failed: mkdir failed for " .. tostring(path))
     end
   end
 
@@ -461,9 +461,6 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-<<<<<<< HEAD
-    return stale
-=======
     t.mock_command("[ -d '" .. stale .. "' ]", {
       stdout = "",
       stderr = "",
@@ -553,7 +550,6 @@ function M.new(deps)
     })
     mock_substrate_pin_refresh(runtime .. "/worktrees/devloop-owner-repo-42-01HY")
     return runtime .. "/worktrees/devloop-owner-repo-42-01HY"
->>>>>>> cdc5e9dbe8517e76b2ddfacff110ed48945c3bde
   end
 
   local function mock_existing_implement_branch(head)
