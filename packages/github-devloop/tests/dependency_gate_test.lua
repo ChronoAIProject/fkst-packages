@@ -1,6 +1,7 @@
 local fixture = require("tests.dependency_cascade_helpers")
 local devloop_base = fixture.devloop_base
 local base_ids = fixture.base_ids
+local dependency_gate = fixture.dependency_gate
 local h = fixture.h
 local t = fixture.t
 local core = fixture.core
@@ -67,7 +68,7 @@ return {
   test_dependency_gate_satisfied_without_blockers = function()
     mock_blocked_by(42, {})
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
   end,
 
@@ -83,7 +84,7 @@ return {
       },
     })
 
-    t.eq(gate.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "dependency-edge-not-visible")
     t.eq(gate.unmet[1], 99)
@@ -114,7 +115,7 @@ return {
     mock_blocked_by(11, {})
     mock_blocker_issue(11, "ready")
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.unmet[1], 11)
   end,
@@ -124,7 +125,7 @@ return {
     mock_blocked_by(12, {})
     mock_blocker_issue(12, "merged")
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
   end,
 
@@ -133,7 +134,7 @@ return {
     mock_blocked_by_failure(17)
     mock_blocker_issue(17, "merged")
     local first = core.dependency_gate(repo, 42)
-    t.eq(first.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(first), true)
     t.eq(first.kind, "satisfied")
     local graphql_calls_after_first = count_calls("gh api graphql")
     t.eq(graphql_calls_after_first, 1)
@@ -141,7 +142,7 @@ return {
     mock_blocked_by(42, { { number = 17, state = "CLOSED" } })
     mock_blocked_by_failure(17)
     local second = core.dependency_gate(repo, 42)
-    t.eq(second.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(second), true)
     t.eq(second.kind, "satisfied")
     t.eq(count_calls("gh api graphql"), graphql_calls_after_first + 1)
 
@@ -149,7 +150,7 @@ return {
     mock_blocked_by(18, {})
     mock_blocker_issue(18, "ready")
     local changed_root_edges = core.dependency_gate(repo, 42)
-    t.eq(changed_root_edges.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(changed_root_edges), false)
     t.eq(changed_root_edges.kind, "waiting")
     t.eq(changed_root_edges.unmet[1], 18)
 
@@ -157,7 +158,7 @@ return {
     mock_blocked_by(17, {})
     mock_blocker_issue_failure(17)
     local third = core.dependency_gate(repo, 42)
-    t.eq(third.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(third), true)
     t.eq(third.kind, "satisfied")
 
     t.eq(core.merged_blocker_cache_key(repo, 17), "github-devloop/dependency/merged/owner/repo/issue/17")
@@ -169,7 +170,7 @@ return {
     mock_blocked_by(27, {})
     mock_blocker_issue(27, "ready")
     local first = core.dependency_gate(repo, 42)
-    t.eq(first.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(first), false)
     t.eq(first.kind, "waiting")
     t.eq(first.unmet[1], 27)
 
@@ -177,7 +178,7 @@ return {
     mock_blocked_by(27, {})
     mock_blocker_issue(27, "ready")
     local second = core.dependency_gate(repo, 42)
-    t.eq(second.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(second), false)
     t.eq(second.kind, "waiting")
     t.eq(second.unmet[1], 27)
     t.eq(count_calls("gh api graphql"), graphql_calls_before + 4)
@@ -193,7 +194,7 @@ return {
       m_builders.merged_marker(core, link.proposal_id, 32, "merge-version-7", "def456"),
     })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
   end,
 
@@ -206,7 +207,7 @@ return {
       core.state_marker(link.proposal_id, "merge-ready", "merge-version-7"),
     })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.unmet[1], 33)
   end,
@@ -215,7 +216,7 @@ return {
     mock_blocked_by(42, { { number = 28, state = "CLOSED", state_reason = "COMPLETED" } })
     mock_blocker_issue(28, "ready")
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "dependency-waiver-required")
     t.eq(gate.unmet[1], 28)
@@ -231,7 +232,7 @@ return {
         dependency_waiver_comment(29),
       },
     })
-    t.eq(gate.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
     t.eq(gate.reason, "dependency-waiver")
   end,
@@ -239,7 +240,7 @@ return {
   test_dependency_gate_closed_not_planned_voids_edge = function()
     mock_blocked_by(42, { { number = 30, state = "CLOSED", state_reason = "NOT_PLANNED" } })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
     t.eq(gate.reason, "dependency-void")
     t.eq(gate.notes[1].kind, "dependency-void")
@@ -252,8 +253,8 @@ return {
     mock_blocker_issue_with_pr_link(35, 36, "pr-open")
     mock_blocker_pr_failure(36)
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.unmet[1], 35)
   end,
 
@@ -261,8 +262,8 @@ return {
     mock_blocked_by(42, { { number = 37 } })
     mock_blocked_by(37, { { number = 42 } })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "cycle")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "verified_cannot_proceed")
   end,
 
   test_dependency_gate_cross_repo_and_failures_unresolvable = function()
@@ -273,26 +274,26 @@ return {
     })
     mock_blocked_by(42, { { number = 41, repo = "other/repo" } })
     local cross_repo = core.dependency_gate(repo, 42)
-    t.eq(cross_repo.ok, false)
-    t.eq(cross_repo.kind, "unresolvable")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(cross_repo), false)
+    t.eq(cross_repo.kind, "verified_cannot_proceed")
 
     mock_blocked_by_failure(42)
     local failed = core.dependency_gate(repo, 42)
-    t.eq(failed.ok, false)
-    t.eq(failed.kind, "unresolvable")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(failed), false)
+    t.eq(failed.kind, "unavailable")
 
     mock_blocked_by_malformed(42)
     local malformed = core.dependency_gate(repo, 42)
-    t.eq(malformed.ok, false)
-    t.eq(malformed.kind, "unresolvable")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(malformed), false)
+    t.eq(malformed.kind, "unavailable")
   end,
 
   test_dependency_gate_truncated_blockedby_fails_closed = function()
     -- 51 blockers exist but the page returns 1 (merged); the unseen 50 must not
-    -- be read as absent. The gate must fail-closed, NOT return ok=true.
+    -- be read as absent. The gate must fail-closed, not classify as satisfied.
     mock_blocked_by_truncated(42)
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
   end,
 }

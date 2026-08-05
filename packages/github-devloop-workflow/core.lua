@@ -52,8 +52,6 @@ local function install_intake_surface(target)
   target.safe_updated_at = function(...) return devloop_base.safe_updated_at(...) end
   target.intake_dedup_key = function(...) return devloop_base.intake_dedup_key(...) end
   target.intake_candidate_delivery_dedup_key = function(...) return devloop_base.intake_candidate_delivery_dedup_key(...) end
-  target.ci_selfheal_once_key = function(...) return devloop_base.ci_selfheal_once_key(...) end
-  target.ci_missing_status_first_observed_key = function(...) return devloop_base.ci_missing_status_first_observed_key(...) end
   target.judgment_worktree_path = devloop_base.judgment_worktree_path
   target.max_body_len = function(...) return devloop_base.max_body_len(...) end
   target.quote_untrusted_prompt_text = function(...) return devloop_base.quote_untrusted_prompt_text(...) end
@@ -164,7 +162,8 @@ function M.install(target)
   target.github_graphql_queries = devloop_dependency_gate.github_graphql_queries
   target.render_github_graphql_query = devloop_dependency_gate.render_github_graphql_query
   target.github_graphql = devloop_dependency_gate.github_graphql
-  target.dependency_gate = devloop_dependency_gate.new(target).dependency_gate
+  local dependency_resolver = devloop_dependency_gate.new(target)
+  target.dependency_gate = dependency_resolver.dependency_gate
 end
 
 M.install(M)

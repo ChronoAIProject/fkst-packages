@@ -22,8 +22,6 @@ local base = require("devloop.base")
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
-M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(...) end
-M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(...) end
 M.judgment_worktree_path = base.judgment_worktree_path
 M.max_body_len = function(...) return base.max_body_len(...) end
 M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(...) end
@@ -77,7 +75,12 @@ local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
-require("forge.merge").install(M, { github_handle = require("devloop.github_factory").production_handle })
+require("forge.merge").install(M, {
+  github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
+  pr_view_projection = parsers_pr.parse_pr_view_merge,
+})
 local git_mechanics = require("devloop.git_mechanics")
 local function dept_exec_argv(...) return exec_argv(...) end
 M.git = require("forge.git").new(dept_exec_argv)

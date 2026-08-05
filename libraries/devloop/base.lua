@@ -341,13 +341,6 @@ local function parse_pr_review_proposal_dedup_key(dedup_key)
     return nil
   end
   local without_loop = transition_version.strip_trailing_loop(dedup_key)
-  local review_loop_round = transition_version.review_loop_round(without_loop)
-  if review_loop_round > 0 then
-    local without_review_loop = transition_version.strip_suffixes(without_loop)
-    if transition_version.review_loop_at(without_review_loop, review_loop_round) == without_loop then
-      without_loop = without_review_loop
-    end
-  end
   local review_proposal = without_loop:match("^(.+)/review$")
   if review_proposal ~= nil and C.parse_pr_review_proposal_id(review_proposal) ~= nil then
     return review_proposal, C.pr_review_proposal_dedup_key(review_proposal), "canonical"
@@ -549,28 +542,6 @@ function C.intake_decision_dedup_key(proposal_id, current)
       "title=" .. tostring(current and current.title or ""),
       "body=" .. tostring(current and current.body or ""),
     }, "\n")),
-  })
-end
-
-function C.ci_selfheal_once_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-selfheal",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
-  })
-end
-
-function C.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-missing-status-observed",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
   })
 end
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -77,6 +78,119 @@ class RatchetBaseTest(unittest.TestCase):
             self.assertEqual(ratchet_base.resolve_dev_ref(root), origin_commit)
             self.assertEqual(ratchet_base.resolve_dev_merge_base(root), origin_commit)
             self.assertNotEqual(origin_commit, local_commit)
+
+    def test_target_ref_uses_github_base_branch_before_dev(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            dev_commit = commit_file(root, "base.txt", "dev\n", "dev")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+            integration_commit = commit_file(root, "base.txt", "integration\n", "integration")
+            git(root, "update-ref", "refs/remotes/origin/integration", integration_commit)
+            commit_file(root, "base.txt", "head\n", "head")
+
+            with mock.patch.dict(
+                os.environ,
+                {"GITHUB_BASE_REF": "integration", "FKST_RATCHET_TARGET_REF": ""},
+            ):
+                self.assertEqual(ratchet_base.resolve_target_ref(root), integration_commit)
+
+    def test_target_ref_uses_configured_integration_branch_before_dev(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            dev_commit = commit_file(root, "base.txt", "dev\n", "dev")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+            integration_commit = commit_file(root, "base.txt", "integration\n", "integration")
+            git(root, "update-ref", "refs/remotes/origin/integration", integration_commit)
+            commit_file(root, "base.txt", "head\n", "head")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FKST_DEVLOOP_INTEGRATION_BRANCH": "integration",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "",
+                    "GITHUB_EVENT_NAME": "",
+                    "GITHUB_REF_NAME": "",
+                    "GITHUB_REF_TYPE": "",
+                },
+            ):
+                self.assertEqual(ratchet_base.resolve_target_ref(root), integration_commit)
+
+    def test_target_ref_uses_github_push_before_sha(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            dev_commit = commit_file(root, "base.txt", "dev\n", "dev")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+            before_commit = commit_file(root, "base.txt", "integration\n", "integration")
+            candidate_commit = commit_file(root, "base.txt", "head\n", "head")
+            git(root, "update-ref", "refs/remotes/origin/integration", candidate_commit)
+            event_path = root / "push-event.json"
+            event_path.write_text(json.dumps({"before": before_commit}), encoding="utf-8")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FKST_DEVLOOP_INTEGRATION_BRANCH": "",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "",
+                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_EVENT_PATH": str(event_path),
+                    "GITHUB_REF_NAME": "integration",
+                    "GITHUB_REF_TYPE": "branch",
+                },
+            ):
+                self.assertEqual(ratchet_base.resolve_target_ref(root), before_commit)
+
+    def test_target_ref_falls_back_to_dev_outside_pull_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            dev_commit = commit_file(root, "base.txt", "dev\n", "dev")
+            git(root, "update-ref", "refs/remotes/origin/dev", dev_commit)
+            commit_file(root, "base.txt", "head\n", "head")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FKST_DEVLOOP_INTEGRATION_BRANCH": "",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "",
+                    "GITHUB_EVENT_NAME": "",
+                    "GITHUB_REF_NAME": "",
+                    "GITHUB_REF_TYPE": "",
+                },
+            ):
+                self.assertEqual(ratchet_base.resolve_target_ref(root), dev_commit)
+
+    def test_changed_paths_compare_target_with_working_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            base_commit = commit_file(root, "libraries/example/core.lua", "return {}\n", "base")
+            commit_file(root, "README.md", "head\n", "head")
+            (root / "libraries/example/core.lua").write_text("error(\"new debt\")\n", encoding="utf-8")
+
+            self.assertEqual(
+                ratchet_base.changed_paths(root, base_commit, "libraries"),
+                ["libraries/example/core.lua"],
+            )
+
+    def test_changed_paths_include_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            base_commit = commit_file(root, "README.md", "base\n", "base")
+            source = root / "libraries/example/core.lua"
+            source.parent.mkdir(parents=True)
+            source.write_text('error("new debt")\n', encoding="utf-8")
+
+            self.assertEqual(
+                ratchet_base.changed_paths(root, base_commit, "libraries"),
+                ["libraries/example/core.lua"],
+            )
 
     def test_show_file_at_present_and_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

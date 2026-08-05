@@ -39,9 +39,15 @@ end
 
 local function review_meta_fix_feedback(review_meta)
   local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
+  local review_dedup_key = review_meta.review_dedup_key
+  if devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
+      review_dedup_key, review_meta.review_proposal_id) == nil then
+    review_dedup_key =
+      devloop_base.pr_review_consensus_dedup_key(review_meta.review_proposal_id)
+  end
   return {
     review_proposal_id = review_meta.review_proposal_id,
-    review_dedup_key = review_meta.review_dedup_key,
+    review_dedup_key = review_dedup_key,
     reviewed_head_sha = reviewed_head_sha,
   }
 end

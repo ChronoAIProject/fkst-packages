@@ -3,8 +3,8 @@
 -- replay strategies. Extracted from replayer.lua as a pure structural refactor
 -- (Step 0.0 line-budget containment); behavior is unchanged.
 local m_facts = require("devloop.markers.facts")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local parsers_pr = require("devloop.parsers.pr")
-local conv_rounds = require("devloop.convergence.rounds")
 local forge_validators = require("devloop.forge_validators")
 local m_mgw = require("devloop.merge_gate_wait")
 local decompose_lib = require("devloop.decompose")
@@ -106,8 +106,12 @@ local function require_marker_fact(M, facts, family)
     return fetch_child_state_fact(M, facts)
   end
   if family == "converge-round" then
-    local base_version = M.version_loop_round(facts.state.version) > 0 and conv_rounds.converge_base_version(facts.state.version) or nil
-    return M.latest_complete_converge_round(facts.snapshot.comments, facts.proposal_id, base_version, facts.issue.source_ref)
+    return M.latest_complete_converge_round(
+      facts.snapshot.comments,
+      facts.proposal_id,
+      facts.state.version,
+      facts.issue.source_ref
+    )
   end
   if family == "dependency-release" then
     return M.dependency_release_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
@@ -136,7 +140,13 @@ local function require_marker_fact(M, facts, family)
     return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "merge-gate" then
-    return m_facts.merge_gate_fix_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    local observation = m_fix_feedback_observation.observe(
+      facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    if observation.source == "merge-gate" and observation.status == "invalid" then
+      facts.fix_feedback_observation = observation
+      return nil
+    end
+    return observation.source == "merge-gate" and observation.fact or nil
   end
   if family == "merge-gate-wait" then
     local current_pr = current_pr_fact(facts)

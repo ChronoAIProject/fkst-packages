@@ -42,7 +42,9 @@ local SEMANTIC_VARIANT = "review_convergence_round"
 local OWNER = "github-devloop-pr"
 local TRACE_EDGE_ID = OWNER .. "/reviewing/entry/review_convergence_round"
 local REVIEW_LOOP_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-review-loop.json"
-local REVIEW_LOOP_NEW_TRACE_PATH = ".fkst/run/r9-pr-review-loop-new-trace.json"
+local REVIEW_LOOP_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-loop-new-trace.json"
+)
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"

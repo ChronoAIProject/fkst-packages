@@ -158,17 +158,13 @@ local function build_ops(ctx)
   function ops.fixing_replay_feedback_fact(comments, issue_proposal_id, issue_version)
     local reject_fact = m_facts.review_reject_fact(comments, issue_proposal_id, issue_version)
     if reject_fact ~= nil then
-      return m_facts.parse_fix_feedback_fact(reject_fact)
+      return reject_fact
     end
     local meta_fix_fact = m_facts.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
     if meta_fix_fact ~= nil then
-      return m_facts.parse_fix_feedback_fact(meta_fix_fact)
+      return meta_fix_fact
     end
-    local merge_gate_fact = m_facts.merge_gate_fix_fact(comments, issue_proposal_id, issue_version)
-    if merge_gate_fact ~= nil then
-      return m_facts.parse_fix_feedback_fact(merge_gate_fact)
-    end
-    return nil
+    return m_facts.merge_gate_fix_fact(comments, issue_proposal_id, issue_version)
   end
 
   ctx.review_meta_replay_fact_from_state = ops.review_meta_replay_fact_from_state

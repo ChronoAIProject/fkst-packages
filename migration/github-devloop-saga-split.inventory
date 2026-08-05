@@ -12,8 +12,10 @@
 {"path":"libraries/devloop/context_bundle.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/decompose.lua","owner":"shared","reason":"decompose marker grammar and child-completion facts are shared by the issue decompose saga and PR-side replay/observe."}
 {"path":"libraries/devloop/dependency_gate.lua","owner":"shared","reason":"native blockedBy graph evaluation is shared by issue activation and workflow-origin materialization gating."}
+{"path":"libraries/devloop/dependency_graphql.lua","owner":"shared","reason":"blockedBy GraphQL rendering and response parsing are shared by dependency-gate consumers."}
 {"path":"libraries/devloop/dispatch_live_run.lua","owner":"shared","reason":"live codex dispatch deduplication is shared by issue implement and PR fix workers."}
 {"path":"libraries/devloop/entity.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
+{"path":"libraries/devloop/entity_highwater.lua","owner":"shared","reason":"consumer-local entity reconciliation high-water is shared by intake, issue, and PR packages."}
 {"path":"libraries/devloop/entity_list_cache.lua","owner":"shared","reason":"entity-list polling cache is shared by issue intake/liveness and PR liveness scan."}
 {"path":"libraries/devloop/execution_start.lua","owner":"shared","reason":"public issue execution-start seam helpers are shared by intake routing and the issue lifecycle package."}
 {"path":"libraries/devloop/forge_validators.lua","owner":"shared","reason":"sanctioned pure forge-validator facade shared by typed devloop modules."}
@@ -104,7 +106,6 @@
 {"path":"packages/github-devloop-integration/departments/rollup_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_conflict/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
-{"path":"packages/github-devloop-integration/departments/test_cache_seed/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/core/conflict_telemetry.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-ops/core/dashboard_commands.lua","owner":"cross-cutting","reason":"package-local dashboard GitHub command adapter is shared by ensure-repo and observability dashboard."}
 {"path":"packages/github-devloop-ops/core/dependency_wait.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}

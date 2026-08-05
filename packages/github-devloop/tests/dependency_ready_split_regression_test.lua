@@ -231,10 +231,11 @@ local function state_label_request(raises, to_state, to_version)
   end)
 end
 
-local function dependency_auxiliary_label_request(raises)
+local function dependency_auxiliary_label_request(raises, change_field)
+  change_field = change_field or "add_labels"
   return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
     return payload.require_marker_guard ~= true
-      and h.has_value(payload.add_labels, devloop_base._blocked_on_dependency_label)
+      and h.has_value(payload[change_field], devloop_base._blocked_on_dependency_label)
   end)
 end
 
@@ -352,7 +353,7 @@ local function replay_ready_with_comments(comments)
         comments = comments,
       },
       dependency_gate = {
-        ok = true,
+        kind = "satisfied",
         reason = "test",
       },
     })
@@ -488,7 +489,7 @@ return {
           },
         },
         dependency_gate = {
-          ok = true,
+          kind = "satisfied",
           reason = "test",
         },
         ready_payload = payloads_builders.build_devloop_ready_payload(core, {
@@ -572,6 +573,41 @@ return {
     local label = state_label_request(handoff.raises, "dependency_wait", split_version)
     t.is_true(label ~= nil)
     t.is_true(h.has_value(label.payload.add_labels, devloop_base._blocked_on_dependency_label))
+  end,
+
+  test_ready_reconcile_clears_stale_dependency_label_from_satisfied_gate = function()
+    mock_observe_issue(
+      { "fkst-dev:enabled", "fkst-dev:ready", devloop_base._blocked_on_dependency_label },
+      {
+        trusted_comment("IC_ready_visible", h.projected_state_comment(
+          proposal_id, "ready", version, "result-marker,ready-label,devloop-ready"
+        )),
+      }
+    )
+    mock_blocked_by(42, {})
+
+    local result = run_observe()
+    t.eq(result.exit_code, 0)
+    local auxiliary = dependency_auxiliary_label_request(result.raises, "remove_labels")
+    t.is_true(auxiliary ~= nil)
+    t.eq(h.has_value(auxiliary.payload.add_labels, devloop_base._blocked_on_dependency_label), false)
+    t.eq(h.count_calls(core.gh_blocked_by_cmd(repo, 42)), 1)
+  end,
+
+  test_ready_reconcile_does_not_clear_dependency_label_for_active_gate = function()
+    mock_observe_issue({
+      "fkst-dev:enabled", "fkst-dev:ready", devloop_base._blocked_on_dependency_label,
+    }, {
+      trusted_comment("IC_ready_visible", h.projected_state_comment(proposal_id, "ready", version)),
+    })
+    mock_blocked_by(42, { { number = 55 } })
+    mock_blocked_by(55, {})
+
+    local result = run_observe()
+    t.eq(result.exit_code, 0)
+    t.eq(dependency_auxiliary_label_request(result.raises, "remove_labels"), nil)
+    assert_ready_split_effects(result.raises, "dependency_wait", core.ready_split_version(version), true)
+    t.eq(h.count_calls(core.gh_blocked_by_cmd(repo, 42)), 1)
   end,
 
   test_legacy_ready_unresolvable_hold_canonicalizes_to_dependency_wait = function()

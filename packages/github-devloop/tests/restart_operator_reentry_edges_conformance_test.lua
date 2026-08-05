@@ -295,7 +295,7 @@ local function observe_impl_failed_reimplement()
     source_state = "impl-failed",
     comments = {
       core.state_marker(proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(proposal_id, ready_version, "codex-failed", 2),
+      core.impl_failure_marker(proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true),
       trusted_command("reimplement", "IC_reimplement_impl_failed"),
     },
   })
@@ -472,7 +472,7 @@ local function thinking_converge_comments(event, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/7"),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for round = 1, 7 do
     table.insert(comments, conv_rounds.converge_round_marker(

@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -32,6 +33,7 @@ local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 local BRANCH = "devloop-owner-repo-42-row-replay"
 local HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -267,7 +269,11 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "implementing",
-      run = function() return testing.run_fake(observe_issue_department, event) end,
+      run = function()
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
+      end,
       codex_runs_for_read = controlled_codex_runs(fixture),
       write_mode = "real",
     })

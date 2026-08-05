@@ -73,6 +73,21 @@
 
 **实证落地：liveness 必须是真实执行状态，不是 receiver 可能无法刷新的自报代理。** watchdog/心跳 doctrine 有个隐藏假设——被监督的 receiver 会周期「踢狗」（自写心跳）。但 **detach/阻塞的 receiver 踢不了狗**（implement codex 阻塞在 `spawn_codex_sync`、detach 跑、无 Lua 循环写心跳），于是「心跳 defer」退化成「从 spawn 起的固定秒表」（`now − started_at`）——一个没有踢狗、只有秒表的假 watchdog，会在 receiver 活着干活时误杀它（实证 false-terminal 根）。新增任何 live-defer 态前先问「这个 receiver **能不能**自己刷新心跳？不能 → 它的 liveness 必须**外部观测**真实执行（进程 / worktree-mtime / 引擎 live-child lease），而非自报 marker 年龄」。且「盲重投」的「盲」只施于**动作**（重发驱动事件、不分析为何慢），**绝不施于前置条件**：重投 / force-terminate 前**必须查 receiver 是否还在执行**（这不是「原因分析」，是 ground state）——在跑 → drop 重投（它唯一目的是激活没在跑的）；没跑 → 激活；没跑 + 激活预算耗尽 → **继续 redrive，不终止**（#2725：超时永不进终态）。
 
+## 每次修改都是一次优化与重构：系统一代比一代更精炼（RAPTOR GATE·质量梯度非负·非新增第 N 条）
+
+**这个系统要像 SpaceX 的火箭发动机那样演进：一代比一代更精炼、更美、性能更高、效率更高。** 没有「只是加个功能」「只是修个 bug」这种中性改动——**每一次修改都同时是一次优化与重构的机会，也是一次让系统变钝的机会**，两者必居其一。prior art：Musk 的设计算法「**最好的零件是没有零件，最好的流程是没有流程**」——先删，删到不得不加回来为止；Raptor 1→2→3 的路线不是「加保护」而是**删零件**（把管路与屏蔽整合进铸件、砍掉整束线束），推力反而更高、成本更低。这与本文件已有的 Saint-Exupéry「完美不是无可再加，而是无可再减」、BEAUTY GATE 的「删无可删」「让非法状态不可表示，而非事后接住」是同一句话——**RAPTOR GATE 只是给它一个方向与棘轮**。
+
+**机械形式：质量梯度非负（scope 不扩，梯度不降）。** 这条**绝不是**「借修一个问题顺手重写无关模块」——那是 WORTH GATE 点名的 scope creep，仍然禁止。它约束的不是改动的**范围**，而是改动**留下的系统状态**：
+
+- **改动的 scope 保持最小**（hotfix 只修那个 bug），但**它触碰到的那块地方，改完后不得比改前更钝**：不新增魔法数字、不新增代理信号、不新增第二真源、不新增 deprecated shim、不让文件更靠近行数上限、不让任何 shrink-only 账本增长。
+- **同等正确的两个解，选删得更多的那个。** 「加一个分支接住它」与「让它不可表示」并列时，后者胜；「传一个 facade」与「传一个窄能力」并列时，后者胜；「造一个 port」与「删掉那条不可达的 fallback」并列时，后者胜。**净删代码的改动优于净增代码的改动**，除非增的那部分是被要求的能力或被要求的证据。
+- **优化必须是重构，改行为的不算。** 「更快 / 更省」若改变了可观察行为，它就不是优化而是 behavior change，按 behavior change 单独论证、单独 review（接「重构不改语义」）。
+- **不为「以后更精炼」提前造抽象**（三次法则 / 模式服务当前问题 / YAGNI 仍然优先）。精炼来自**删**，不来自**预建**。
+
+**诚实分栏（不许把这条说得比它实际强）**：**精炼**这一维已有真牙齿——shrink-only 账本只减不增、保守扩展律不翻旧真、G1 行数上限、G-DEDUP 禁字节级克隆、「不留 deprecated shim / 不要历史兼容性」（当前态是唯一形态）——这些机器判，违则红〔半硬〕。**美**只有对抗 review + 跨模型 + user-as-oracle 的尽力门〔软〕。**性能与效率目前没有任何机械度量**：没有 ratcheted benchmark，就没有「一代比一代快」的证据，只有愿望——所以在建立可比基线之前，**不得声称某次改动提升了性能**，只能声称它改变了什么（接 competence 轴「审证据不审叙事」、实事求是门⑥「无证据就标 UNKNOWN」）。想让这一维长出牙齿，路径是**先冻结一条可复现的基准、再让它单调**，而不是在 PR 里写「更高效了」。
+
+**一句话姿态：每次改动都问「这一代比上一代删掉了什么」，而不是「这一代加了什么」。** 答不出删掉了什么、且账本没有变小、文件没有变短、真源没有减少一个——那这次改动很可能只是让系统更钝了一点，需要重新想。⟦AI:FKST⟧
+
 ## 不动点标架：本文件全部 doctrine 是一个对象的投影（整合自姊妹仓 trureturing 不动点标架·逐条过一遍）
 
 **框架（先立精神）**：本文件每条原则皆**非本仓发明**，而是人类长期沉淀、经时间检验的成熟理论与最佳实践——它们是「变换下不变的不动点」（好坐标系＝变换下的不动标架）。任何模型作用于本仓都是一次**变换**；本文件是变换下**不变**的标架。这与「先找 harness 再执行」同源：锚定成熟 prior art，不重造。本节把姊妹仓 trureturing（同一作者的 Lean 真值-DAG 库）的「不动点标架」**逐条**映射进来：能机器判的归 CI/ratchet（**硬**·违则红），不能的靠对抗 review 与自觉（**软**·会漂移）——**每条标守护，绝不让「harness」这个名字比它实际保证的更强**。这是既有 doctrine 在「如何诚实地不夸大自己」上的同一张脸，非新增第 N 条。
@@ -330,23 +345,19 @@ SIGKILL 不向下传播，所以这四层里**只有第一层没了**：departme
 
 禁令：热路径不得 spawn codex；任何 catch 不得吞原始错误、不得改运行源码树、不得绕过 PR 门控、不得做 reconcile/CAS 级决策。「func1 与 codex 都是函数」的准确含义——`func1: event→effects`（快、确定、可重放）；`codex: facts→issue`（慢、只读输入、受控输出）。
 
-## 任何依赖 codex CLI 的异常，必须先读那次运行的原始 codex 日志——禁止猜（HARD GATE·机械前置·无例外）
+## codex 未知错误：回原始 codex 日志查根因（marker/DLQ excerpt 是有损投影，非 ground truth·实事求是的落地）
 
-**凡是底层依赖 codex CLI 的异常处理——诊断 / 归因 / 分类 / 提 issue / 改代码 / 喂 oracle / 写进任何对外文本——都必须先真实读到那次 codex 运行的原始日志，才准下结论。没读日志就写出的因果归因一律是「猜」，禁止。** 这是机械前置门，不是建议：不设「这次很明显」「typed class 已经说清了」「时间紧」的豁免。**范围是「任何」，不只是「未知/不透明」的那些**——恰恰是**看起来能解释**的失败最危险：`untyped-nonzero`、`local-iteration-attribution-indeterminate`、`no-changes`、dept-child `exit=1`、impl-failed、retry-exhausted、任何 typed `error_class`，**都只命名了失败的形状，没有说出它的原因**；把形状当原因，就是拿有损投影当实事。
-
-**为什么是 HARD GATE**：我消费的 marker / DLQ `error_excerpt` / label / board 行，全是 codex 真实输出的**有损截断投影**——GitHub comment 截断、`error_excerpt` 只留前 N 字节且**头部截断、不含任何 entity 引用**（故 DLQ 记录单独根本说不出「是哪个 PR 在失败」，substrate#296）、typed marker 只留一个分类词。它们把该区分的信号吞掉了，照着它归因**必被骗**（接「误解/受骗账本·根子多在原材料，不在读者」：坏原材料是 marker/excerpt，真源是 codex 日志；接「实事求是」根门：指不到源头的是假设，不是事实）。
-
-**机械动作（下任何结论前按序执行）**：① **定位**那次运行的日志（据 `dedup_key` / `proposal_id` / issue 号 / DLQ 的 `log_path` 字段）；② **读全文**——不是 grep 一行、不是看截断片段，**特别读 codex 自己跑的验证结论**（它常已把真相写在那里）；③ 结论必须**能指到日志的具体文件与行**，指不到就还没读到；④ **日志找不到 / 已被 prune** → 如实说「找不到日志」并把结论停在 `UNKNOWN` / `ASSUMED-UNVERIFIED`，**绝不用 marker + excerpt 补一个合理的故事**——「没有证据」的诚实结论，优先于「有叙事」的假结论。
+**遇到 codex 的未知 / 不透明失败——`untyped-nonzero`、`local-iteration-attribution-indeterminate`、dept-child `exit=1` crash、opaque impl-failed、任何「说不清为什么」的 codex 终态——诊断根因必须回到那次 codex 运行的原始日志，绝不停在 GitHub marker / DLQ `error_excerpt` 上下结论。** 这是「实事求是·回源核实」在 codex 失败上的直接落地：marker 与 DLQ `error_excerpt` 是 codex 真实输出的**有损截断投影**（GitHub comment 截断、`error_excerpt` 只留前 N 字节、typed marker 丢了细节），把该区分的信号吞掉——照着它归因就是拿「有损投影」当「实事」，必被骗（接「误解/受骗账本·根子多在原材料，不在读者」：坏原材料是 marker/excerpt，真源是 codex 日志）。
 
 **原始 codex 日志在两处（跨 restart 存活的持久层 + 当前 runtime）：**
 - **持久层（survives restart）**：`~/Library/Logs/fkst/codex/devloop-<owner>-<repo>-<issue>-<...>.log`（codex worker 全量 LLM 交互 + 它自己跑的验证输出）+ 同名 `.tail`（末尾摘要，含 codex 的自验结论与产出的 diff）。跨 restart 保留，是复查旧失败的主源。
 - **当前 runtime（restart 后 fresh、会被 prune）**：`<RT>/logs/codex-adoption/<dedup-key>/{stdout.txt,stderr.txt,result.json,status.json,effect.json}`（codex worker 结构化输入输出）+ `<RT>/logs/framework-child/<dept>-<ts>.log`（dept 的 Lua pipeline 日志；dept-child `exit=1` crash 的 Lua `error()`/traceback 在此，DLQ 记录的 `log_path` 字段直指它）。
 
-**按症状定位（上面步骤①「定位」的路由表）**：DLQ 记录 → 据其 `log_path` / `dept` / `proposal_id` 找对应 child log（`error_excerpt` 只是线索，且不含 entity 引用）；impl-failed / no-changes / retry-exhausted 等 codex 终态 → 那次 implement/fix codex 的 `.log`/`.tail`；dept-child `exit=1` crash → `framework-child/<dept>.log` 的 Lua traceback，定位 `error()` 行与真因。
+**机械动作**：① DLQ 的 `error_excerpt` 只是线索，据其 `log_path` / `dept` / `proposal_id` 去读上面的原始日志**全文**，不据截断片段下结论；② impl-failed 的 opaque marker，去读那次 implement/fix codex 的 `.log`/`.tail`——**特别看 codex 自己跑的验证结论**（它常已把真相写在那里）；③ dept crash，读 `framework-child/<dept>.log` 的 Lua traceback 定位 `error()` 行与真因。
 
 **实证（2026-07-29，#2804 untyped-nonzero）**：marker 只说 `candidate_result_reason=untyped-nonzero / local-iteration-attribution-indeterminate`，看着像「#2804 代码坏了、该 impl-failed」。回读其 codex `.tail`（`~/Library/Logs/fkst/codex/devloop-…-2804-…`）——**codex 自己的验证全绿**：`scripts/run.sh test-affected: exit 0, all 21 affected packages passed`、`test-composed: 31/31 checks passed`、各包 test 全 passed，diff 也已产出。真根因由此一眼可判：**代码是对的；impl-failed 源自 harvest 侧独立 re-run 验证（`departments/implement/harvest.lua:197 run_local_iteration_check`，与 codex 同跑 `scripts/run.sh test-affected`）撞了 untyped-nonzero 的 infra false-negative**——同命令、codex 得 exit 0、harvest re-run 却非零，是验证器 infra 打嗝、代码本身没问题（"false-negative" 指「代码没问题被判失败」）。**精确（据 #2864 三度 premise-refuted 的源码级 decline 校正）：marker 并不宣称「代码坏了」——它诚实标为 `attribution-indeterminate`（`untyped-nonzero → UNKNOWN`，POSIX 下 raw nonzero 无域义，这是刻意契约，见 `packages/github-devloop/departments/implement/local_iteration_result.lua:77` / `docs/user/global-host-profiles.md:79`），且验证已 bounded（harvest 2 次重试不重跑 codex）。** 只看 marker 的坑不是「marker 说假话」，而是该 indeterminate 终态 impl-failed **看着像**代码失败 → 把一个正确实现当坏代码反复 reimplement（band-aid，实证栽过）；回原始 codex 日志 30 秒即定性为 false-negative。**真修复方向 = producer-typed outcomes**（让 `scripts/run.sh` 各退出路径都发 typed marker、关掉 untyped 逃逸口），**不是**把 untyped-nonzero 重分类成 `INFRASTRUCTURE`（那是 proxy-over-truth，该错误前提的 issue 已三度被 consensus premise-refuted 拒掉，#2864）。接 competence 轴「审证据不审叙事」、BEAUTY GATE「代理补丁」——untyped-nonzero 是替身信号，codex 自验结论才是真值。
 
-**边界（三条，都不放松本门）**：① 这条治「**归因**」——先据原始日志核实真根，再决定动作；不改「修复只经 issue→PR→review→merge」（L2）与「永不手改程序状态」。原始 codex 日志是**只读证据面**，不是手动重跑 / 改 marker / 越过门控的授权。② **与顶部快筛①「codex 随机失败不分析、盲重投」不冲突，二者管的不是一件事**：快筛①管**动作**（别为随机失败建 harness、别做特殊重试，信盲重投），本门管**归因**（一旦你要说出「它为什么失败」——尤其是要据此 file issue / 改代码 / 判它是不是随机失败——就必须先读日志）。「这是随机失败」本身就是一个**结论**，同样要有日志证据，不能靠感觉认领。③ 不读日志也可以**停手不动**（合法，且常是对的）；不读日志**却下结论**——不合法。⟦AI:FKST⟧
+**边界**：这条治「诊断」——先据原始日志核实真根，再决定动作；不改「修复只经 issue→PR→review→merge」（L2）与「永不手改程序状态」。原始 codex 日志是**只读证据面**，不是手动重跑 / 改 marker / 越过门控的授权。⟦AI:FKST⟧
 
 ## 活性 ⟂ 安全双检测（错误网抓不到「该发生而没发生」）
 

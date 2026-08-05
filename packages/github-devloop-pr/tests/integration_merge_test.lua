@@ -122,7 +122,8 @@ end
 
 local function mock_base_head_for_stale_mergeability() t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", { stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", stderr = "", exit_code = 0 })
-  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "", exit_code = 1 }) end
+  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "", exit_code = 1 })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "CONFLICT (content): merge conflict", exit_code = 1 }) end
 
 local function mock_failing_required_check_runs()
   t.mock_command("gh api 'repos/owner/repo/commits/def456/check-runs'", {
