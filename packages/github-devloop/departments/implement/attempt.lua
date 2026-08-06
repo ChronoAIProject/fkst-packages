@@ -9,6 +9,7 @@ local implementation_result = require("departments.implement.implementation_resu
 local implement_caps = require("implement_department_caps")
 local implement_profile = require("departments.implement.profile")
 local proof_attempt = require("departments.implement.proof_attempt")
+local result_checkpoint = require("departments.implement.result_checkpoint")
 local restart_sink_grants = require("restart_sink_grants")
 local substrate_pin = require("departments.implement.substrate_pin")
 local workflow_codex = require("workflow_internal.codex")
@@ -80,6 +81,19 @@ local function completed_proof_outcome(args, receipt, timeout_seconds)
     )
   end
   return nil
+end
+
+local function no_changes_outcome(args, result)
+  local detail = tostring(result.stdout or "")
+  if detail == "" then detail = tostring(result.stderr or "") end
+  devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, nil, "no-changes", {
+    queue = args.event_queue,
+    source_ref = args.ready.source_ref,
+    terminal = false,
+  })
+  return harvest.impl_failed_outcome(
+    args.ready, "no-changes", "UNKNOWN", false, detail, args.attempt,
+    args.codex_started_at, args.exec_ref, args.base_head)
 end
 
 local function proof_result_outcome(args, result, profile_context, timeout_seconds)
@@ -241,13 +255,7 @@ local function run_attempt(args)
         "head_sha=" .. tostring(head_sha),
         "reason=reusing clean ahead implementation branch",
       })
-      return harvest.after_codex_success(
-        args.repo, args.issue_number, args.ready, args.branches.integration, args.branch,
-        args.base_head, args.worktree, args.attempt, args.codex_started_at, args.exec_ref, head_sha
-      )
-    end
-
-    if proof == nil then
+    elseif proof == nil then
       local receipt, receipt_err = implementation_result.decode(result.stdout, {
         proposal_id = args.ready.proposal_id,
         implementation_version = args.ready.dedup_key,
@@ -284,30 +292,15 @@ local function run_attempt(args)
           args.base_head
         )
       end
+      return no_changes_outcome(args, result)
+    else
+      return no_changes_outcome(args, result)
     end
-
-    local detail = tostring(result.stdout or "")
-    if detail == "" then
-      detail = tostring(result.stderr or "")
-    end
-    devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, nil, "no-changes", {
-      queue = args.event_queue,
-      source_ref = args.ready.source_ref,
-      terminal = false,
-    })
-    return harvest.impl_failed_outcome(
-      args.ready,
-      "no-changes",
-      "UNKNOWN",
-      false,
-      detail,
-      args.attempt,
-      args.codex_started_at,
-      args.exec_ref,
-      args.base_head
-    )
+  else
+    harvest.commit_dirty_worktree(args.repo, args.issue_number, args.ready, args.worktree, args.branch)
   end
 
+  local result_head = result_checkpoint.persist(core.git, args.worktree, args.ready.dedup_key)
   return harvest.after_codex_success(
     args.repo,
     args.issue_number,
@@ -318,10 +311,18 @@ local function run_attempt(args)
     args.worktree,
     args.attempt,
     args.codex_started_at,
-    args.exec_ref
+    args.exec_ref,
+    result_head
   )
 end
 
 M.run = run_attempt
+
+function M.resume(args)
+  return harvest.after_codex_success(
+    args.repo, args.issue_number, args.ready, args.branches.integration, args.branch,
+    args.base_head, args.worktree, args.attempt, args.codex_started_at, args.exec_ref,
+    args.head_sha)
+end
 
 return M

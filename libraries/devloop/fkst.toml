@@ -25,6 +25,7 @@ public = [
   "devloop.base_constants",
   "devloop.base_ids",
   "devloop.ci_failure_keys",
+  "devloop.claim_labels",
   "devloop.claims",
   "devloop.commands",
   "devloop.commands.git_ops",

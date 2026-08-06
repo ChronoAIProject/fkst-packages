@@ -3,26 +3,18 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
+from script_test_support import load_module
 
-def load_module():
-    path = Path(__file__).with_name("check_repo_intake_routing.py")
-    spec = importlib.util.spec_from_file_location("check_repo_intake_routing", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("could not load check_repo_intake_routing.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-intake_routing = load_module()
+intake_routing = load_module(
+    "check_repo_intake_routing",
+    Path(__file__).with_name("check_repo_intake_routing.py"),
+    error_path="check_repo_intake_routing.py",
+)
 
 
 class IntakeRoutingRatchetTest(unittest.TestCase):

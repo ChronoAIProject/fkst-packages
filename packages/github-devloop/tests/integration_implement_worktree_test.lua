@@ -72,6 +72,7 @@ local mock_existing_empty_implement_worktree_reuse = fixture.mock_existing_empty
 local mock_existing_dirty_implement_worktree_reuse = fixture.mock_existing_dirty_implement_worktree_reuse
 local mock_existing_implement_branch = fixture.mock_existing_implement_branch
 local mock_git_commit = fixture.mock_git_commit
+local mock_result_checkpoint = fixture.mock_result_checkpoint
 local mock_git_push = fixture.mock_git_push
 local mock_implement_codex = fixture.mock_implement_codex
 local mock_git_status = fixture.mock_git_status
@@ -105,6 +106,7 @@ return {
     mock_implement_codex()
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -197,6 +199,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -253,6 +256,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -288,6 +292,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",

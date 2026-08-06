@@ -12,6 +12,7 @@ local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_branch_diff_paths = h.mock_branch_diff_paths
 local mock_git_commit = h.mock_git_commit
+local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local m_builders = require("devloop.markers.builders")
@@ -37,6 +38,11 @@ local function mock_remote_branch(branch, head_sha)
   })
   t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
     stdout = tostring(head_sha) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("cat-file -p", {
+    stdout = "tree aaaaaaa\nparent bbbbbbb\n\nordinary implementation progress\n",
     stderr = "",
     exit_code = 0,
   })
@@ -247,6 +253,66 @@ local function last_command_call_index(needle)
 end
 
 return {
+  test_fresh_runtime_redelivery_harvests_completed_result_without_second_codex = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local code_head = "1111111111111111111111111111111111111111"
+    local result_head = "2222222222222222222222222222222222222222"
+    local implementing_comments = {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    }
+
+    mock_issue_implement({ "fkst-dev:ready" }, nil, { times = 2 })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "completed implementation output")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(code_head, branch, nil, result_head)
+    t.mock_command("rev-parse --abbrev-ref HEAD", {
+      stdout = branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_view_failure("title,body,labels,comments,state,author", "post-output source recheck failed")
+
+    local first_opts = opts("implement-result-first-runtime")
+    local first = run_implement(event, first_opts)
+
+    t.eq(first.exit_code, 1)
+    t.is_true(tostring(first.error):find("post-output source recheck failed", 1, true) ~= nil)
+    t.eq(count_calls("codex exec"), 1)
+
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+    mock_missing_remote_branch(branch)
+    local worktree = mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n",
+      "fkst: implementation result v1 " .. require("contract.sha256").hex(event.dedup_key))
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = result_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_implement_codex(0, "redelivery must not dispatch this result")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("3333333333333333333333333333333333333333", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+
+    local retry_opts = opts("implement-result-fresh-runtime")
+    local retry = run_implement(event, retry_opts)
+
+    t.is_true(first_opts.env.FKST_RUNTIME_ROOT ~= retry_opts.env.FKST_RUNTIME_ROOT)
+    t.eq(retry.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("commit --allow-empty -m"), 1)
+    local final = find_raise(retry.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, result_head)
+    t.is_true(tostring(final.payload.body):find(worktree, 1, true) ~= nil)
+  end,
+
   test_checkpoint_request_identity_separates_divergent_reason_replays = function()
     local event = ready()
     local branch = deterministic_branch_for(event)

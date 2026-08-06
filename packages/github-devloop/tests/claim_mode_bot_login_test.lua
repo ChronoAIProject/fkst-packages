@@ -5,12 +5,13 @@ local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
 local config = require("devloop.config")
+local gh_argv = require("testkit_internal.gh_argv_mock")
 
 -- Mock the env reads a claim flow consults. Each mock_command registration is
 -- consumed by one matching read (queued FIFO), mirroring claim_contract_test.lua's
 -- mock_bot, which re-registers FKST_GITHUB_WRITE write_reads times. We register a
 -- generous count so a whole claim flow's repeated env reads stay answered.
-local function mock_env(login, claim_mode, write_mode, reads)
+local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed_bot_logins)
   local n = reads or 12
   for _ = 1, n do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -20,6 +21,16 @@ local function mock_env(login, claim_mode, write_mode, reads)
     })
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
       stdout = claim_mode or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = exclusive or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+      stdout = managed_bot_logins or "",
       stderr = "",
       exit_code = 0,
     })
@@ -71,6 +82,16 @@ local function count_adapter_calls(flag, value)
   return count
 end
 
+local function count_gh_calls()
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if gh_argv.call_rendered(call):match("^gh%s") ~= nil then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function ownership_json(logins, author_login, labels)
   local rendered_assignees = {}
   for _, login in ipairs(logins or {}) do
@@ -85,7 +106,9 @@ local function ownership_json(logins, author_login, labels)
     .. '"},"labels":[' .. table.concat(rendered_labels, ",") .. "]}\n"
 end
 
-local claimed_label = m_claims.claimed_label()
+local bare_claimed_label = "fkst-dev:claimed"
+local derived_claimed_label = "fkst-dev:claimed:fkst-test-bot"
+local peer_claimed_label = "fkst-dev:claimed:peer-bot"
 
 return {
   -- (a) [bot] normalization on BOTH sides of the author-vs-bot comparison.
@@ -151,35 +174,100 @@ return {
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
-  -- (b) label-mode claim state + ownership derived from the claimed label.
-  test_label_mode_claim_state_derives_from_claimed_label = function()
-    mock_env("fkst-test-bot", "label", "")
-    -- No claimed label => unclaimed regardless of assignees.
+  -- (b) label-mode claim state + ownership are isolated by active claim label.
+  test_claimed_label_uses_derived_and_exclusive_postures = function()
+    mock_env("fkst-test-bot", "label", "", 1)
+    t.eq(m_claims.claimed_label(), derived_claimed_label)
+
+    mock_env("fkst-test-bot", "label", "", 1, "1")
+    t.eq(m_claims.claimed_label(), bare_claimed_label)
+  end,
+
+  test_label_mode_claim_state_isolated_by_label_and_managed_assignee = function()
+    mock_env("fkst-test-bot", "label", "", 24, "", "ElonSG,something")
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
-    t.eq(m_claims.issue_claim_state({ { login = "someone" } }, "fkst-test-bot", { "fkst-dev:enabled" }), "unassigned")
-    -- Claimed label present => self.
-    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { claimed_label }), "self")
-    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { "fkst-dev:enabled", claimed_label }), "self")
+    t.eq(m_claims.issue_claim_state({ { login = "human" } }, "fkst-test-bot", {}), "unassigned")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { derived_claimed_label }), "self")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { peer_claimed_label }), "other")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label }), "other")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {
+      derived_claimed_label,
+      peer_claimed_label,
+    }), "other")
+    t.eq(m_claims.issue_claim_state({ { login = "ElonSG" } }, "fkst-test-bot", {
+      derived_claimed_label,
+    }), "other")
+    t.eq(m_claims.issue_claim_state({ { login = "something[bot]" } }, "fkst-test-bot", {
+      derived_claimed_label,
+    }), "other")
+  end,
+
+  test_label_mode_managed_assignee_self_comparison_normalizes_bracket_owner = function()
+    mock_env("fkst-test-bot", "label", "", 12, "", "fkst-test-bot")
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot[bot]", {
+      derived_claimed_label,
+    }), "self")
+  end,
+
+  test_label_mode_managed_peer_snapshot_settles_other_without_gh_reads = function()
+    mock_env("fkst-test-bot", "label", "", 12, "", "peer-bot")
+    local current = {
+      assignees = { { login = "peer-bot" } },
+      labels = { derived_claimed_label },
+      author_login = "human",
+      comments = {},
+    }
+    local gh_calls_before = count_gh_calls()
+    local inputs = m_claims.claim_admission_inputs(current, "owner/repo")
+    local admission, detail = m_claims.claim_admission_precheck(current, inputs)
+
+    t.eq(admission, "other")
+    t.eq(detail.action, "skip-claimed-by-other")
+    t.eq(m_claims.claim_issue_for_management(
+      core,
+      "admission",
+      "owner/repo",
+      42,
+      current,
+      "github-devloop/issue/owner/repo/42",
+      admission,
+      detail
+    ), false)
+    t.eq(count_gh_calls() - gh_calls_before, 0)
+  end,
+
+  test_label_mode_exclusive_posture_treats_suffix_as_foreign = function()
+    mock_env("fkst-test-bot", "label", "", 12, "1")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label }), "self")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { peer_claimed_label }), "other")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {
+      bare_claimed_label,
+      peer_claimed_label,
+    }), "other")
   end,
 
   test_label_mode_is_self_owned_uses_label_presence = function()
     mock_env("fkst-test-bot", "label", "")
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = { claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = { derived_claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
     -- Unassigned + self author still self-owned (fork-and-block isolation).
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
     -- Unclaimed + other author => not self-owned.
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
   end,
 
   test_label_mode_claim_adds_label_then_verifies_winner = function()
     mock_env("fkst-test-bot", "label", "1")
-    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
+      stdout = ownership_json({}, "fkst-test-bot", { derived_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
@@ -193,26 +281,26 @@ return {
     )
 
     t.eq(ok, true)
-    t.eq(count_adapter_calls("--add-label", claimed_label), 1)
-    t.eq(count_adapter_calls("--remove-label", claimed_label), 0)
+    t.eq(count_adapter_calls("--add-label", derived_claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", derived_claimed_label), 0)
     -- Assignee-mode commands are never issued in label-mode.
     t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 0)
   end,
 
-  test_label_mode_claim_loss_removes_label_and_skips = function()
+  test_label_mode_claim_race_rolls_back_only_own_label = function()
     mock_env("fkst-test-bot", "label", "1")
-    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    -- Verification view shows the label is gone (lost the race).
+    -- Both labels landed concurrently. Foreign-wins verification loses this race.
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "fkst-test-bot", {}),
+      stdout = ownership_json({}, "fkst-test-bot", { derived_claimed_label, peer_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -227,8 +315,9 @@ return {
     )
 
     t.eq(ok, false)
-    t.eq(count_adapter_calls("--add-label", claimed_label), 1)
-    t.eq(count_adapter_calls("--remove-label", claimed_label), 1)
+    t.eq(count_adapter_calls("--add-label", derived_claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", derived_claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", peer_claimed_label), 0)
   end,
 
   test_label_mode_self_owned_short_circuits_without_writes = function()
@@ -237,7 +326,7 @@ return {
       "claim_mode",
       "owner/repo",
       42,
-      { assignees = {}, labels = { claimed_label }, author_login = "human", comments = {} },
+      { assignees = {}, labels = { derived_claimed_label }, author_login = "human", comments = {} },
       "github-devloop/issue/owner/repo/42"
     )
     t.eq(ok, true)
@@ -247,7 +336,7 @@ return {
   test_label_mode_verify_issue_claim_reads_labels = function()
     mock_env("fkst-test-bot", "label", "")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
+      stdout = ownership_json({}, "fkst-test-bot", { derived_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
@@ -265,13 +354,33 @@ return {
   test_label_mode_claim_view_projects_labels = function()
     mock_env("fkst-test-bot", "label", "")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
+      stdout = ownership_json({}, "fkst-test-bot", { derived_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
     local ownership = m_claims.read_current_issue_ownership("owner/repo", 42)
-    t.eq(ownership.labels[1], claimed_label)
+    t.eq(ownership.labels[1], derived_claimed_label)
     t.eq(m_claims.issue_claim_state(ownership.assignees, "fkst-test-bot", ownership.labels), "self")
+  end,
+
+  test_label_mode_pr_review_rederives_when_assignees_projection_is_missing = function()
+    mock_env("fkst-test-bot", "label", "", 12, "", "ElonSG")
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({ "ElonSG" }, "human", { derived_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local decision = m_claims.pr_review_issue_claim_decision(
+      "claim_mode",
+      "owner/repo",
+      42,
+      { labels = { derived_claimed_label }, author_login = "human" },
+      "github-devloop/issue/owner/repo/42"
+    )
+
+    t.eq(decision.owned, false)
+    t.eq(decision.claim_state, "other")
   end,
 
   -- (c) assignee-mode (default) is unchanged: unknown/empty claim mode behaves
@@ -282,7 +391,7 @@ return {
     t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
     t.eq(m_claims.issue_claim_state({ { login = "human" } }, "fkst-test-bot"), "other")
     -- A claimed label is irrelevant in assignee-mode.
-    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { claimed_label }), "unassigned")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label }), "unassigned")
   end,
 
   test_unknown_mode_falls_back_to_assignee = function()
@@ -322,7 +431,7 @@ return {
     t.eq(ok, true)
     t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 1)
     -- No label-mode commands leak into assignee-mode.
-    t.eq(count_adapter_calls("--add-label", claimed_label), 0)
+    t.eq(count_adapter_calls("--add-label", bare_claimed_label), 0)
   end,
 
   -- claim_owner normalizes the configured bot login at its single source.
@@ -332,14 +441,35 @@ return {
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
-  test_capacity_release_fresh_reads_and_removes_only_claim_label = function()
+  test_label_mode_release_with_peer_only_label_does_nothing = function()
     mock_env("fkst-test-bot", "label", "1")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "human", { claimed_label }),
+      stdout = ownership_json({}, "human", { peer_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. claimed_label .. "'", {
+
+    local released = m_claims.release_issue_claim_if_self(core,
+      "admission",
+      "owner/repo",
+      42,
+      "github-devloop/issue/owner/repo/42",
+      "inactive-intake-claim"
+    )
+
+    t.eq(released, false)
+    t.eq(count_adapter_calls("--remove-label", peer_claimed_label), 0)
+  end,
+
+  test_upgrade_exclusive_posture_preserves_preexisting_bare_label_and_can_release = function()
+    mock_env("fkst-test-bot", "label", "1", 12, "1")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label }), "self")
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "human", { bare_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. bare_claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -354,7 +484,60 @@ return {
     )
 
     t.eq(released, true)
-    t.eq(count_adapter_calls("--remove-label", claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", bare_claimed_label), 1)
+  end,
+
+  test_upgrade_derived_posture_treats_preexisting_bare_label_as_foreign_and_release_is_noop = function()
+    mock_env("fkst-test-bot", "label", "1")
+    local claim_state = m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label })
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "human", { bare_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. bare_claimed_label .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local released = m_claims.release_issue_claim_if_self(core,
+      "admission",
+      "owner/repo",
+      42,
+      "github-devloop/issue/owner/repo/42",
+      "inactive-intake-claim"
+    )
+
+    t.eq(count_adapter_calls("--remove-label", ""), 0)
+    t.eq(released, false)
+    t.eq(claim_state, "other")
+  end,
+
+  test_label_mode_release_with_own_and_peer_removes_only_own_label = function()
+    mock_env("fkst-test-bot", "label", "1")
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "human", { derived_claimed_label, peer_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. derived_claimed_label .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local released = m_claims.release_issue_claim_if_self(core,
+      "admission",
+      "owner/repo",
+      42,
+      "github-devloop/issue/owner/repo/42",
+      "inactive-intake-claim"
+    )
+
+    t.eq(released, true)
+    t.eq(count_adapter_calls("--remove-label", derived_claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", peer_claimed_label), 0)
     t.eq(count_adapter_calls("--remove-assignee", "fkst-test-bot"), 0)
   end,
 }
