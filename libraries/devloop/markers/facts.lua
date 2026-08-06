@@ -179,14 +179,15 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
       local marker_lineage = transition_version.strip_suffixes(version)
       if marker_issue == tostring(issue_proposal_id)
         and marker_lineage == expected_lineage
-        and (action == "fix" or action == "block" or action == "spec-amendment")
+        and (action == "fix" or action == "no-actionable-gap"
+          or action == "block" or action == "spec-amendment")
         and strings.is_bounded_string(marker_dedup, devloop_base._max_dedup_len) then
         local ignored = ignore_legacy_unbound
           and fix_feedback_observation.is_legacy_review_meta_unbound_marker(
             marker, issue_proposal_id, issue_version)
         if not ignored then
           local review_proposal, reviewed_head_sha
-          if action == "fix" then
+          if action == "fix" or action == "no-actionable-gap" then
             review_proposal = marker_attr(marker, "review_proposal")
             reviewed_head_sha = marker_attr(marker, "head_sha")
           else
@@ -197,7 +198,8 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
           end
           local fact = {
             review_proposal_id = review_proposal,
-            review_dedup_key = action == "fix" and marker_review_dedup or marker_dedup,
+            review_dedup_key = (action == "fix" or action == "no-actionable-gap")
+              and marker_review_dedup or marker_dedup,
             reviewed_head_sha = reviewed_head_sha,
             action = action,
             version = version,
@@ -205,9 +207,9 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
             blocking_gap = gap,
             comment_created_at = parsers_misc._comment_created_at(comment),
           }
-          if action == "fix" then
-            if gap == nil
-              or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
+          if action == "fix" or action == "no-actionable-gap" then
+            if action == "fix" and (gap == nil
+              or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len)) then
               return nil
             end
             return C.parse_fix_feedback_fact(fact)
