@@ -190,7 +190,7 @@ return {
       1
     )
     t.is_true(canonical_dedup ~= redrive_dedup)
-    t.is_true(#redrive_dedup <= devloop_base._max_key_len)
+    t.is_true(#redrive_dedup <= devloop_base._max_dedup_len)
 
     local root = read_command("mktemp -d " .. shell_quote("/tmp/fkst-review-redrive.XXXXXX")):gsub("%s+$", "")
     local active_pid = nil

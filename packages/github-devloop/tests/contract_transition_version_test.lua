@@ -379,13 +379,13 @@ return {
       2
     )
 
-    t.is_true(#redrive <= devloop_base._max_key_len)
+    t.is_true(#redrive <= devloop_base._max_dedup_len)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(redrive), review)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(review .. "/review"), nil)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(redrive .. "/loop/1"), nil)
     t.eq(devloop_base.canonical_pr_review_consensus_dedup_key("consensus:" .. redrive), base)
     t.eq(devloop_base.canonical_pr_review_consensus_dedup_key("consensus:" .. redrive .. "/loop/1"), base)
-    t.is_true(redrive:find("/r/m/" .. sha256.hex(generation .. "/attempt/2"):sub(1, 32), 1, true) ~= nil)
+    t.is_true(redrive:find("/r/m/" .. sha256.hex(generation) .. "/attempt/2", 1, true) ~= nil)
     t.is_nil(redrive:find("restart-liveness-v2", 1, true))
     t.is_true(
       devloop_base.pr_review_redrive_delivery_dedup_key(review, generation_prefix .. "missing/1798144657406.0", 2)
@@ -411,13 +411,12 @@ return {
     local row_budget = devloop_base.pr_review_redrive_delivery_dedup_key(review, row_budget_generation, 100)
     local indeterminate = devloop_base.pr_review_redrive_delivery_dedup_key(review, indeterminate_generation, 100)
 
-    t.is_true(#row_budget <= devloop_base._max_key_len)
-    t.is_true(#indeterminate <= devloop_base._max_key_len)
-    t.eq(#row_budget, #first_row_budget)
+    t.is_true(#row_budget <= devloop_base._max_dedup_len)
+    t.is_true(#indeterminate <= devloop_base._max_dedup_len)
     t.is_true(row_budget ~= first_row_budget)
     t.is_true(row_budget ~= indeterminate)
-    t.is_true(row_budget:find("/r/f/" .. sha256.hex(row_budget_generation .. "/attempt/100"):sub(1, 32), 1, true) ~= nil)
-    t.is_true(indeterminate:find("/r/f/" .. sha256.hex(indeterminate_generation .. "/attempt/100"):sub(1, 32), 1, true) ~= nil)
+    t.is_true(row_budget:find("/r/f/" .. sha256.hex(row_budget_generation) .. "/attempt/100", 1, true) ~= nil)
+    t.is_true(indeterminate:find("/r/f/" .. sha256.hex(indeterminate_generation) .. "/attempt/100", 1, true) ~= nil)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(row_budget), review)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(indeterminate), review)
   end,
@@ -428,16 +427,16 @@ return {
       repo,
       2147483647,
       string.rep("v", 40),
-      string.rep("a", 40)
+      string.rep("a", 64)
     )
     local generation = "restart-liveness-v2/github-devloop/issue/" .. repo
       .. "/42/fixing/fixing.actionable/codex_run_with_durable_hold-v1/codex-run-indeterminate/1798144657406"
 
-    t.eq(#review, 166)
-    local first = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 2)
-    local later = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 100)
-    t.is_true(#first <= devloop_base._max_key_len)
-    t.eq(#later, #first)
+    t.eq(#review, 190)
+    local first = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 273)
+    local later = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 1272)
+    t.is_true(#first <= devloop_base._max_dedup_len)
+    t.is_true(#later <= devloop_base._max_dedup_len)
     t.is_true(later ~= first)
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(later), review)
   end,

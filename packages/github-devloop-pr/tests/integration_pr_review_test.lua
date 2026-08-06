@@ -562,7 +562,7 @@ return {
       "restart-liveness-v2/reviewing/reviewing.active/live_defer_heartbeat-v1/review-converge-round-missing/1783840000000.0",
       2
     )
-    t.is_true(#delivery_dedup_key <= devloop_base._max_key_len)
+    t.is_true(#delivery_dedup_key <= devloop_base._max_dedup_len)
     event.dedup_key = delivery_dedup_key
     event.review_delivery_dedup_key = delivery_dedup_key
     mock_issue_review({ "fkst-dev:reviewing" }, {

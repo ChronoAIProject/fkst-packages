@@ -162,7 +162,7 @@ local function assert_reviewing_receiver(event, raised, state, comment_id, test_
   t.is_true(request ~= nil)
   local delivery_key = request.payload.handoff.review_delivery_dedup_key
   t.eq(request.payload.dedup_key, delivery_key)
-  t.is_true(#delivery_key <= devloop_base._max_key_len)
+  t.is_true(#delivery_key <= devloop_base._max_dedup_len)
   local review_version = core.next_fix_version(state.version)
   local review_id = devloop_base.pr_review_proposal_id(repo, event.pr_number, review_version, advanced_head)
   t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(delivery_key), review_id)
