@@ -170,8 +170,11 @@ end
 local function replay_impl_failed(M, dept, issue, state, row, facts)
   local proposal_id = facts.proposal_id
   local failure = facts.impl_failure
-  if not M.impl_failure_retry_allowed(failure) then
+  if failure == nil then
     return log_skip(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-limit)", "implementation failure is not a bounded codex retry candidate")
+  end
+  if not M.impl_failure_retry_allowed(failure) then
+    return log_defer(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-pending(operator-reentry)", "implementation failure is waiting for an explicit operator reready or reimplement command")
   end
   local fields = resolve_payload_fields(M, row, state, {
     issue = issue,

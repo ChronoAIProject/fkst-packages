@@ -403,6 +403,7 @@ local function mock_stale_worker_recovery()
     exit_code = 0,
   })
   h.mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+  h.mock_result_checkpoint(stale_head_sha, stale_branch)
   h.mock_git_push(stale_branch)
 end
 

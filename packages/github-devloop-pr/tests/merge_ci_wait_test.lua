@@ -1,5 +1,6 @@
 local ci_wait = require("core.merge_ci_wait")
 local devloop_logging = require("devloop.logging")
+local h = require("tests.devloop_helpers")
 
 local t = fkst.test
 local BASE_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -60,6 +61,43 @@ local function run_probe(ancestor_exit_code, merge_tree_result)
   return result, calls, logs
 end
 
+local function capture_hold(kind, reason)
+  local raised = {}
+  local logs = {}
+  local original_log_raise = devloop_logging.log_raise
+  local original_log_line = devloop_logging.log_line
+  devloop_logging.log_raise = function(dept, proposal_id, queue, payload)
+    table.insert(raised, {
+      dept = dept,
+      proposal_id = proposal_id,
+      queue = queue,
+      payload = payload,
+    })
+  end
+  devloop_logging.log_line = function(level, dept, proposal_id, tag, fields)
+    table.insert(logs, {
+      level = level,
+      dept = dept,
+      proposal_id = proposal_id,
+      tag = tag,
+      fields = fields,
+    })
+  end
+
+  local merge_ready = h.merge_ready()
+  local ok, result = pcall(ci_wait.hold, h.core, merge_ready, "owner/repo", {
+    head_sha = merge_ready.reviewed_head_sha,
+  }, {
+    kind = kind,
+    reason = reason,
+  })
+
+  devloop_logging.log_raise = original_log_raise
+  devloop_logging.log_line = original_log_line
+  if not ok then error(result, 0) end
+  return merge_ready, result, raised, logs
+end
+
 return {
   test_non_ancestor_clean_merge_rescues_stale_verdict_with_structured_fact = function()
     local result, calls, logs = run_probe(1, {
@@ -105,5 +143,63 @@ return {
     t.is_true(tostring(result[2]):find("mergeability-probe-failed", 1, true) ~= nil)
     t.eq(field_value(logs[#logs].fields, "outcome"), "probe-failed")
     t.eq(field_value(logs[#logs].fields, "exit_code"), "128")
+  end,
+
+  test_mergeability_wait_requires_the_current_pr_to_produce_the_reason = function()
+    for _, case in ipairs({
+      { pr = { mergeable = "UNKNOWN" }, reason = "mergeable-unknown" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BEHIND" }, reason = "merge-state-behind" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BLOCKED" }, reason = "merge-state-blocked" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "UNSTABLE" }, reason = "merge-state-unstable" },
+    }) do
+      t.is_true(ci_wait.is_mergeability_wait(case.pr, case.reason), case.reason)
+    end
+
+    for _, case in ipairs({
+      { pr = nil, reason = "missing-pr" },
+      { pr = {}, reason = "missing-mergeability" },
+      { pr = { mergeable = "CONFLICTING" }, reason = "mergeable-conflicting" },
+      { pr = { mergeable = "FALSE" }, reason = "mergeable-false" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "CONFLICTING" }, reason = "merge-state-conflicting" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "DIRTY" }, reason = "merge-state-dirty" },
+      { pr = { mergeable = "UNKNOWN" }, reason = "merge-state-blocked" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BLOCKED" }, reason = "write-time-pr-fact-changed" },
+    }) do
+      t.eq(ci_wait.is_mergeability_wait(case.pr, case.reason), false, case.reason)
+    end
+  end,
+
+  test_ci_hold_emits_one_wait_fact_and_returns_cleanly = function()
+    local merge_ready, result, raised, logs = capture_hold("CI_WAIT", "checks-pending")
+
+    t.eq(result.status, "hold")
+    t.eq(result.reason, "checks-pending")
+    t.eq(#raised, 1)
+    t.eq(raised[1].proposal_id, merge_ready.proposal_id)
+    t.eq(raised[1].queue, "github-proxy.github_pr_comment_request")
+    t.eq(raised[1].payload.pr_number, merge_ready.pr_number)
+    t.eq(raised[1].payload.source_ref.kind, "external")
+    t.eq(raised[1].payload.source_ref.ref, "owner/repo#pr/" .. tostring(merge_ready.pr_number))
+    t.is_true(raised[1].payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('kind="CI_WAIT"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('reason="checks-pending"', 1, true) ~= nil)
+    t.eq(#logs, 1)
+    t.eq(logs[1].level, "info")
+    t.eq(logs[1].tag, "GATE")
+    t.eq(field_value(logs[1].fields, "outcome"), "hold")
+    t.eq(field_value(logs[1].fields, "reason"), "checks-pending")
+    t.eq(field_value(logs[1].fields, "ci_class"), "CI_WAIT")
+    t.eq(field_value(logs[1].fields, "head_sha"), merge_ready.reviewed_head_sha)
+  end,
+
+  test_mergeability_hold_uses_the_same_clean_wait_contract = function()
+    local _, result, raised, logs = capture_hold("MERGEABILITY_WAIT", "mergeable-unknown")
+
+    t.eq(result.status, "hold")
+    t.eq(result.reason, "mergeable-unknown")
+    t.eq(#raised, 1)
+    t.is_true(raised[1].payload.body:find('kind="MERGEABILITY_WAIT"', 1, true) ~= nil)
+    t.eq(field_value(logs[1].fields, "outcome"), "hold")
+    t.eq(field_value(logs[1].fields, "ci_class"), "MERGEABILITY_WAIT")
   end,
 }
