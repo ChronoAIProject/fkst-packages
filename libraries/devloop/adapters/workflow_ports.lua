@@ -13,7 +13,7 @@ function M.from_devloop(devloop)
     error("devloop.adapters.workflow_ports: devloop-table-missing: missing devloop table")
   end
   local trusted_bot_login = require("devloop.base").trusted_bot_login
-  return {
+  local ports = {
     dependency_release_marker = function(...)
       return require_devloop_function(devloop, "dependency_release_marker")(...)
     end,
@@ -24,6 +24,13 @@ function M.from_devloop(devloop)
       return trusted_bot_login(...)
     end,
   }
+  if devloop.actionable_epoch_resolve ~= nil then
+    require_devloop_function(devloop, "actionable_epoch_resolve")
+    ports.actionable_epoch_resolve = function(...)
+      return require_devloop_function(devloop, "actionable_epoch_resolve")(...)
+    end
+  end
+  return ports
 end
 
 return M
