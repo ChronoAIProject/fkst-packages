@@ -18,8 +18,15 @@ local function claim_payload(owner, label)
   }
 end
 
-local function mock_ownership(assignees, labels)
+local function mock_ownership(assignees, labels, exclusive)
   author_policy.mock_env(t, nil, { times = 2 })
+  for _ = 1, 2 do
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = exclusive or "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
   t.mock_command("gh api repos/owner/x/issues/42", {
     stdout = '{"assignees":' .. assignees .. ',"labels":' .. (labels or "[]") .. "}\n",
     stderr = "",
@@ -126,6 +133,32 @@ return {
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), true)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), true)
+  end,
+
+  test_label_claim_verification_refuses_label_derived_from_different_owner = function()
+    local label = "fkst-dev:claimed:peer"
+    local payload = claim_payload("fkst-test-bot", label)
+    local issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = label } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]')
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
+  end,
+
+  test_label_claim_verification_refuses_derived_label_in_exclusive_posture = function()
+    local label = "fkst-dev:claimed:fkst-test-bot"
+    local payload = claim_payload("fkst-test-bot", label)
+    local issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = label } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', "1")
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
   end,
 
   test_label_claim_verification_refuses_managed_peer_assignee = function()

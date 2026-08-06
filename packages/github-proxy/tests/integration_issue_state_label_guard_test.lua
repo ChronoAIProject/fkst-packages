@@ -297,4 +297,27 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
+
+  test_issue_label_rejects_claim_label_derived_from_different_owner = function()
+    mock_label_apply()
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    local label = "fkst-dev:claimed:peer"
+    local event = label_event({ "manual-label" }, {}, {
+      claim = {
+        owner = "fkst-test-bot",
+        label = label,
+        source_ref = { kind = "external", ref = "owner/x#issue/42" },
+      },
+    })
+
+    local result = run_label(event, "issue-label-mismatched-owner-label", 42,
+      '{"assignees":[{"login":"human"}],"labels":[{"name":"' .. label .. '"}]}\n')
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue edit"), 0)
+  end,
 }

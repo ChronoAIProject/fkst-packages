@@ -1,5 +1,6 @@
 local github_view = require("forge.github_view")
 local claim_carriers = require("devloop.claim_carriers")
+local config = require("devloop.config")
 local github_author_policy = require("devloop.github_author_policy")
 
 local S = {}
@@ -52,8 +53,12 @@ local function claim_contract_valid(claim)
   if claim.label == nil then
     return true
   end
-  return type(claim.label) == "string"
-    and claim_carriers.is_claim_family(claim.label)
+  if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
+    return false
+  end
+  local owner = github_author_policy.claim_owner()
+  return tostring(claim.owner) == owner
+    and claim.label == claim_carriers.active_label(config.claim_label_exclusive(), owner)
 end
 
 local function claim_carrier(claim)
