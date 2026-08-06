@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
+  "artifact_sha256": "a2dc2a60e5f57a46a0cc1cde94f440f9f27d2ee3723bf73327df83147dc9b9f9",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -35276,7 +35276,7 @@
       "old_inputs": {
         "caller_from_states": [],
         "current_fact": {
-          "record_count": 81
+          "record_count": 82
         },
         "handoff_reference": null,
         "incoming_version": "source-snapshot:v1",
@@ -35531,6 +35531,13 @@
             "effect_id": "comment:pr:row-replay",
             "family": "restart-row-replay/pr-comment-marker-families",
             "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "label:issue:liveness-fixing-replay-reviewing",
+            "family": "state-label:reviewing;dedup=fixing/label/reviewing",
+            "sink_kind": "label"
           },
           {
             "authority_class": "lifecycle-authoritative",
