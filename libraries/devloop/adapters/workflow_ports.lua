@@ -30,6 +30,12 @@ function M.from_devloop(devloop)
       return require_devloop_function(devloop, "actionable_epoch_resolve")(...)
     end
   end
+  if devloop.restart_durable_marker_fields ~= nil then
+    require_devloop_function(devloop, "restart_durable_marker_fields")
+    ports.restart_durable_marker_fields = function(...)
+      return require_devloop_function(devloop, "restart_durable_marker_fields")(...)
+    end
+  end
   return ports
 end
 

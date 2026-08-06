@@ -1,20 +1,16 @@
 {
   "_comment": "G-LOWER-INJECTED-M shrink-only baseline. Counts = lower-library member reads/calls from the injected composed M table inside any libraries/workflow_internal or libraries/forge function body whose parameter list contains bare M. CI fails on growth above these counts, and on current M symbols without a route/owner manifest entry. Baseline raises are review-visible inventory diffs, matching the repo's shrink-only ratchet convention; CI prevents silent growth. Progress means lowering counts and pruning manifest entries as seams dissolve. See docs/superpowers/specs/2026-06-29-devloop-godpattern-dissolution-design.md.",
   "counts": {
-    "workflow_injected_m_reads": 7,
-    "workflow_injected_m_unique_symbols": 4,
+    "workflow_injected_m_reads": 5,
+    "workflow_injected_m_unique_symbols": 3,
     "forge_injected_m_reads": 0,
     "forge_injected_m_unique_symbols": 0,
-    "total_injected_m_reads": 7,
-    "total_injected_m_unique_symbols": 4
+    "total_injected_m_reads": 5,
+    "total_injected_m_unique_symbols": 3
   },
   "manifest": {
     "workflow": {
       "is_state": {
-        "route": "typed_port",
-        "owner": "devloop-seam-dissolution"
-      },
-      "restart_durable_marker_fields": {
         "route": "typed_port",
         "owner": "devloop-seam-dissolution"
       },

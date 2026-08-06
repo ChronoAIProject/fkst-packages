@@ -3,6 +3,7 @@ local M = {}
 M.names = {
   actionable_epoch_resolve = "actionable_epoch_resolve",
   dependency_release_marker = "dependency_release_marker",
+  restart_durable_marker_fields = "restart_durable_marker_fields",
   restart_transition_table = "restart_transition_table",
   trusted_bot_login = "trusted_bot_login",
 }
@@ -10,18 +11,21 @@ M.names = {
 M.types = {
   actionable_epoch_resolve = "function",
   dependency_release_marker = "function",
+  restart_durable_marker_fields = "function",
   restart_transition_table = "function",
   trusted_bot_login = "function",
 }
 
 M.optional = {
   [M.names.actionable_epoch_resolve] = true,
+  [M.names.restart_durable_marker_fields] = true,
 }
 
 local groups = {
   restart_liveness_contract = {
     M.names.actionable_epoch_resolve,
     M.names.dependency_release_marker,
+    M.names.restart_durable_marker_fields,
     M.names.restart_transition_table,
     M.names.trusted_bot_login,
   },

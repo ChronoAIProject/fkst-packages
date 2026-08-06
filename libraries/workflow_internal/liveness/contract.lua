@@ -72,7 +72,7 @@ local function validate_liveness_signal_producer(M, state, signal, family, resol
   if binding.observe_only == true then
     return
   end
-  if M.restart_durable_marker_fields()[family] == nil then
+  if deps.ports.restart_durable_marker_fields()[family] == nil then
     return
   end
   local marker_source = binding.marker_source or "core/requests.lua"
@@ -92,7 +92,7 @@ local function validate_liveness_signal_shape(M, state, signal, label, errors)
   local resolver = signal.resolver or family
   if type(family) ~= "string" or family == "" then
     table.insert(errors, state .. ": " .. label .. " must declare an existing marker family")
-  elseif M.restart_durable_marker_fields()[family] == nil then
+  elseif deps.ports.restart_durable_marker_fields()[family] == nil then
     table.insert(errors, state .. ": " .. label .. " marker family does not exist: " .. tostring(family))
   end
   if liveness_resolver_families[resolver] == nil then
