@@ -72,6 +72,25 @@ return {
     t.eq(gate.kind, "satisfied")
   end,
 
+  test_dependency_gate_holds_until_expected_blocked_by_edge_is_source_visible = function()
+    mock_blocked_by(42, {})
+    local gate = core.dependency_gate(repo, 42, {
+      proposal_id = proposal_id,
+      version = version,
+      comments = {
+        h.projected_state_comment(proposal_id, "dependency_wait", version)
+          .. "\n" .. core.dependency_wait_marker(
+            proposal_id, version, { 99 }, "expected-edge", "precursor-edge-not-visible"),
+      },
+    })
+
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "waiting")
+    t.eq(gate.reason, "dependency-edge-not-visible")
+    t.eq(gate.unmet[1], 99)
+    t.eq(gate.missing_expected_edges[1], 99)
+  end,
+
   test_dependency_markers_are_versioned_and_bounded = function()
     t.eq(
       core.dependency_wait_marker(proposal_id, "v1", { 1, 2, 3 }),

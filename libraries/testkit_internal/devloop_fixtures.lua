@@ -401,10 +401,17 @@ function M.new(deps)
     return t.run_department(path, event, run_opts)
   end
 
-  local function run_observe(payload, run_opts, source_queue)
+  local function run_observe(payload, run_opts, source_queue_or_event_ts)
+    local source_queue = "github-proxy.github_entity_changed"
+    local event_ts = source_queue_or_event_ts
+    if source_queue_or_event_ts == "github-proxy.github_issue_observed" then
+      source_queue = source_queue_or_event_ts
+      event_ts = nil
+    end
     return run_department("departments/observe_issue/main.lua", {
-      queue = source_queue or "github-proxy.github_entity_changed",
+      queue = source_queue,
       payload = payload,
+      ts = event_ts,
     }, run_opts)
   end
 
