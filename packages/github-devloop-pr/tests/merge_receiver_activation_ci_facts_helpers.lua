@@ -67,7 +67,7 @@ function M.delegation_fixtures(ctx)
       current_state = "merge-ready", current_version = version, status_gate_red = true,
       rollup_fresh_integration_red = true, capture_classification = true,
       expected_admission = "not-own-ci", expected_classification = "INTEGRATION_RED",
-      expected_error = "merge-ci-wait", effects = array({ "comment:pr:merge-ci-wait" }),
+      effects = array({ "comment:pr:merge-ci-wait" }),
     },
     {
       disposition = "verified-own-ci-fresh-integration-red-holds", status = "rejected",
@@ -75,7 +75,7 @@ function M.delegation_fixtures(ctx)
       current_state = "merge-ready", current_version = version, verified_ci_red = true,
       verified_fresh_integration_red = true, capture_classification = true,
       expected_admission = "not-own-ci", expected_classification = "INTEGRATION_RED",
-      verified_return = "own-ci-red", expected_error = "merge-ci-wait",
+      verified_return = "own-ci-red",
       effects = array({ "comment:pr:merge-ci-wait" }),
     },
     {
@@ -100,7 +100,7 @@ function M.delegation_fixtures(ctx)
       evidence_path = "packages/github-devloop-pr/core/merge_executor.lua",
       current_state = "merge-ready", current_version = version,
       verified_classifier_kind = "CHECKS_PENDING", expected_verified_classification = "CHECKS_PENDING",
-      verified_return = "checks-pending", expected_error = "merge-ci-wait",
+      verified_return = "checks-pending",
       effects = array({ "comment:pr:merge-ci-wait" }),
     },
     {
@@ -109,7 +109,7 @@ function M.delegation_fixtures(ctx)
       evidence_path = "libraries/forge/merge/verified_merge.lua",
       current_state = "merge-ready", current_version = version,
       verified_classifier_kind = "CI_UNKNOWN", expected_verified_classification = "CI_UNKNOWN",
-      verified_return = "ci-unknown", expected_error = "merge-ci-wait",
+      verified_return = "ci-unknown",
       effects = array({ "comment:pr:merge-ci-wait" }),
     },
     {
@@ -118,7 +118,7 @@ function M.delegation_fixtures(ctx)
       evidence_path = "libraries/forge/merge/verified_merge.lua",
       current_state = "merge-ready", current_version = version,
       verified_classifier_kind = "INTEGRATION_RED", expected_verified_classification = "INTEGRATION_RED",
-      verified_return = "integration-ci-red", expected_error = "merge-ci-wait",
+      verified_return = "integration-ci-red",
       effects = array({ "comment:pr:merge-ci-wait" }),
     },
     {
@@ -127,7 +127,7 @@ function M.delegation_fixtures(ctx)
       evidence_path = "libraries/forge/merge/verified_merge.lua",
       current_state = "merge-ready", current_version = version,
       verified_classifier_kind = "EXTERNAL_CI_RED", expected_verified_classification = "EXTERNAL_CI_RED",
-      verified_return = "external-ci-red", expected_error = "merge-ci-wait",
+      verified_return = "external-ci-red",
       effects = array({ "comment:pr:merge-ci-wait" }),
     },
   })

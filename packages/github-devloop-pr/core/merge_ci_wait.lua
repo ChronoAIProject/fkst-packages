@@ -58,6 +58,15 @@ function M.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reas
     .. tostring(result.exit_code) .. ": " .. tostring(result.stderr or ""))
 end
 
+function M.is_mergeability_wait(pr, reason)
+  local mergeable, derived_reason = check_runs.pr_mergeable(pr)
+  return not mergeable
+    and derived_reason == tostring(reason or "")
+    and derived_reason ~= "missing-pr"
+    and derived_reason ~= "missing-mergeability"
+    and not check_runs.is_not_mergeable_reason(derived_reason)
+end
+
 function M.hold(core, merge_ready, repo, current_pr, classification)
   local reason = tostring(classification and classification.reason or "ci-wait")
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
@@ -76,7 +85,7 @@ function M.hold(core, merge_ready, repo, current_pr, classification)
     "ci_class=" .. tostring(classification and classification.kind or ""),
     "head_sha=" .. tostring(current_pr and current_pr.head_sha or ""),
   })
-  error("github-devloop: merge-ci-wait: merge wait on " .. reason .. "; retrying")
+  return { status = "hold", reason = reason }
 end
 
 return M
