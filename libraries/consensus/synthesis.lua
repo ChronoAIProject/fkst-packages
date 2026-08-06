@@ -1,17 +1,43 @@
 local M = {}
 local provenance = require("consensus.provenance")
 local strings = require("contract.strings")
+local synthesis_contract = require("consensus.synthesis_contract")
+local workflow_sweep = require("workflow_internal.sweep")
 
 local max_field_len = 1000
-local max_findings_record_len = 1500
+local max_findings_record_bytes = synthesis_contract.findings_record_max_bytes
 local max_findings_entry_len = 700
 local max_narrowed_question_len = 2000
 local max_verified_moves = 64
 local max_mover_len = 240
 local max_blocking_gap_len = 240
 local gap_label = "⟦FKST:GAP⟧"
+local result_deferred = workflow_sweep.result_deferred
 
 local trim = strings.trim
+
+local function parse_failure(reason, fields)
+  local failure = { reason = reason }
+  for key, value in pairs(fields or {}) do
+    failure[key] = value
+  end
+  return failure
+end
+
+function M.format_parse_failure(failure)
+  local reason = type(failure) == "table" and tostring(failure.reason or "") or ""
+  if reason:match("^[a-z0-9-]+$") == nil then
+    reason = "response-contract-invalid"
+  end
+  local parts = { "reason=" .. reason }
+  for _, field in ipairs({ "actual_bytes", "limit_bytes", "exit_code" }) do
+    local value = type(failure) == "table" and failure[field] or nil
+    if type(value) == "number" and value >= 0 and value == math.floor(value) then
+      table.insert(parts, field .. "=" .. tostring(value))
+    end
+  end
+  return table.concat(parts, " ")
+end
 
 local function bounded_text(value, limit)
   local text = trim(value)
@@ -126,10 +152,26 @@ local function combine_findings_records(records, verified_citations)
     table.insert(rendered, line)
   end
   local text = table.concat(rendered, "\n")
-  if #text > max_findings_record_len then
-    return nil
+  if #text > max_findings_record_bytes then
+    return nil, parse_failure("findings-record-overlong", {
+      actual_bytes = #text,
+      limit_bytes = max_findings_record_bytes,
+    })
   end
   return text
+end
+
+local function apply_findings_record(parsed, verified_citations)
+  if parsed ~= nil and parsed.findings_entries ~= nil then
+    local findings_record, failure = combine_findings_records(parsed.findings_entries, verified_citations)
+    if failure ~= nil then
+      return nil, failure
+    end
+    if findings_record ~= nil then
+      parsed.findings_record = findings_record
+    end
+  end
+  return parsed
 end
 
 local function parse_reached(value, verdict_mode, gap_count, gap, outcome_index, gap_index)
@@ -220,7 +262,7 @@ local function parse_verified_move(line)
   }
 end
 
-function M.parse_output(stdout, verdict_mode)
+local function parse_output(stdout, verdict_mode)
   local text = trim(tostring(stdout or ""))
   if text:find("⟦FKST:PLAN⟧", 1, true) ~= nil then
     return nil
@@ -310,17 +352,24 @@ function M.parse_output(stdout, verdict_mode)
   elseif gap_count ~= 0 then
     return nil
   end
-  local findings_record = combine_findings_records(findings)
-  if parsed.kind == "converge" and parsed.essence_stall ~= true and findings_record == nil then
+  if parsed.kind == "converge" and parsed.essence_stall ~= true and #findings == 0 then
     return nil
-  end
-  if findings_record ~= nil then
-    parsed.findings_record = findings_record
   end
   parsed.findings_entries = findings
   parsed.verified_moves = #verified_moves
   parsed.verified_move_records = verified_moves
   return parsed
+end
+
+function M.parse_output(stdout, verdict_mode)
+  local parsed, failure = parse_output(stdout, verdict_mode)
+  if parsed ~= nil then
+    parsed, failure = apply_findings_record(parsed)
+  end
+  if parsed == nil and failure == nil then
+    failure = parse_failure("response-contract-invalid")
+  end
+  return parsed, failure
 end
 
 function M.essence_stall(disagreement)
@@ -379,9 +428,7 @@ local function stamp_verified_count(parsed, p1_results, p2_results)
   if parsed ~= nil then
     local citations, count = verified_move_citations(parsed.verified_move_records, p1_results, p2_results)
     parsed.verified_moves = count
-    if parsed.findings_entries ~= nil then
-      parsed.findings_record = combine_findings_records(parsed.findings_entries, citations)
-    end
+    return apply_findings_record(parsed, citations)
   end
   return parsed
 end
@@ -407,9 +454,16 @@ local function has_matching_reject_gap(parsed, verdict_mode, p2_results)
 end
 
 local function parse_attempt(stdout, ctx)
-  local parsed = stamp_verified_count(M.parse_output(stdout, ctx.verdict_mode), ctx.p1_results, ctx.p2_results)
+  local parsed, failure = parse_output(stdout, ctx.verdict_mode)
+  if parsed == nil then
+    return nil, failure or parse_failure("response-contract-invalid")
+  end
+  parsed, failure = stamp_verified_count(parsed, ctx.p1_results, ctx.p2_results)
+  if parsed == nil then
+    return nil, failure
+  end
   if not has_matching_reject_gap(parsed, ctx.verdict_mode, ctx.p2_results) then
-    return nil
+    return nil, parse_failure("reject-gap-not-grounded")
   end
   return parsed
 end
@@ -438,15 +492,26 @@ end
 
 function M.parse_or_retry(ctx)
   local first = ctx.spawn_sync("synthesis", ctx.build_prompt(false))
+  if result_deferred(first) then
+    return first
+  end
   local parsed = nil
+  local failure = nil
   if type(first) == "table" and first.exit_code == 0 then
-    parsed = parse_attempt(first.stdout, ctx)
+    parsed, failure = parse_attempt(first.stdout, ctx)
+  elseif type(first) == "table" then
+    failure = parse_failure("synthesis-worker-nonzero", { exit_code = first.exit_code })
+  else
+    failure = parse_failure("synthesis-result-invalid")
   end
   if parsed ~= nil then
     return parsed
   end
 
-  local repaired = ctx.spawn_sync("synthesis-repair", ctx.build_prompt(true, first))
+  local repaired = ctx.spawn_sync("synthesis-repair", ctx.build_prompt(true, first, failure))
+  if result_deferred(repaired) then
+    return repaired
+  end
   if type(repaired) == "table" and repaired.exit_code == 0 then
     parsed = parse_attempt(repaired.stdout, ctx)
   end
@@ -485,9 +550,9 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
   }
 end
 
-function M.build_prompt(ctx, repair, prior_result)
+function M.build_prompt(ctx, repair, prior_result, parse_failure)
   local prompt = require("consensus.prompts.synthesis")
-  local vars = ctx.vars(repair, prior_result)
+  local vars = ctx.vars(repair, prior_result, parse_failure)
   return ctx.render_prompt_template(prompt.template, vars, ctx.proposal)
 end
 

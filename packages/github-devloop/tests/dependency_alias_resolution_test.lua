@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -56,7 +57,7 @@ end
 local function mock_canonical_issue(issue_number, state_name)
   local comments = ""
   if state_name ~= nil then
-    local marker = core.state_marker(
+    local marker = h.state_comment(
       base_ids.proposal_id(repo, issue_number),
       state_name,
       "v-" .. tostring(issue_number)
@@ -113,7 +114,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "waiting-on-dependency")
     t.eq(gate.unmet[1], 12)
@@ -123,14 +124,14 @@ return {
     mock_dependency_graph(42, { duplicate(21, open_issue(22)) })
     mock_canonical_issue(22, "ready")
     local waiting = core.dependency_gate(repo, 42)
-    t.eq(core.dependency_gate_is_satisfied(waiting), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(waiting), false)
     t.eq(waiting.unmet[1], 22)
 
     mock_dependency_graph(42, { duplicate(21, completed_issue(22)) })
     mock_canonical_issue(22, "merged")
     local satisfied = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(satisfied), true)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(satisfied), true)
     t.eq(satisfied.kind, "satisfied")
   end,
 
@@ -139,7 +140,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-missing")
     t.eq(gate.unmet[1], 31)
@@ -151,7 +152,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-unreadable")
     t.eq(gate.unmet[1], 32)
@@ -162,7 +163,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "cross-repo-duplicate-target")
     t.eq(gate.unmet[1], 52)
@@ -176,9 +177,9 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "verified_cannot_proceed")
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), true)
+    t.eq(dependency_gate.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), true)
     t.eq(gate.reason, "dependency-cycle")
     t.eq(gate.unmet[1], 61)
   end,
@@ -193,7 +194,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(dependency_gate.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "depth-cap-exceeded")
     t.eq(gate.unmet[1], 132)

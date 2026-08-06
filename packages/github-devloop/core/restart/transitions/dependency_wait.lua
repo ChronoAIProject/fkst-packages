@@ -2,10 +2,15 @@ local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(semantic_variant)
   local id = "github-devloop/dependency_wait/guard_boundary/" .. semantic_variant
+  local effect_ids = { "github-proxy.github_issue_comment_request" }
+  if semantic_variant ~= "blockers_released" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
+  if semantic_variant == "blockers_still_open" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
+  end
   return {
-    apply = { id = id .. "/apply", effect_ids = {
-      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
-    } },
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
     idempotent = { id = id .. "/idempotent", effect_ids = {} },
   }
 end

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # fkst-framework BIN resolution and local-source freshness for scripts/run.sh.
 
+BIN_REPOSITORY_ROOT=""
+
 resolve_bin() {
   if ! resolve_bin_contract "$ROOT" "bootstrap"; then
     local_iteration_result_fail "TOOLCHAIN"
@@ -40,11 +42,8 @@ warn_if_substrate_behind() {
 }
 
 ensure_fresh_bin() {
-  if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-    return 0
-  fi
-
   local phys substrate suffix
+  BIN_REPOSITORY_ROOT=""
   suffix="/target/debug/fkst-framework"
   phys="$(resolve_phys_path "$BIN")" || phys="$BIN"
   if [[ "$phys" == *"$suffix" ]]; then
@@ -52,7 +51,17 @@ ensure_fresh_bin() {
   else
     substrate=""
   fi
-  if [ -z "$substrate" ] || [ ! -d "$substrate/.git" ] || [ ! -f "$substrate/Cargo.toml" ]; then
+  if [ -n "$substrate" ] && [ -d "$substrate/.git" ] && [ -f "$substrate/Cargo.toml" ]; then
+    BIN_REPOSITORY_ROOT="$substrate"
+  else
+    substrate=""
+  fi
+
+  if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+    return 0
+  fi
+
+  if [ -z "$substrate" ]; then
     if [ -z "${FKST_NO_AUTOBUILD:-}" ]; then
       echo "warning: cannot trace BIN to an fkst-substrate checkout; skipping freshness build: $BIN" >&2
     fi

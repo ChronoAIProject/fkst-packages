@@ -97,7 +97,7 @@ function M.operator_blocked_reimplement_allowed(core, ready, current, state)
       and fact.reason_class == "state-output-obligation-timeout"
       and tostring(fact.from_version or "") == tostring(reentry.impl_version or "")
       and tonumber(fact.round) == tonumber(reentry.timeout_round)
-      and operator_commands.reintake_source_refs_match(
+      and operator_commands.source_refs_match(
         fact.source_ref, ready.source_ref, devloop_base._max_key_len)
       and tostring(reentry.impl_version or "") == tostring(ready.dedup_key or "")
   end

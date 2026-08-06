@@ -64,7 +64,8 @@ local FIXTURES = {
     comments = function()
       return json_array({
         trusted_comment(core.state_marker(PROPOSAL_ID, "impl-failed", READY_VERSION), "IC_state_impl_failed"),
-        trusted_comment(core.impl_failure_marker(PROPOSAL_ID, READY_VERSION, "codex-failed", 2), "IC_impl_failure"),
+        trusted_comment('<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. PROPOSAL_ID
+          .. '" reason="codex-failed" attempt="2" dedup="' .. READY_VERSION .. '" -->', "IC_impl_failure"),
         trusted_reimplement_command("IC_reimplement_impl_failed"),
       })
     end,
@@ -242,6 +243,7 @@ local function build_record(fixture)
   local event, constructor, decision, ready_raise = capture_runtime(fixture)
   local source = constructor.source
   local payload = constructor.payload
+  local payload_version = payload.implementation_version or payload.dedup_key
   local operator_reentry = payload.operator_reentry
   local timeout_source = fixture.timeout_evidence_source and fixture.timeout_evidence_source or JSON_NULL
   return {
@@ -259,7 +261,7 @@ local function build_record(fixture)
       generation_epoch = {
         current_version = decision.current.version,
         source_version = source.dedup_key,
-        payload_version = payload.dedup_key,
+        payload_version = payload_version,
         impl_retry_attempt = payload.impl_retry_attempt,
       },
       lineage = {
@@ -277,7 +279,7 @@ local function build_record(fixture)
       },
       caller_from_states = json_array({ fixture.state }),
       incoming_version = source.dedup_key,
-      target_version = payload.dedup_key,
+      target_version = payload_version,
       handoff_reference = nullable(operator_reentry),
     },
     old_outcome = {

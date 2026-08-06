@@ -85,7 +85,8 @@ local function comment_cases()
     }), 2, converge_marker) },
     { id = "reconcile", request = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-actionable-framing") },
     { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
-    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "no-changes", "") },
+    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(
+      core, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
     { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
     { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
   }
@@ -186,7 +187,7 @@ return {
     local issue_comments = {
       {
         body = "lorem ipsum " .. cjk_probe .. "\n"
-          .. core.state_marker(issue_proposal_id, "ready", issue_version)
+          .. h.projected_state_comment(issue_proposal_id, "ready", issue_version)
           .. "\n" .. m_builders.result_marker(issue_proposal_id, "approve", "consensus:v1")
           .. "\n" .. core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }),
         author_login = devloop_base.trusted_bot_login(),
@@ -209,7 +210,8 @@ return {
         body = "more noise " .. cjk_probe .. "\n"
           .. m_builders.implementing_marker(issue_proposal_id, "impl:v1", "devloop-owner-repo-42", "abc123", "dev", "abc123")
           .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, 7, "devloop-owner-repo-42", "impl:v1", "dev")
-          .. "\n" .. core.impl_failure_marker(issue_proposal_id, "impl:v1", "codex-failed"),
+          .. "\n" .. core.impl_failure_marker(
+            issue_proposal_id, "impl:v1", "codex-failed", nil, "UNKNOWN", true),
         author_login = devloop_base.trusted_bot_login(),
       },
     }

@@ -72,9 +72,9 @@ M.error_fingerprint = error_facts.error_fingerprint
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  local class = text:match("github%-ratchet%-migration%-slicer: ([%w%-]+):")
-    or text:match("github%-ratchet%-migration%-slicer: ([%w%-]+) failed:")
-  return class or "caught-failure"
+  local class =
+    text:match("github%-ratchet%-migration%-slicer: ([%w%-]+) failed:")
+  return class or error_facts.error_class_from_message(text)
 end
 
 function M.log_error_fact(level, dept, proposal_id, tag, error_class, queue, message, context)

@@ -53,6 +53,14 @@ error(prefix .. detail)
 """
         self.assertEqual(self.warning_lines(source), [])
 
+    def test_exposes_message_anchor_for_stable_diagnostic_identity(self) -> None:
+        source = '\nerror("github-devloop: failed without narrow class")\n'
+
+        self.assertEqual(
+            check_repo.unclassified_error_calls(source),
+            [(2, "github-devloop: failed without narrow class")],
+        )
+
 
 class RestPaginationGuardTest(unittest.TestCase):
     def warning_lines(self, source: str) -> list[int]:
@@ -644,7 +652,9 @@ class SagaHandlerRatchetTest(unittest.TestCase):
             base_commit = ratchet_base_test.commit_file(root, "migration/saga-handler.allowlist", "# comment\npackages/example/departments/dept/main.lua\n\n", "base allowlist")
             ratchet_base_test.git(root, "update-ref", "refs/remotes/origin/dev", base_commit)
             ratchet_base_test.commit_file(root, "migration/saga-handler.allowlist", "packages/example/departments/dept/main.lua\npackages/example/departments/new/main.lua\n", "head allowlist")
-            status, allowlist = check_repo.saga_allowlist_at_dev_base(root)
+            status, allowlist = check_repo.check_repo_config.allowlist_at_dev_base(
+                root, allowlist=check_repo.check_repo_saga_handler.ALLOWLIST, parse_allowlist_lines=check_repo.check_repo_saga_handler.parse_dev_allowlist_lines,
+            )
 
         self.assertEqual(status, "present")
         self.assertEqual(allowlist, {"packages/example/departments/dept/main.lua"})
@@ -667,7 +677,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
 
             violations: list[str] = []
             warnings: list[str] = []
-            with mock.patch.object(check_repo, "saga_allowlist_at_dev_base", return_value=("unresolved", None)):
+            with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("unresolved", None)):
                 check_repo.check_saga_handler_ratchet(root, violations, warnings)
 
         self.assertEqual(warnings, [])
@@ -691,7 +701,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
 
             violations: list[str] = []
             warnings: list[str] = []
-            with mock.patch.object(check_repo, "saga_allowlist_at_dev_base", return_value=("absent", None)):
+            with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("absent", None)):
                 check_repo.check_saga_handler_ratchet(root, violations, warnings)
 
         self.assertEqual(warnings, [])

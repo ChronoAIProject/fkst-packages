@@ -34,7 +34,9 @@ local implement_department = require("departments.implement.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local IMPLEMENT_ACTIVATION_CORPUS_PATH = "migration/intent_bounded_replay/corpus/implement-activation.json"
-local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = ".fkst/run/r9-implement-activation-new-trace.json"
+local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-implement-activation-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"
@@ -62,13 +64,6 @@ local decision_sources = {
   reimplement_blocked_implementing_timeout_without_pr = { state = "blocked", kind = "cyclic" },
 }
 
-local function source_state_names(expected_states)
-  local names = {}
-  for _, expected in ipairs(expected_states or {}) do
-    table.insert(names, type(expected) == "table" and expected.state or expected)
-  end
-  return names
-end
 
 local function probe_variant(from_states, to_state)
   if type(from_states) ~= "table" or #from_states ~= 1 then
@@ -396,10 +391,11 @@ end
 local function fixture_comments(fixture, event)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
-    table.insert(comments, core.impl_failure_marker(PROPOSAL_ID, event.dedup_key, "codex-failed", 1))
+    table.insert(comments, core.impl_failure_marker(
+      PROPOSAL_ID, event.dedup_key, "codex-failed", 1, "UNKNOWN", true))
   end
   if fixture.blocked_version ~= nil or fixture.current_target_link then
     table.insert(comments, m_builders.pr_link_marker(
@@ -436,7 +432,7 @@ local function mock_case(fixture, event)
     mock_wip_stop()
   end
   if fixture.handoff_visible_version ~= nil then
-    local visible_marker = core.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
+    local visible_marker = h.projected_state_comment(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_implement_cas_handoff'", {
       stdout = '{"body":"' .. h.json_string(visible_marker) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",

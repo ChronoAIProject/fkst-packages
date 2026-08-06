@@ -33,8 +33,9 @@ local OWNER = core.restart_package_name
 local TRACE_EDGE_ID = OWNER .. "/reviewing/entry/first_seen_pr"
 local REVIEW_ACTIVATION_CORPUS_PATH =
   "migration/intent_bounded_replay/corpus/pr-review-activation.json"
-local REVIEW_ACTIVATION_NEW_TRACE_PATH =
-  ".fkst/run/r9-pr-review-activation-new-trace.json"
+local REVIEW_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-activation-new-trace.json"
+)
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local BRANCH = "devloop-owner-repo-42-01HY"
 local BASE_BRANCH = "dev"

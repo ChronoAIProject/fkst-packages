@@ -10,8 +10,15 @@ function S.install(M)
 M._max_impl_retry_attempts = impl_failure.MAX_RETRY_ATTEMPTS
 M._max_impl_auto_retry_attempts = impl_failure.MAX_AUTO_RETRY_ATTEMPTS
 
-function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt)
+function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt, fault_class, retryable)
   local safe_reason = strings.sanitize_key(reason or "failed", M._max_key_len):gsub("/", "-")
+  local safe_fault_class = impl_failure.valid_fault_class(fault_class)
+  if safe_fault_class == nil then
+    error("github-devloop: invalid-fault-class: invalid implementation failure fault class")
+  end
+  if type(retryable) ~= "boolean" then
+    error("github-devloop: invalid-retry-disposition: implementation failure retryable must be boolean")
+  end
   local attempt_field = ""
   if attempt ~= nil then
     local n = valid_attempt(attempt)
@@ -22,6 +29,8 @@ function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt)
   end
   return '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. tostring(proposal_id)
     .. '" reason="' .. safe_reason
+    .. '" fault_class="' .. safe_fault_class
+    .. '" retryable="' .. tostring(retryable)
     .. attempt_field
     .. '" dedup="' .. tostring(dedup_key)
     .. '" -->'
@@ -44,26 +53,11 @@ function M.next_impl_retry_attempt(fact)
 end
 
 function M.implementation_base_version(version)
-  return transition_version.strip_trailing_reimplement(version)
+  return impl_failure.implementation_base_version(version)
 end
 
 function M.implementation_branch_version(version, attempt)
-  local replacement_round = transition_version.trailing_reimplement_round(version)
-  local retry_attempt = attempt == nil and nil or valid_attempt(attempt)
-  if attempt ~= nil and retry_attempt == nil then
-    error("github-devloop: invalid-attempt: invalid implementation branch attempt")
-  end
-  if replacement_round == 1 and (retry_attempt == nil or retry_attempt == replacement_round) then
-    return tostring(version or "")
-  end
-  if replacement_round ~= 0
-    and retry_attempt ~= nil
-    and replacement_round ~= retry_attempt
-    and replacement_round + 1 ~= retry_attempt
-  then
-    error("github-devloop: invalid-version-lineage: implementation retry suffix does not match structured attempt")
-  end
-  return M.implementation_base_version(version)
+  return impl_failure.implementation_branch_version(version, attempt)
 end
 
 function M.implementation_delegation_generation(version, attempt)
@@ -98,20 +92,7 @@ function M.ready_payload_inner_version(version)
 end
 
 function M.implementation_attempt_version(version, attempt)
-  local n = attempt == nil and nil or valid_attempt(attempt)
-  if attempt ~= nil and n == nil then
-    error("github-devloop: invalid-attempt: invalid implementation attempt version")
-  end
-  if transition_version.trailing_reimplement_round(
-    M.implementation_branch_version(version, n)
-  ) == 1 then
-    return tostring(version or "")
-  end
-  local base = M.implementation_base_version(version)
-  if n == nil or n <= 1 then
-    return base
-  end
-  return transition_version.reimplement_at(base, n)
+  return impl_failure.implementation_attempt_version(version, attempt)
 end
 
 function M.has_implementation_fact_marker(comments, proposal_id, dedup_key)

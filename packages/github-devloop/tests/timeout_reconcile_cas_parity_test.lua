@@ -29,7 +29,9 @@ local reconcile_department = require("departments.reconcile.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local TIMEOUT_RECONCILE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
-local TIMEOUT_RECONCILE_NEW_TRACE_PATH = ".fkst/run/r9-timeout-reconcile-new-trace.json"
+local TIMEOUT_RECONCILE_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-timeout-reconcile-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_timeout_reconcile_v1"
@@ -240,7 +242,7 @@ end
 local function fixture_comments(event, fixture)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, trusted_comment(core.state_marker(
+    table.insert(comments, trusted_comment(h.state_comment(
       PROPOSAL_ID,
       fixture.current_state,
       fixture.current_version
@@ -468,30 +470,6 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function normalized_old_admission(fixture, production, incoming_version)
-  if production.observed ~= nil then
-    return production.observed.status, production.observed.reason_code,
-      devloop_state.cas_outcome(production.probe.current, production.probe.outcome, incoming_version)
-  end
-  local outcome = production.decision.outcome
-  if outcome == "pending" then
-    return "pending", "source-marker-not-visible",
-      devloop_state.cas_outcome({ state = nil, version = nil }, "pending", incoming_version)
-  end
-  if outcome:find("lineage-mismatch", 1, true) ~= nil then
-    return "stale", "incoming-version-older",
-      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
-  end
-  -- Owner directive (#2725): the timeout watchdog never escalates, so the reconcile
-  -- department short-circuits an over-budget source-equal timeout-reconcile pre-CAS with
-  -- skip-stale(no-longer-over-budget). It never reaches the CAS apply, so its admission is
-  -- a stale skip -- the terminal drop is neutralized.
-  if outcome:find("no-longer-over-budget", 1, true) ~= nil then
-    return "stale", "advanced-or-diverged",
-      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
-  end
-  error("timeout reconcile trace saw unsupported pre-CAS outcome: " .. tostring(outcome), 0)
-end
 
 local function trace_artifact(corpus_hash, fixtures)
   return observation_support.admission_trace_artifact(

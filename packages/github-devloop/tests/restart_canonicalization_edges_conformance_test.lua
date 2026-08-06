@@ -35,10 +35,10 @@ local structural_fields = {
   "transition_effect_entitlements",
   "provenance",
 }
-local implementing_merged_delegated_pr_id =
-  "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr"
+local implementing_terminal_delegated_pr_id =
+  "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"
 local cas_metadata_golden = {
-  [implementing_merged_delegated_pr_id] = {
+  [implementing_terminal_delegated_pr_id] = {
     cas_policy_id = "cas.legacy_awaiting_pr_v1",
     cas_variant = "implementing_to_awaiting_pr",
   },
@@ -46,7 +46,7 @@ local cas_metadata_golden = {
 local pending_order_goldens = {
   ["github-devloop/dependency_wait/canonicalization/legacy_ready_dependency_hold"] = { participates = true, predecessor_state = "ready" },
   ["github-devloop/ready/canonicalization/legacy_ready_rederive"] = { participates = false },
-  [implementing_merged_delegated_pr_id] = { participates = true, predecessor_state = "implementing" },
+  [implementing_terminal_delegated_pr_id] = { participates = true, predecessor_state = "implementing" },
   ["github-devloop/awaiting-pr/canonicalization/legacy_pr_open_delegation"] = { participates = false },
 }
 
@@ -208,7 +208,7 @@ local function mock_blocker_issue(number, state)
   local blocker_proposal = base_ids.proposal_id(repo, number)
   t.mock_command(core.gh_issue_view_observe_cmd(repo, number), {
     stdout = '{"state":"OPEN","comments":['
-      .. render_comment(core.state_marker(blocker_proposal, state, "v-" .. tostring(number)))
+      .. render_comment(h.state_comment(blocker_proposal, state, "v-" .. tostring(number)))
       .. '],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
@@ -253,7 +253,7 @@ local function observe_ready_split(target)
   local comments
   if target == "ready" then
     comments = {
-      core.state_marker(proposal_id, "ready", ready_version),
+      h.projected_state_comment(proposal_id, "ready", ready_version),
       "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
         .. core.dependency_wait_marker(proposal_id, ready_version, { 53 }),
     }
@@ -263,7 +263,7 @@ local function observe_ready_split(target)
     mock_blocker_issue(53, "merged")
   else
     comments = {
-      core.state_marker(proposal_id, "ready", ready_version),
+      h.projected_state_comment(proposal_id, "ready", ready_version),
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_unresolvable_marker(proposal_id, ready_version, { issue_number }),
     }
@@ -290,7 +290,7 @@ end
 
 local function parent_comments(state)
   return {
-    core.state_marker(proposal_id, state, impl_version),
+    h.state_comment(proposal_id, state, impl_version),
     m_builders.pr_delegation_marker(proposal_id, pr_proposal_id, pr_number, impl_version, "g1"),
   }
 end
@@ -450,7 +450,7 @@ local function assert_canonicalization_shape(edges)
       edge_keys.cas_policy_id = true
       edge_keys.cas_variant = true
     end
-    if edge.id == implementing_merged_delegated_pr_id then
+    if edge.id == implementing_terminal_delegated_pr_id then
       edge_keys.transition_effect_entitlements = true
     end
     edge_keys.pending_order = true
@@ -536,7 +536,7 @@ return {
   test_issue_implementing_handoff_canonicalization_references_declared_cas_policy = function()
     local edge
     for _, candidate in ipairs(restart_edges.extract_canonicalization_edges(owner, canonicalization_inventory)) do
-      if candidate.id == implementing_merged_delegated_pr_id then
+      if candidate.id == implementing_terminal_delegated_pr_id then
         edge = candidate
         break
       end
@@ -559,7 +559,7 @@ return {
     assert_same_value(canonicalization_inventory, snapshot)
     t.eq(authored[1].id, "github-devloop/dependency_wait/canonicalization/legacy_ready_dependency_hold")
     t.eq(authored[2].id, "github-devloop/ready/canonicalization/legacy_ready_rederive")
-    t.eq(authored[3].id, "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr")
+    t.eq(authored[3].id, "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr")
     t.eq(authored[4].id, "github-devloop/awaiting-pr/canonicalization/legacy_pr_open_delegation")
 
     local repeated = restart_edges.extract_canonicalization_edges(owner, canonicalization_inventory)

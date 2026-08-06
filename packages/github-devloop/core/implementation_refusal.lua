@@ -38,6 +38,10 @@ function M.is_supported_reason(reason)
   return supported_reason_set[reason] == true
 end
 
+function M.is_valid_evidence(evidence)
+  return type(evidence) == "string" and strings.trim(evidence) ~= ""
+end
+
 function M.reasons_text()
   return table.concat(M.reasons(), ", ")
 end
@@ -58,7 +62,9 @@ function M.prompt_contract()
     table.insert(lines, "  - `" .. spec.reason .. "`: " .. spec.condition .. ".")
   end
   table.insert(lines,
-    '- Every `cannot-implement-here` result must also include exactly `reason` and a non-empty bounded `evidence` string. The evidence reports the worker\'s basis; it is not independently verified by the receipt.')
+    '- Every `cannot-implement-here` result must also include `reason` and a non-empty bounded `evidence` string. The evidence reports the worker\'s basis; it is not independently verified by the receipt.')
+  table.insert(lines,
+    '- A `precursor-missing` result must additionally include exactly `blocker={"repo":"owner/repo","issue_number":123}` naming a same-repository issue. The other reasons must not include `blocker`.')
   table.insert(lines,
     '- Do not use `cannot-implement-here` for any other reason and do not add unsupported fields.')
   return table.concat(lines, "\n")
@@ -70,8 +76,7 @@ function M.marker(proposal_id, implementation_version, reason, evidence, attempt
     or not strings.is_bounded_string(implementation_version, devloop_base._max_dedup_len)
     or not M.is_supported_reason(reason)
     or n == nil
-    or not strings.is_bounded_string(evidence, devloop_base._max_blocking_gap_len)
-    or strings.trim(evidence) == "" then
+    or not M.is_valid_evidence(evidence) then
     error("github-devloop: invalid-implementation-refusal-marker: invalid implementation refusal marker")
   end
   return '<!-- fkst:github-devloop:implementation-refusal:v1 proposal="' .. proposal_id
@@ -94,8 +99,7 @@ local function fact_from_marker(marker, comment, proposal_id, implementation_ver
     or attempt == nil
     or attempt ~= expected_attempt
     or not strings.is_bounded_string(marker_version, devloop_base._max_dedup_len)
-    or not strings.is_bounded_string(evidence, devloop_base._max_blocking_gap_len)
-    or strings.trim(evidence) == "" then
+    or not M.is_valid_evidence(evidence) then
     return nil
   end
   if marker ~= M.marker(marker_proposal, marker_version, reason, evidence, attempt) then

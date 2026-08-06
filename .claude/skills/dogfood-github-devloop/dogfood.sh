@@ -424,11 +424,32 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   fi
 }
 
+# launch_with_lock_retry: launch_one + a bounded retry on the redb lock race ONLY.
+# `restart` is the deploy path and is NOT atomic: it SIGKILLs the old supervise then opens the
+# durable store. That kill does not always release the redb lock in time; the race loser exits with
+# `Database already open. Cannot acquire lock.` leaving NOTHING running — a full outage whose next
+# signal is the following operator wake (incident 2026-08-01, #3001; a plain retry minutes later
+# succeeded first try, so the lock was never genuinely held). Retry ONLY this signature, so a real
+# failure (bad config, panic, missing BIN) still fails fast and loud on the first attempt.
+# Deliberately NOT named launch_one: that name carries the scripts/run.sh supervise delegation that
+# G-DOGFOOD-BOUNDARY audits, and this wrapper must not displace it from the audited surface.
+launch_with_lock_retry() { # $1 name, $2 restart flag (0|1)
+  local attempts=5 i=1 log
+  while :; do
+    launch_one "$1" "$2" && return 0
+    log=$(ls -t "$LOGDIR/${1}-sv-"*.log 2>/dev/null | head -1)
+    [ "$i" -lt "$attempts" ] && [ -n "$log" ] \
+      && grep -q "Database already open. Cannot acquire lock." "$log" 2>/dev/null || return 1
+    echo "[$1] durable lock not yet released by the previous supervise (attempt $i/$attempts); retrying in ${i}s"
+    sleep "$i"; i=$((i + 1))
+  done
+}
+
 start_one() {
   cfg "$1" || return 1
   local existing; existing=$(pidof_df)
   if [ -n "$existing" ]; then echo "[$1] already running (pid $existing) — use restart"; return 0; fi
-  launch_one "$1" 0
+  launch_with_lock_retry "$1" 0
 }
 
 stop_one() {
@@ -451,7 +472,7 @@ restart_one() {
   # One migration bridge: a supervise launched before the host-run contract has no
   # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
   [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
-  launch_one "$1" 1
+  launch_with_lock_retry "$1" 1
 }
 
 # fmt_uptime <etime>: render `ps -o etime=` ([[DD-]HH:]MM:SS) with EXPLICIT units.
@@ -733,8 +754,17 @@ _sync_checkout() {
   if ! git -C "$co" merge-base --is-ancestor HEAD "origin/$UPSTREAM_BRANCH" 2>/dev/null; then
     echo "  $co: $before not an ancestor of origin/$UPSTREAM_BRANCH — skip (feature branch / diverged; not a pinned dev mirror)"; return
   fi
-  git -C "$co" reset --hard "origin/$UPSTREAM_BRANCH" -q 2>/dev/null
+  # Verify the end state. A failed reset leaves HEAD unmoved, which otherwise looks
+  # identical to an already-current checkout when only before and after are compared.
+  local reset_err reset_rc target
+  reset_err=$(git -C "$co" reset -q --hard "origin/$UPSTREAM_BRANCH" 2>&1); reset_rc=$?
   after=$(git -C "$co" rev-parse --short HEAD 2>/dev/null)
+  target=$(git -C "$co" rev-parse --short "origin/$UPSTREAM_BRANCH" 2>/dev/null)
+  if [ "$reset_rc" -ne 0 ] || [ "$after" != "$target" ]; then
+    echo "  $co: SYNC FAILED -- still at $after, origin/$UPSTREAM_BRANCH is $target (rc=$reset_rc)${reset_err:+ -- $reset_err}"
+    echo "  $co: the pinned checkout is STALE; skill/tooling loaded from it may be out of date"
+    return 1
+  fi
   [ "$before" = "$after" ] && echo "  $co: current ($after)" || echo "  $co: $before -> $after"
 }
 
@@ -745,8 +775,9 @@ _sync_checkout() {
 # left running — a restart would only churn in-flight codex for no code change.
 cmd_sync() {
   echo "operator checkouts -> origin/$UPSTREAM_BRANCH:"
-  _sync_checkout "$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null)"  # repo this skill lives in
-  _sync_checkout "$SUBSTRATE_SRC"                                                # engine BIN source
+  local co_failed=0
+  _sync_checkout "$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null)" || co_failed=1  # repo this skill lives in
+  _sync_checkout "$SUBSTRATE_SRC" || co_failed=1                                                # engine BIN source
   echo "engine BIN:"; bin_ensure_fresh | sed 's/^/  /'
   echo "supervises (auto-restart only on real code change):"
   local n st failed=0
@@ -764,6 +795,7 @@ cmd_sync() {
       *)                      echo "  $n: $st (no restart needed)" ;;
     esac
   done
+  [ "$co_failed" -eq 0 ] || failed=1
   return "$failed"
 }
 

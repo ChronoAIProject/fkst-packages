@@ -90,7 +90,7 @@ local function find_comment_with(raises, text)
 end
 
 local function mock_candidate_local_red(_worktree, detail)
-  t.mock_command("scripts/run.sh test-affected", {
+  t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
     stdout = "",
     stderr = local_iteration_marker("SEMANTIC_FAIL") .. (detail or "candidate local iteration failed\n"),
     exit_code = 1,
@@ -105,20 +105,21 @@ local function mock_codex_success_without_local_iteration()
   })
 end
 
+local function local_iteration_calls()
+  local calls = {}
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find("scripts/run.sh test-affected", 1, true) ~= nil then
+      table.insert(calls, call)
+    end
+  end
+  return calls
+end
+
 local function mock_base_probe(worktree, options)
   local base_probe = worktree .. "-base-probe"
   local values = options or {}
   for _ = 1, 2 do
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    h.mock_force_clean(base_probe)
   end
   t.mock_command("mkdir -p", {
     stdout = "",
@@ -137,7 +138,7 @@ local function mock_base_probe(worktree, options)
       exit_code = 0,
     })
     if values.head == nil or values.head.exit_code == 0 then
-      t.mock_command("scripts/run.sh test-affected", values.check or {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", values.check or {
         stdout = "",
         stderr = local_iteration_marker("PASS"),
         exit_code = 0,
@@ -156,6 +157,23 @@ local function assert_impl_failure_without_publication(result, reason)
   t.is_true(failure.payload.body:find("github-devloop implementation failed: " .. reason, 1, true) ~= nil)
   t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request") == nil)
   return failure
+end
+
+local function assert_checkpoint_without_verified_handoff(result, event, expected_head)
+  t.eq(result.exit_code, 0)
+  local checkpoint = find_comment_with(result.raises, "fkst:github-devloop:implement-checkpoint:v1")
+  t.is_true(checkpoint ~= nil)
+  local fact = m_facts.implement_checkpoint_fact(
+    { checkpoint.payload.body },
+    event.proposal_id,
+    event.dedup_key
+  )
+  t.eq(fact.head_sha, expected_head)
+  t.eq(fact.reason, "verification-indeterminate")
+  t.eq(find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
+  t.eq(find_comment_with(result.raises, "github-devloop implementation output published"), nil)
+  t.eq(find_comment_with(result.raises, 'state="awaiting-pr"'), nil)
+  return checkpoint
 end
 
 return {
@@ -272,10 +290,13 @@ return {
     end
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
-    t.eq(count_calls("git -C"), 10)
+    t.eq(count_calls("git -C"), 12)
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 1)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 0)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
@@ -293,6 +314,7 @@ return {
       exit_code = 0,
     })
     mock_git_status(" M docs/devloop/plans/42-plan.md\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md\n")
     mock_base_probe(worktree)
 
@@ -300,8 +322,13 @@ return {
 
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 2)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
+    t.eq(verification_calls[2].rendered:find("export BASE=", 1, true), nil)
+    t.is_true(verification_calls[2].rendered:find("-base-probe-", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 1)
-    t.eq(count_calls("commit -m"), 1)
+    t.eq(count_calls("commit -m"), 2)
     local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
     t.is_true(failure.payload.body:find("FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md", 1, true) ~= nil)
     local failed_label = find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
@@ -311,28 +338,29 @@ return {
     t.eq(branch, deterministic_branch_for(event))
   end,
 
-  test_implement_local_gate_markerless_zero_retry_exhausts_indeterminate = function()
+  test_implement_local_gate_markerless_zero_checkpoints_dirty_progress = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "report-supervisor: timed out waiting for a slot\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
+    mock_git_commit("def456", branch)
 
     local result = run_implement(event, opts("implement-candidate-markerless-zero"))
 
-    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
-    t.is_true(failure.payload.body:find("candidate_result_reason=missing-declaration", 1, true) ~= nil)
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("candidate_result_reason=missing-declaration", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
     t.eq(count_calls("git worktree add --detach"), 0)
@@ -345,28 +373,30 @@ return {
     t.eq(find_comment_with(result.raises, "github-devloop implementation output published"), nil)
   end,
 
-  test_implement_local_gate_unknown_retry_exhausts_indeterminate = function()
+  test_implement_local_gate_unknown_retry_checkpoints_dirty_progress = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "first untyped nonzero\n",
       exit_code = 2,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "second untyped nonzero\n",
       exit_code = 2,
     })
+    mock_git_commit("def456", branch)
 
     local result = run_implement(event, opts("implement-candidate-unknown-exhausts"))
 
-    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
-    t.is_true(failure.payload.body:find("candidate_verification_attempt=2/2", 1, true) ~= nil)
-    t.is_true(failure.payload.body:find("second untyped nonzero", 1, true) ~= nil)
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("candidate_verification_attempt=2/2", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("second untyped nonzero", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
     t.eq(count_calls("git worktree add --detach"), 0)
@@ -374,11 +404,13 @@ return {
 
   test_implement_local_gate_configuration_failure_has_explicit_disposition = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
-    t.mock_command("scripts/run.sh test-affected", {
+    mock_git_commit("def456", branch)
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = local_iteration_marker("CONFIGURATION_FAIL") .. "no packages matched for 'missing-package'\n",
       exit_code = 1,
@@ -394,10 +426,12 @@ return {
 
   test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -430,10 +464,12 @@ return {
 
   test_implement_local_gate_typed_base_toolchain_failure_has_explicit_disposition = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -453,10 +489,12 @@ return {
 
   test_implement_local_gate_unknown_base_probe_recovers_without_rerunning_codex = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -478,10 +516,12 @@ return {
 
   test_implement_local_gate_probe_checkout_failure_is_indeterminate = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
@@ -492,16 +532,19 @@ return {
 
     local result = run_implement(event, opts("implement-base-probe-checkout-failure"))
 
-    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("probe_status=checkout-failed", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 2)
   end,
 
   test_implement_local_gate_untyped_exit_two_probe_exhausts_indeterminate = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       check = {
@@ -513,21 +556,22 @@ return {
     mock_base_probe(worktree, {
       check = { stdout = "", stderr = "second slot timeout\n", exit_code = 2 },
     })
-
     local result = run_implement(event, opts("implement-base-probe-untyped-exit-two"))
 
-    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
-    t.is_true(failure.payload.body:find("verification_attempt=2/2", 1, true) ~= nil)
-    t.is_true(failure.payload.body:find("second slot timeout", 1, true) ~= nil)
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("verification_attempt=2/2", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("second slot timeout", 1, true) ~= nil)
     t.eq(count_calls("scripts/run.sh test-affected"), 3)
   end,
 
   test_implement_local_gate_probe_head_mismatch_is_indeterminate = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       head = {
@@ -543,10 +587,10 @@ return {
         exit_code = 0,
       },
     })
-
     local result = run_implement(event, opts("implement-base-probe-head-mismatch"))
 
-    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("probe_status=head-mismatch", 1, true) ~= nil)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
     t.eq(count_calls("git worktree add --detach"), 2)
   end,

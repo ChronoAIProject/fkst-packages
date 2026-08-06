@@ -9,6 +9,7 @@ local implementation_result = require("departments.implement.implementation_resu
 local implement_caps = require("implement_department_caps")
 local implement_profile = require("departments.implement.profile")
 local proof_attempt = require("departments.implement.proof_attempt")
+local result_checkpoint = require("departments.implement.result_checkpoint")
 local restart_sink_grants = require("restart_sink_grants")
 local substrate_pin = require("departments.implement.substrate_pin")
 local workflow_codex = require("workflow_internal.codex")
@@ -19,6 +20,8 @@ local function invalid_result(ready, detail, attempt, started_at, exec_ref, base
   return harvest.impl_failed_outcome(
     ready,
     "lean-proof-invalid-result",
+    "UNKNOWN",
+    false,
     "Invalid typed result envelope: " .. tostring(detail),
     attempt,
     started_at,
@@ -68,6 +71,8 @@ local function completed_proof_outcome(args, receipt, timeout_seconds)
     return harvest.impl_failed_outcome(
       args.ready,
       verification.reason,
+      "UNKNOWN",
+      false,
       verification.detail,
       args.attempt,
       args.codex_started_at,
@@ -76,6 +81,19 @@ local function completed_proof_outcome(args, receipt, timeout_seconds)
     )
   end
   return nil
+end
+
+local function no_changes_outcome(args, result)
+  local detail = tostring(result.stdout or "")
+  if detail == "" then detail = tostring(result.stderr or "") end
+  devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, nil, "no-changes", {
+    queue = args.event_queue,
+    source_ref = args.ready.source_ref,
+    terminal = false,
+  })
+  return harvest.impl_failed_outcome(
+    args.ready, "no-changes", "UNKNOWN", false, detail, args.attempt,
+    args.codex_started_at, args.exec_ref, args.base_head)
 end
 
 local function proof_result_outcome(args, result, profile_context, timeout_seconds)
@@ -96,6 +114,8 @@ local function proof_result_outcome(args, result, profile_context, timeout_secon
     return harvest.impl_failed_outcome(
       args.ready,
       reason,
+      "UNKNOWN",
+      reason == "lean-proof-repair-needed",
       receipt.raw,
       args.attempt,
       args.codex_started_at,
@@ -202,6 +222,19 @@ local function run_attempt(args)
   end
   devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, "result=completed", nil)
 
+  local unavailable = harvest.worktree_unavailable_outcome(
+    args.ready,
+    args.worktree,
+    args.branch,
+    args.attempt,
+    args.codex_started_at,
+    args.exec_ref,
+    args.base_head
+  )
+  if unavailable ~= nil then
+    return unavailable
+  end
+
   if proof ~= nil then
     local proof_outcome, complete = proof_result_outcome(args, result, proof.context, proof.timeout_seconds)
     if not complete then
@@ -222,14 +255,8 @@ local function run_attempt(args)
         "head_sha=" .. tostring(head_sha),
         "reason=reusing clean ahead implementation branch",
       })
-      return harvest.after_codex_success(
-        args.repo, args.issue_number, args.ready, args.branches.integration, args.branch,
-        args.base_head, args.worktree, args.attempt, args.codex_started_at, args.exec_ref, head_sha
-      )
-    end
-
-    if proof == nil then
-      local receipt = implementation_result.decode(result.stdout, {
+    elseif proof == nil then
+      local receipt, receipt_err = implementation_result.decode(result.stdout, {
         proposal_id = args.ready.proposal_id,
         implementation_version = args.ready.dedup_key,
         attempt = args.attempt,
@@ -244,28 +271,36 @@ local function run_attempt(args)
           args.base_head
         )
       end
+      if receipt == nil and tostring(result.stdout or "") ~= "" then
+        local invalid_detail = "Invalid typed result envelope: " .. tostring(receipt_err)
+        devloop_logging.log_codex_result(
+          "implement", args.ready.proposal_id, "implement", result, nil, invalid_detail, {
+            error_class = "invalid-implementation-result",
+            queue = args.event_queue,
+            source_ref = args.ready.source_ref,
+            terminal = false,
+          })
+        return harvest.impl_failed_outcome(
+          args.ready,
+          "invalid-implementation-result",
+          "UNKNOWN",
+          false,
+          invalid_detail,
+          args.attempt,
+          args.codex_started_at,
+          args.exec_ref,
+          args.base_head
+        )
+      end
+      return no_changes_outcome(args, result)
+    else
+      return no_changes_outcome(args, result)
     end
-
-    local detail = tostring(result.stdout or "")
-    if detail == "" then
-      detail = tostring(result.stderr or "")
-    end
-    devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, nil, "no-changes", {
-      queue = args.event_queue,
-      source_ref = args.ready.source_ref,
-      terminal = false,
-    })
-    return harvest.impl_failed_outcome(
-      args.ready,
-      "no-changes",
-      detail,
-      args.attempt,
-      args.codex_started_at,
-      args.exec_ref,
-      args.base_head
-    )
+  else
+    harvest.commit_dirty_worktree(args.repo, args.issue_number, args.ready, args.worktree, args.branch)
   end
 
+  local result_head = result_checkpoint.persist(core.git, args.worktree, args.ready.dedup_key)
   return harvest.after_codex_success(
     args.repo,
     args.issue_number,
@@ -276,10 +311,18 @@ local function run_attempt(args)
     args.worktree,
     args.attempt,
     args.codex_started_at,
-    args.exec_ref
+    args.exec_ref,
+    result_head
   )
 end
 
 M.run = run_attempt
+
+function M.resume(args)
+  return harvest.after_codex_success(
+    args.repo, args.issue_number, args.ready, args.branches.integration, args.branch,
+    args.base_head, args.worktree, args.attempt, args.codex_started_at, args.exec_ref,
+    args.head_sha)
+end
 
 return M

@@ -1,11 +1,11 @@
 local entity_lib = require("devloop.entity")
+local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
-local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local m_facts = require("devloop.markers.facts")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
@@ -18,16 +18,17 @@ local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
+local pr_parent_observation = require("departments.observe_issue.pr_parent_observation")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local v_issue = require("devloop.validators.issue")
-local v_pr = require("devloop.validators.pr")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local operator_recovery_factory = require("departments.observe_issue.operator_recovery")
 local log = log
 local M = {}
 local restart_transition_table = core.restart_transition_table
@@ -39,6 +40,7 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_create_request",
+    "github-proxy.github_issue_blocked_by_request",
     "github-proxy.github_pr_comment_request",
     "devloop_ready",
     "github-devloop-decompose.devloop_decompose",
@@ -49,6 +51,20 @@ local spec = {
   fanout = { "github-proxy.github_entity_changed" },
   stall_window = "30s",
 }
+
+local operator_recovery = operator_recovery_factory.make({
+  contract_time = contract_time,
+  conv_reconcile = conv_reconcile,
+  core = core,
+  devloop_logging = devloop_logging,
+  devloop_state = devloop_state,
+  operator_commands = operator_commands,
+  replayer = replayer,
+  replay_fields = replay_fields,
+})
+local maybe_apply_issue_rereview_command = operator_recovery.maybe_apply_issue_rereview_command
+local maybe_apply_issue_reready_command = operator_recovery.maybe_apply_issue_reready_command
+local maybe_apply_issue_dependency_waiver_command = operator_recovery.maybe_apply_issue_dependency_waiver_command
 
 local function emit_restart_transition_anomalies(comments, proposal_id, issue)
   local history = restart_transition_anomaly.marker_history(comments, proposal_id)
@@ -144,15 +160,6 @@ local function issue_label_projection_state(issue_state, link, snapshot)
   return issue_label_state(issue_state)
 end
 
-local function thinking_state_budget_exceeded(state)
-  local threshold = core.stall_suspect_threshold_minutes("thinking")
-  local marker_seconds = contract_time.iso_timestamp_epoch_seconds(state and state.marker_created_at)
-  if threshold == nil or marker_seconds == nil then
-    return false
-  end
-  return now() - marker_seconds >= threshold * 60
-end
-
 local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
   local row = replay_fields.restart_transition_row(restart_transition_table(), state.state)
   local facts = {
@@ -196,6 +203,10 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   if issue.source ~= "liveness-scan"
     and state_is_issue_local
     and core.restart_observe_replay_due(row, "issue", state, facts, now()) then
+    local delivery = replayer.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+    if delivery ~= nil then
+      facts.redrive_delivery = delivery
+    end
     return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
   end
   if core.restart_row_observable_on(row, "issue")
@@ -230,7 +241,7 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
   return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
-local function maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
+local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
   if issue_state == nil or issue_state.state ~= "implementing" then
     return false
   end
@@ -241,7 +252,7 @@ local function maybe_canonicalize_implementing_merged_delegated_pr(issue, propos
   if not awaiting_pr_replay.delegation_identity_matches(current_pr_delegation, delegation) then
     current_pr = nil
   end
-  return awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+  return awaiting_pr_replay.canonicalize_implementing_terminal_delegated_pr("observe_issue", issue, issue_state, {
     proposal_id = proposal_id,
     current = current,
     current_issue = current,
@@ -249,68 +260,6 @@ local function maybe_canonicalize_implementing_merged_delegated_pr(issue, propos
     fresh_current_state = issue_state,
     ["pr-delegation"] = delegation,
   })
-end
-
-local function maybe_apply_issue_rereview_command(issue, proposal_id, current, state, event_ts)
-  local command = operator_commands.operator_command_fact(current.comments, "rereview")
-  if command == nil then
-    return false
-  end
-  if operator_commands.has_operator_command_response(current.comments, command) then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
-    return false
-  end
-  if state.state ~= "thinking" then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "thinking", "thinking", "refused(invalid-state)", "operator rereview requires thinking")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      "rereview requires thinking state",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-  if not replayer.has_thinking_converge_replay(core, current, proposal_id, state, issue.source_ref)
-    and not thinking_state_budget_exceeded(state) then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(active-thinking)", "operator rereview requires stalled thinking")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      "rereview requires stalled thinking state",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-
-  local proposal = replayer.build_thinking_replay_proposal(core, issue, proposal_id, state, current, event_ts)
-  if proposal == nil then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(cannot-rebuild-proposal)", "operator rereview could not rebuild thinking proposal")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      "rereview could not rebuild the current thinking proposal",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-
-  local comment_request = operator_commands.build_operator_issue_rereview_comment_request(issue.repo,
-    issue.number,
-    command,
-    proposal,
-    issue.source_ref
-  )
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "applied(operator-rereview)", "trusted operator command requested issue rereview")
-  devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {
-    "github-proxy.github_issue_comment_request",
-    "devloop_consensus_request",
-  })
-  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  devloop_logging.log_raise("observe_issue", proposal_id, "devloop_consensus_request", proposal)
-  return true
 end
 
 local function raise_stale_dependency_label_clear(issue, proposal_id, state, labels)
@@ -330,75 +279,9 @@ local function raise_stale_dependency_label_clear(issue, proposal_id, state, lab
   return true
 end
 
-local function timeout_reconcile_reready_reentry_state(current, proposal_id, state, source_ref, link)
-  if state.state ~= "blocked" or link ~= nil then
-    return nil, "reready requires ready or dependency_wait state"
-  end
-  local fact = conv_reconcile.timeout_reconcile_fact_for_terminal_version_from_states(current.comments, proposal_id, state.version, {
-    ready = true,
-    dependency_wait = true,
-  })
-  if fact == nil then
-    return nil, "reready requires ready or dependency_wait state"
-  end
-  if fact.from_state ~= "ready" and fact.from_state ~= "dependency_wait" then
-    return nil, "reready requires timeout-reconcile from ready or dependency_wait state"
-  end
-  local marker_source = fact.source_ref or {}
-  if tostring(marker_source.kind or "") ~= tostring(source_ref and source_ref.kind or "")
-    or tostring(marker_source.ref or "") ~= tostring(source_ref and source_ref.ref or "") then
-    return nil, "reready requires timeout-reconcile source_ref to match the issue"
-  end
-  return {
-    state = fact.from_state,
-    version = fact.from_version,
-    stage_rank = devloop_state.stage_rank(fact.from_state),
-    marker_created_at = fact.comment_created_at,
-    operator_reentry = {
-      command = "reready",
-      from_state = "blocked",
-      terminal_version = state.version,
-      timeout_round = fact.round,
-    },
-  }, nil
-end
-
 local function source_ref_matches(left, right)
   return tostring(left and left.kind or "") == tostring(right and right.kind or "")
     and tostring(left and left.ref or "") == tostring(right and right.ref or "")
-end
-
-local function maybe_apply_issue_reready_command(issue, proposal_id, current, state, link)
-  local command = operator_commands.operator_command_fact(current.comments, "reready")
-  if command == nil then
-    return false
-  end
-  if operator_commands.has_operator_command_response(current.comments, command) then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
-    return false
-  end
-  local replay_state = state
-  local refusal_reason = nil
-  if state.state ~= "ready" and state.state ~= "dependency_wait" then
-    replay_state, refusal_reason = timeout_reconcile_reready_reentry_state(current, proposal_id, state, issue.source_ref, link)
-  end
-  if replay_state == nil then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-state)", "operator reready requires ready state")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      refusal_reason or "reready requires ready or dependency_wait state",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-  local row, replay_facts = core.replay_row_and_facts_with_declared_dependency_gate(
-    issue, proposal_id, replay_state,
-    current, command
-  )
-  replayer.replay_from_table(core, "observe_issue", issue, replay_state, row, replay_facts)
-  return true
 end
 
 local function implementing_timeout_reimplement_fact(current, proposal_id, state, source_ref, link)
@@ -417,90 +300,6 @@ local function implementing_timeout_reimplement_fact(current, proposal_id, state
   return fact
 end
 
-local function has_unmet_blocker(gate, blocker_number)
-  if type(gate) ~= "table" or type(gate.unmet) ~= "table" then
-    return false
-  end
-  for _, number in ipairs(gate.unmet) do
-    if tonumber(number) == tonumber(blocker_number) then
-      return true
-    end
-  end
-  return false
-end
-
-local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, current, state)
-  local command = operator_commands.operator_command_fact(current.comments, "dependency-waiver")
-  if command == nil then
-    return false
-  end
-  if operator_commands.has_operator_command_response(current.comments, command) then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
-    return false
-  end
-  if state.state ~= "dependency_wait" then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "dependency_wait", "ready", "refused(invalid-state)", "operator dependency waiver requires dependency_wait state")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      "dependency-waiver requires dependency_wait state",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-
-  local blocker_number = command.blocker_number
-  local gate = core.dependency_gate(issue.repo, issue.number, {
-    proposal_id = proposal_id,
-    version = state.version,
-    comments = current.comments,
-  })
-  if gate.kind ~= "waiting"
-    or gate.reason ~= "dependency-waiver-required"
-    or not has_unmet_blocker(gate, blocker_number) then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-dependency-waiver)", "operator dependency waiver requires a matching completed blocker without merged marker")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
-      issue.number,
-      command,
-      "dependency-waiver requires a matching completed blocker without merged marker",
-      issue.source_ref
-    )
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
-    return true
-  end
-
-  local comment_request = operator_commands.build_operator_issue_dependency_waiver_comment_request(
-    core,
-    issue.repo,
-    issue.number,
-    command,
-    proposal_id,
-    state.version,
-    blocker_number,
-    issue.source_ref
-  )
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "dependency_wait", "ready", "applied(operator-dependency-waiver)", "trusted operator command created dependency waiver")
-  replayer.replay_from_table(core, "observe_issue", issue, state, replay_fields.restart_transition_row(restart_transition_table(), "dependency_wait"), {
-    proposal_id = proposal_id,
-    current = current,
-    command_comment_request = comment_request,
-    dependency_gate = {
-      kind = "satisfied",
-      reason = "dependency-waiver",
-      notes = {
-        {
-          kind = "dependency-waiver",
-          blocker_number = blocker_number,
-          reason = "completed_without_merged_marker",
-        },
-      },
-      unmet = {},
-    },
-  })
-  return true
-end
-
 local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot)
   local command = operator_commands.operator_command_fact(current.comments, "reimplement")
   if command == nil then
@@ -516,7 +315,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   local refusal_reentry = core.implementation_refusal_fact(current.comments, proposal_id, state.version)
   local blocked_reentry = blocked_open_pr_reentry or timeout_reentry ~= nil or refusal_reentry ~= nil
   if state.state ~= "impl-failed" and not blocked_reentry then
-    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; use reintake for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
+    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; file a new issue for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
       .. core.implementation_refusal_reasons_text()
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "refused(invalid-state)", refusal_reason)
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
@@ -554,6 +353,9 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     dedup_key = core.ready_payload_inner_version(retry_version),
     source_ref = issue.source_ref,
     impl_retry_attempt = attempt,
+    operator_reimplement_delivery = {
+      command_key = command.key,
+    },
   }
   if blocked_open_pr_reentry then
     payload_source.operator_reentry = {
@@ -598,7 +400,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   return true
 end
 
-local function process_issue_event(event)
+local function reconcile_issue_event(event, opts)
   local issue = event.payload or {}
   if not v_issue.is_supported_issue(issue) then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(issue, "dedup_key"))
@@ -609,10 +411,11 @@ local function process_issue_event(event)
   local proposal_id = base_ids.proposal_id(issue.repo, issue.number)
   devloop_logging.log_entry("observe_issue", event, proposal_id, issue.dedup_key)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
-  with_lock(lock_key, function()
+  local options = opts or {}
+  local function process_issue_event(_, record_authoritative_version)
     devloop_base.assert_trusted_bot_configured()
 
-    local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
+    local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
       allow_cached_validator = issue.source == "liveness-scan",
     })
@@ -621,7 +424,9 @@ local function process_issue_event(event)
     end
 
     local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+    local authoritative_updated_at = current.updated_at
     current.updated_at = current.updated_at or issue.updated_at
+    record_authoritative_version(authoritative_updated_at)
     if current.state ~= "OPEN" then
       devloop_logging.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-advanced-or-diverged", "issue is not open")
       return
@@ -661,7 +466,7 @@ local function process_issue_event(event)
             return
           end
           local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, issue_state.version)
-          if awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+          if awaiting_pr_replay.canonicalize_implementing_terminal_delegated_pr("observe_issue", issue, issue_state, {
             proposal_id = proposal_id,
             current = current,
             current_issue = current,
@@ -779,7 +584,7 @@ local function process_issue_event(event)
       if maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot) then
         return
       end
-      if maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, state, close_current_pr, close_delegation) then
+      if maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, state, close_current_pr, close_delegation) then
         return
       end
       if maybe_canonicalize_legacy_pr_open_issue() then
@@ -905,59 +710,18 @@ local function process_issue_event(event)
     end
 
 
-  end)
-end
-
-local function process_pr_event(event)
-  local pr = event.payload or {}
-  if not v_pr.is_supported_pr(pr) then
-    devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr)", "unsupported PR payload")
-    return
   end
-
-  local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
-    force_fresh = true,
-    allow_cached_validator = true,
-    consumer = "observe_issue",
-  })
-  if pr_view.exit_code ~= 0 then
-    error("github-devloop: pr-read-failed: observe-issue-pr-view-failed: " .. tostring(pr_view.stderr))
-  end
-  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
-  current_pr.number = pr.number
-  current_pr.force_fresh = true
-  local origin = m_facts.pr_origin_fact(current_pr.comments)
-  if origin == nil or origin.pr_native == true or origin.repo ~= pr.repo or tonumber(origin.issue_number) == nil then
-    devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr-origin)", "PR entity change has no issue-backed devloop origin")
-    return
-  end
-  if tostring(origin.branch or "") ~= tostring(current_pr.head_ref_name or "")
-    or tostring(origin.base_branch or "") ~= tostring(current_pr.base_ref_name or "") then
-    devloop_logging.log_entry("observe_issue", event, origin.proposal_id, devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", origin.proposal_id, { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-stale(pr-origin)", "PR origin no longer matches current PR head/base")
-    return
-  end
-
-  return process_issue_event({
-    queue = event.queue,
-    ts = event.ts,
-    payload = {
-      schema = "github-proxy.v1",
-      type = "issue",
-      repo = origin.repo,
-      number = tonumber(origin.issue_number),
-      title = "PR-backed parent issue",
-      state = "OPEN",
-      updated_at = pr.updated_at,
-      dedup_key = tostring(pr.dedup_key or "") .. "/parent-awaiting-pr",
-      source_ref = entity_lib.issue_source_ref(origin.repo, origin.issue_number),
-      source = "pr-entity-change",
-      child_pr = current_pr,
-    },
+  return entity_highwater.reconcile({
+    consumer = "github-devloop/observe_issue",
+    enabled = options.highwater_enabled,
+    event = event,
+    lock_held = options.lock_held,
+    lock_key = lock_key,
+    work = process_issue_event,
   })
 end
+
+local process_pr_event = pr_parent_observation.make(reconcile_issue_event)
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   queue.dispatch_consumed_queue("observe_issue", spec, event, {
@@ -965,8 +729,8 @@ return saga.department(spec, { done = function() return false end, act = functio
       if devloop_logging.payload_field(e and e.payload, "type") == "pr" then
         return process_pr_event(e)
       end
-      return process_issue_event(e)
+      return reconcile_issue_event(e)
     end,
-    devloop_observe_issue = process_issue_event,
+    devloop_observe_issue = reconcile_issue_event,
   })
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_issue" })

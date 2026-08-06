@@ -5,7 +5,7 @@ local gitref = require("forge.gitref")
 local function require_commit_message(message)
   local bounded_message = tostring(message or "")
   if bounded_message == "" or #bounded_message > 200 then
-    error("github-devloop: invalid git commit message")
+    error("github-devloop: commit-message-invalid: invalid git commit message")
   end
   return bounded_message
 end
@@ -562,7 +562,7 @@ function M.install(handle)
   function handle.git_worktree_add_detached_plan(worktree, sha)
     local value = tostring(worktree or "")
     if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: invalid worktree path")
+      error("github-devloop: worktree-path-invalid: invalid worktree path")
     end
     return {
       parent_dir = value:gsub("/+$", ""):match("^(.*)/[^/]+$") or ".",

@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local impl_failure = require("devloop.impl_failure")
 local forge_git = require("forge.git").new(function(...) return exec_argv(...) end)
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
@@ -6,6 +7,28 @@ local pr_safety = require("devloop.pr_safety")
 local exec_sync = exec_sync
 
 local M = {}
+
+local function implementation_root()
+  local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
+  if durable_result.exit_code ~= 0 then
+    error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
+  end
+  return devloop_base.implementation_worktree_root(durable_result.stdout)
+end
+
+local function assert_canonical_registration(porcelain, branch, worktree)
+  for _, registered in ipairs(devloop_commands.find_worktrees_for_branch(porcelain, branch)) do
+    if registered ~= worktree then
+      error("github-devloop: worktree-registration-conflict: deterministic branch is registered at "
+        .. tostring(registered))
+    end
+  end
+  if devloop_commands.worktree_registered(porcelain, worktree)
+    and not devloop_commands.worktree_registered_for_branch(porcelain, worktree, branch) then
+    error("github-devloop: worktree-registration-conflict: deterministic worktree is registered to another branch at "
+      .. tostring(worktree))
+  end
+end
 
 function M.prepare_base(branches)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branches.integration, 60)
@@ -85,25 +108,6 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   end
 end
 
-local function preserve_dirty_current_worktree(worktree, branch, ready)
-  if worktree == nil then
-    return false
-  end
-  local status_result = devloop_commands.git_status(worktree, 30)
-  if status_result.exit_code ~= 0 then
-    error("github-devloop: git-status-failed: git worktree status failed: " .. tostring(status_result.stderr))
-  end
-  if tostring(status_result.stdout or "") == "" then
-    return false
-  end
-  devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-    "branch=" .. tostring(branch),
-    "worktree=" .. tostring(worktree),
-    "reason=preserving dirty current-runtime worktree for deterministic redelivery",
-  })
-  return true
-end
-
 function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
   local branch_exists = branch_ref.exit_code == 0
@@ -112,63 +116,36 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
   end
 
-  local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-  if runtime_result.exit_code ~= 0 then
-    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
+  local stable_root = implementation_root()
+  local worktree_version = impl_failure.implementation_branch_version(
+    ready.dedup_key,
+    ready.impl_retry_attempt
+  )
+  local worktree = devloop_base.implement_worktree_path(
+    stable_root, repo, issue_number, worktree_version)
+  local list_result = devloop_commands.git_worktree_list(30)
+  if list_result.exit_code ~= 0 then
+    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
   end
-  local worktree = devloop_base.implement_worktree_path(runtime_result.stdout, repo, issue_number, ready.dedup_key)
+  assert_canonical_registration(list_result.stdout, branch, worktree)
   if checkpoint_head ~= nil then
-    if branch_exists then
-      local list_result = devloop_commands.git_worktree_list(30)
-      if list_result.exit_code ~= 0 then
-        error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-      end
-      local current_worktree = devloop_commands.find_worktree_for_branch_under_runtime(
-        list_result.stdout, branch, runtime_result.stdout)
-      if preserve_dirty_current_worktree(current_worktree, branch, ready) then
-        return current_worktree, true
-      end
-      for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
-        if stale_worktree ~= worktree then
-          devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-            "branch=" .. tostring(branch),
-            "worktree=" .. tostring(stale_worktree),
-            "reason=removing stale checkpoint worktree before remote checkpoint restore",
-          })
-          M.remove_stale_worktree(stale_worktree)
-        end
-      end
-    end
     local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
     if clean_result.exit_code ~= 0 then
       error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
     end
     restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
   elseif branch_exists then
-    local list_result = devloop_commands.git_worktree_list(30)
-    if list_result.exit_code ~= 0 then
-      error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-    end
-    local existing_worktree = devloop_commands.find_worktree_for_branch_under_runtime(list_result.stdout, branch, runtime_result.stdout)
-    if preserve_dirty_current_worktree(existing_worktree, branch, ready) then
-      return existing_worktree, true
-    end
-    for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
-      if not devloop_base.path_under_runtime_root(runtime_result.stdout, stale_worktree) then
-        devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-          "branch=" .. tostring(branch),
-          "worktree=" .. tostring(stale_worktree),
-          "reason=removing non-current-runtime deterministic worktree",
-        })
-        M.remove_stale_worktree(stale_worktree)
-      end
-    end
+    local existing_worktree = devloop_commands.worktree_registered_for_branch(
+      list_result.stdout,
+      worktree,
+      branch
+    ) and worktree or nil
     if existing_worktree ~= nil then
       worktree = existing_worktree
       devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
         "branch=" .. tostring(branch),
         "worktree=" .. tostring(worktree),
-        "reason=reusing current-runtime deterministic worktree",
+        "reason=reusing canonical deterministic worktree",
       })
     else
       local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
@@ -191,33 +168,22 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     end
   end
   M.reconcile_worktree_to_branch(worktree, branch)
-  return worktree, false
+  return worktree
 end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-  local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-  if runtime_result.exit_code ~= 0 then
-    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
-  end
-  local runtime_root = runtime_result.stdout
-  local worktree = devloop_base.implement_worktree_path(runtime_root, repo, issue_number, ready.dedup_key)
+  local stable_root = implementation_root()
+  local worktree_version = impl_failure.implementation_branch_version(
+    ready.dedup_key,
+    ready.impl_retry_attempt
+  )
+  local worktree = devloop_base.implement_worktree_path(
+    stable_root, repo, issue_number, worktree_version)
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
   end
-  local current_worktree = devloop_commands.find_worktree_for_branch_under_runtime(
-    list_result.stdout, branch, runtime_root)
-  if preserve_dirty_current_worktree(current_worktree, branch, ready) then
-    return current_worktree, true
-  end
-  for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
-    devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-      "branch=" .. tostring(branch),
-      "worktree=" .. tostring(stale_worktree),
-      "reason=removing existing deterministic worktree before external PR provisioning",
-    })
-    M.remove_stale_worktree(stale_worktree)
-  end
+  assert_canonical_registration(list_result.stdout, branch, worktree)
   local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
   if clean_result.exit_code ~= 0 then
     error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
@@ -226,7 +192,7 @@ function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_he
   if worktree_result.exit_code ~= 0 then
     error("github-devloop: git-worktree-add-failed: git worktree reset add failed: " .. tostring(worktree_result.stderr))
   end
-  return worktree, false
+  return worktree
 end
 
 return M

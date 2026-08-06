@@ -69,7 +69,7 @@ workflow_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(workflow_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
@@ -93,13 +93,34 @@ lifecycle_board_fact() { # $1 issue-number
   origin="github-devloop/issue/$REPO/$num"
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   fact=$(printf '%s' "$comments" | python3 "$tool" \
     --origin "$origin" \
     --bot-login "$BOT" \
     --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
   [ -n "$fact" ] || return 1
   printf '%s\n' "$fact"
+}
+
+lifecycle_board_condition() { # $1 fact-json
+  printf '%s' "$1" | jq -er '
+    select((.state | type) == "string" and (.state | length) > 0)
+    | select((.condition_started_at | type) == "string" and (.condition_started_at | length) > 0)
+    | [.state, .condition_started_at]
+    | @tsv
+  '
+}
+
+# Fetch comments as a REST-shaped JSON array. GitHub applies separate secondary
+# limits to REST and GraphQL, so a REST failure falls back to the GraphQL surfaces.
+fetch_entity_comments() { # $1 issue-or-pr number
+  local num="$1" out
+  out=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) && {
+    printf '%s' "$out"; return 0; }
+  gh issue view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null \
+  || gh pr view "$num" --repo "$REPO" --json comments \
+    -q '[.comments[]|{body:.body,user:{login:.author.login},created_at:.createdAt}]' 2>/dev/null
 }
 
 # Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
@@ -112,7 +133,7 @@ pr_lifecycle_board_fact() { # $1 pr-number
   local num="$1" comments origin fact tool
   tool="$(lifecycle_board_fact_tool)" || return 1
   [ -n "$tool" ] || return 1
-  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  comments=$(fetch_entity_comments "$num") || return 1
   origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
     | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
     | sed -E 's/.*proposal="([^"]+)".*/\1/')
@@ -164,7 +185,12 @@ board_one() { # $1 name, $2 stale_hours
   local pr_rows pr_rc
   pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   if [ "$pr_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (pulls: gh api exit $pr_rc) — GitHub REST likely down; cross-check: gh pr list --repo $REPO --state open"
+    pr_rows=$(gh pr list --repo "$REPO" --state open --limit 100 \
+      --json number,headRefOid,updatedAt,baseRefName,title \
+      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  fi
+  if [ "$pr_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (pulls: REST and GraphQL both failed) — cross-check: gh pr list --repo $REPO --state open"
   else
   printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
     [ -z "$num" ] && continue
@@ -174,32 +200,42 @@ board_one() { # $1 name, $2 stale_hours
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
     elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
     else flow="✓ flowing ${a}h"; fi
-    # A CI+age ⚠ can be a FALSE alarm: a PR that reached a correct terminal
-    # (blocked/merged/closed_unmerged) or is awaiting a child cascade is not stuck.
-    # Cross-check the PR's OWN authoritative state:v1 marker (symmetric with the issue
-    # classifier below): terminal -> parked(state), pipeline_stuck -> ⚠ with WHY,
-    # awaiting-pr -> waiting. A genuinely-stuck non-terminal PR has no such marker fact,
-    # so reclassify fails and the ⚠ CI+age verdict stands.
-    case "$flow" in
-      ⚠*)
-        local pr_fact pr_override
-        if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
-          flow="${pr_override#*$'\t'}"
-        fi
-        ;;
-    esac
+    # The CI+age verdict above measures the CHECKS and the clock, never the pipeline.
+    # It is wrong in BOTH directions, so the authoritative state:v1 marker is consulted
+    # unconditionally (symmetric with the issue classifier below): terminal ->
+    # parked(state), pipeline_stuck -> ⚠ with WHY, awaiting-pr -> waiting.
+    #
+    # Gating this on a ⚠ verdict — as it was — made the marker a false-alarm suppressor
+    # only, so a PR sitting in a terminal state with green CI and any recent comment
+    # rendered "✓ flowing" and its terminal was invisible. Observed 2026-08-06: PR#2918
+    # had been in `fixing` since 07-30 and PR#2968/#2997/#2443 were `blocked`, all four
+    # displayed as flowing, while PR#2975/#2977 in the SAME blocked state displayed
+    # parked(blocked) purely because their CI happened to trip the ⚠ branch.
+    #
+    # Calling it unconditionally is safe by construction: lifecycle_board_reclassify
+    # emits an override only for pipeline_stuck / terminal / awaiting-pr and otherwise
+    # exits non-zero, leaving the CI+age verdict untouched for a healthy PR.
+    local pr_fact pr_override
+    if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
+      flow="${pr_override#*$'\t'}"
+    fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
   fi
   echo "── issues (by fkst-dev state) ──"
   local issue_rows issue_rc
-  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updated_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
+  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
   if [ "$issue_rc" -ne 0 ]; then
-    echo "  ⚠ BOARD FETCH FAILED (issues: gh api exit $issue_rc) — GitHub REST likely down; cross-check: gh issue list --repo $REPO --state open"
+    issue_rows=$(gh issue list --repo "$REPO" --state open --limit 200 \
+      --json number,updatedAt,labels,title \
+      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
+  fi
+  if [ "$issue_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (issues: REST and GraphQL both failed) — cross-check: gh issue list --repo $REPO --state open"
   else
-  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num upd label title; do
+  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label title; do
     [ -z "$num" ] && continue
-    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
+    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$created")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
       # fkst-dashboard is an intentionally long-lived tracked surface (intake decision=track), not pipeline work — never STRANDED
       st="dashboard"; cls="✓ dashboard (tracked)"
@@ -215,9 +251,26 @@ board_one() { # $1 name, $2 stale_hours
       cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
       case "$st:$cls" in
         awaiting-pr:*|*:⚠*)
-          if lifecycle_fact=$(lifecycle_board_fact "$num") && lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
-            st="${lifecycle_override%%$'\t'*}"
-            cls="${lifecycle_override#*$'\t'}"
+          if lifecycle_fact=$(lifecycle_board_fact "$num"); then
+            local condition condition_started_at
+            if condition=$(lifecycle_board_condition "$lifecycle_fact"); then
+              st="${condition%%$'\t'*}"
+              condition_started_at="${condition#*$'\t'}"
+              a=$(( (now - $(epoch_utc "$condition_started_at")) / 3600 ))
+              if lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
+                st="${lifecycle_override%%$'\t'*}"
+                cls="${lifecycle_override#*$'\t'}"
+              else
+                cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
+              fi
+            elif lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
+              st="${lifecycle_override%%$'\t'*}"
+              cls="${lifecycle_override#*$'\t'}"
+            elif [ "$st" != "awaiting-pr" ]; then
+              cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
+            fi
+          elif [ "$st" != "awaiting-pr" ]; then
+            cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
           fi
           ;;
       esac

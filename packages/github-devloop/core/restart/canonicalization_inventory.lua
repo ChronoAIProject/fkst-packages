@@ -1,9 +1,11 @@
 local function effect_entitlements(row_id, semantic_variant)
   local id = "github-devloop/" .. row_id .. "/canonicalization/" .. semantic_variant
+  local effect_ids = { "github-proxy.github_issue_comment_request" }
+  if row_id == "awaiting-pr" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
   return {
-    apply = { id = id .. "/apply", effect_ids = {
-      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
-    } },
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
     idempotent = { id = id .. "/idempotent", effect_ids = {} },
   }
 end
@@ -54,7 +56,7 @@ return {
     },
   },
   {
-    semantic_variant = "implementing_merged_delegated_pr",
+    semantic_variant = "implementing_terminal_delegated_pr",
     owner = "github-devloop",
     row_id = "awaiting-pr",
     kind = "canonicalization",
@@ -68,14 +70,14 @@ return {
     cas_variant = "implementing_to_awaiting_pr",
     transition_effect_entitlements = {
       apply = {
-        id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr/apply",
+        id = "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr/apply",
         effect_ids = {
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
         },
       },
       idempotent = {
-        id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr/idempotent",
+        id = "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr/idempotent",
         effect_ids = {},
       },
     },
@@ -86,7 +88,7 @@ return {
     provenance = {
       owner = "github-devloop",
       row = "awaiting-pr",
-      field = "canonicalization_inventory.implementing_merged_delegated_pr",
+      field = "canonicalization_inventory.implementing_terminal_delegated_pr",
     },
   },
   {

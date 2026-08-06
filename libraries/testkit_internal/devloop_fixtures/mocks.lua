@@ -57,7 +57,7 @@ function M.new(ctx, funcs)
         if label == "fkst-dev:thinking" then
           state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", default_marker_version)
         elseif label == "fkst-dev:ready" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "ready", default_marker_version)
+          state_marker = ctx.projected_state_comment("github-devloop/issue/owner/repo/42", "ready", default_marker_version)
         elseif label == "fkst-dev:implementing" then
           state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "implementing", default_marker_version)
         elseif label == "fkst-dev:pr-open" then
@@ -145,7 +145,7 @@ function M.new(ctx, funcs)
     end
     local state = state_from_labels(labels)
     if state ~= nil and not has_explicit_state_marker then
-      table.insert(rendered, core.state_marker("github-devloop/issue/owner/repo/42", state, default_marker_version))
+      table.insert(rendered, state == "ready" and ctx.projected_state_comment("github-devloop/issue/owner/repo/42", state, default_marker_version) or core.state_marker("github-devloop/issue/owner/repo/42", state, default_marker_version))
     end
     return rendered
   end
@@ -326,7 +326,7 @@ function M.new(ctx, funcs)
     local needs_implement_rechecks = has_value(selected_labels, "fkst-dev:ready")
       or has_value(selected_labels, "fkst-dev:implementing")
       or has_value(selected_labels, "fkst-dev:impl-failed")
-    local view_count = include_default_marker and needs_implement_rechecks and 5 or 1
+    local view_count = fields.times or (include_default_marker and needs_implement_rechecks and 5 or 1)
     fields.times = view_count
     entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected_comments, fields)
     entity_read_mocks.mock_issue_view_selector(t, {

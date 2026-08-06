@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_lua
 import ratchet_base
 
 
@@ -66,66 +67,10 @@ class KnownDialogueEntry:
         return "|".join(self.key())
 
 
-def _long_bracket(source: str, index: int) -> tuple[int, str] | None:
-    if index >= len(source) or source[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(source) and source[cursor] == "=":
-        cursor += 1
-    if cursor >= len(source) or source[cursor] != "[":
-        return None
-    return cursor - index + 1, "]" + ("=" * (cursor - index - 1)) + "]"
-
-
-def _quoted_end(source: str, start: int) -> int:
-    quote = source[start]
-    cursor = start + 1
-    while cursor < len(source):
-        if source[cursor] == "\\":
-            cursor += 2
-            continue
-        if source[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(source)
-
-
 def lua_strings_and_code(source: str) -> tuple[set[str], str]:
-    strings: set[str] = set()
-    code = list(source)
-    cursor = 0
-    while cursor < len(source):
-        if source.startswith("--", cursor):
-            bracket = _long_bracket(source, cursor + 2)
-            if bracket is None:
-                newline = source.find("\n", cursor)
-                end = len(source) if newline == -1 else newline
-            else:
-                opener_len, closer = bracket
-                close = source.find(closer, cursor + 2 + opener_len)
-                end = len(source) if close == -1 else close + len(closer)
-            for index in range(cursor, end):
-                if code[index] != "\n":
-                    code[index] = " "
-            cursor = end
-            continue
-        if source[cursor] in {"'", '"'}:
-            end = _quoted_end(source, cursor)
-            content_end = end - 1 if end <= len(source) and source[end - 1] == source[cursor] else end
-            strings.add(source[cursor + 1 : content_end])
-            cursor = end
-            continue
-        bracket = _long_bracket(source, cursor)
-        if bracket is not None:
-            opener_len, closer = bracket
-            body_start = cursor + opener_len
-            close = source.find(closer, body_start)
-            body_end = len(source) if close == -1 else close
-            strings.add(source[body_start:body_end])
-            cursor = len(source) if close == -1 else close + len(closer)
-            continue
-        cursor += 1
-    return strings, "".join(code)
+    strings = {span.content(source) for span in check_repo_lua.literal_spans(source)}
+    code = check_repo_lua.code_mask(source, kinds=check_repo_lua.COMMENT_KINDS)
+    return strings, code
 
 
 def has_origin_filter(strings: set[str], code: str) -> bool:
@@ -181,6 +126,7 @@ def repository_surfaces(root: Path) -> set[KnownDialogueEntry]:
     return surfaces
 
 
+# Local variant: parses typed KnownDialogueEntry records.
 def load_allowlist(path: Path) -> set[KnownDialogueEntry]:
     if not path.exists():
         return set()

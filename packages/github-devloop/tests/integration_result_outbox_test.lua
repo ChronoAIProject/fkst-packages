@@ -12,26 +12,27 @@ return {
   test_consensus_result_ready_marker_heals_missing_declared_effects = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:thinking" }, {
-      core.state_marker(current.proposal_id, "ready", current.dedup_key),
+      h.projected_state_comment(current.proposal_id, "ready", current.dedup_key),
     })
 
     local result = run_result(current, opts("result-outbox-ready-marker-missing-effects"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 1)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    local label_request = comment_raise.payload.handoff.label_request
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.is_true(comment_raise.payload.body:find(m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
     t.eq(comment_raise.payload.handoff.kind, "github-devloop.ready")
     t.eq(comment_raise.payload.handoff.version, current.dedup_key)
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:ready")
+    t.eq(label_request.add_labels[1], "fkst-dev:ready")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 
   test_consensus_result_ready_marker_skips_when_declared_effects_are_complete = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:ready" }, {
-      core.state_marker(current.proposal_id, "ready", current.dedup_key),
+      h.projected_state_comment(current.proposal_id, "ready", current.dedup_key),
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
     })
 
@@ -41,7 +42,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_consensus_result_result_marker_heals_only_missing_label_and_ready_replay = function()
+  test_consensus_result_result_marker_without_state_reprojects_canonical_comment = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:thinking" }, {
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
@@ -50,8 +51,16 @@ return {
     local result = run_result(current, opts("result-outbox-result-marker-no-label"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_true(comment.payload.body:find(
+      h.projected_state_comment(current.proposal_id, "ready", current.dedup_key,
+        "result-marker,ready-label,devloop-ready"),
+      1,
+      true
+    ) ~= nil)
+    t.eq(comment.payload.handoff.label_request.expected_state, "ready")
+    t.eq(comment.payload.handoff.label_request.expected_version, current.dedup_key)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
@@ -70,11 +79,11 @@ return {
 
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.is_true(comment_raise ~= nil)
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:ready")
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.eq(comment_raise.payload.handoff.label_request.add_labels[1], "fkst-dev:ready")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(comment_raise.payload.body:find(core.state_marker(current.proposal_id, "ready", consensus_version, "result-marker,ready-label,devloop-ready"), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(h.projected_state_comment(current.proposal_id, "ready", consensus_version, "result-marker,ready-label,devloop-ready"), 1, true) ~= nil)
   end,
 
   test_consensus_result_first_decision_wins_same_lineage_and_new_generation_applies = function()
@@ -113,6 +122,11 @@ return {
     })
     local fresh = run_result(fresh_reject, opts("result-new-generation-reject"))
     t.eq(fresh.exit_code, 0)
-    t.eq(find_raise(fresh.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:declined")
+    local comment = find_raise(fresh.raises, "github-proxy.github_issue_comment_request")
+    local handoff = h.run_comment_handoff_from_request(
+      comment.payload, "IC_fresh_declined", "result-new-generation-reject-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    t.eq(find_raise(handoff.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:declined")
   end,
 }

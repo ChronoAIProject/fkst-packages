@@ -5,8 +5,6 @@ local contract_time = require("contract.time")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_attempts = require("devloop.convergence.attempts")
 local m_rae = require("devloop.restart_actionable_epoch")
-local restart_cas_catalog = require("devloop.restart_cas_catalog")
-local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local t = h.t
 local core = h.core
 local replay_fields = require("devloop.replay_fields")
@@ -25,16 +23,6 @@ local repo = "owner/repo"
 local issue_number = 42
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
-local restart_projection = owner_pending_projection.frozen_projection()
-
-local function catalog_versioned_status(current, source_states, target_state, incoming_version)
-  return restart_cas_catalog.resolve("cas.base_versioned_legacy_v1", {
-    current = current,
-    source_states = source_states,
-    target_state = target_state,
-    incoming_version = incoming_version,
-  }, restart_projection).status
-end
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -65,32 +53,27 @@ local function run_timeout_reconcile(payload, run_opts)
 end
 
 return {
-  test_thinking_reconcile_blocks_when_live_version_outranks_convergence_base = function()
-    local event = reconcile()
-    local state_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
+  test_delayed_thinking_reconcile_does_not_block_newer_epoch = function()
+    local previous_epoch = "github-devloop/issue/owner/repo/42/2026-06-13T05-22-55Z/intake/1287859417"
+    local current_epoch = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
+    local event = reconcile({
+      base_version = previous_epoch,
+      dedup_key = "reconcile:" .. previous_epoch .. "/loop/3",
+    })
     mock_issue_reconcile({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", state_version),
+      core.state_marker(event.proposal_id, "thinking", current_epoch),
     })
 
-    local result = run_reconcile(event, opts("reconcile-terminal-thinking"))
+    local result = run_reconcile(event, opts("reconcile-stale-thinking-epoch"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(state_version, event.round)
-    t.eq(catalog_versioned_status({ state = "thinking", version = state_version }, { "thinking" }, "blocked", version), "apply")
-    t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
-
-    mock_issue_reconcile({ "fkst-dev:blocked" }, { comment.body })
-    local idempotent = run_reconcile(event, opts("reconcile-terminal-thinking-idempotent"))
-    t.eq(idempotent.exit_code, 0)
-    t.eq(#idempotent.raises, 0)
+    t.eq(#result.raises, 0)
   end,
 
   test_thinking_reconcile_does_not_override_advanced_state = function()
     local event = reconcile()
     local state_version = conv_reconcile.reconcile_terminal_state_version("github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418", event.round)
     mock_issue_reconcile({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", state_version),
+      h.projected_state_comment(event.proposal_id, "ready", state_version),
     })
 
     local ready_result = run_reconcile(event, opts("reconcile-terminal-ready"))
