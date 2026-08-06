@@ -119,7 +119,6 @@ local function mock_malformed_fixing_pr()
   }, "assignees,author", 8)
 end
 
-local function mock_target_fixing_pr()
 local function mock_target_fixing_pr(extra)
   extra = extra or {}
   local event = h.fixing()
