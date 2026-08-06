@@ -200,20 +200,25 @@ board_one() { # $1 name, $2 stale_hours
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
     elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
     else flow="✓ flowing ${a}h"; fi
-    # A CI+age ⚠ can be a FALSE alarm: a PR that reached a correct terminal
-    # (blocked/merged/closed_unmerged) or is awaiting a child cascade is not stuck.
-    # Cross-check the PR's OWN authoritative state:v1 marker (symmetric with the issue
-    # classifier below): terminal -> parked(state), pipeline_stuck -> ⚠ with WHY,
-    # awaiting-pr -> waiting. A genuinely-stuck non-terminal PR has no such marker fact,
-    # so reclassify fails and the ⚠ CI+age verdict stands.
-    case "$flow" in
-      ⚠*)
-        local pr_fact pr_override
-        if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
-          flow="${pr_override#*$'\t'}"
-        fi
-        ;;
-    esac
+    # The CI+age verdict above measures the CHECKS and the clock, never the pipeline.
+    # It is wrong in BOTH directions, so the authoritative state:v1 marker is consulted
+    # unconditionally (symmetric with the issue classifier below): terminal ->
+    # parked(state), pipeline_stuck -> ⚠ with WHY, awaiting-pr -> waiting.
+    #
+    # Gating this on a ⚠ verdict — as it was — made the marker a false-alarm suppressor
+    # only, so a PR sitting in a terminal state with green CI and any recent comment
+    # rendered "✓ flowing" and its terminal was invisible. Observed 2026-08-06: PR#2918
+    # had been in `fixing` since 07-30 and PR#2968/#2997/#2443 were `blocked`, all four
+    # displayed as flowing, while PR#2975/#2977 in the SAME blocked state displayed
+    # parked(blocked) purely because their CI happened to trip the ⚠ branch.
+    #
+    # Calling it unconditionally is safe by construction: lifecycle_board_reclassify
+    # emits an override only for pipeline_stuck / terminal / awaiting-pr and otherwise
+    # exits non-zero, leaving the CI+age verdict untouched for a healthy PR.
+    local pr_fact pr_override
+    if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
+      flow="${pr_override#*$'\t'}"
+    fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
   fi
