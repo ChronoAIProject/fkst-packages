@@ -15,24 +15,21 @@ local convergence_shared = require("devloop.convergence.shared")
 local check_runs = require("forge.github.check_runs")
 local forge_validators = require("devloop.forge_validators")
 local transition_version = require("contract.transition_version")
-local comment_strings = require("devloop.strings")
-local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
 local ci_repair_retry = require("core.ci_repair_retry")
 local fix_rounds = require("core.fix_rounds")
 local ci_verdict = require("core.ci_verdict")
+local linked_pr_terminal = require("core.linked_pr_terminal")
 local with_current_classification = ci_verdict.with_current_classification
 
 function S.install(M)
 local function raise_fix_reviewing(opts) return requests_review.raise_fix_reviewing(M, opts) end
-local function linked_pr_state(pr)
-  return tostring(pr and pr.state or ""):upper()
-end
-
-local function merged_head_sha(pr)
-  local head_sha = tostring(pr and pr.head_sha or "")
-  return forge_validators.is_git_sha(head_sha) and head_sha or nil
-end
+local terminal = linked_pr_terminal.install(M)
+local linked_pr_state = terminal.linked_pr_state
+local terminal_linked_pr_action = terminal.terminal_linked_pr_action
+local mark_child_closed_unmerged = terminal.mark_child_closed_unmerged
+local mark_issue_merged_from_linked_pr = terminal.mark_issue_merged_from_linked_pr
+local redrive_absent_replacement_pr = terminal.redrive_absent_replacement_pr
 
 local function pr_open_state(pr)
   return tostring(pr and pr.state or ""):lower() == "open"
@@ -44,9 +41,6 @@ local function same_linked_head(link, pr)
     and forge_validators.is_git_sha(pr and pr.head_sha)
 end
 
-local terminal_linked_pr_action
-local mark_child_closed_unmerged
-local mark_issue_merged_from_linked_pr
 local raise_reviewing_for_current_head
 
 local function linked_open_pr(dept, issue, state, facts, tools, from_state, to_state)
@@ -637,104 +631,6 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "merging", "blocked", "applied(replay)", tostring(ci_reason or "merge-gate-blocked"))
   return tools.raise_effects(dept, proposal_id, "blocked", state.version, { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:merging" } }, {})
-end
-
-mark_child_closed_unmerged = function(dept, issue, state, proposal_id, link, tools, outcome, reason)
-  local version = transition_version.strip_suffixes(state and state.version)
-  local pr_number = link and link.pr_number
-  local source_ref = pr_number ~= nil and entity_lib.pr_source_ref(issue.repo, pr_number) or issue.source_ref
-  local comment_request = entity_lib.build_entity_comment_request({
-    kind = "pr",
-    repo = issue.repo,
-    number = pr_number,
-  }, "github-devloop marked delegated PR child closed without merge"
-    .. "\n\nReason: " .. tostring(reason or "closed without merge")
-    .. "\n\n" .. devloop_state.state_marker(proposal_id, "closed-unmerged", version)
-    .. "\n" .. "⟦AI:FKST⟧", base_ids.dedup_key({
-    "child-pr",
-    "closed-unmerged",
-    tostring(proposal_id),
-    tostring(version),
-    tostring(pr_number),
-  }), source_ref)
-  comment_request.handoff = {
-    kind = "github-devloop.closed_unmerged",
-    proposal_id = proposal_id,
-    pr_number = pr_number,
-    version = version,
-    source_ref = source_ref,
-  }
-  devloop_logging.log_cas_decision(dept, proposal_id, state, state and state.state or "pr-open", "closed-unmerged", outcome, reason)
-  local add_labels, remove_labels = devloop_state.state_label_changes("closed-unmerged")
-  return tools.raise_effects(dept, proposal_id, "closed-unmerged", version, { add = add_labels, remove = remove_labels }, {
-    { queue = "github-proxy.github_pr_comment_request", payload = comment_request },
-  })
-end
-
-mark_issue_merged_from_linked_pr = function(dept, issue, state, proposal_id, link, pr, tools)
-  local head_sha = merged_head_sha(pr)
-  if head_sha == nil then
-    return tools.log_skip(dept, proposal_id, state, state.state, "merged", "skip-foreign(head)", "merged linked PR head sha is missing")
-  end
-  local merged_body = comment_strings.comment_string(M, "merged_pr_prefix") .. tostring(link.pr_number)
-    .. "\n\n" .. devloop_state.state_marker(proposal_id, "merged", state.version)
-    .. "\n" .. m_builders.merged_marker(M, proposal_id, link.pr_number, state.version, head_sha)
-  local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
-  local comment_request = entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = issue.repo,
-    number = issue.number,
-  }, merged_body, base_ids.dedup_key({
-    "orphaned-pr",
-    "merged",
-    tostring(proposal_id),
-    tostring(state.version),
-    tostring(link.pr_number),
-    tostring(head_sha),
-  }), issue.source_ref)
-  local label_request = requests_labels.build_state_label_request(issue.repo,
-    issue.number,
-    "merged",
-    proposal_id,
-    state.version,
-    base_ids.dedup_key({
-      "orphaned-pr",
-      "label",
-      "merged",
-      tostring(proposal_id),
-      tostring(state.version),
-      tostring(link.pr_number),
-      tostring(head_sha),
-    }),
-    issue.source_ref
-  )
-  local add_labels, remove_labels = devloop_state.state_label_changes("merged")
-  devloop_logging.log_cas_decision(dept, proposal_id, state, state.state, "merged", "applied(linked-pr-merged)", "linked PR is merged; marking issue complete")
-  return tools.raise_effects(dept, proposal_id, "merged", state.version, { add = add_labels, remove = remove_labels }, {
-    { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-    { queue = "github-proxy.github_issue_label_request", payload = label_request },
-  })
-end
-
-local function redrive_absent_replacement_pr(dept, issue, state, proposal_id, link, facts, tools)
-  if facts.snapshot.absent_prs ~= nil and facts.snapshot.absent_prs[tostring(link.pr_number or "")] == true then
-    return mark_child_closed_unmerged(dept, issue, state, proposal_id, link, tools, "applied(orphaned-pr-absent)", "linked PR is absent; parent awaiting-pr will re-drive implementation from child terminal")
-  end
-  return nil
-end
-
-terminal_linked_pr_action = function(dept, issue, state, proposal_id, link, pr, facts, tools)
-  if pr == nil then
-    return redrive_absent_replacement_pr(dept, issue, state, proposal_id, link, facts, tools)
-  end
-  local state_name = linked_pr_state(pr)
-  if state_name == "MERGED" then
-    return mark_issue_merged_from_linked_pr(dept, issue, state, proposal_id, link, pr, tools)
-  end
-  if state_name ~= "OPEN" then
-    return mark_child_closed_unmerged(dept, issue, state, proposal_id, link, tools, "applied(orphaned-pr-closed)", "linked PR is closed; parent awaiting-pr will re-drive implementation from child terminal")
-  end
-  return nil
 end
 
 local function replay_pr_open(dept, issue, state, row, facts, tools)

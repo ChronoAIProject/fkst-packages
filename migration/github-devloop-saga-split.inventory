@@ -127,6 +127,7 @@
 {"path":"packages/github-devloop-pr/core/devloop_wiring.lua","owner":"pr","reason":"github-devloop-pr resolves PR package-private restart and prompt modules."}
 {"path":"packages/github-devloop-pr/core/fix_rounds.lua","owner":"pr","reason":"github-devloop-pr owns the stable fix-round admission budget and terminal handoff."}
 {"path":"packages/github-devloop-pr/core/high_risk_merge_gate.lua","owner":"pr","reason":"github-devloop-pr owns PR high-risk merge authorization checks after extraction."}
+{"path":"packages/github-devloop-pr/core/linked_pr_terminal.lua","owner":"pr","reason":"github-devloop-pr owns linked PR terminal state projection."}
 {"path":"packages/github-devloop-pr/core/merge_ci_wait.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-gate wait effects after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_batch.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-batch execution."}
 {"path":"packages/github-devloop-pr/core/merge_executor.lua","owner":"pr","reason":"github-devloop-pr owns shared PR merge execution after extraction."}
