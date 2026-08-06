@@ -399,7 +399,7 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
   t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
     stdout = issue_json(origin_issue, "Workflow origin", {}, origin_comments), stderr = "", exit_code = 0,
   })
-  t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json 'assignees,author'", {
+  t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
     stdout = ownership_json(), stderr = "", exit_code = 0,
   })
   t.mock_command("gh issue view " .. tostring(first_child_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
@@ -414,7 +414,7 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
     end
   end
   if releases_claim then
-    t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json 'assignees,author'", {
+    t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
       stdout = ownership_json(), stderr = "", exit_code = 0,
     })
   end
