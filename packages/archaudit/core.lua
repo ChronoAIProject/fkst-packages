@@ -248,10 +248,20 @@ local function liveness_model(rows)
       lifecycle_states[next_state] = true
     end
   end
-  restart_liveness_contract.install(model, {
+  local restart_liveness_resolved = {
     workflow_ports = {
       dependency_release_marker = function()
         error("archaudit: workflow-port-unavailable: dependency_release_marker is not available for producer-liveness restart model")
+      end,
+      is_state = function(...)
+        return model.is_state(...)
+      end,
+      restart_durable_marker_fields = function(...)
+        return model.restart_durable_marker_fields(...)
+      end,
+      restart_lifecycle_states = model.restart_lifecycle_states,
+      restart_responsibility_inventory_errors = function(...)
+        return model.restart_responsibility_inventory_errors(...)
       end,
       restart_transition_table = function(...)
         return model.restart_transition_table(...)
@@ -260,13 +270,14 @@ local function liveness_model(rows)
         error("archaudit: workflow-port-unavailable: trusted_bot_login is not available for producer-liveness restart model")
       end,
     },
-  })
+  }
+  restart_liveness_contract.install(model, restart_liveness_resolved)
   local shared = workflow_liveness_shared.install(model, {
     restart_package_name = model.restart_package_name,
     restart_source_root = model.restart_source_root,
     liveness_signal_producers = {},
   })
-  workflow_liveness_contract.install(model, shared)
+  workflow_liveness_contract.install(model, shared, restart_liveness_resolved)
   return model
 end
 

@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
 local m_claims = require("devloop.claims")
@@ -56,6 +57,7 @@ local operator_recovery = operator_recovery_factory.make({
   contract_time = contract_time,
   conv_reconcile = conv_reconcile,
   core = core,
+  dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
@@ -160,7 +162,16 @@ local function issue_label_projection_state(issue_state, link, snapshot)
   return issue_label_state(issue_state)
 end
 
-local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
+local function derive_dependency_gate(issue, proposal_id, state, comments)
+  return core.dependency_gate(issue.repo, issue.number, {
+    proposal_id = proposal_id,
+    version = state.version,
+    comments = comments,
+  })
+end
+
+local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state,
+  dependency_gate)
   local row = replay_fields.restart_transition_row(restart_transition_table(), state.state)
   local facts = {
     proposal_id = proposal_id,
@@ -169,6 +180,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     snapshot = snapshot,
     event_ts = event_ts,
     fresh_current_state = state,
+    dependency_gate = dependency_gate,
   }
   local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
   facts.pr_delegation = delegation
@@ -176,18 +188,13 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   local epoch = row and row.actionable_epoch
   if issue.source == "liveness-scan"
     and type(epoch) == "table"
-    and epoch.allows_state_entry_if_never_deferred == true then
-    facts.dependency_gate = core.dependency_gate(issue.repo, issue.number, {
-      proposal_id = proposal_id,
-      version = state.version,
-      comments = current.comments,
-    })
+    and epoch.allows_state_entry_if_never_deferred == true
+    and facts.dependency_gate == nil then
+    facts.dependency_gate = derive_dependency_gate(issue, proposal_id, state, current.comments)
   end
   for _, advancing_fact in ipairs(row and row.advancing_facts or {}) do
     if advancing_fact.fact_family == "dependency-gate" and facts.dependency_gate == nil then
-      facts.dependency_gate = core.dependency_gate(issue.repo, issue.number, {
-        proposal_id = proposal_id, version = state.version, comments = current.comments,
-      })
+      facts.dependency_gate = derive_dependency_gate(issue, proposal_id, state, current.comments)
     end
   end
   if core.canonicalize_legacy_ready_dependency_wait("observe_issue", issue, state, facts) then
@@ -262,11 +269,20 @@ local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, prop
   })
 end
 
-local function raise_stale_dependency_label_clear(issue, proposal_id, state, labels)
-  if state.state == "ready" or state.state == "dependency_wait" or not devloop_state.has_label(labels, devloop_base._blocked_on_dependency_label) then
-    return false
+local function raise_stale_dependency_label_clear(issue, proposal_id, state, current)
+  local has_label = devloop_state.has_label(current.labels, devloop_base._blocked_on_dependency_label)
+  if state.state == "dependency_wait" then
+    return false, nil
   end
-  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, { add = {}, remove = { devloop_base._blocked_on_dependency_label } }, {
+  local ready = state.state == "ready"
+  local gate = ready and derive_dependency_gate(issue, proposal_id, state, current.comments) or nil
+  if not has_label or (ready and not dependency_gate_lib.dependency_gate_is_satisfied(gate)) then
+    return false, gate
+  end
+  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, {
+    add = {},
+    remove = { devloop_base._blocked_on_dependency_label },
+  }, {
     "github-proxy.github_issue_label_request",
   })
   devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo,
@@ -276,7 +292,7 @@ local function raise_stale_dependency_label_clear(issue, proposal_id, state, lab
     base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(state.version or "unversioned") }),
     issue.source_ref
   ))
-  return true
+  return true, gate
 end
 
 local function source_ref_matches(left, right)
@@ -613,11 +629,12 @@ local function reconcile_issue_event(event, opts)
         })
         devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
       end
-      raise_stale_dependency_label_clear(issue, proposal_id, state, current.labels)
+      local _, dependency_gate = raise_stale_dependency_label_clear(issue, proposal_id, state, current)
       if maybe_reconcile_issue_local_orphaned_pr(issue, proposal_id, current, issue_state, link, snapshot) then
         return
       end
-      if replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event.ts, issue_state) then
+      if replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event.ts, issue_state,
+        dependency_gate) then
         return
       end
     end

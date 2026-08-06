@@ -72,6 +72,7 @@ local pending_order_goldens = {
   ["github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr"] = no,
   ["github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr"] = no,
   ["github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"] = no,
+  ["github-devloop/dependency_wait/operator_reentry/reready_blocked_dependency_hold"] = no,
   ["github-devloop/dependency_wait/canonicalization/legacy_ready_dependency_hold"] = yes("ready"),
   ["github-devloop/ready/canonicalization/legacy_ready_rederive"] = no,
   ["github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"] = yes("implementing"),
@@ -90,7 +91,7 @@ local function assert_pending_order_goldens(edges)
     if edge.pending_order.participates then participating = participating + 1 end
   end
   for id in pairs(pending_order_goldens) do t.eq(seen[id], true) end
-  t.eq(#edges, 29)
+  t.eq(#edges, 30)
   t.eq(participating, 21)
 end
 

@@ -1,4 +1,6 @@
 local M = {}
+local resolved_gate_sources = {}
+local resolved_gate_specs = {}
 
 local allowed_lineage_fields = {
   proposal_id = true,
@@ -289,8 +291,8 @@ function M.install(resolved)
   if type(resolved) ~= "table" then
     error("devloop.gate: resolved-gate-sources-table-invalid: resolved gate sources must be a table")
   end
-  M._resolved_gate_sources = resolved.sources or {}
-  M._resolved_gate_specs = resolved.specs or {}
+  resolved_gate_sources = resolved.sources or {}
+  resolved_gate_specs = resolved.specs or {}
 end
 
 function M.facts(caps)
@@ -325,11 +327,11 @@ end
 
 function M.load_gate(name)
   local key = gate_key(name)
-  local spec = M._resolved_gate_specs and M._resolved_gate_specs[key]
+  local spec = resolved_gate_specs[key]
   if spec ~= nil then
     return assert_loaded_gate_spec(spec)
   end
-  local source = M._resolved_gate_sources and M._resolved_gate_sources[key]
+  local source = resolved_gate_sources[key]
   if type(source) ~= "string" or source == "" then
     error("devloop.gate: gate-definition-unresolved: gate definition not resolved: " .. key)
   end

@@ -1,9 +1,9 @@
 local strings = require("contract.strings")
 
 local M = {}
+local REDACTION_REASON = "non-whitelisted-author"
 
 M.MARKER_PREFIX = "[fkst:blocked-github-content:v1"
-M.REDACTION_REASON = "non-whitelisted-author"
 
 local known_array_fields = {
   assignees = true,
@@ -397,13 +397,6 @@ function M.author_policy_from_logins(logins)
   }
 end
 
-function M.author_policy_from_whitelist(whitelist)
-  return {
-    kind = "forge.github.author_policy.v1",
-    whitelist = whitelist or {},
-  }
-end
-
 function M.test_disabled_author_policy()
   return {
     kind = "forge.github.author_policy.v1",
@@ -638,7 +631,7 @@ function M.redaction_marker(field, author_login_value, bytes_removed)
     .. ' field="' .. tostring(field) .. '"'
     .. ' existed="true"'
     .. ' author_login="' .. login .. '"'
-    .. ' why="' .. M.REDACTION_REASON .. '"]'
+    .. ' why="' .. REDACTION_REASON .. '"]'
 end
 
 local function is_blocked_marker(value)
@@ -655,7 +648,7 @@ function M.filter_cell(body, author_login_value, field, whitelist)
     field = field,
     author_login = M.canon_login(author_login_value) or "unknown",
     bytes_removed = bytes_removed,
-    reason = M.REDACTION_REASON,
+    reason = REDACTION_REASON,
   }
 end
 
@@ -798,7 +791,5 @@ function M.apply_gh_content_filter(result, context, policy, author_policy, stdou
 end
 
 M._json_value = lua_json_value
-M._parse_json_document = parse_json_document
-M._is_blocked_marker = is_blocked_marker
 
 return M

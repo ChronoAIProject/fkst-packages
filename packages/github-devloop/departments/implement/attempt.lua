@@ -174,7 +174,7 @@ local function run_attempt(args)
     tick = args.event_ts,
   })
   local framing = implement_profile.accepted_framing(args.ready, args.current.comments)
-  local profile, target = implement_profile.resolve(core.git, args.branch, framing)
+  local profile, target = implement_profile.resolve(implement_caps.git_handle, args.branch, framing)
   local prompt, prompt_failure, proof = dispatch_prompt(args, framing, profile, target)
   if prompt_failure ~= nil then
     return prompt_failure
@@ -300,7 +300,7 @@ local function run_attempt(args)
     harvest.commit_dirty_worktree(args.repo, args.issue_number, args.ready, args.worktree, args.branch)
   end
 
-  local result_head = result_checkpoint.persist(core.git, args.worktree, args.ready.dedup_key)
+  local result_head = result_checkpoint.persist(implement_caps.git_handle, args.worktree, args.ready.dedup_key)
   return harvest.after_codex_success(
     args.repo,
     args.issue_number,
