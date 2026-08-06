@@ -4,12 +4,15 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local config = require("devloop.config")
 local contract_time = require("contract.time")
+local devloop_logging = require("devloop.logging")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local opts = h.opts
 local m_builders = require("devloop.markers.builders")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local observe_pr_department = require("departments.observe_pr.main")
+local testing = require("testkit_internal.testing")
 
 local repo = "owner/repo"
 local pr_number = 7
@@ -69,7 +72,7 @@ local function attempt_fixture(round, fields)
     }
   end
   local comments = {
-    m_builders.pr_origin_marker(proposal_id, "42", branch, base_version, "dev"),
+    m_builders.pr_origin_marker(proposal_id, "42", branch, selected.link_impl_version or base_version, "dev"),
     state_marker,
     m_builders.merge_gate_marker(
       proposal_id,
@@ -276,11 +279,14 @@ return {
     t.eq(state_comment(result, "blocked"), nil)
   end,
 
-  test_policy_invalid_time_reaches_blocked_terminal_with_structured_why = function()
-    local round = 2
-    local fixture = attempt_fixture(round, {
-      version = version_at(round),
-      state_marker_created_at = "not-a-timestamp",
+  test_timestamp_free_production_version_uses_state_marker_clock_without_terminal = function()
+    local production_base = "ready/github-devloop/issue/ChronoAIProject/fkst-packages/3204/intake/0768218242"
+    local production_version = production_base .. "/review-loop/1/fix/1/fix/2/fix/3"
+    local fixture = attempt_fixture(3, {
+      version = production_version,
+      link_impl_version = production_base,
+      state_marker_created_at = "2026-08-05T01:00:00Z",
+      attempt_created_at = "2026-08-05T01:10:00Z",
     })
     local emitted = {}
     local original_raise = raise
@@ -291,7 +297,133 @@ return {
       return ci_repair_retry.evaluate(core, {
         state = "fixing",
         version = fixture.version,
+        marker_created_at = "2026-08-05T01:00:00Z",
+      }, {
+        dept = "observe_pr",
+        repo = repo,
+        proposal_id = proposal_id,
+        pr_number = pr_number,
+        review_proposal_id = fixture.review_proposal_id,
+        review_dedup_key = fixture.review_dedup_key,
+        reviewed_head_sha = "def456",
+        source_ref = source_ref,
+        comments = fixture.comments,
+        now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-05T01:20:00Z"),
+      })
+    end)
+    raise = original_raise
+    if not ok then error(decision) end
+    local pre_deadline_reconcile
+    for _, item in ipairs(emitted) do
+      if item.queue == "devloop_fix_reconcile" then pre_deadline_reconcile = item end
+    end
+    t.eq(pre_deadline_reconcile, nil)
+    t.eq(decision.kind, "defer")
+
+    local result = run_retry(fixture, "ci-repair-timestamp-free-version", {
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-05T02:00:00Z"),
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(h.find_raise(result.raises, "devloop_fix_reconcile"), nil)
+    t.eq(has_blocked_state_marker(result), false)
+    t.is_true(h.find_causal_raise(result, "devloop_fixing") ~= nil)
+  end,
+
+  test_state_entry_clock_matrix_stays_nonterminal = function()
+    local timestamp_free_base = "ready/github-devloop/issue/ChronoAIProject/fkst-packages/3204/intake/0768218242"
+    local timestamp_free_version = timestamp_free_base .. "/review-loop/1/fix/1/fix/2"
+    local malformed_lineage_version =
+      "ready/consensus-github-devloop/issue/owner/repo/42/2026-99-99T99-99-99Z/fix/1/fix/2"
+    local cases = {
+      {
+        name = "both-valid-newer-state-marker",
+        version = version_at(2),
+        marker_created_at = "2026-06-03T01:30:00Z",
+        attempt_created_at = "2026-06-03T01:00:00Z",
+        now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:35:00Z"),
+        expected_kind = "defer",
+        expected_due_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:40:00Z"),
+      },
+      {
+        name = "both-absent",
+        version = timestamp_free_version,
+        link_impl_version = timestamp_free_base,
+        expected_kind = "redrive",
+        expected_reason = "ci-repair-retry-clock-unresolved: state has no trusted retry clock",
+      },
+      {
+        name = "state-marker-malformed",
+        version = timestamp_free_version,
+        link_impl_version = timestamp_free_base,
         marker_created_at = "not-a-timestamp",
+        expected_kind = "redrive",
+        expected_reason = "ci-repair-retry-clock-unresolved: trusted marker timestamp is unparseable",
+      },
+      {
+        name = "version-lineage-malformed",
+        version = malformed_lineage_version,
+        expected_kind = "redrive",
+        expected_reason = "ci-repair-retry-clock-unresolved: version lineage timestamp is unparseable",
+      },
+    }
+
+    for _, case in ipairs(cases) do
+      local fixture = attempt_fixture(2, {
+        version = case.version,
+        link_impl_version = case.link_impl_version,
+        state_marker_created_at = case.marker_created_at,
+        attempt_created_at = case.attempt_created_at,
+      })
+      local emitted = {}
+      local original_raise = raise
+      raise = function(queue, payload)
+        table.insert(emitted, { queue = queue, payload = payload })
+      end
+      local ok, decision = pcall(function()
+        return ci_repair_retry.evaluate(core, {
+          state = "fixing",
+          version = case.version,
+          marker_created_at = case.marker_created_at,
+        }, {
+          dept = "observe_pr",
+          repo = repo,
+          proposal_id = proposal_id,
+          pr_number = pr_number,
+          review_proposal_id = fixture.review_proposal_id,
+          review_dedup_key = fixture.review_dedup_key,
+          reviewed_head_sha = "def456",
+          source_ref = source_ref,
+          comments = fixture.comments,
+          now_seconds = case.now_seconds or fixed_now_seconds,
+        })
+      end)
+      raise = original_raise
+      if not ok then error(case.name .. ": " .. tostring(decision)) end
+
+      t.eq(decision.kind, case.expected_kind, case.name .. ": decision")
+      t.eq(decision.reason, case.expected_reason, case.name .. ": reason")
+      t.eq(decision.due_seconds, case.expected_due_seconds, case.name .. ": deadline")
+      t.eq(h.find_raise(emitted, "devloop_fix_reconcile"), nil, case.name .. ": no reconcile")
+      t.eq(has_blocked_state_marker({ raises = emitted }), false, case.name .. ": no blocked marker")
+    end
+  end,
+
+  test_unresolvable_time_redrives_without_terminal_with_structured_why = function()
+    local round = 2
+    local fixture = attempt_fixture(round, {
+      version = version_at(round),
+      attempt_created_at = "not-a-timestamp",
+    })
+    local emitted = {}
+    local original_raise = raise
+    raise = function(queue, payload)
+      table.insert(emitted, { queue = queue, payload = payload })
+    end
+    local ok, decision = pcall(function()
+      return ci_repair_retry.evaluate(core, {
+        state = "fixing",
+        version = fixture.version,
       }, {
         dept = "observe_pr",
         repo = repo,
@@ -307,26 +439,51 @@ return {
     end)
     raise = original_raise
     if not ok then error(decision) end
-    t.eq(decision.kind, "terminate")
-    local reconcile
-    for _, item in ipairs(emitted) do
-      if item.queue == "devloop_fix_reconcile" then reconcile = item end
-    end
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.reason_class, "ci-repair-retry-policy-invalid")
-    t.eq(reconcile.payload.bound_head_sha, "def456")
+    t.eq(decision.kind, "redrive")
+    t.eq(decision.reason,
+      "ci-repair-retry-clock-unresolved: trusted marker timestamp is unparseable")
+    t.eq(h.find_raise(emitted, "devloop_fix_reconcile"), nil)
+    t.eq(has_blocked_state_marker({ raises = emitted }), false)
 
-    local terminal = run_own_ci_reconcile(
-      reconcile.payload,
-      fixture.comments,
-      "ci-repair-policy-invalid-terminal"
-    )
-    t.eq(terminal.exit_code, 0)
-    local marker = h.find_raise(terminal.raises, "github-proxy.github_pr_comment_request", function(payload)
-      return tostring(payload.body or ""):find('state="blocked"', 1, true) ~= nil
-    end)
-    t.is_true(marker ~= nil)
-    t.is_true(marker.payload.body:find("ci-repair-retry-policy-invalid", 1, true) ~= nil)
+    local cas_decisions = {}
+    local original_log_cas_decision = devloop_logging.log_cas_decision
+    devloop_logging.log_cas_decision = function(dept, captured_proposal_id, state,
+        from_state, to_state, outcome, reason)
+      table.insert(cas_decisions, {
+        dept = dept,
+        proposal_id = captured_proposal_id,
+        state = state,
+        from_state = from_state,
+        to_state = to_state,
+        outcome = outcome,
+        reason = reason,
+      })
+      return original_log_cas_decision(
+        dept, captured_proposal_id, state, from_state, to_state, outcome, reason)
+    end
+    mock_retry_pr(fixture)
+    h.mock_bot_env()
+    h.mock_default_issue_claim()
+    local replay_ok, replayed = pcall(testing.run_fake, observe_pr_department, {
+      queue = "github-proxy.github_entity_changed",
+      payload = pr_event("ci-repair-invalid-attempt-clock"),
+      now_seconds = fixed_now_seconds,
+    })
+    devloop_logging.log_cas_decision = original_log_cas_decision
+    if not replay_ok then error(replayed) end
+    t.eq(h.find_raise(replayed.raises, "devloop_fix_reconcile"), nil)
+    t.eq(has_blocked_state_marker(replayed), false)
+    local unresolved
+    for _, decision_log in ipairs(cas_decisions) do
+      if decision_log.outcome == "redrive(ci-repair-retry-clock-unresolved)" then
+        unresolved = decision_log
+      end
+    end
+    t.is_true(unresolved ~= nil)
+    t.eq(unresolved.outcome, "redrive(ci-repair-retry-clock-unresolved)")
+    t.eq(unresolved.reason,
+      "ci-repair-retry-clock-unresolved: trusted marker timestamp is unparseable")
+    t.is_true(h.find_causal_raise(replayed, "devloop_fixing") ~= nil)
   end,
 
   test_fresh_ci_failure_key_is_diagnostic_and_does_not_reset_round_budget = function()

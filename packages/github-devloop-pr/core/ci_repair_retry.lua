@@ -16,39 +16,52 @@ local C = {}
 local with_current_classification = ci_verdict.with_current_classification
 local raise_admitted_round
 
-local function invalid_time(reason)
-  return { status = "policy-invalid", reason = reason }
+local function contract_invalid_time(reason)
+  return { status = "contract-invalid", reason = reason }
 end
 
 local function parse_marker_time(value)
   local seconds = contract_time.iso_timestamp_epoch_seconds(value)
   if seconds == nil then
-    return invalid_time("trusted marker timestamp is unparseable")
+    return contract_invalid_time("trusted marker timestamp is unparseable")
   end
   return { status = "valid", seconds = seconds }
 end
 
 local function state_entry(state)
-  local lineage = parse_marker_time(transition_version.updated_at(state and state.version))
-  if lineage.status == "policy-invalid" then
-    return invalid_time("version lineage timestamp is unparseable")
+  local lineage_text = transition_version.updated_at(state and state.version)
+  local lineage
+  if lineage_text ~= nil and lineage_text ~= "" then
+    lineage = parse_marker_time(lineage_text)
+    if lineage.status ~= "valid" then
+      return contract_invalid_time("version lineage timestamp is unparseable")
+    end
+    lineage.source = "version-lineage"
   end
   local marker_created_at = state and state.marker_created_at
-  if marker_created_at == nil or marker_created_at == "" then
-    lineage.source = "version-lineage"
-    return lineage
+  local marker
+  if marker_created_at ~= nil and marker_created_at ~= "" then
+    marker = parse_marker_time(marker_created_at)
+    if marker.status ~= "valid" then
+      return marker
+    end
+    marker.source = "state-marker"
   end
-  local marker = parse_marker_time(marker_created_at)
-  if marker.status == "valid" then
+  if lineage ~= nil and marker ~= nil then
     marker.seconds = math.max(lineage.seconds, marker.seconds)
   end
-  marker.source = "state-marker"
-  return marker
+  return marker or lineage or {
+    status = "absent",
+    reason = "state has no trusted retry clock",
+  }
 end
 
 local function marker_after_state_entry(value, entry)
-  if type(entry) ~= "table" or entry.status ~= "valid" then
-    return invalid_time("trusted marker time requires a valid state entry")
+  if type(entry) ~= "table" then
+    return contract_invalid_time("trusted marker time requires a state entry")
+  end
+  if entry.status ~= "valid" then
+    return entry
   end
   local marker = parse_marker_time(value)
   if marker.status == "valid" then
@@ -81,11 +94,11 @@ end
 
 local function retry_window(state, attempt, now_seconds)
   local entry = state_entry(state)
-  if entry.status == "policy-invalid" then
+  if entry.status ~= "valid" then
     return entry
   end
   local completion = marker_after_state_entry(attempt.comment_created_at, entry)
-  if completion.status == "policy-invalid" then
+  if completion.status ~= "valid" then
     return completion
   end
   local delay_seconds = devloop_state.version_fix_round(state.version)
@@ -100,6 +113,20 @@ local function retry_window(state, attempt, now_seconds)
   }
 end
 
+local function redrive_unresolved_clock(state, ctx, reason)
+  local why = "ci-repair-retry-clock-unresolved: " .. tostring(reason)
+  devloop_logging.log_cas_decision(
+    ctx.dept or "observe_pr",
+    ctx.proposal_id,
+    state,
+    "fixing",
+    "fixing",
+    "redrive(ci-repair-retry-clock-unresolved)",
+    why
+  )
+  return { kind = "redrive", reason = why }
+end
+
 function C.evaluate(M, state, ctx)
   local attempt = completed_attempt(ctx, state)
   if attempt == nil then
@@ -108,15 +135,11 @@ function C.evaluate(M, state, ctx)
 
   local current_seconds = tonumber(ctx.now_seconds)
   if current_seconds == nil then
-    local invalid_ctx = admission_context(ctx)
-    invalid_ctx.reason = "ci-repair-retry-policy-invalid"
-    return fix_rounds.terminate_own_ci_policy_invalid(state, invalid_ctx)
+    return redrive_unresolved_clock(state, ctx, "retry evaluation requires an explicit clock")
   end
   local window = retry_window(state, attempt, current_seconds)
-  if window.status == "policy-invalid" then
-    local invalid_ctx = admission_context(ctx)
-    invalid_ctx.reason = "ci-repair-retry-policy-invalid"
-    return fix_rounds.terminate_own_ci_policy_invalid(state, invalid_ctx)
+  if window.status ~= "valid" then
+    return redrive_unresolved_clock(state, ctx, window.reason)
   end
   if current_seconds < window.due_seconds then
     return {
@@ -309,10 +332,10 @@ function C.resolve_liveness_hold(row, state, facts, now_seconds)
     return { status = "contract_invalid", reason = "durable hold requires an explicit clock" }
   end
   local window = retry_window(state, attempt, current_seconds)
-  if window.status == "policy-invalid" then
+  if window.status ~= "valid" then
     return {
       status = "contract_invalid",
-      reason = "ci-repair-retry-policy-invalid: " .. tostring(window.reason),
+      reason = "ci-repair-retry-clock-unresolved: " .. tostring(window.reason),
     }
   end
   local status = current_seconds < window.due_seconds and "held" or "released"
