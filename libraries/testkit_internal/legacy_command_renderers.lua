@@ -216,7 +216,7 @@ function M.new(rendering)
       return gh_issue_view_command(repo, number, "title,createdAt,updatedAt,labels,state,comments,assignees,author")
     end
     core.gh_issue_view_claim_cmd = core.gh_issue_view_claim_cmd or function(repo, number)
-      return gh_issue_view_command(repo, number, "assignees,author")
+      return gh_issue_view_command(repo, number, "assignees,author,labels")
     end
     core.gh_issue_view_result_cmd = core.gh_issue_view_result_cmd or function(repo, number)
       return gh_issue_view_command(repo, number, "labels,comments")

@@ -7,7 +7,7 @@ local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_view = require("forge.github_view")
@@ -146,7 +146,7 @@ local function decode_json_array(result, kind)
 end
 
 function C.claimed_label()
-  return claim_labels.active_label(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label(config.claim_label_exclusive(), C.claim_owner())
 end
 
 local function comment_body(comment)
@@ -377,26 +377,16 @@ function C.claim_mode_active()
   return config.claim_mode()
 end
 
--- Label mode isolates the active family label while respecting managed peer assignees.
 function C.issue_claim_state(assignees, owner, labels)
-  if config.claim_mode() == "label" then
-    local managed = C.managed_bot_logins()
-    for _, login in ipairs(C.assignee_logins(assignees)) do
-      if C.is_managed_bot_login(login, managed)
-        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
-        return "other"
-      end
-    end
-    return claim_labels.classify(labels, C.claimed_label())
-  end
-  local logins = C.assignee_logins(assignees)
-  if #logins == 0 then
-    return "unassigned"
-  end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
-    return "self"
-  end
-  return "other"
+  local mode = config.claim_mode()
+  return claim_carriers.classify(
+    mode,
+    C.assignee_logins(assignees),
+    owner,
+    labels,
+    mode == "label" and C.claimed_label() or nil,
+    mode == "label" and C.managed_bot_logins() or nil
+  )
 end
 
 local function issue_ownership_decision(ownership, owner)
@@ -435,10 +425,7 @@ function C.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local fields = "assignees,author"
-  if config.claim_mode() == "label" then
-    fields = "assignees,author,labels"
-  end
+  local fields = "assignees,author,labels"
   local view = github().issue_view(repo, issue_number, fields, 30)
   local decoded = json.decode(view.stdout or "{}")
   return {

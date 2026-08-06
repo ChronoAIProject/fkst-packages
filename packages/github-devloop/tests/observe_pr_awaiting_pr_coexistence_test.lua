@@ -45,7 +45,7 @@ local function mock_issue_at_awaiting_pr(selector)
     comments = awaiting_pr_comments(),
   }
   entity_read_mocks.mock_issue_read_forms(t, issue)
-  entity_read_mocks.mock_issue_view_selector(t, issue, selector or "assignees,author")
+  entity_read_mocks.mock_issue_view_selector(t, issue, selector or "assignees,author,labels")
 end
 
 local function mock_pr_with_comments(comments)

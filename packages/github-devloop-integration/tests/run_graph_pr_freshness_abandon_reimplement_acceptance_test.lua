@@ -113,7 +113,7 @@ local function mock_parent_claim()
     number = ISSUE_NUMBER,
     assignees = { BOT },
     author_login = BOT,
-  }, "assignees,author", 30)
+  }, "assignees,author,labels", 30)
 end
 
 local function mock_parent_claim_api()
