@@ -57,6 +57,7 @@ local operator_recovery = operator_recovery_factory.make({
   contract_time = contract_time,
   conv_reconcile = conv_reconcile,
   core = core,
+  dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,

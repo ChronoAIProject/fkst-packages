@@ -34,6 +34,8 @@ local blocked_timeout_without_pr_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr"
 local blocked_implementation_refusal_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"
+local blocked_dependency_hold_id =
+  "github-devloop/dependency_wait/operator_reentry/reready_blocked_dependency_hold"
 local cas_metadata_golden = {
   [blocked_open_pr_id] = {
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
@@ -53,6 +55,7 @@ local pending_order_goldens = {
   [blocked_open_pr_id] = { participates = false },
   [blocked_timeout_without_pr_id] = { participates = false },
   [blocked_implementation_refusal_id] = { participates = false },
+  [blocked_dependency_hold_id] = { participates = false },
 }
 
 local function implement_activation_entitlements(edge_id)
@@ -375,6 +378,52 @@ local function observe_blocked_timeout_reimplement()
   })
 end
 
+local function observe_blocked_dependency_hold_reready()
+  local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+  local blocked_version = "dependency-blocked/operator-reentry"
+  local comments = {
+    core.state_marker(proposal_id, "blocked", blocked_version),
+    "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
+      .. core.dependency_unresolvable_marker(proposal_id, blocked_version, { 43 }),
+    trusted_command("reready", "IC_reready_blocked_dependency_hold"),
+  }
+  local source = core.current_state(comments, proposal_id)
+  local origin = core.dependency_hold_fact(comments, proposal_id)
+  t.eq(source.state, "blocked")
+  t.eq(origin.version, source.version)
+  t.eq(origin.marker_kind, "dependency-unresolvable")
+  h.mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", comments)
+  t.mock_command(core.gh_blocked_by_cmd("owner/repo", 42), {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":1,"pageInfo":{"hasNextPage":false},"nodes":[{"number":43,"state":"OPEN","stateReason":"","repository":{"nameWithOwner":"owner/repo"}}]}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_blocked_by_cmd("owner/repo", 43), {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_view_observe_cmd("owner/repo", 43), {
+    stdout = '{"state":"OPEN","comments":[],"author":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  local result = h.run_observe(event, h.opts("restart-operator-reentry-blocked-dependency-hold"))
+  assert_department_ok(result, "blocked-dependency-hold-reready")
+
+  local response = find_issue_comment(result.raises, "operator command accepted: reready")
+  local projected = find_issue_comment(result.raises, 'state="dependency_wait"')
+  t.is_true(response ~= nil, "blocked dependency reready: applied response was not emitted")
+  t.is_true(projected ~= nil, "blocked dependency reready: dependency_wait was not projected")
+  return {
+    owner = owner,
+    kind = "operator_reentry",
+    source = { state = source.state, boundary = "dependency-hold" },
+    target = "dependency_wait",
+    cause_evidence = applied_cause_evidence(comments, "reready", response.payload.body),
+  }
+end
+
 local function edge_key(edge)
   local source = edge.source or {}
   local cause = edge.cause_evidence or {}
@@ -442,21 +491,26 @@ local function assert_operator_reentry_shape(edges)
     })
     assert_exact_keys(edge.provenance, { owner = true, row = true, field = true })
     t.eq(edge.owner, owner)
-    t.eq(edge.row_id, "implementing")
+    local dependency_reentry = edge.id == blocked_dependency_hold_id
+    t.eq(edge.row_id, dependency_reentry and "dependency_wait" or "implementing")
     t.eq(edge.kind, "operator_reentry")
-    t.eq(edge.target, "implementing")
+    t.eq(edge.target, dependency_reentry and "dependency_wait" or "implementing")
     t.eq(type(edge.semantic_variant), "string")
     t.is_true(edge.semantic_variant ~= "")
     t.eq(edge.semantic_variant:find("/", 1, true), nil)
     t.eq(edge.semantic_variant, edge.id:match("/([^/]+)$"))
-    t.eq(edge.cause_evidence.command, "reimplement")
+    t.eq(edge.cause_evidence.command, dependency_reentry and "reready" or "reimplement")
     t.eq(edge.cause_evidence.requires_applied_certificate, true)
     t.eq(edge.cause_evidence.resolver, "operator_commands")
     t.eq(edge.provenance.owner, owner)
-    t.eq(edge.provenance.row, "implementing")
+    t.eq(edge.provenance.row, dependency_reentry and "dependency_wait" or "implementing")
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
     local expected_entitlements = expected_cas and implement_activation_entitlements(edge.id)
+      or dependency_reentry and {
+        apply = { id = edge.id .. "/apply", effect_ids = { "github-proxy.github_issue_comment_request" } },
+        idempotent = { id = edge.id .. "/idempotent", effect_ids = {} },
+      }
       or operator_reentry_inventory[1].transition_effect_entitlements
     assert_same_value(edge.transition_effect_entitlements, expected_entitlements)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
@@ -597,7 +651,9 @@ local function assert_negative_witnesses_absent(witnesses, authored)
     t.is_true(witness.kind == "row-replay" or witness.kind == "admission",
       "negative witness has an unexpected classification")
     for _, edge in ipairs(authored) do
-      if edge.cause_evidence.command == witness.command then
+      if edge.cause_evidence.command == witness.command
+        and edge.source.state == witness.source_state
+        and tostring(edge.source.boundary or "") == tostring(witness.source_boundary or "") then
         error("restart operator reentry conformance: non-edge command was authored: " .. witness.command)
       end
     end
@@ -640,7 +696,7 @@ local function assert_observed_inventory_edge(index, observed)
   local snapshot = copy_value(operator_reentry_inventory)
   local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
   assert_operator_reentry_shape(authored)
-  t.eq(#authored, 4)
+  t.eq(#authored, 5)
   assert_symmetric_edge_sets({ observed }, { authored[index] })
   assert_same_value(operator_reentry_inventory, snapshot)
 end
@@ -660,6 +716,10 @@ return {
 
   test_issue_blocked_implementation_refusal_operator_reentry_matches_production_apply_decision = function()
     assert_observed_inventory_edge(4, observe_blocked_implementation_refusal_reimplement())
+  end,
+
+  test_issue_blocked_dependency_hold_operator_reentry_matches_production_apply_decision = function()
+    assert_observed_inventory_edge(5, observe_blocked_dependency_hold_reready())
   end,
 
   test_issue_blocked_operator_reentry_cas_metadata_references_declared_policies = function()
@@ -692,6 +752,7 @@ return {
     t.eq(authored[2].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr")
     t.eq(authored[3].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr")
     t.eq(authored[4].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal")
+    t.eq(authored[5].id, blocked_dependency_hold_id)
 
     local repeated = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     assert_operator_reentry_shape(repeated)

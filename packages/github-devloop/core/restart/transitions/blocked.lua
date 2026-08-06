@@ -33,12 +33,12 @@ return function(M, h)
         },
       },
     },
-    reentry_commands = { "rereview" },
+    reentry_commands = { "rereview", "reready" },
     operator_reentry = {
       kind = "external_command",
       not_autonomous_successor = true,
       resets_budget = true,
-      commands = { "rereview" },
+      commands = { "rereview", "reready" },
     },
     non_durable_advance = {
       category = "terminal-hold",
