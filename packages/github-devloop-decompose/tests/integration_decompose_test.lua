@@ -377,14 +377,16 @@ return {
     t.eq(count_calls("gh pr comment"), 1)
   end,
 
-  test_decompose_depth_cap_skips_lineage_child = function()
+  test_decompose_depth_cap_skips_workflow_materialized_lineage_child = function()
     local event = decompose_event()
     mock_bot_env()
     mock_write_env_real()
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event))
     mock_issue_decompose({ "fkst-dev:blocked" }, blocked_comments(event), {
       title = "Child issue",
-      body = "Child body.\n\n" .. decompose_lib.decompose_lineage_marker(event.proposal_id, 1),
+      body = decompose_lib.decompose_lineage_marker(event.proposal_id, 1)
+        .. '\n\n<!-- fkst:github-devloop-workflow:lineage:v1 origin="github-devloop/issue/owner/repo/7" blueprint_digest="d-3588118930" slot="implement" -->'
+        .. "\n\nChild body.",
     })
     mock_pr_view(event, blocked_comments(event))
 
