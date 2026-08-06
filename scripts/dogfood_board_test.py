@@ -60,18 +60,21 @@ class DogfoodBoardHarness:
                     # issue<->PR linkage) and pr_rows (number/sha/updated/base/title TSV).
                     # Emulate each query's post-jq output. PR#50 is old (=> CI+age would
                     # flag ⚠ STUCK) but its authoritative marker is terminal-blocked.
-                    # PRs #51-#53 have fresh entity metadata but old lifecycle markers.
+                    # PRs #51-#55 have fresh entity metadata. PR#54 is managed but its
+                    # lifecycle fact is unavailable; PR#55 is genuinely unmanaged.
                     case "$4" in
                       *head.ref*) ;;
                       *)
-                        printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration 'Old condition fresh metadata'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration 'Condition onset unavailable'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration 'Independent CI failure'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration blocked 'Terminal blocked PR'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration fixing 'Old condition fresh metadata'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration fixing 'Condition onset unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration fixing 'Independent CI failure'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 54 nofact 2026-06-27T11:00:00Z integration fixing 'Managed fact unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 55 unmanaged 2026-06-27T11:00:00Z integration __fkst_unmanaged__ 'Unmanaged PR'
                         ;;
                     esac
                     ;;
-                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*|repos/ChronoAIProject/fkst-packages/commits/oldstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/noonset/check-runs*)
+                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*|repos/ChronoAIProject/fkst-packages/commits/oldstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/noonset/check-runs*|repos/ChronoAIProject/fkst-packages/commits/nofact/check-runs*|repos/ChronoAIProject/fkst-packages/commits/unmanaged/check-runs*)
                     printf '%s\n' success
                     ;;
                   repos/ChronoAIProject/fkst-packages/commits/redstate/check-runs*)
@@ -92,6 +95,9 @@ JSON
                     cat <<'JSON'
 [{"user":{"login":"loning"},"body":"<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"fixing\\\" version=\\\"2026-06-27T00-00-00Z/fixing/52\\\" stage_rank=\\\"200\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000200\\\" -->"}]
 JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/54/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/55/comments?per_page=100)
+                    printf '[]\n'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
                     old=2026-06-27T00:00:00Z
@@ -318,6 +324,26 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertRegex(result.stdout, r"PR#52\b.*⚠ CONDITION-ONSET-UNAVAILABLE fixing")
             self.assertNotRegex(result.stdout, r"PR#52\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_managed_pr_without_lifecycle_fact_fails_visibly(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#54\b.*⚠ CONDITION-ONSET-UNAVAILABLE fixing")
+            self.assertNotRegex(result.stdout, r"PR#54\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_unmanaged_pr_without_lifecycle_fact_keeps_entity_age(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#55\b.*✓ flowing 1h")
+            self.assertNotRegex(result.stdout, r"PR#55\b.*CONDITION-ONSET-UNAVAILABLE")
         finally:
             h.close()
 

@@ -183,16 +183,16 @@ board_one() { # $1 name, $2 stale_hours
   # old `2>/dev/null | while` swallowing it into a silently-EMPTY section — an empty board is
   # indistinguishable from "all resolved" (real blind spot hit during the 2026-07-17 REST outage).
   local pr_rows pr_rc
-  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|([.labels[].name]|map(select(startswith("fkst-dev:") and .!="fkst-dev:enabled" and (startswith("fkst-dev:claimed")|not) and .!="fkst-dev:blocked-on-dependency"))|.[0]//"__fkst_unmanaged__"|sub("^fkst-dev:";"")) as $state|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\($state)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   if [ "$pr_rc" -ne 0 ]; then
     pr_rows=$(gh pr list --repo "$REPO" --state open --limit 100 \
-      --json number,headRefOid,updatedAt,baseRefName,title \
-      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+      --json number,headRefOid,updatedAt,baseRefName,labels,title \
+      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:") and .!="fkst-dev:enabled" and (startswith("fkst-dev:claimed")|not) and .!="fkst-dev:blocked-on-dependency"))|.[0]//"__fkst_unmanaged__"|sub("^fkst-dev:";"")) as $state|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\($state)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   fi
   if [ "$pr_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (pulls: REST and GraphQL both failed) — cross-check: gh pr list --repo $REPO --state open"
   else
-  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
+  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base pr_state_hint title; do
     [ -z "$num" ] && continue
     local chk a flow pr_fact="" pr_condition condition_started_at pr_state pr_override onset_missing=0
     chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
@@ -206,6 +206,9 @@ board_one() { # $1 name, $2 stale_hours
         onset_missing=1
         pr_state=$(printf '%s' "$pr_fact" | jq -er '.state') || pr_state="unknown"
       fi
+    elif [ "$pr_state_hint" != "__fkst_unmanaged__" ]; then
+      onset_missing=1
+      pr_state="$pr_state_hint"
     fi
     if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
