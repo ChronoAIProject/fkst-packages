@@ -386,6 +386,10 @@ local function fact_value(core, row, state, family, successor)
     }
   end
   if family == "review-meta" or family == "review-converge-round" then
+    local action = successor == "fixing" and "fix" or "block"
+    if family == "review-meta" and successor == "reviewing" then
+      action = "no-actionable-gap"
+    end
     return {
       proposal_id = ISSUE_PROPOSAL,
       pr_number = PR_NUMBER,
@@ -394,7 +398,7 @@ local function fact_value(core, row, state, family, successor)
       reviewed_head_sha = HEAD_SHA,
       version = state.version,
       n = 3,
-      action = successor == "fixing" and "fix" or "block",
+      action = action,
       blocking_gap = "behavioral-fixture",
     }
   end
@@ -509,7 +513,20 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
       table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA, BASE_SHA, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
     end
   elseif family == "review-meta" then
-    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL, value.review_dedup_key, value.action, state.version, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    local review_binding = value.action == "no-actionable-gap" and {
+      review_proposal_id = value.review_proposal_id,
+      review_dedup_key = value.review_dedup_key,
+      reviewed_head_sha = value.reviewed_head_sha,
+    } or nil
+    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(
+      ISSUE_PROPOSAL,
+      value.review_dedup_key,
+      value.action,
+      state.version,
+      value.blocking_gap or "behavioral-fixture",
+      value.reason,
+      review_binding
+    ), "2026-06-03T01:03:09Z"))
   elseif family == "review-converge-round" then
     local digest = convergence_shared.source_ref_digest(PR_SOURCE_REF)
     if value.action == "block" then
