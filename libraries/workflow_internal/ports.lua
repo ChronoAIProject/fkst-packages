@@ -1,19 +1,26 @@
 local M = {}
 
 M.names = {
+  actionable_epoch_resolve = "actionable_epoch_resolve",
   dependency_release_marker = "dependency_release_marker",
   restart_transition_table = "restart_transition_table",
   trusted_bot_login = "trusted_bot_login",
 }
 
 M.types = {
+  actionable_epoch_resolve = "function",
   dependency_release_marker = "function",
   restart_transition_table = "function",
   trusted_bot_login = "function",
 }
 
+M.optional = {
+  [M.names.actionable_epoch_resolve] = true,
+}
+
 local groups = {
   restart_liveness_contract = {
+    M.names.actionable_epoch_resolve,
     M.names.dependency_release_marker,
     M.names.restart_transition_table,
     M.names.trusted_bot_login,
@@ -48,10 +55,14 @@ function M.require_ports(resolved, owner, names)
     if expected_type == nil then
       error("workflow_internal.ports: workflow-port-unknown: unknown port " .. tostring(name) .. " for " .. tostring(group_owner))
     end
-    if type(value) ~= expected_type then
+    local missing_required = value == nil and M.optional[name] ~= true
+    local wrong_type = value ~= nil and type(value) ~= expected_type
+    if missing_required or wrong_type then
       error("workflow_internal.ports: workflow-port-unavailable: missing " .. expected_type .. " port " .. tostring(name) .. " for " .. tostring(group_owner))
     end
-    ports[name] = value
+    if value ~= nil then
+      ports[name] = value
+    end
   end
   return { ports = ports }
 end
