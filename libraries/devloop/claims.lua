@@ -7,6 +7,7 @@ local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
+local claim_labels = require("devloop.claim_labels")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_view = require("forge.github_view")
@@ -39,7 +40,6 @@ C.claim_owner = github_author_policy.claim_owner
 C.managed_bot_logins = github_author_policy.managed_bot_logins
 C.is_managed_bot_login = github_author_policy.is_managed_bot_login
 
-local claimed_label = "fkst-dev:claimed"
 local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
 local marker_attr = marker_shared.marker_attr
 local json_array_tag = nil
@@ -146,7 +146,7 @@ local function decode_json_array(result, kind)
 end
 
 function C.claimed_label()
-  return claimed_label
+  return claim_labels.active_label(config.claim_label_exclusive(), C.claim_owner())
 end
 
 local function comment_body(comment)
@@ -373,21 +373,21 @@ local function add_repo_scoped_observed_managed_bot_logins(managed, repo, truste
   return true, nil
 end
 
--- assignee (default) ⇒ exactly today's behavior. label ⇒ opt-in GitHub App mode.
 function C.claim_mode_active()
   return config.claim_mode()
 end
 
--- assignee-mode (default): ownership is the current single self-assignee.
--- label-mode (opt-in): ownership is the presence of the fkst-dev:claimed label.
--- labels is optional/extra and ignored in assignee-mode, so existing 2-arg
--- callers keep byte-for-byte behavior.
+-- Label mode isolates the active family label while respecting managed peer assignees.
 function C.issue_claim_state(assignees, owner, labels)
   if config.claim_mode() == "label" then
-    if restart_metadata.has_label(labels, claimed_label) then
-      return "self"
+    local managed = C.managed_bot_logins()
+    for _, login in ipairs(C.assignee_logins(assignees)) do
+      if C.is_managed_bot_login(login, managed)
+        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
+        return "other"
+      end
     end
-    return "unassigned"
+    return claim_labels.classify(labels, C.claimed_label())
   end
   local logins = C.assignee_logins(assignees)
   if #logins == 0 then
@@ -486,8 +486,8 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   local ownership = nil
   local current_usable
   if config.claim_mode() == "label" then
-    -- label-mode ownership is derived from the labels projection.
     current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
+      and current_issue.assignees ~= nil
   else
     current_usable = type(current_issue) == "table"
       and current_issue.assignees ~= nil
@@ -801,14 +801,15 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   end
 
   if config.claim_mode() == "label" then
-    github().issue_add_label(repo, issue_number, claimed_label, 30)
+    local active_label = C.claimed_label()
+    github().issue_add_label(repo, issue_number, active_label, 30)
     M.invalidate_entity_after_write(repo, "issue", issue_number)
     if C.verify_issue_claim(repo, issue_number, owner) then
       log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
       return true
     end
 
-    github().issue_remove_label(repo, issue_number, claimed_label, 30)
+    github().issue_remove_label(repo, issue_number, active_label, 30)
     M.invalidate_entity_after_write(repo, "issue", issue_number)
     log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
     return false
@@ -841,12 +842,11 @@ end
 function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id, reason)
   local owner = C.claim_owner()
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  local claim_state = C.issue_claim_state(
-    ownership and ownership.assignees,
-    owner,
-    ownership and ownership.labels
-  )
-  if claim_state ~= "self" then
+  local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
+  local claim_is_self = active_label ~= nil
+    and restart_metadata.has_label(ownership and ownership.labels, active_label)
+    or active_label == nil and C.issue_claim_state(ownership and ownership.assignees, owner) == "self"
+  if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
   end
@@ -856,8 +856,8 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
     return true
   end
 
-  if config.claim_mode() == "label" then
-    github().issue_remove_label(repo, issue_number, claimed_label, 30)
+  if active_label ~= nil then
+    github().issue_remove_label(repo, issue_number, active_label, 30)
   else
     github().issue_unassign(repo, issue_number, owner, 30)
   end
@@ -884,7 +884,7 @@ function C.attach_issue_claim(payload, source_ref)
   end
   -- github-proxy's pre-write guard verifies the attached claim against the
   -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
-  -- fkst-dev:claimed label but is never an assignee, so an attached assignee
+  -- active claim label but is never an assignee, so an attached assignee
   -- claim would always read as "lost" and block every write. Ownership in
   -- label-mode is instead verified at claim time (claim_issue_for_management),
   -- so skip attaching the assignee claim and let github-proxy's no-claim path
