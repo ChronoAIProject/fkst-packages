@@ -86,6 +86,14 @@ local function resolved_role_timeout(role, dispatch_opts)
   return default
 end
 
+-- The attempt budget for a role, for callers that must stay inside the same budget as the
+-- attempt itself rather than restate it. A verification gate that hardcodes its own timeout
+-- drifts the moment a deployment raises the role env, and then times out on work that is
+-- still within budget (#2887).
+function M.role_timeout_seconds(role)
+  return resolved_role_timeout(role, {})
+end
+
 function M.with_resolved_timeout(role, opts)
   local dispatch_opts = copy_opts(opts)
   dispatch_opts.timeout = resolved_role_timeout(role, dispatch_opts)
