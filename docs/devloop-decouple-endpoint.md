@@ -123,3 +123,115 @@ carrying ledger entries must preserve the line count — which is why the correc
 one-for-one replacements and the detail lives here instead. The campaign spec rejected re-keying that
 ledger on cost grounds (§1.3 of `docs/superpowers/specs/2026-08-04-refactor-campaign-spec.md`); this
 is what paying that cost looks like in practice.
+
+## What `G-DEVLOOP-SERVICE-LOCATOR`'s 494 contains (measured 2026-08-06)
+
+The analogous binding-source measurement for `G-DEVLOOP-SERVICE-LOCATOR` was run at commit
+`fc89acdd32b4b24acfe00cf501e72dcd97a87685`. The result does **not** support treating all 494
+`core.<member>` matches as reads from the `libraries/devloop` ambient god-table. Only 37 actual
+table-access matches bind to a symbol installed from `libraries/devloop`; 446 are package-owned
+matches, including the non-read lexical matches detailed below. The requested three-way split is
+not exhaustive: another 8 bind to declared `libraries/forge` installers, and 3 have no binding in
+the owning package's composed core.
+
+### Reproduction method: classify the final binding, not the name
+
+The measurement imported `scripts/check_repo_service_locator.py` and used its
+`_department_files(root)` iterator and `_CORE_MEMBER` regex directly. This reproduces the ratchet's
+exact file exclusions and lexical matches; an assertion required the enumerated occurrence count to
+equal `counts(root)["department_core_member_reads"] == 494`.
+
+For each package that owned at least one occurrence, an isolated Lua process loaded that package's
+`core.lua`. The process replaced only the newly-created `M` table with a proxy whose `__newindex`
+and `rawset` paths recorded `(member, source file, source line)` for every assignment. The proxy
+preserved `__index`, `pairs`, and assignment behavior. This captured direct `M.x = ...`,
+`function M.x`, loop-based installers, package `core/` submodule installers, and
+`require("devloop.X").install(M)` in execution order. Classification used the **last recorded
+assignment**: a source under the owning `packages/<pkg>/core.lua` or `core/` is (a), and a source
+under `libraries/devloop/` is (b). The available standalone interpreter was Lua 5.5, so the trace
+performed a same-line, in-memory local-variable rewrite at the repository's four pre-5.5
+generic-for mutation sites; no repository source was changed. Two complete runs produced
+byte-identical per-occurrence ledgers.
+
+The ratchet regex is lexical rather than an AST read query. Its 494 matches are 444 table-access
+spellings, 33 strings inside `require("core.<submodule>")`, 16 `function core.<member>` definition
+writes, and one comment (`github-devloop-worktree-gc/departments/worktree_gc/main.lua:6`). The
+submodule strings are package-local module paths, so they are (a), not table reads. The 16
+definition writes, and the later accesses to those definitions, are package-owned observability
+installers; `packages/github-devloop-ops/departments/observability/main.lua:54-58` establishes their
+installation order before the pipeline uses them.
+
+The complete per-symbol ledger records each occurrence, final source line, and overwrite history.
+The aggregate is:
+
+| Package | (a) package-owned | (b) `libraries/devloop` install | (c) same-name ambiguous | Other: `forge` install | Unbound | Total |
+|---|---:|---:|---:|---:|---:|---:|
+| `archaudit` | 23 | 0 | 0 | 0 | 0 | 23 |
+| `autochrono` | 23 | 0 | 0 | 0 | 0 | 23 |
+| `fkst-substrate-ref-maintainer` | 1 | 0 | 0 | 0 | 0 | 1 |
+| `github-autochrono` | 2 | 0 | 0 | 0 | 0 | 2 |
+| `github-devloop` | 55 | 19 | 0 | 0 | 2 | 76 |
+| `github-devloop-decompose` | 10 | 1 | 0 | 1 | 0 | 12 |
+| `github-devloop-intake` | 7 | 0 | 0 | 0 | 0 | 7 |
+| `github-devloop-integration` | 70 | 1 | 0 | 3 | 0 | 74 |
+| `github-devloop-ops` | 108 | 0 | 0 | 2 | 0 | 110 |
+| `github-devloop-pr` | 22 | 16 | 0 | 2 | 1 | 41 |
+| `github-devloop-worktree-gc` | 1 | 0 | 0 | 0 | 0 | 1 |
+| `github-external-pr-intake` | 50 | 0 | 0 | 0 | 0 | 50 |
+| `github-proxy` | 39 | 0 | 0 | 0 | 0 | 39 |
+| `github-ratchet-migration-slicer` | 13 | 0 | 0 | 0 | 0 | 13 |
+| `idle-detector` | 5 | 0 | 0 | 0 | 0 | 5 |
+| `integration-coverage-producer` | 15 | 0 | 0 | 0 | 0 | 15 |
+| `marketing-radar` | 2 | 0 | 0 | 0 | 0 | 2 |
+| **Total** | **446** | **37** | **0** | **8** | **3** | **494** |
+
+### Category details
+
+**(b), the measured target: 37 occurrences.** These final bindings come from
+`devloop.prompts`, `devloop.restart`, `devloop.liveness`, and
+`devloop.restart.pr_review_replay_facts`:
+
+- `github-devloop` (19): `build_implement_prompt` (2), `fixing_version_matches_link` (2),
+  `liveness_timeout_decision_with_facts` (1), `liveness_timeout_due_with_facts` (1),
+  `maybe_timeout_redrive_from_table` (2), `restart_observe_replay_due` (1),
+  `restart_observe_timeout_due` (1), `restart_row_liveness_signal` (1),
+  `restart_row_observable_on` (2), `restart_row_receiver_liveness` (1), and
+  `restart_transition_table` (5).
+- `github-devloop-decompose` (1): `build_decompose_prompt`.
+- `github-devloop-integration` (1): `build_sync_conflict_prompt`.
+- `github-devloop-pr` (16): `build_fix_prompt`, `build_review_meta_prompt`,
+  `fixing_replay_feedback_fact`, `liveness_timeout_decision_with_facts`,
+  `liveness_timeout_due_with_facts`, `maybe_timeout_redrive_from_table`,
+  `parse_review_meta_action`, `restart_row_liveness_signal`, and `restart_row_observable_on`
+  (one each), `restart_row_receiver_liveness` (2), and `restart_transition_table` (5).
+
+**(c), explicit ambiguous list: none.** No counted access had both an owning-package assignment and
+a `libraries/devloop` assignment in its write history. Assignment order therefore resolved every
+observed same-table write; there is no residual name-collision bucket to estimate.
+
+**The 8 `forge` bindings, outside the requested trichotomy.** These are
+`with_github_debug_stamp` (3), `evaluate_ci_merge_gate` (2), `run_verified_pr_merge` (1),
+`merge_gate_reason_class` (1), and `merge_gate_reason_requires_pr_merge_product` (1). Their final
+sources are `libraries/forge/github_debug_stamp.lua`, `libraries/forge/merge/ci_gate.lua`, and
+`libraries/forge/merge/verified_merge.lua`. They are not `libraries/devloop` ambient bindings and
+are not package definitions, so reporting them as either (a) or (b) would falsify the binding
+source.
+
+**The 3 unbound accesses, also outside the trichotomy.** No assignment was observed during the
+owning package's core construction, and no same-package `core/` assignment exists for
+`github-devloop`'s `core.terminal_linked_pr_action` reads at
+`departments/observe_issue/main.lua:143,150` or `github-devloop-pr`'s `core.dependency_gate` read at
+`departments/reconcile/main.lua:549`. This measurement records only that binding fact; it does not
+infer runtime reachability or diagnose behavior.
+
+### Implication for the ratchet
+
+Do not drive the raw 494 to zero and call that ambient-`M` dissolution. Doing so would require
+removing or renaming sanctioned package-local `core.lua` APIs, package `core/` submodule imports,
+package-owned department installers, and declared `forge` capabilities. It would also treat 50
+non-read lexical matches as service-locator reads. The binding-source target represented by this
+counter is the measured (b) subset, **37 at the pinned commit**, not 494. The raw ratchet remains a
+useful shrink-only inventory, but its number is not a valid measure of ambient-devloop coupling
+without this composition attached.
+
+⟦AI:FKST⟧
