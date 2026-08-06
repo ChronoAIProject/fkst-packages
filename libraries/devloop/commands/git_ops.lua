@@ -23,7 +23,7 @@ function S.run_mkdir(_M, path, timeout)
 end
 
 function S.run_path_is_directory(_M, path, timeout)
-  return exec_sync({ cmd = C.path_is_directory_cmd(path), timeout = timeout or 30 })
+  return support.run_path_is_directory(path, timeout)
 end
 
 local function command_detail(result)
@@ -248,17 +248,6 @@ end
     return support.git().switch_branch(worktree, validators.require_safe_branch("branch", branch), timeout)
   end
 
-  function C.git_worktree_remove_if_present(worktree, timeout)
-    local dir_result = S.run_path_is_directory(nil, worktree, 30)
-    if dir_result.exit_code == 1 then
-      return { stdout = "", stderr = "", exit_code = 0 }
-    end
-    if dir_result.exit_code ~= 0 then
-      return dir_result
-    end
-    return support.git().worktree_remove(worktree, timeout)
-  end
-
   function C.git_worktree_force_clean(worktree, timeout)
     local value = tostring(worktree or "")
     if value == "" or value:find("[\r\n]") ~= nil then
@@ -345,13 +334,7 @@ end
   C.read_durable_root_cmd = devloop_base.read_durable_root_cmd
   C.mkdir_p_cmd = devloop_base.mkdir_p_cmd
 
-  function C.path_is_directory_cmd(path)
-    local value = tostring(path or "")
-    if value == "" or value:find("[\r\n]") ~= nil then
-      error("github-devloop: directory-path-invalid: invalid directory path")
-    end
-    return "[ -d " .. devloop_base._shell_single_quote(value) .. " ]"
-  end
+  C.path_is_directory_cmd = support.path_is_directory_cmd
 
   function C.existing_implementation_worktree(repo, issue_number, impl_version, expected_branch)
     if issue_number == nil or impl_version == nil then
@@ -466,7 +449,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_oid", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
+  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_oid", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
 end
 C.install = S.install
 

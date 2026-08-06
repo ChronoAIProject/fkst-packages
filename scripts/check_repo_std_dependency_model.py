@@ -28,6 +28,7 @@ SANCTIONED_DEVLOOP_FORGE_IMPORTS = {
     ("libraries/devloop/context_bundle.lua", "forge.github.content_filter"),
     ("libraries/devloop/github_author_policy.lua", "forge.github.content_filter"),
     ("libraries/devloop/github_factory.lua", "forge.github"),
+    ("libraries/devloop/parsers/misc.lua", "forge.github.check_runs"),
 }
 DEVLOOP_FAMILY = {
     "archaudit",

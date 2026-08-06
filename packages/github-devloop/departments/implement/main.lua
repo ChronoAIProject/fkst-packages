@@ -161,7 +161,7 @@ local function publish_implementation_branch(repo, issue_number, ready, worktree
   end
   restart_sink_grants.consume(implement_caps, authorization, "git.push:implementation-branch",
     "github-devloop: implementation branch publish grant")
-  local push = git_mechanics.git_push_worktree_branch_update(core.git, worktree, branch, 120)
+  local push = git_mechanics.git_push_worktree_branch_update(implement_caps.git_handle, worktree, branch, 120)
   if push.exit_code ~= 0 then
     error("github-devloop: branch-push-failed: git implementation branch push failed: " .. tostring(push.stderr))
   end
@@ -243,7 +243,7 @@ end
 local function merge_integration_for_implementation(worktree, integration_branch, base_head)
   local merge_result = devloop_commands.git_worktree_merge_no_edit(worktree, base_head, 120)
   if merge_result.exit_code == 0 then return true end
-  local unmerged_result = core.git.unmerged_paths(worktree, 30)
+  local unmerged_result = implement_caps.git_handle.unmerged_paths(worktree, 30)
   if unmerged_result.exit_code ~= 0 then
     error("github-devloop: unmerged-path-check-failed: git unmerged path check failed: " .. tostring(unmerged_result.stderr))
   end
@@ -664,9 +664,9 @@ local function process_ready_event(event)
       local checkpoint = fact == nil and m_facts.implement_checkpoint_fact(current.comments, ready.proposal_id, marker_ready.dedup_key) or nil
       local resume_checkpoint = checkpoint
       if fact ~= nil then
-        progress = branch_progress.remote_branch_fact(core.git, fact.branch, fact.base_branch, fact)
+        progress = branch_progress.remote_branch_fact(implement_caps.git_handle, fact.branch, fact.base_branch, fact)
       else
-        progress = branch_progress.remote_branch_fact(core.git, branch, branches.integration, {
+        progress = branch_progress.remote_branch_fact(implement_caps.git_handle, branch, branches.integration, {
           proposal_id = ready.proposal_id,
           dedup_key = marker_ready.dedup_key,
         })
@@ -677,7 +677,7 @@ local function process_ready_event(event)
           progress.dedup_key = marker_ready.dedup_key
           pr_child_handoff.raise_awaiting_pr_from_fact("implement", repo, issue_number, marker_ready, current, progress, "implementing remote branch progress is visible")
           return
-        elseif result_checkpoint.rehydrate(core.git, progress, marker_ready.dedup_key) ~= nil then
+        elseif result_checkpoint.rehydrate(implement_caps.git_handle, progress, marker_ready.dedup_key) ~= nil then
           completed_result = progress
           resume_checkpoint = progress
           devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "resume-completed-result(remote-progress)", "version-bound implementation result is durable; resuming harvest")
@@ -699,7 +699,7 @@ local function process_ready_event(event)
             pr_child_handoff.raise_awaiting_pr_from_fact("implement", repo, issue_number, marker_ready, current, local_progress, "local implementation branch progress is visible")
             return
           end
-          completed_result = result_checkpoint.rehydrate(core.git, local_progress, marker_ready.dedup_key)
+          completed_result = result_checkpoint.rehydrate(implement_caps.git_handle, local_progress, marker_ready.dedup_key)
           local decision = completed_result ~= nil and "resume-completed-result(local-progress)" or "skip-unmarked-progress(local-progress)"
           local reason = completed_result ~= nil and "version-bound implementation result is durable; resuming harvest" or "local branch progress has no durable implementing fact; retrying implementation attempt"
           devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", decision, reason)
