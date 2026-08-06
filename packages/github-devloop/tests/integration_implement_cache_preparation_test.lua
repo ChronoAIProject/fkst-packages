@@ -10,6 +10,7 @@ local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_imple
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
+local mock_result_checkpoint = h.mock_result_checkpoint
 local mock_branch_diff_paths = h.mock_branch_diff_paths
 local count_calls = h.count_calls
 
@@ -147,6 +148,7 @@ return {
     mock_implement_codex(0, "committed implementation from warm cache")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",

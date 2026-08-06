@@ -73,6 +73,7 @@ local mock_outside_runtime_implement_worktree_rebuild = h.mock_outside_runtime_i
 local mock_multiple_outside_runtime_implement_worktrees_rebuild = h.mock_multiple_outside_runtime_implement_worktrees_rebuild
 local mock_existing_implement_branch = h.mock_existing_implement_branch
 local mock_git_commit = h.mock_git_commit
+local mock_result_checkpoint = h.mock_result_checkpoint
 local mock_git_push = h.mock_git_push
 local mock_existing_devloop_worktree = h.mock_existing_devloop_worktree
 local mock_implement_codex = h.mock_implement_codex
@@ -214,6 +215,7 @@ return {
   mock_multiple_outside_runtime_implement_worktrees_rebuild = mock_multiple_outside_runtime_implement_worktrees_rebuild,
   mock_existing_implement_branch = mock_existing_implement_branch,
   mock_git_commit = mock_git_commit,
+  mock_result_checkpoint = mock_result_checkpoint,
   mock_git_push = mock_git_push,
   mock_existing_devloop_worktree = mock_existing_devloop_worktree,
   mock_implement_codex = mock_implement_codex,
