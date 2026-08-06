@@ -206,6 +206,7 @@ function M.decide_transition(sealed_snapshot, intent)
   local supported_review_meta = edge.cas_policy_id == "cas.legacy_review_meta_v1"
     and edge.cas_variant == "predecision_eligibility"
     and (edge.semantic_variant == "fix"
+      or edge.semantic_variant == "no-actionable-gap"
       or edge.semantic_variant == "block")
   local supported_observe_pr = edge.cas_policy_id == "cas.legacy_observe_pr_v1"
     and edge.cas_variant == "pr_open_to_reviewing"
