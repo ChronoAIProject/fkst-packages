@@ -60,17 +60,37 @@ class DogfoodBoardHarness:
                     # issue<->PR linkage) and pr_rows (number/sha/updated/base/title TSV).
                     # Emulate each query's post-jq output. PR#50 is old (=> CI+age would
                     # flag ⚠ STUCK) but its authoritative marker is terminal-blocked.
+                    # PRs #51-#53 have fresh entity metadata but old lifecycle markers.
                     case "$4" in
                       *head.ref*) ;;
-                      *) printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR' ;;
+                      *)
+                        printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration 'Old condition fresh metadata'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration 'Condition onset unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration 'Independent CI failure'
+                        ;;
                     esac
                     ;;
-                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*)
+                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*|repos/ChronoAIProject/fkst-packages/commits/oldstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/noonset/check-runs*)
                     printf '%s\n' success
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/commits/redstate/check-runs*)
+                    printf '%s\n' failure
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/50/comments?per_page=100)
                     cat <<'JSON'
 [{"user":{"login":"loning"},"body":"github-devloop child workflow terminal.\\n\\n<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"blocked\\\" version=\\\"ready/2026-06-27T00-00-00Z/blocked/child-pr-blocked/1\\\" stage_rank=\\\"800\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/51/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/53/comments?per_page=100)
+                    num=${2#*/issues/}; num=${num%%/*}
+                    cat <<JSON
+[{"user":{"login":"loning"},"created_at":"2026-06-27T00:00:00Z","body":"<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"fixing\\\" version=\\\"2026-06-27T00-00-00Z/fixing/$num\\\" stage_rank=\\\"200\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000200\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/52/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"fixing\\\" version=\\\"2026-06-27T00-00-00Z/fixing/52\\\" stage_rank=\\\"200\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000200\\\" -->"}]
 JSON
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
@@ -278,6 +298,36 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertRegex(result.stdout, r"PR#50\b.*parked\(blocked\)")
             self.assertNotRegex(result.stdout, r"PR#50\b.*⚠ STUCK")
+        finally:
+            h.close()
+
+    def test_pr_condition_age_is_invariant_to_fresh_entity_updated_at(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#51\b.*⚠ STUCK 12h")
+            self.assertNotRegex(result.stdout, r"PR#51\b.*✓ flowing 1h")
+        finally:
+            h.close()
+
+    def test_pr_without_condition_onset_fails_visibly(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#52\b.*⚠ CONDITION-ONSET-UNAVAILABLE fixing")
+            self.assertNotRegex(result.stdout, r"PR#52\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_pr_ci_verdict_remains_independent_of_condition_age(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#53\b.*⚠ CI-RED")
+            self.assertNotRegex(result.stdout, r"PR#53\b.*⚠ STUCK")
         finally:
             h.close()
 

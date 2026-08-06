@@ -194,29 +194,27 @@ board_one() { # $1 name, $2 stale_hours
   else
   printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
     [ -z "$num" ] && continue
-    local chk a flow; chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
+    local chk a flow pr_fact="" pr_condition condition_started_at pr_state pr_override onset_missing=0
+    chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
     a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
+    if pr_fact=$(pr_lifecycle_board_fact "$num"); then
+      if pr_condition=$(lifecycle_board_condition "$pr_fact"); then
+        pr_state="${pr_condition%%$'\t'*}"
+        condition_started_at="${pr_condition#*$'\t'}"
+        a=$(( (now - $(epoch_utc "$condition_started_at")) / 3600 ))
+      else
+        onset_missing=1
+        pr_state=$(printf '%s' "$pr_fact" | jq -er '.state') || pr_state="unknown"
+      fi
+    fi
     if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
+    elif [ "$onset_missing" -eq 1 ];                 then flow="⚠ CONDITION-ONSET-UNAVAILABLE $pr_state"
     elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
     else flow="✓ flowing ${a}h"; fi
-    # The CI+age verdict above measures the CHECKS and the clock, never the pipeline.
-    # It is wrong in BOTH directions, so the authoritative state:v1 marker is consulted
-    # unconditionally (symmetric with the issue classifier below): terminal ->
-    # parked(state), pipeline_stuck -> ⚠ with WHY, awaiting-pr -> waiting.
-    #
-    # Gating this on a ⚠ verdict — as it was — made the marker a false-alarm suppressor
-    # only, so a PR sitting in a terminal state with green CI and any recent comment
-    # rendered "✓ flowing" and its terminal was invisible. Observed 2026-08-06: PR#2918
-    # had been in `fixing` since 07-30 and PR#2968/#2997/#2443 were `blocked`, all four
-    # displayed as flowing, while PR#2975/#2977 in the SAME blocked state displayed
-    # parked(blocked) purely because their CI happened to trip the ⚠ branch.
-    #
-    # Calling it unconditionally is safe by construction: lifecycle_board_reclassify
-    # emits an override only for pipeline_stuck / terminal / awaiting-pr and otherwise
-    # exits non-zero, leaving the CI+age verdict untouched for a healthy PR.
-    local pr_fact pr_override
-    if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
+    # CI remains independent. The trusted marker supplies condition dwell and can also
+    # reclassify terminal/pipeline-stuck states; it is not execution-liveness evidence.
+    if [ -n "$pr_fact" ] && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
       flow="${pr_override#*$'\t'}"
     fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
