@@ -75,6 +75,21 @@ local function mock_env(write_mode, integration)
   end
 end
 
+local function mock_claim_label_env(exclusive)
+  for _ = 1, 2 do
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
+      stdout = "label",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+    stdout = exclusive or "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function labels_list_command()
   return "gh api --paginate --slurp 'repos/owner/repo/labels?per_page=100'"
 end
@@ -169,6 +184,16 @@ end
 
 local function canonical_labels()
   return core.ensure_repo_label_specs()
+end
+
+local function canonical_labels_with_dashboard()
+  local labels = canonical_labels()
+  table.insert(labels, {
+    name = core.dashboard_label(),
+    color = "ededed",
+    description = "fkst observability dashboard singleton",
+  })
+  return labels
 end
 
 return {
@@ -297,12 +322,7 @@ return {
   end,
 
   test_fully_converged_repo_performs_zero_writes = function()
-    local labels = canonical_labels()
-    table.insert(labels, {
-      name = core.dashboard_label(),
-      color = "ededed",
-      description = "fkst observability dashboard singleton",
-    })
+    local labels = canonical_labels_with_dashboard()
     mock_env("1")
     mock_labels(labels)
     mock_dashboard_anchor(true)
@@ -315,6 +335,66 @@ return {
     t.eq(count_calls("gh api --method PATCH"), 0)
     t.eq(count_calls(labels_list_command()), 1)
     t.eq(count_calls(dashboard_issue_list_command()), 1)
+  end,
+
+  test_label_mode_provisions_derived_active_claim_label = function()
+    local claim_label = "fkst-dev:claimed:fkst-test-bot"
+    local claim_command = core.gh_repo_label_create_cmd(
+      "owner/repo",
+      claim_label,
+      "0E8A16",
+      "fkst-dev-label-mode-ownership-claim"
+    )
+    mock_env("1")
+    mock_claim_label_env("")
+    mock_labels(canonical_labels_with_dashboard())
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_command, {
+      stdout = '{"name":"' .. claim_label .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_ensure(opts("ensure-derived-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST"), 1)
+    t.eq(count_calls(claim_command), 1)
+  end,
+
+  test_label_mode_provisions_bare_claim_label_in_exclusive_posture = function()
+    local claim_label = "fkst-dev:claimed"
+    local claim_command = core.gh_repo_label_create_cmd(
+      "owner/repo",
+      claim_label,
+      "0E8A16",
+      "fkst-dev-label-mode-ownership-claim"
+    )
+    mock_env("1")
+    mock_claim_label_env("1")
+    mock_labels(canonical_labels_with_dashboard())
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_command, {
+      stdout = '{"name":"' .. claim_label .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_ensure(opts("ensure-exclusive-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST"), 1)
+    t.eq(count_calls(claim_command), 1)
   end,
 
   test_missing_integration_branch_holds_without_creating_branch = function()

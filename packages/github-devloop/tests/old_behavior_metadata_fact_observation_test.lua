@@ -48,6 +48,8 @@ local PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK = {
   family = "issue-blocked-by/precursor/proposal+version+blocker",
 }
 local CURRENT_SINK_FAMILIES = {
+  ["adapter:github.claim-label-add"] = "claim-label/add/fkst-dev:claimed[:owner]",
+  ["adapter:github.claim-label-remove"] = "claim-label/remove/fkst-dev:claimed[:owner]",
   ["comment:issue:consensus-result"] =
     "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
   ["label:issue:consensus-result"] =
@@ -354,6 +356,9 @@ local function committed_records()
       table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+    end
+    if record.observation_id == "effect-sink-catalog-gd-exact-set"
+      or record.observation_id == "grantless-sink-gd-exact-set" then
       for _, sink in ipairs(record.old_outcome.observable_writes) do
         sink.family = CURRENT_SINK_FAMILIES[sink.effect_id] or sink.family
       end
