@@ -189,6 +189,7 @@ class RunShComposedConformanceHarness:
                     "FKST_DEVLOOP_LOCAL_TEST_COMMAND",
                     "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND",
                     "FKST_PROJECT_ROOT",
+                    "FKST_PLATFORM_ROOT",
                     "FKST_OUTPUT_LANG",
                 ]
                 if sys.argv[1:4] == ["manifest", "composed-deps", "--manifest"]:
@@ -231,6 +232,7 @@ class RunShComposedConformanceHarness:
                 "FKST_DEVLOOP_LOCAL_TEST_COMMAND": "live-local-test-command",
                 "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND": "live-cache-preparation-command",
                 "FKST_PROJECT_ROOT": "/untrusted/ambient-project-root",
+                "FKST_PLATFORM_ROOT": "/untrusted/ambient-platform-root",
                 "FKST_OUTPUT_LANG": "zh",
             }
         )

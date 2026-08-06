@@ -113,10 +113,14 @@ local function retire_spent_intent_diffs(payload, pr)
   if project_root:sub(1, 1) ~= "/" or project_root:find("[\r\n]") ~= nil then
     error("github-devloop: intent-diff-retirement-project-root-invalid: FKST_PROJECT_ROOT must be absolute")
   end
+  local platform_root = strings.trim(config.platform_root() or ""):gsub("/+$", "")
+  if platform_root:sub(1, 1) ~= "/" or platform_root:find("[\r\n]") ~= nil then
+    error("github-devloop: intent-diff-retirement-platform-root-invalid: FKST_PLATFORM_ROOT must be absolute")
+  end
   local result = exec_argv({
     argv = {
       "python3",
-      project_root .. retirement_helper,
+      platform_root .. retirement_helper,
       "--repo-root",
       project_root,
       "--github-repo",

@@ -9,7 +9,8 @@ local function opts(name, write_mode)
       FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
       FKST_GITHUB_WRITE = write_mode or "1",
       FKST_DEVLOOP_ROLLUP_RUNTIME_SOAK_MINUTES = "30",
-      FKST_PROJECT_ROOT = "/tmp/fkst-project",
+      FKST_PROJECT_ROOT = "/tmp/fkst-host",
+      FKST_PLATFORM_ROOT = "/tmp/fkst-platform",
     },
   }
 end
@@ -120,11 +121,16 @@ end
 
 local function mock_intent_diff_retirement(retired, head_sha, times)
   t.mock_command('printf %s "$FKST_PROJECT_ROOT"', {
-    stdout = "/tmp/fkst-project",
+    stdout = "/tmp/fkst-host",
     stderr = "",
     exit_code = 0,
   }, times or 1)
-  t.mock_command("retire_spent_intent_diffs.py", {
+  t.mock_command('printf %s "$FKST_PLATFORM_ROOT"', {
+    stdout = "/tmp/fkst-platform",
+    stderr = "",
+    exit_code = 0,
+  }, times or 1)
+  t.mock_command("/tmp/fkst-platform/.claude/skills/dogfood-github-devloop/retire_spent_intent_diffs.py", {
     stdout = '{"head":"' .. tostring(head_sha or "def456")
       .. '","paths":' .. ((retired or 0) > 0 and '["migration/intent-diffs/123.json"]' or "[]")
       .. ',"retired":' .. tostring(retired or 0)

@@ -33,6 +33,7 @@ local allowed_env = {
   FKST_DEVLOOP_LOCAL_TEST_COMMAND = true,
   FKST_DEVLOOP_CACHE_PREPARATION_COMMAND = true,
   FKST_PROJECT_ROOT = true,
+  FKST_PLATFORM_ROOT = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }
@@ -216,6 +217,14 @@ end
 
 function C.project_root(exec)
   local root = strings.trim(C.read_env("FKST_PROJECT_ROOT", exec) or "")
+  if root == "" then
+    return nil
+  end
+  return root
+end
+
+function C.platform_root(exec)
+  local root = strings.trim(C.read_env("FKST_PLATFORM_ROOT", exec) or "")
   if root == "" then
     return nil
   end
