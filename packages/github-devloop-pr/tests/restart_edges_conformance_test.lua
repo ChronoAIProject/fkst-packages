@@ -85,7 +85,7 @@ return {
     assert_successor_kind_partition(rows)
     local expected, empty_rows = expected_edges(owner, rows)
     local actual = restart_edges.extract_autonomous_edges(owner, rows)
-    t.eq(#actual, 15)
+    t.eq(#actual, 16)
     assert_edges(actual, expected, empty_rows)
     assert_same_value(rows, snapshot)
 
