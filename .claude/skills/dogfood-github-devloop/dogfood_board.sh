@@ -125,24 +125,22 @@ fetch_entity_comments() { # $1 issue-or-pr number
 
 # Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
 # symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
-# issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
-# `proposal="..."` field rather than derived from the PR number. This lets the PR
+# issue's proposal, so the origin is SELF-DISCOVERED from the PR's trusted pr-origin:v1
+# or state:v1 `proposal="..."` field rather than derived from the PR number. This lets the PR
 # classifier distinguish a genuinely-stuck PR from one that has reached a correct
 # terminal (blocked/merged/closed_unmerged) — the CI+age-only classifier cannot.
+# Exit 0 = lifecycle fact, 1 = authoritatively unmanaged, 2 = fact unavailable.
 pr_lifecycle_board_fact() { # $1 pr-number
-  local num="$1" comments origin fact tool
-  tool="$(lifecycle_board_fact_tool)" || return 1
-  [ -n "$tool" ] || return 1
-  comments=$(fetch_entity_comments "$num") || return 1
-  origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
-    | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
-    | sed -E 's/.*proposal="([^"]+)".*/\1/')
-  [ -n "$origin" ] || return 1
+  local num="$1" comments fact fact_rc tool
+  tool="$(lifecycle_board_fact_tool)" || return 2
+  [ -n "$tool" ] || return 2
+  comments=$(fetch_entity_comments "$num") || return 2
   fact=$(printf '%s' "$comments" | python3 "$tool" \
-    --origin "$origin" \
+    --discover-pr-origin \
     --bot-login "$BOT" \
-    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
-  [ -n "$fact" ] || return 1
+    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null); fact_rc=$?
+  [ "$fact_rc" -eq 0 ] || return "$fact_rc"
+  [ -n "$fact" ] || return 2
   printf '%s\n' "$fact"
 }
 
@@ -183,21 +181,22 @@ board_one() { # $1 name, $2 stale_hours
   # old `2>/dev/null | while` swallowing it into a silently-EMPTY section — an empty board is
   # indistinguishable from "all resolved" (real blind spot hit during the 2026-07-17 REST outage).
   local pr_rows pr_rc
-  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|([.labels[].name]|map(select(startswith("fkst-dev:") and .!="fkst-dev:enabled" and (startswith("fkst-dev:claimed")|not) and .!="fkst-dev:blocked-on-dependency"))|.[0]//"__fkst_unmanaged__"|sub("^fkst-dev:";"")) as $state|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\($state)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   if [ "$pr_rc" -ne 0 ]; then
     pr_rows=$(gh pr list --repo "$REPO" --state open --limit 100 \
-      --json number,headRefOid,updatedAt,baseRefName,labels,title \
-      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:") and .!="fkst-dev:enabled" and (startswith("fkst-dev:claimed")|not) and .!="fkst-dev:blocked-on-dependency"))|.[0]//"__fkst_unmanaged__"|sub("^fkst-dev:";"")) as $state|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\($state)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+      --json number,headRefOid,updatedAt,baseRefName,title \
+      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   fi
   if [ "$pr_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (pulls: REST and GraphQL both failed) — cross-check: gh pr list --repo $REPO --state open"
   else
-  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base pr_state_hint title; do
+  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
     [ -z "$num" ] && continue
-    local chk a flow pr_fact="" pr_condition condition_started_at pr_state pr_override onset_missing=0
+    local chk a flow pr_fact="" pr_fact_rc pr_condition condition_started_at pr_state pr_override onset_missing=0
     chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
     a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
-    if pr_fact=$(pr_lifecycle_board_fact "$num"); then
+    pr_fact=$(pr_lifecycle_board_fact "$num"); pr_fact_rc=$?
+    if [ "$pr_fact_rc" -eq 0 ]; then
       if pr_condition=$(lifecycle_board_condition "$pr_fact"); then
         pr_state="${pr_condition%%$'\t'*}"
         condition_started_at="${pr_condition#*$'\t'}"
@@ -206,9 +205,9 @@ board_one() { # $1 name, $2 stale_hours
         onset_missing=1
         pr_state=$(printf '%s' "$pr_fact" | jq -er '.state') || pr_state="unknown"
       fi
-    elif [ "$pr_state_hint" != "__fkst_unmanaged__" ]; then
+    elif [ "$pr_fact_rc" -ne 1 ]; then
       onset_missing=1
-      pr_state="$pr_state_hint"
+      pr_state="unknown"
     fi
     if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
