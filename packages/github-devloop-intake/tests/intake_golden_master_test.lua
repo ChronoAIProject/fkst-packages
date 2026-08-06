@@ -85,7 +85,7 @@ local function assert_admission_candidate_delivery_key(payload)
   t.is_true(tostring(payload.dedup_key or ""):sub(1, #prefix) == prefix)
   local delivery_version = tostring(payload.dedup_key):sub(#prefix + 1)
   t.is_true(delivery_version:match("^%d+$") ~= nil)
-  t.eq(payload.dedup_key, core.intake_candidate_delivery_dedup_key(
+  t.eq(payload.dedup_key, devloop_base.intake_candidate_delivery_dedup_key(
     payload.proposal_id,
     payload.effect_id,
     delivery_version
