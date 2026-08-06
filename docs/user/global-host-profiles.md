@@ -58,6 +58,8 @@ The profile schema is the existing host-run environment surface:
 | `FKST_RATE_POOL_ROOT` | yes for GitHub traffic | Host-stable external-command rate-pool root. |
 | `FKST_GITHUB_REPO` | package-dependent | GitHub repository identity such as `owner/repo`. |
 | `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. |
+| `FKST_GITHUB_CLAIM_MODE` | optional | Claim ownership posture: trimmed `label` selects claim labels for GitHub App hosts that cannot be issue assignees; `assignee` is the default, and unset or every other value uses issue assignees. |
+| `FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE` | optional | Claim-label naming posture: trimmed `1` selects the bare `fkst-dev:claimed` label, and only one App host may use that exclusive posture because two bare-label hosts recreate a holderless lock; unset or every other value defaults to `fkst-dev:claimed:<normalized-owner>`, and existing bare-label deployments must either opt in with `1` or clear stale bare claim labels before switching. |
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
