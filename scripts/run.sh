@@ -186,6 +186,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_interface_test.py"'
     'python3 -B "$ROOT/scripts/lua_coverage_to_lcov_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_gh_git_adapter_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_library_error_class_test.py"'
