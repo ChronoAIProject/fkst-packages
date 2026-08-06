@@ -6,6 +6,7 @@ local env = require("workflow_internal.env")
 local error_facts = require("contract.error_facts")
 local locale = require("consensus.locale")
 local strings = require("contract.strings")
+local synthesis_contract = require("consensus.synthesis_contract")
 
 
 local default_angles = { "teleology", "parsimony", "fidelity", "natural-ownership", "proportional-containment" }
@@ -22,7 +23,7 @@ local max_gap_len = 240
 local max_gaps = 4
 local max_narrowed_question_len = 2000
 local max_digest_len = 600
-local findings_record_len = 1500
+local findings_record_max_bytes = synthesis_contract.findings_record_max_bytes
 local max_worktree_len = 4096
 local max_scratch_slug_len = 120
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -249,7 +250,7 @@ function M.is_eligible(proposal)
     return false
   end
   if proposal.findings_record ~= nil
-    and not is_bounded_string(proposal.findings_record, findings_record_len) then
+    and not is_bounded_string(proposal.findings_record, findings_record_max_bytes) then
     return false
   end
   if proposal.prior_round_digests ~= nil then
@@ -684,7 +685,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results, fi
     payload.effect_version = tostring(proposal.effect_version)
   end
   if findings_record ~= nil and findings_record ~= "" then
-    if not is_bounded_string(findings_record, findings_record_len) then
+    if not is_bounded_string(findings_record, findings_record_max_bytes) then
       error("consensus: findings-record-invalid: findings_record is overlong")
     end
     payload.findings_record = findings_record
@@ -702,7 +703,7 @@ require("consensus.prompt_rendering").install(M, {
   stance_label = stance_label,
   max_key_len = max_key_len,
   max_digest_len = max_digest_len,
-  findings_record_len = findings_record_len,
+  findings_record_max_bytes = findings_record_max_bytes,
   is_bounded_string = is_bounded_string,
   has_content_fetch = has_content_fetch,
   resolve_content_manifest = resolve_content_manifest,
