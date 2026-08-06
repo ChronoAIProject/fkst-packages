@@ -3,26 +3,20 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from script_test_support import load_module
 
-def load_module(name: str):
-    path = Path(__file__).with_name(name + ".py")
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load {name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check_repo = load_module("check_repo")
-check_repo_codex_timeout = load_module("check_repo_codex_timeout")
+check_repo = load_module(
+    "check_repo", Path(__file__).with_name("check_repo.py"), error_path="check_repo.py"
+)
+check_repo_codex_timeout = load_module(
+    "check_repo_codex_timeout",
+    Path(__file__).with_name("check_repo_codex_timeout.py"),
+    error_path="check_repo_codex_timeout.py",
+)
 
 
 class CodexTimeoutLiteralGuardTest(unittest.TestCase):
