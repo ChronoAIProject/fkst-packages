@@ -197,15 +197,6 @@ local function act(event)
       log_skip(payload, "foreign-head-repository")
       return
     end
-    local gate_ok, gate_reason = core.evaluate_ci_merge_gate(pr, {
-      repo = payload.repo,
-      dept = "rollup_merge",
-      proposal_id = "rollup",
-    })
-    if not gate_ok then
-      log_skip(payload, gate_reason)
-      return
-    end
     local merged, reason = core.run_verified_pr_merge({
       repo = payload.repo,
       pr_number = payload.pr_number,
@@ -216,6 +207,9 @@ local function act(event)
       proposal_id = "rollup",
       accept_current_head = true,
       match_head_retry_attempts = 3,
+      before_ci_gate = function(rechecked_pr)
+        return retire_spent_intent_diffs(payload, rechecked_pr)
+      end,
       before_merge = function(rechecked_pr)
         local stable, stability_reason, stability_detail = runtime_stability_gate(payload, rechecked_pr)
         if not stable then
@@ -223,10 +217,6 @@ local function act(event)
             reason = stability_reason or "runtime-stability-gate",
             detail = stability_detail,
           }
-        end
-        local retirement_ok, retirement_reason = retire_spent_intent_diffs(payload, rechecked_pr)
-        if not retirement_ok then
-          return false, retirement_reason
         end
         return true, "runtime-stable"
       end,

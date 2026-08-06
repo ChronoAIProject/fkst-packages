@@ -418,6 +418,77 @@ print(json.dumps(fact))
         self.assertTrue((self.repo / relative).is_file())
         self.assertIn("unrelated local edit", allowlist.read_text(encoding="utf-8"))
 
+    def test_symlinked_manifest_directory_is_refused(self) -> None:
+        external = self.root / "external-manifests"
+        external.mkdir()
+        shutil.rmtree(self.repo / "migration/intent-diffs")
+        (self.repo / "migration/intent-diffs").symlink_to(external, target_is_directory=True)
+        commit(self.repo, "track symlinked manifest directory")
+
+        result = self.run_retirement({}, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr.lower())
+
+    def test_symlinked_allowlist_is_refused_without_reading_its_target(self) -> None:
+        external = self.root / "external-allowlist"
+        external.write_text("outside must remain unchanged\n", encoding="utf-8")
+        allowlist = self.repo / "migration/intent-bounded-replay.allowlist"
+        allowlist.unlink()
+        allowlist.symlink_to(external)
+        commit(self.repo, "track symlinked allowlist")
+
+        result = self.run_retirement({}, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr.lower())
+        self.assertEqual(
+            external.read_text(encoding="utf-8"), "outside must remain unchanged\n"
+        )
+
+    def test_symlinked_numbered_manifest_is_refused_without_reading_its_target(self) -> None:
+        git(self.repo, "checkout", "-q", "integration")
+        relative = self.add_manifest(123)
+        external = self.root / "external-manifest.json"
+        external.write_text(
+            json.dumps({"schema": "fkst.intent-diff.v2", "pr_number": 123}) + "\n",
+            encoding="utf-8",
+        )
+        manifest = self.repo / relative
+        manifest.unlink()
+        manifest.symlink_to(external)
+        landed = commit(self.repo, "track symlinked numbered manifest")
+
+        result = self.run_retirement(
+            {"123": {"state": "MERGED", "mergeCommit": {"oid": landed}}},
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr.lower())
+        self.assertTrue(manifest.is_symlink())
+
+    def test_preexisting_retirement_temp_symlink_is_refused_without_writing_target(self) -> None:
+        git(self.repo, "checkout", "-q", "integration")
+        relative = self.add_manifest(123)
+        landed = commit(self.repo, "add manifest for retirement")
+        external = self.root / "external-temp-target"
+        external.write_text("outside must remain unchanged\n", encoding="utf-8")
+        temporary = self.repo / "migration/.intent-bounded-replay.allowlist.retirement.tmp"
+        temporary.symlink_to(external)
+
+        result = self.run_retirement(
+            {"123": {"state": "MERGED", "mergeCommit": {"oid": landed}}},
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("retirement", result.stderr.lower())
+        self.assertEqual(
+            external.read_text(encoding="utf-8"), "outside must remain unchanged\n"
+        )
+        self.assertTrue((self.repo / relative).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

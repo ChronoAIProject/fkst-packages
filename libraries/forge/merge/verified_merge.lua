@@ -40,6 +40,12 @@ local function with_current_classification(request, effect)
   if not identity_ok then
     return false, identity_reason, rechecked_pr
   end
+  if type(request.before_ci_gate) == "function" then
+    local before_ok, before_reason = request.before_ci_gate(rechecked_pr)
+    if before_ok == false then
+      return false, before_reason or "before-ci-gate", rechecked_pr
+    end
+  end
   local gate_ok, gate_reason, gate_classification = evaluate_ci_merge_gate(rechecked_pr, {
     repo = repo,
     dept = request.dept or "merge",

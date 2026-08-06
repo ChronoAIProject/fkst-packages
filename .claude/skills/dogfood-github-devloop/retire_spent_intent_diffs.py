@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -83,7 +84,7 @@ def _manifest_pr(path: Path) -> int:
         raise RetirementError(f"invalid numbered intent-diff path: {path}")
     filename_pr = int(match.group("pr"))
     try:
-        artifact = json.loads(path.read_text(encoding="utf-8"))
+        artifact = json.loads(_read_regular_text(path))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise RetirementError(f"cannot read {path}: {error}") from error
     if not isinstance(artifact, dict):
@@ -147,6 +148,55 @@ def _entry(raw: str) -> str:
     return raw.split("#", 1)[0].strip()
 
 
+def _lstat(path: Path) -> os.stat_result | None:
+    try:
+        return path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise RetirementError(f"cannot inspect {path}: {error}") from error
+
+
+def _require_path_type(path: Path, expected: str) -> os.stat_result:
+    metadata = _lstat(path)
+    if metadata is None:
+        raise RetirementError(f"missing intent-diff {expected}: {path}")
+    if stat.S_ISLNK(metadata.st_mode):
+        raise RetirementError(f"intent-diff {expected} must not be a symlink: {path}")
+    matches = stat.S_ISDIR(metadata.st_mode) if expected == "directory" else stat.S_ISREG(metadata.st_mode)
+    if not matches:
+        raise RetirementError(f"intent-diff {expected} has an invalid file type: {path}")
+    return metadata
+
+
+def _nofollow_flag() -> int:
+    flag = getattr(os, "O_NOFOLLOW", None)
+    if flag is None:
+        raise RetirementError("intent-diff retirement requires O_NOFOLLOW support")
+    return flag
+
+
+def _read_regular_text(path: Path) -> str:
+    expected = _require_path_type(path, "file")
+    try:
+        descriptor = os.open(path, os.O_RDONLY | _nofollow_flag())
+    except OSError as error:
+        raise RetirementError(f"cannot open intent-diff file {path}: {error}") from error
+    try:
+        with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+            descriptor = -1
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+                expected.st_dev,
+                expected.st_ino,
+            ):
+                raise RetirementError(f"intent-diff file changed while opening: {path}")
+            return stream.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _require_clean_policy_paths(root: Path) -> None:
     result = _run(
         [
@@ -168,21 +218,23 @@ def _require_clean_policy_paths(root: Path) -> None:
 
 
 def retirement_plan(root: Path, github_repo: str, protected_ref: str) -> list[Path]:
+    migration_dir = root / MANIFEST_DIR.parent
     manifest_dir = root / MANIFEST_DIR
     allowlist_path = root / ALLOWLIST
-    if not manifest_dir.exists() and not allowlist_path.exists():
+    if _lstat(migration_dir) is None:
         return []
-    if not manifest_dir.is_dir():
-        raise RetirementError(f"missing intent-diff directory: {MANIFEST_DIR}")
-    if not allowlist_path.is_file():
-        raise RetirementError(f"missing intent-diff allowlist: {ALLOWLIST}")
+    _require_path_type(migration_dir, "directory")
+    manifest_metadata = _lstat(manifest_dir)
+    allowlist_metadata = _lstat(allowlist_path)
+    if manifest_metadata is None and allowlist_metadata is None:
+        return []
+    _require_path_type(manifest_dir, "directory")
+    _require_path_type(allowlist_path, "file")
     _require_clean_policy_paths(root)
 
-    candidates = sorted(
-        path
-        for path in manifest_dir.iterdir()
-        if path.is_file() and MANIFEST_RE.fullmatch(path.name) is not None
-    )
+    candidates = sorted(path for path in manifest_dir.iterdir() if MANIFEST_RE.fullmatch(path.name) is not None)
+    for path in candidates:
+        _require_path_type(path, "file")
     spent: list[Path] = []
     for path in candidates:
         pr_number = _manifest_pr(path)
@@ -190,7 +242,7 @@ def retirement_plan(root: Path, github_repo: str, protected_ref: str) -> list[Pa
         if merge_commit is not None and _is_ancestor(root, merge_commit, protected_ref):
             spent.append(path)
 
-    lines = allowlist_path.read_text(encoding="utf-8").splitlines()
+    lines = _read_regular_text(allowlist_path).splitlines()
     entries = [_entry(line) for line in lines]
     for path in spent:
         relative = path.relative_to(root).as_posix()
@@ -205,7 +257,7 @@ def apply_retirement(root: Path, spent: list[Path]) -> None:
     if not spent:
         return
     allowlist_path = root / ALLOWLIST
-    original = allowlist_path.read_text(encoding="utf-8")
+    original = _read_regular_text(allowlist_path)
     retired = {path.relative_to(root).as_posix() for path in spent}
     retained = [line for line in original.splitlines() if _entry(line) not in retired]
     replacement = "\n".join(retained)
@@ -213,18 +265,36 @@ def apply_retirement(root: Path, spent: list[Path]) -> None:
         replacement += "\n"
 
     temporary = allowlist_path.with_name(f".{allowlist_path.name}.retirement.tmp")
+    temporary_created = False
+    descriptor = -1
     try:
-        temporary.write_text(replacement, encoding="utf-8")
+        existing_temporary = _lstat(temporary)
+        if existing_temporary is not None:
+            kind = "symlink" if stat.S_ISLNK(existing_temporary.st_mode) else "existing path"
+            raise RetirementError(f"intent-diff retirement temporary path is a {kind}: {temporary}")
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | _nofollow_flag(),
+            0o666,
+        )
+        temporary_created = True
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(replacement)
         for path in spent:
+            _require_path_type(path, "file")
             path.unlink()
         os.replace(temporary, allowlist_path)
-    except OSError as error:
+    except (OSError, RetirementError) as error:
         raise RetirementError(f"cannot apply intent-diff retirement: {error}") from error
     finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_created:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _commit_retirement(root: Path) -> str:

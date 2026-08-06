@@ -145,16 +145,13 @@ local function mock_successful_merge()
 end
 
 return {
-  test_rollup_merge_retires_spent_manifest_instead_of_promoting_stale_head = function()
+  test_rollup_merge_retires_spent_manifest_even_when_ci_is_red = function()
     mock_write_mode("1")
-    mock_pr()
-    mock_runtime_gate(observe_clean())
-    mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", {
-      mature_clean_sample("def456"),
-    })
+    mock_pr("def456", "dev", "COMPLETED", "FAILURE")
+    mock_pr("def456", "dev", "COMPLETED", "FAILURE")
     mock_intent_diff_retirement(1, "aaaa1111")
 
-    local result = run_merge(event(), opts("rollup-merge-retires-spent-intent", "1"))
+    local result = run_merge(event(), opts("rollup-merge-retires-spent-intent-on-red-ci", "1"))
 
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("retire_spent_intent_diffs.py"), 1)
@@ -172,6 +169,8 @@ return {
   test_rollup_merge_red_or_pending_ci_never_merges = function()
     mock_write_mode("1")
     mock_pr("def456", "dev", "COMPLETED", "FAILURE")
+    mock_pr("def456", "dev", "COMPLETED", "FAILURE")
+    mock_intent_diff_retirement(0, "def456")
     h.mock_required_check_runs_for("def456", "success")
     local red = run_merge(event(), opts("rollup-merge-red", "1"))
     t.eq(red.exit_code, 0)
@@ -179,6 +178,8 @@ return {
 
     mock_write_mode("1")
     mock_pr("def456", "dev", "IN_PROGRESS", "")
+    mock_pr("def456", "dev", "IN_PROGRESS", "")
+    mock_intent_diff_retirement(0, "def456")
     local pending = run_merge(event(), opts("rollup-merge-pending", "1"))
     t.eq(pending.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -187,6 +188,8 @@ return {
   test_rollup_merge_neutral_ci_does_not_merge = function()
     mock_write_mode("1")
     mock_pr("def456", "dev", "COMPLETED", "NEUTRAL")
+    mock_pr("def456", "dev", "COMPLETED", "NEUTRAL")
+    mock_intent_diff_retirement(0, "def456")
     h.mock_required_check_runs_for("def456", "success")
     local result = run_merge(event(), opts("rollup-merge-neutral", "1"))
     t.eq(result.exit_code, 0)
@@ -196,6 +199,8 @@ return {
   test_rollup_merge_unmergeable_never_merges = function()
     mock_write_mode("1")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "CONFLICTING", "DIRTY")
+    mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "CONFLICTING", "DIRTY")
+    mock_intent_diff_retirement(0, "def456")
     local result = run_merge(event(), opts("rollup-merge-unmergeable", "1"))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -300,6 +305,7 @@ return {
         { delivery_id = "dead-1", queue = "devloop_ready", dead_at_ms = now() * 1000 - 1000 },
       },
     }, "def456")
+    mock_intent_diff_retirement(0, "def456")
     local result = run_merge(event(), opts("rollup-merge-runtime-dirty", "1"))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -339,6 +345,7 @@ return {
     mock_pr("def456")
     mock_soak_minutes("30")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
+    mock_intent_diff_retirement(0, "def456")
     local result = run_merge(event(), opts("rollup-merge-observe-missing", "1"))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -349,6 +356,7 @@ return {
     mock_pr("def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
     mock_runtime_gate("not a snapshot", "def456")
+    mock_intent_diff_retirement(0, "def456")
     local result = run_merge(event(), opts("rollup-merge-observe-malformed", "1"))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -359,6 +367,7 @@ return {
     mock_pr("def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { fresh_clean_sample("def456") })
     mock_runtime_gate(observe_clean(), "def456", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-fresh-head-holds", "1"))
@@ -374,6 +383,7 @@ return {
       observe_sample_comment("def456", "dirty", 60),
     })
     mock_runtime_gate(observe_clean(), "def456", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-dirty-sample-reset", "1"))
@@ -388,6 +398,7 @@ return {
       mature_clean_sample("aaaa1111"),
     })
     mock_runtime_gate(observe_clean(), "def456", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-old-head-sample", "1"))
@@ -400,6 +411,7 @@ return {
     mock_pr("def456")
     mock_pr("def456")
     mock_runtime_gate(observe_clean(), "def456", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-old-commit-no-sample", "1"))
@@ -412,6 +424,7 @@ return {
     mock_pr("def456")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "OPEN", "", { mature_clean_sample("def456") })
     mock_runtime_gate(observe_clean(), "aaaa1111", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     local result = run_merge(event(), opts("rollup-merge-head-change-resets-soak", "1"))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr merge"), 0)
@@ -432,6 +445,7 @@ return {
       after_b_then_returned_to_a,
     })
     mock_runtime_gate(observe_clean(), "def456", now() - 60 * 60)
+    mock_intent_diff_retirement(0, "def456")
     mock_merge_command()
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "MERGEABLE", "CLEAN", "MERGED", "2026-06-03T02:03:04Z")
     local result = run_merge(event(), opts("rollup-merge-same-sha-return-holds", "1"))
