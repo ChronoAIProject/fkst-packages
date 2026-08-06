@@ -3,7 +3,9 @@ local M = {}
 M.names = {
   actionable_epoch_resolve = "actionable_epoch_resolve",
   dependency_release_marker = "dependency_release_marker",
+  is_state = "is_state",
   restart_durable_marker_fields = "restart_durable_marker_fields",
+  restart_lifecycle_states = "restart_lifecycle_states",
   restart_responsibility_inventory_errors = "restart_responsibility_inventory_errors",
   restart_transition_table = "restart_transition_table",
   trusted_bot_login = "trusted_bot_login",
@@ -12,7 +14,9 @@ M.names = {
 M.types = {
   actionable_epoch_resolve = "function",
   dependency_release_marker = "function",
+  is_state = "function",
   restart_durable_marker_fields = "function",
+  restart_lifecycle_states = "table",
   restart_responsibility_inventory_errors = "function",
   restart_transition_table = "function",
   trusted_bot_login = "function",
@@ -20,7 +24,9 @@ M.types = {
 
 M.optional = {
   [M.names.actionable_epoch_resolve] = true,
+  [M.names.is_state] = true,
   [M.names.restart_durable_marker_fields] = true,
+  [M.names.restart_lifecycle_states] = true,
   [M.names.restart_responsibility_inventory_errors] = true,
 }
 
@@ -28,7 +34,9 @@ local groups = {
   restart_liveness_contract = {
     M.names.actionable_epoch_resolve,
     M.names.dependency_release_marker,
+    M.names.is_state,
     M.names.restart_durable_marker_fields,
+    M.names.restart_lifecycle_states,
     M.names.restart_responsibility_inventory_errors,
     M.names.restart_transition_table,
     M.names.trusted_bot_login,

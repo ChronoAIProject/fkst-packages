@@ -253,9 +253,13 @@ local function liveness_model(rows)
       dependency_release_marker = function()
         error("archaudit: workflow-port-unavailable: dependency_release_marker is not available for producer-liveness restart model")
       end,
+      is_state = function(...)
+        return model.is_state(...)
+      end,
       restart_durable_marker_fields = function(...)
         return model.restart_durable_marker_fields(...)
       end,
+      restart_lifecycle_states = model.restart_lifecycle_states,
       restart_responsibility_inventory_errors = function(...)
         return model.restart_responsibility_inventory_errors(...)
       end,
