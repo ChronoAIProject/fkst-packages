@@ -3,6 +3,7 @@ local saga = require("workflow.saga")
 
 local spec = {
   consumes = { "github_issue_blocked_by_request" },
+  published_seam = { "github_issue_blocked_by_request" },
   produces = {},
   stall_window = "30s",
 }
