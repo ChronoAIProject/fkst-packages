@@ -589,6 +589,19 @@ function M.new(deps)
     })
   end
 
+  local function mock_fix_worktree_precondition(branch)
+    t.mock_command("reset --hard refs/heads/" .. tostring(branch), {
+      stdout = "HEAD is now at def456 reviewed head\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("clean -fd", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
   local function mock_existing_fix_worktree(branch, head, path, merge)
     local stable_root = devloop_base.implementation_worktree_root(default_durable_root)
     local worktree = path or devloop_base.implement_worktree_path(
@@ -609,6 +622,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -674,6 +688,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -724,6 +739,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
