@@ -147,8 +147,6 @@ return {
 
   test_mergeability_wait_requires_the_current_pr_to_produce_the_reason = function()
     for _, case in ipairs({
-      { pr = nil, reason = "missing-pr" },
-      { pr = {}, reason = "missing-mergeability" },
       { pr = { mergeable = "UNKNOWN" }, reason = "mergeable-unknown" },
       { pr = { mergeable = "MERGEABLE", merge_state_status = "BEHIND" }, reason = "merge-state-behind" },
       { pr = { mergeable = "MERGEABLE", merge_state_status = "BLOCKED" }, reason = "merge-state-blocked" },
@@ -158,6 +156,8 @@ return {
     end
 
     for _, case in ipairs({
+      { pr = nil, reason = "missing-pr" },
+      { pr = {}, reason = "missing-mergeability" },
       { pr = { mergeable = "CONFLICTING" }, reason = "mergeable-conflicting" },
       { pr = { mergeable = "FALSE" }, reason = "mergeable-false" },
       { pr = { mergeable = "MERGEABLE", merge_state_status = "CONFLICTING" }, reason = "merge-state-conflicting" },

@@ -62,6 +62,8 @@ function M.is_mergeability_wait(pr, reason)
   local mergeable, derived_reason = check_runs.pr_mergeable(pr)
   return not mergeable
     and derived_reason == tostring(reason or "")
+    and derived_reason ~= "missing-pr"
+    and derived_reason ~= "missing-mergeability"
     and not check_runs.is_not_mergeable_reason(derived_reason)
 end
 

@@ -744,7 +744,8 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     end
     return
   end
-  if not merge_ok and parsers_misc.is_ci_wait_reason(merge_reason) then
+  if not merge_ok and (parsers_misc.is_ci_wait_reason(merge_reason)
+    or merge_reason == "missing-status-rollup") then
     log_gate(merge_ready, "hold", merge_reason)
     return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
