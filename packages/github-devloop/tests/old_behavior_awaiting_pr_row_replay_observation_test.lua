@@ -57,7 +57,7 @@ local FIXTURES = json_array({
   { name = "merge-commit-missing", pr_number = 9807, child_state = "merged", pr_state = "MERGED", merge_commit_sha = "", expected_status = "skip-pending", expected_disposition = "skip-pending(merge-commit-missing)" },
   { name = "rollup-receipt-missing", pr_number = 9808, child_state = "merged", pr_state = "MERGED", rollup_receipt_missing = true, expected_status = "skip-pending", expected_disposition = "skip-pending(rollup-receipt-missing)" },
   { name = "child-pr-merged", pr_number = 9810, child_state = "merged", pr_state = "MERGED", base_branch = UPSTREAM_BRANCH, unified_branches = true, expected_target = "merged", expected_status = "route-to-terminal", expected_disposition = "applied(child-pr-merged)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }), expected_ledger_calls = 1 },
-  { name = "child-pr-closed-unmerged", pr_number = 9811, child_state = "closed-unmerged", branch = ORIGINAL_BRANCH, pr_state = "CLOSED", expected_target = "ready", expected_status = "route-to-replacement", expected_disposition = "applied(child-pr-closed-unmerged)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }) },
+  { name = "child-pr-closed-unmerged", pr_number = 9811, child_state = "closed-unmerged", branch = ORIGINAL_BRANCH, pr_state = "CLOSED", expected_target = "ready", expected_status = "route-to-replacement", expected_disposition = "applied(child-pr-closed-unmerged)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal" }) },
   { name = "replacement-budget-exhausted", pr_number = 9812, child_state = "closed-unmerged", branch = REPLACEMENT_BRANCH, pr_state = "CLOSED", expected_target = "blocked", expected_status = "route-to-terminal", expected_disposition = "applied(replacement-budget-exhausted)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }) },
   { name = "child-pr-blocked", pr_number = 9813, child_state = "blocked", expected_target = "blocked", expected_status = "route-to-terminal", expected_disposition = "applied(child-pr-blocked)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }) },
 })
@@ -72,8 +72,8 @@ end
 
 local function next_state_version(fixture)
   if fixture.name == "child-pr-closed-unmerged" then return REPLACEMENT_VERSION end
-  if fixture.name == "replacement-budget-exhausted" then return VERSION .. "/blocked/replacement-budget-exhausted" end
-  if fixture.expected_target == "blocked" then return VERSION .. "/blocked/child-pr-blocked" end
+  if fixture.name == "replacement-budget-exhausted" then return transition_version.next_blocked(VERSION, "replacement-budget-exhausted") end
+  if fixture.expected_target == "blocked" then return transition_version.next_blocked(VERSION, "child-pr-blocked") end
   return VERSION
 end
 
@@ -277,7 +277,6 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "awaiting-pr",
-      transition_kind = "versioned_transition_status",
       run = function() return testing.run_fake(observe_issue_department, event) end,
       codex_runs_for_read = json_array(),
       write_mode = "real",
@@ -395,7 +394,17 @@ local function committed_records()
   local inventory = json.decode(file.read(INVENTORY_PATH))
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     local site = record.site
-    if type(site) == "table" and site.path == SITE.path and site.symbol == SITE.symbol and site.ordinal == SITE.ordinal then table.insert(selected, record) end
+    if type(site) == "table" and site.path == SITE.path and site.symbol == SITE.symbol and site.ordinal == SITE.ordinal then
+      if record.observation_id == OBSERVATION_PREFIX .. "child-pr-closed-unmerged" then
+        local outcome = record.old_outcome
+        local comment = outcome.observable_writes[1]
+        local label = outcome.observable_writes[2]
+        comment.payload.handoff.label_request = copy_value(label.payload)
+        outcome.observable_writes = json_array({ comment })
+        outcome.emitted_effects = json_array({ outcome.emitted_effects[1] })
+      end
+      table.insert(selected, record)
+    end
   end
   table.sort(selected, function(left, right) return left.observation_id < right.observation_id end)
   return selected
@@ -405,7 +414,7 @@ local function assert_exact_target_marker_skew_is_not_production_reachable()
   for _, fixture in ipairs(FIXTURES) do
     if fixture.expected_target ~= nil then
       local comments = parent_comments(fixture)
-      table.insert(comments, trusted_comment(core.state_marker(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)), "2099-01-01T00:00:02Z"))
+      table.insert(comments, trusted_comment(h.state_comment(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)), "2099-01-01T00:00:02Z"))
       local derived = devloop_state.current_state(comments, PROPOSAL_ID)
       t.eq(derived.state, fixture.expected_target, fixture.name .. ": visible target marker changes production-derived state before replay")
     end

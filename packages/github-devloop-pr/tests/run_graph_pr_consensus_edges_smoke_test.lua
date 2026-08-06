@@ -119,26 +119,18 @@ local function unresolved_payload()
   }
 end
 
-local function reached_payload()
+local function review_request_payload(opts)
+  opts = opts or {}
+  local selected_proposal_id = opts.proposal_id or review_proposal_id
   return {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = review_proposal_id,
-    decision = "approve",
-    body = "Review consensus approves the diff.",
-    dedup_key = review_dedup_key,
-    source_ref = pr_source_ref(),
-  }
-end
-
-local function refused_reject_payload(proposal_id)
-  local selected_proposal_id = proposal_id or review_proposal_id
-  return {
-    schema = "consensus.consensus_reached.v1",
+    schema = "consensus.proposal.v1",
     proposal_id = selected_proposal_id,
-    decision = "reject",
-    body = "Review consensus rejects the diff without an actionable gap.",
-    dedup_key = "consensus:" .. devloop_base.pr_review_proposal_dedup_key(selected_proposal_id),
-    source_ref = pr_source_ref(),
+    title = "Review PR diff",
+    body = "Decide whether the reviewed PR diff is safe to merge.",
+    angles = opts.angles,
+    verdict_mode = opts.verdict_mode or "gate",
+    dedup_key = devloop_base.pr_review_proposal_dedup_key(selected_proposal_id),
+    source_ref = opts.source_ref or pr_source_ref(),
   }
 end
 
@@ -156,6 +148,36 @@ local function mock_consensus_approval()
     })
     t.mock_command("codex exec", {
       stdout = verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_consensus_premise_refuted()
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop-pr-gapless-reject/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  for _ = 1, 7 do
+    t.mock_command("mkdir -p", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _, answer in ipairs({
+    verdict_label .. " abstain\n" .. reply_label .. " The source premise may already be false.\n",
+    verdict_label .. " approve\n" .. reply_label .. " The requested change is otherwise small.\n",
+    verdict_label .. " abstain\n" .. reply_label .. " Repository evidence contradicts the premise.\n",
+    "⟦FKST:STANCE⟧ defend\n" .. verdict_label .. " abstain\n" .. reply_label .. " The source still contradicts the premise.\n",
+    "⟦FKST:STANCE⟧ defend\n" .. verdict_label .. " approve\n" .. reply_label .. " The shape remains small.\n",
+    "⟦FKST:STANCE⟧ defend\n" .. verdict_label .. " abstain\n" .. reply_label .. " The cited implementation already exists.\n",
+    "premise-refuted: verified repository source proves the claimed missing feature exists\n",
+  }) do
+    t.mock_command("codex exec", {
+      stdout = answer,
       stderr = "",
       exit_code = 0,
     })
@@ -276,12 +298,15 @@ local function mock_reviewing_liveness_replay(version)
     pr_number = pr_number,
     source_ref = pr_source_ref(),
   })
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local implementation_worktree = devloop_base.implement_worktree_path(
-    "/tmp/fkst-packages-test/github-devloop/runtime",
+    devloop_base.implementation_worktree_root(durable_root),
     repo,
     issue_number,
     version
   )
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command(core.path_is_directory_cmd(implementation_worktree), {
     stdout = "",
     stderr = "",
@@ -315,15 +340,15 @@ return {
     seed_pr_and_issue_reads("reviewing", { review_converge_round_marker() })
 
     local trace = graph.require_quiescent(graph.run(
-      initial_event("consensus.consensus_converge", unresolved_payload()),
+      initial_event("devloop_review_continue", unresolved_payload()),
       { max_steps = 4 }
     ))
     graph.assert_covers(trace, {
-      "consensus.consensus_converge -> github-devloop-pr.review_loop",
+      "github-devloop-pr.devloop_review_continue -> github-devloop-pr.review_loop",
     })
 
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_converge",
+      queue = "github-devloop-pr.devloop_review_continue",
       consumer = "github-devloop-pr.review_loop",
     })
     t.eq(step.exit_code, 0)
@@ -331,6 +356,7 @@ return {
 
   test_run_graph_pr_consensus_reached_routes_to_review_result = function()
     mock_env()
+    mock_consensus_approval()
     seed_pr_and_issue_reads("merge-ready")
     t.mock_command("gh pr diff '7' --repo 'owner/repo' --name-only", {
       stdout = "file.lua\n",
@@ -339,30 +365,38 @@ return {
     })
 
     local trace = graph.require_quiescent(graph.run(
-      initial_event("consensus.consensus_reached", reached_payload()),
+      initial_event("devloop_review_request", review_request_payload()),
       { max_steps = 4 }
     ))
     graph.assert_covers(trace, {
-      "consensus.consensus_reached -> github-devloop-pr.review_result",
+      "github-devloop-pr.devloop_review_request -> github-devloop-pr.review_result",
     })
 
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop-pr.devloop_review_request",
       consumer = "github-devloop-pr.review_result",
     })
     t.eq(step.exit_code, 0)
   end,
 
   test_run_graph_owned_source_mismatch_fails_loud = function()
-    local source_mismatch = refused_reject_payload()
-    source_mismatch.blocking_gap = "missing regression guard"
-    source_mismatch.source_ref = entity_lib.pr_source_ref(repo, 8)
+    mock_consensus_approval()
+    local mismatch_proposal_id = devloop_base.pr_review_proposal_id(
+      repo,
+      pr_number,
+      reviewed_version,
+      "abc123"
+    )
+    local source_mismatch = review_request_payload({
+      proposal_id = mismatch_proposal_id,
+      source_ref = entity_lib.pr_source_ref(repo, 8),
+    })
     local trace = graph.run(
-      initial_event("consensus.consensus_reached", source_mismatch),
+      initial_event("devloop_review_request", source_mismatch),
       { max_steps = 4 }
     )
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop-pr.devloop_review_request",
       consumer = "github-devloop-pr.review_result",
     })
     t.is_true(step.exit_code ~= 0)
@@ -372,12 +406,17 @@ return {
   test_run_graph_owned_gapless_reject_recovers_through_liveness_replay = function()
     local replay_version = core.next_review_loop_version(reviewed_version)
     local replay_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, replay_version, reviewed_head_sha)
+    mock_consensus_premise_refuted()
     local refused_trace = graph.run(
-      initial_event("consensus.consensus_reached", refused_reject_payload(replay_proposal_id)),
+      initial_event("devloop_review_request", review_request_payload({
+        proposal_id = replay_proposal_id,
+        verdict_mode = "converge",
+        angles = { "teleology", "parsimony", "fidelity" },
+      })),
       { max_steps = 4 }
     )
     local refused_step = graph.require_delivery(refused_trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop-pr.devloop_review_request",
       consumer = "github-devloop-pr.review_result",
     })
     t.is_true(refused_step.exit_code ~= 0)
@@ -402,8 +441,7 @@ return {
     graph.assert_covers(replay_trace, {
       "github-devloop-pr.devloop_liveness_tick -> github-devloop-pr.liveness_scan",
       "github-devloop-pr.devloop_reviewing -> github-devloop-pr.review_pr",
-      "consensus.proposal -> consensus.decide",
-      "consensus.consensus_reached -> github-devloop-pr.review_result",
+      "github-devloop-pr.devloop_review_request -> github-devloop-pr.review_result",
     })
 
     local redrive = graph.require_raise(replay_trace, "github-devloop-pr.devloop_reviewing")
@@ -414,18 +452,11 @@ return {
     )
     t.is_true(redrive.payload.dedup_key ~= devloop_base.pr_review_proposal_dedup_key(replay_proposal_id))
 
-    local proposal = graph.require_raise(replay_trace, "consensus.proposal")
+    local proposal = graph.require_raise(replay_trace, "github-devloop-pr.devloop_review_request")
     t.eq(proposal.payload.proposal_id, replay_proposal_id)
     t.eq(proposal.payload.dedup_key, redrive.payload.dedup_key)
-    local decide_step = graph.require_delivery(replay_trace, {
-      queue = "consensus.proposal",
-      consumer = "consensus.decide",
-    })
-    t.eq(decide_step.exit_code, 0)
-    local reached = graph.require_raise(replay_trace, "consensus.consensus_reached")
-    t.eq(reached.payload.proposal_id, replay_proposal_id)
     local review_step = graph.require_delivery(replay_trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop-pr.devloop_review_request",
       consumer = "github-devloop-pr.review_result",
     })
     t.eq(review_step.exit_code, 0)

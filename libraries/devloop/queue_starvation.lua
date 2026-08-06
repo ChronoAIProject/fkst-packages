@@ -22,7 +22,7 @@ local function github()
     return github_handle
   end
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   github_handle = github_factory.production_handle()
   return github_handle
@@ -144,7 +144,7 @@ local function run_observability_adapter(M, read_fn, limits, deadline, error_cla
   end
   local ok, result = pcall(read_fn, timeout)
   if not ok then
-    error("github-devloop: " .. tostring(label) .. " failed: " .. tostring(result))
+    error("github-devloop: queue-starvation-observability-read-failed: " .. tostring(label) .. " failed: " .. tostring(result))
   end
   return result
 end
@@ -170,7 +170,7 @@ function C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadlin
       local view = run_observability_adapter(
         M,
         function(timeout)
-          return github().issue_view(repo, issue.number, "title,body,comments,state,stateReason,assignees,author", timeout)
+          return github().issue_view(repo, issue.number, "title,body,comments,labels,state,stateReason,assignees,author", timeout)
         end,
         limits,
         deadline,

@@ -1,6 +1,7 @@
 local testing = require("testkit_internal.testing")
 local run_fake = testing.run_fake
 local run_fake_expecting_failure = testing.run_fake_expecting_failure
+local run_fake_outcome = testing.run_fake_outcome
 local gh_fake = require("forge.github_fake")
 
 local function failing_department()
@@ -67,5 +68,24 @@ return {
     local dept = { spec = { consumes = { "demo" } }, pipeline = function(_event) end }
     assert(not pcall(run_fake_expecting_failure, dept, { payload = {} }),
       "run_fake_expecting_failure must reject a pipeline that did not error")
+  end,
+
+  test_run_fake_outcome_preserves_failure_and_prior_raises = function()
+    local result = run_fake_outcome(failing_department(), { payload = {} })
+    assert(result.exit_code == 1)
+    assert(result.result == nil)
+    assert(result.failure ~= nil)
+    assert(tostring(result.error):find("forced fake failure", 1, true) ~= nil)
+    assert(#result.raises == 1)
+    assert(result.raises[1].queue == "demo.before-fail")
+  end,
+
+  test_run_fake_outcome_reports_success_without_failure = function()
+    local dept = { spec = { consumes = { "demo" } }, pipeline = function(_event) return "ok" end }
+    local result = run_fake_outcome(dept, { payload = {} })
+    assert(result.exit_code == 0)
+    assert(result.result == "ok")
+    assert(result.error == nil)
+    assert(result.failure == nil)
   end,
 }

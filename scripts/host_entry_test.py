@@ -94,6 +94,25 @@ class HostEntryHarness:
 
 
 class HostEntryTest(unittest.TestCase):
+    def test_test_cleanup_exit_traps_also_disarm_the_watchdog(self) -> None:
+        # A bounded-exec watchdog is armed for the whole test run (in main() and cmd_host). Any inner EXIT
+        # trap a test function installs OVERRIDES the armed disarm trap, so it must itself disarm — else the
+        # run finishes with the watchdog still armed and its orphaned sleep fires a stale kill -9 -pgid on a
+        # possibly-reused pgid (regression fixed 2026-07-22: host_entry_cmd_test's cleanup trap dropped it).
+        # Enforce it for every EXIT trap that cleans a hermetic test runtime root.
+        import re
+
+        for rel in ("scripts/run.sh", "scripts/host_entry.sh"):
+            src = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            for body in re.findall(r"trap '([^']*)' EXIT", src):
+                if re.search(r"TEST_HERMETIC_RUNTIME_ROOT|HOST_TEST_RUNTIME_ROOT", body):
+                    self.assertIn(
+                        "disarm_test_deadline",
+                        body,
+                        f"{rel}: a test-cleanup EXIT trap does not disarm the bounded-exec watchdog "
+                        f"(it overrides the armed disarm trap and would leak a stale timer): {body!r}",
+                    )
+
     def test_configured_package_roots_split_platform_and_host_names(self) -> None:
         h = HostEntryHarness()
         try:

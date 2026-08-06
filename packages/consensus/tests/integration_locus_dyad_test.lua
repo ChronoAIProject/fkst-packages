@@ -1,4 +1,5 @@
 local t = fkst.test
+local reach_test_helper = require("tests.reach_test_helpers")
 
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -42,10 +43,7 @@ local function default_proposal()
 end
 
 local function run_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function mock_judgment_runtime()

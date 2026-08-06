@@ -71,4 +71,16 @@ function M.run_fake_expecting_failure(dept, event)
   }
 end
 
+function M.run_fake_outcome(dept, event)
+  local result, raises, failure, writes = capture_pipeline(dept, event)
+  return {
+    exit_code = failure == nil and 0 or 1,
+    error = failure and failure.error or nil,
+    result = result,
+    raises = raises,
+    writes = writes,
+    failure = failure,
+  }
+end
+
 return M

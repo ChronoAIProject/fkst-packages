@@ -26,6 +26,7 @@ local structural_fields = {
   "target",
   "semantic_variant",
   "cause_evidence",
+  "transition_effect_entitlements",
   "provenance",
 }
 local pending_order_goldens = {

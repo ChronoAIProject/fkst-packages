@@ -828,9 +828,19 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
 
   local head_sha = require_rollup_head_sha(pr and pr.head_sha)
   local failing_head_sha = parsers_misc.rollup_failure_gate_sha(pr)
-  if failing_head_sha == nil or tostring(failing_head_sha):lower() ~= head_sha then
-    error("github-devloop: rollup-health-check-head-mismatch: failing check head does not match rollup head"
-      .. " rollup_head=" .. head_sha .. " check_head=" .. tostring(failing_head_sha or "missing"))
+  if failing_head_sha == nil then
+    log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op"
+      .. " reason=red-check-head-unknown"
+      .. " rollup_head=" .. head_sha)
+    return { action = "no-op", reason = "red-check-head-unknown" }
+  end
+  local check_head_sha = tostring(failing_head_sha):lower()
+  if check_head_sha ~= head_sha then
+    log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op"
+      .. " reason=stale-red-check-head"
+      .. " rollup_head=" .. head_sha
+      .. " check_head=" .. check_head_sha)
+    return { action = "no-op", reason = "stale-red-check-head" }
   end
 
   local red_started_at = rollup_red_started_at(pr)

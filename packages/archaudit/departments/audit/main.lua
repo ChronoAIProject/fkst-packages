@@ -19,7 +19,6 @@ local source_read_timeout_seconds = 30
 -- Match the engine's default codex wall-clock cap for long repository audits.
 -- This may exceed stall_window: fkst-substrate renews running delivery leases
 -- in supervise/consumer.rs, and stall_window is not a child kill deadline.
-local codex_timeout_seconds = 60 * 60
 local allowed_env = {
   FKST_GITHUB_REPO = true,
   FKST_GITHUB_BOT_LOGIN = true,
@@ -160,8 +159,7 @@ local function require_idle(event, facts)
 end
 
 local function run_codex(repo, max_count)
-  local opts = codex.judgment_codex_opts(core.build_prompt(repo, max_count), ".")
-  opts.timeout = codex_timeout_seconds
+  local opts = codex.with_resolved_timeout("archaudit", codex.judgment_codex_opts(core.build_prompt(repo, max_count), "."))
   local result = spawn_codex_sync(opts)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     local code = type(result) == "table" and tonumber(result.exit_code) or nil

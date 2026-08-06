@@ -435,7 +435,10 @@ host_entry_cmd_test() {
   resolve_bin
   ensure_fresh_bin
 
-  trap 'rm -rf "${HOST_TEST_RUNTIME_ROOT:-}" "${HOST_TEST_DURABLE_ROOT:-}"' EXIT
+  # This EXIT trap overrides the disarm trap cmd_host set when it armed the watchdog, so it must also
+  # disarm — else on the host-test path the watchdog is left armed and its orphaned sleep fires a stale
+  # kill -9 -pgid later. disarm is idempotent; `|| true` no-ops when test_deadline.sh was not sourced.
+  trap 'rm -rf "${HOST_TEST_RUNTIME_ROOT:-}" "${HOST_TEST_DURABLE_ROOT:-}"; disarm_test_deadline 2>/dev/null || true' EXIT
   HOST_TEST_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-test-rt.XXXXXX")"
   HOST_TEST_DURABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-test-durable.XXXXXX")"
   export FKST_RUNTIME_ROOT="$HOST_TEST_RUNTIME_ROOT"
@@ -600,6 +603,15 @@ host_entry_cmd_supervise() {
 cmd_host() {
   host_entry_parse "$@" || return $?
   local subcommand="${HOST_ENTRY_COMMAND[0]}"
+  # Bound host-delegated check/test like the top-level test family (see scripts/test_deadline.sh) so a
+  # SIGKILLed-parent orphan self-terminates; NOT supervise, which is long-running by design. Guarded by
+  # command -v so a host_entry.sh sourced without test_deadline.sh (isolated tests) is a no-op.
+  case "$subcommand" in
+    check|test)
+      if command -v arm_test_deadline >/dev/null 2>&1; then
+        arm_test_deadline; trap 'disarm_test_deadline' EXIT
+      fi ;;
+  esac
   case "$subcommand" in
     check)
       if [ "${#HOST_ENTRY_COMMAND[@]}" -ne 1 ]; then

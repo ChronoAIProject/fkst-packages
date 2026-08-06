@@ -8,6 +8,8 @@ local opts = h.opts
 local reviewing = h.reviewing
 local review_unresolved = h.review_unresolved
 local run_review_loop = h.run_review_loop
+local mock_next_consensus_result = h.mock_next_consensus_result
+local take_consensus_proposal = h.take_consensus_proposal
 local mock_bot_env = h.mock_bot_env
 local mock_pr_origin = h.mock_pr_origin
 local mock_issue_review = h.mock_issue_review
@@ -29,12 +31,19 @@ local function issue_proposal_id()
 end
 
 local function mock_existing_review_worktree(impl_version)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local worktree = devloop_base.implement_worktree_path(
-    "/tmp/fkst-packages-test/github-devloop/runtime",
+    devloop_base.implementation_worktree_root(durable_root),
     "owner/repo",
     42,
     impl_version
   )
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/devloop-owner-repo-42-01HY\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command(core.path_is_directory_cmd(worktree), {
     stdout = "",
     stderr = "",
@@ -73,17 +82,33 @@ return {
     local _, _, review_version = prepare_review_context(event)
     local worktree = mock_existing_review_worktree(reviewing().version)
 
+    mock_next_consensus_result(function(proposal)
+      return {
+        status = "reached",
+        schema = "consensus.consensus_reached.v1",
+        decision = "approve",
+        body = "The reviewed diff is ready.",
+        dedup_key = "consensus:" .. proposal.dedup_key,
+        source_ref = proposal.source_ref,
+      }
+    end)
     local result = run_review_loop(event, opts("review-loop-first-evidence-continuation"))
+    local called_proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
-    t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.round, 1)
-    t.eq(proposal.payload.dedup_key, conv_rounds.converge_proposal_base_dedup(event.dedup_key) .. "/loop/1")
-    t.eq(proposal.payload.convergence_question, event.narrowed_question)
-    t.eq(proposal.payload.findings_record, event.findings_record)
-    t.eq(proposal.payload.prior_round_digests, nil)
-    t.eq(proposal.payload.worktree, worktree)
+    t.is_true(called_proposal ~= nil)
+    t.eq(called_proposal.proposal_id, event.proposal_id)
+    t.eq(called_proposal.round, 1)
+    t.eq(called_proposal.dedup_key, conv_rounds.converge_proposal_base_dedup(event.dedup_key) .. "/loop/1")
+    t.eq(called_proposal.convergence_question, event.narrowed_question)
+    t.eq(called_proposal.findings_record, event.findings_record)
+    t.eq(called_proposal.prior_round_digests, nil)
+    t.eq(called_proposal.worktree, worktree)
+
+    local request = find_raise(result.raises, "devloop_review_request")
+    t.is_true(request ~= nil)
+    t.eq(request.payload.proposal_id, event.proposal_id)
+    t.eq(request.payload.dedup_key, called_proposal.dedup_key)
 
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment ~= nil)
@@ -116,22 +141,19 @@ return {
     prepare_review_context(event, { first_marker })
 
     local result = run_review_loop(event, opts("review-loop-evidence-continuation-budget"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is a raw counter that
+    -- must NEVER hand off a terminal review-reconcile; with two DISTINCT review rounds (not
+    -- a true-stall) review convergence REDRIVES the next review round (consensus.proposal +
+    -- converge comment) instead of dropping to blocked. No review-reconcile handoff.
     t.eq(#result.raises, 2)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.round, 2)
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
-    local reconcile = find_raise(result.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.schema, "github-devloop.review-reconcile.v1")
-    t.eq(reconcile.payload.proposal_id, issue_proposal_id())
-    t.eq(reconcile.payload.review_proposal_id, event.proposal_id)
-    t.eq(reconcile.payload.issue_version, review_version)
-    t.eq(reconcile.payload.head_sha, "def456")
-    t.eq(reconcile.payload.round, 1)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
-    t.eq(reconcile.payload.dedup_key, "review-reconcile:" .. review_version .. "/review-loop/1")
+    t.eq(find_raise(result.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_review_loop_new_head_or_version_resets_resolvability_boundary = function()
@@ -161,13 +183,13 @@ return {
     prepare_review_context(event, { drift_marker }, current_head)
 
     local result = run_review_loop(event, opts("review-loop-boundary-reset"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, conv_rounds.converge_proposal_base_dedup(event.dedup_key) .. "/loop/1")
-    t.eq(proposal.payload.findings_record, event.findings_record)
-    t.eq(proposal.payload.prior_round_digests, nil)
+    t.eq(proposal.dedup_key, conv_rounds.converge_proposal_base_dedup(event.dedup_key) .. "/loop/1")
+    t.eq(proposal.findings_record, event.findings_record)
+    t.eq(proposal.prior_round_digests, nil)
     t.eq(find_raise(result.raises, "devloop_review_reconcile"), nil)
   end,
 
@@ -185,7 +207,7 @@ return {
     local result = run_review_loop(event, opts("review-loop-essence-stall"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_review_request"), nil)
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find('essence_stall="true"', 1, true) ~= nil)

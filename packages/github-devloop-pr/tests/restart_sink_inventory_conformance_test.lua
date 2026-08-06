@@ -39,7 +39,7 @@ local function sink(overrides)
     owner = "github-devloop-pr",
     callsite = {
       department = "review_result",
-      site = "apply_review_result.comment",
+      site = "apply_review_result.grant_facade_comment",
     },
     effect_kind = "comment",
     authority_class = "lifecycle-authoritative",
@@ -81,17 +81,19 @@ local request_surface_kinds = {
 }
 
 local queue_policies = {
-  ["consensus.proposal"] = { "lifecycle-authoritative", "consensus-proposal:v1/review-proposal+dedup" },
+  ["devloop_review_request"] = { "grantless-published-intent", "consensus-proposal:v1/review-proposal+dedup" },
+  ["devloop_review_continue"] = { "lifecycle-authoritative", "consensus-converge:v1/review-proposal+dedup" },
   ["devloop_fix_reconcile"] = { "lifecycle-authoritative", "fix-reconcile:v1/proposal+round" },
   ["devloop_fixing"] = { "lifecycle-authoritative", "state:v1/fixing+head+version" },
   ["devloop_merge_queue_tick"] = { "lifecycle-authoritative", "merge-queue-tick:v1/repo+head" },
   ["devloop_merge_ready"] = { "lifecycle-authoritative", "state:v1/merge-ready+review+head" },
   ["devloop_observe_pr"] = { "grantless-telemetry", "observe-pr:v1/source-ref+dedup" },
   ["devloop_review_meta"] = { "lifecycle-authoritative", "state:v1/review-meta+review+head" },
-  ["devloop_review_reconcile"] = { "lifecycle-authoritative", "review-reconcile:v1/proposal+round" },
+  ["devloop_review_reconcile"] = { "grantless-published-intent", "review-reconcile:v1/proposal+round" },
   ["devloop_reviewing"] = { "lifecycle-authoritative", "state:v1/reviewing+head+version" },
   ["devloop_timeout_reconcile"] = { "lifecycle-authoritative", "timeout-reconcile:v1/proposal+state+round" },
   ["github-devloop-decompose.devloop_decompose"] = { "grantless-published-intent", "decompose.v1/proposal+attempt" },
+  ["restart_transition_anomaly"] = { "grantless-telemetry", "restart-transition-anomaly.v1/per-pass-record" },
 }
 
 local semantic_specs = {
@@ -100,8 +102,8 @@ local semantic_specs = {
 
   { "comment:pr:fix-review-meta", "fix", "requests_review.raise_fix_review_meta.comment", "comment", "lifecycle-authoritative", "state:v1/review-meta;dedup=fix/review-meta/comment", "libraries/devloop/requests/review.lua", { "function C.raise_fix_review_meta", "github-proxy.github_pr_comment_request" } },
   { "label:issue:fix-review-meta", "fix", "requests_review.raise_fix_review_meta.label", "label", "lifecycle-authoritative", "state-label:review-meta;dedup=fix/review-meta/label", "libraries/devloop/requests/review.lua", { "function C.raise_fix_review_meta", "github-proxy.github_issue_label_request" } },
-  { "comment:pr:fix-reviewing", "fix", "requests_review.raise_fix_reviewing.comment", "comment", "lifecycle-authoritative", "state:v1/reviewing;dedup=fix/comment", "libraries/devloop/requests/review.lua", { "function C.raise_fix_reviewing", "github-proxy.github_pr_comment_request" } },
-  { "label:issue:fix-reviewing", "fix", "requests_review.raise_fix_reviewing.label", "label", "lifecycle-authoritative", "state-label:reviewing;dedup=fix/label", "libraries/devloop/requests/review.lua", { "function C.raise_fix_reviewing", "github-proxy.github_issue_label_request" } },
+  { "comment:pr:fix-reviewing", "fix", "emit_reviewing.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/reviewing;dedup=fix/comment", "packages/github-devloop-pr/departments/fix/main.lua", { "restart_effect_facade.make", "\"comment:pr:fix-reviewing\"" } },
+  { "label:issue:fix-reviewing", "fix", "emit_reviewing.grant_facade_label", "label", "lifecycle-authoritative", "state-label:reviewing;dedup=fix/label", "packages/github-devloop-pr/departments/fix/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
   { "comment:pr:fix-speculative-refix", "fix", "ci_repair_retry.raise_speculative.comment", "comment", "lifecycle-authoritative", "state:v1/fixing+merge-gate:v1;dedup=refix/comment", "packages/github-devloop-pr/core/ci_repair_retry.lua", { "function C.raise_speculative", "github-proxy.github_pr_comment_request" } },
   { "label:issue:fix-speculative-refix", "fix", "ci_repair_retry.raise_speculative.label", "label", "lifecycle-authoritative", "state-label:fixing;dedup=refix/label", "packages/github-devloop-pr/core/ci_repair_retry.lua", { "function C.raise_speculative", "github-proxy.github_issue_label_request" } },
   { "comment:pr:ci-repair-attempt", "fix", "ci_repair_attempts.raise_attempt_record", "comment", "lifecycle-authoritative", "ci-repair-attempt:v1;dedup=fix/ci-repair/attempt", "packages/github-devloop-pr/core/ci_repair_attempts.lua", { "function C.raise_attempt_record", "github-proxy.github_pr_comment_request" } },
@@ -115,12 +117,13 @@ local semantic_specs = {
   { "label:issue:merge-fixing", "merge", "raise_fixing.label", "label", "lifecycle-authoritative", "state-label:fixing;dedup=merge/fixing/label", "packages/github-devloop-pr/core/merge_executor.lua", { "local function raise_fixing", "github-proxy.github_issue_label_request" } },
   { "comment:pr:merge-head-reviewing", "merge", "raise_reviewing_for_current_head.comment", "comment", "lifecycle-authoritative", "state:v1/reviewing+head-change;dedup=merge/reviewing/comment", "packages/github-devloop-pr/core/merge_executor.lua", { "build_merge_head_reviewing_comment_request", "github-proxy.github_pr_comment_request" } },
   { "label:issue:merge-head-reviewing", "merge", "raise_reviewing_for_current_head.label", "label", "lifecycle-authoritative", "state-label:reviewing;dedup=merge/reviewing/label", "packages/github-devloop-pr/core/merge_executor.lua", { "build_merge_head_reviewing_label_request", "github-proxy.github_issue_label_request" } },
-  { "comment:pr:merging-state", "merge", "write_merging_marker.comment", "comment", "lifecycle-authoritative", "state:v1/merging;dedup=merge/merging/head", "packages/github-devloop-pr/core/merge_executor.lua", { "local function write_merging_marker", "core.gh_pr_comment" } },
+  { "comment:pr:merging-state", "merge", "write_merging_marker.grant_gated_comment", "comment", "lifecycle-authoritative", "state:v1/merging;dedup=merge/merging/head", "packages/github-devloop-pr/core/merge_executor.lua", { "local function write_merging_marker", "core.gh_pr_comment" } },
   { "comment:pr:merged-state", "merge", "finalize_merged.comment", "comment", "lifecycle-authoritative", "state:v1/merged+autonomy-result:v1;dedup=merge/merged/comment", "packages/github-devloop-pr/core/merge_executor.lua", { "local function finalize_merged", "github-proxy.github_pr_comment_request" } },
   { "comment:pr:merge-ci-wait", "merge", "merge_ci_wait.hold.comment", "comment", "lifecycle-authoritative", "merge-gate-wait:v1;dedup=merge/ci-wait/comment", "packages/github-devloop-pr/core/merge_ci_wait.lua", { "build_merge_gate_wait_comment_request", "github-proxy.github_pr_comment_request" } },
   { "comment:pr:merge-queue-starvation", "merge", "process_merge_ready_locked.queue_starvation_comment", "comment", "lifecycle-authoritative", "queue-starvation-reconcile:v1;dedup=merge/queue-starvation", "packages/github-devloop-pr/core/merge_executor.lua", { "build_queue_starvation_reconcile_comment_request", "github-proxy.github_pr_comment_request" } },
   { "adapter:github.pr-ready", "merge", "ensure_pr_ready_for_merge.ready", "adapter", "lifecycle-authoritative", "pr-ready/pr+head", "packages/github-devloop-pr/core/merge_executor.lua", { "local function ensure_pr_ready_for_merge", "core.gh_pr_ready" } },
   { "github.merge:verified-pr", "merge", "process_merge_ready_locked.verified_merge", "merge", "lifecycle-authoritative", "verified-merge/pr+reviewed-head+base", "packages/github-devloop-pr/core/merge_executor.lua", { "core.run_verified_pr_merge", "before_merge" } },
+  { "comment:pr:review-carry-over", "merge", "review_carry_over.raise_review_carry_over.comment", "comment", "lifecycle-authoritative", "review-carry-over:v1;dedup=merge/review-carry-over/comment", "packages/github-devloop-pr/core/review_carry_over.lua", { "function M.raise_review_carry_over", "build_review_carry_over_comment_request" } },
   { "comment:pr:merge-queue-executor", "merge_queue", "merge_executor.comment_sinks", "comment", "lifecycle-authoritative", "merge-executor/pr-comment-marker-families", "packages/github-devloop-pr/departments/merge_queue/main.lua", { "merge_executor.process_merge_queue_tick", "github-proxy.github_pr_comment_request" } },
   { "label:issue:merge-queue-executor", "merge_queue", "merge_executor.label_sinks", "label", "lifecycle-authoritative", "merge-executor/issue-label-families", "packages/github-devloop-pr/departments/merge_queue/main.lua", { "merge_executor.process_merge_queue_tick", "github-proxy.github_issue_label_request" } },
 
@@ -134,24 +137,21 @@ local semantic_specs = {
   { "comment:pr:row-replay", "observe_pr", "replay_pr_local_state.comments", "comment", "lifecycle-authoritative", "restart-row-replay/pr-comment-marker-families", "packages/github-devloop-pr/departments/observe_pr/main.lua", { "replayer.replay_from_table", "restart_transition_table" } },
   { "label:issue:row-replay", "observe_pr", "replay_pr_local_state.labels", "label", "lifecycle-authoritative", "restart-row-replay/issue-label-families", "packages/github-devloop-pr/departments/observe_pr/main.lua", { "replayer.replay_from_table", "restart_transition_table" } },
 
-  { "comment:pr:reconcile-blocked", "reconcile", "emit_blocked_reconcile.pr_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+review-reconcile|fix-reconcile:v1", "packages/github-devloop-pr/departments/reconcile/main.lua", { "emit_blocked_reconcile", "github-proxy.github_pr_comment_request" } },
-  { "label:issue:reconcile-blocked", "reconcile", "emit_blocked_reconcile.issue_label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=reconcile/label", "packages/github-devloop-pr/departments/reconcile/main.lua", { "emit_blocked_reconcile", "github-proxy.github_issue_label_request" } },
-  { "comment:issue:timeout-reconcile", "reconcile", "pipeline_timeout.issue_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+timeout-reconcile:v1;dedup=timeout/issue", "packages/github-devloop-pr/departments/reconcile/main.lua", { "build_timeout_reconcile_comment_request", "github-proxy.github_issue_comment_request" } },
-  { "comment:pr:timeout-reconcile", "reconcile", "pipeline_timeout.pr_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+timeout-reconcile:v1;dedup=timeout/pr", "packages/github-devloop-pr/departments/reconcile/main.lua", { "build_timeout_reconcile_pr_comment_request", "github-proxy.github_pr_comment_request" } },
-  { "label:issue:timeout-reconcile", "reconcile", "pipeline_timeout.issue_label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=timeout/label", "packages/github-devloop-pr/departments/reconcile/main.lua", { "requests_labels.build_state_label_request", "github-proxy.github_issue_label_request" } },
+  { "comment:pr:reconcile-blocked", "reconcile", "pipeline_reconcile.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+review-reconcile|fix-reconcile|timeout-reconcile:v1", "packages/github-devloop-pr/departments/reconcile/main.lua", { "restart_effect_facade.make", "\"comment:pr:reconcile-blocked\"" } },
+  { "label:issue:reconcile-blocked", "reconcile", "pipeline_reconcile.grant_facade_label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=reconcile|timeout/label", "packages/github-devloop-pr/departments/reconcile/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
   { "comment:issue:decompose-exhausted", "reconcile", "pipeline_timeout.decompose_exhausted_issue", "comment", "grantless-published-intent", "decompose-exhausted:v1/issue+attempt", "packages/github-devloop-pr/departments/reconcile/main.lua", { "build_decompose_exhausted_comment_request", "github-proxy.github_issue_comment_request" } },
   { "comment:pr:decompose-exhausted", "reconcile", "pipeline_timeout.decompose_exhausted_pr", "comment", "grantless-published-intent", "decompose-exhausted:v1/pr+attempt", "packages/github-devloop-pr/departments/reconcile/main.lua", { "build_decompose_exhausted_comment_request", "github-proxy.github_pr_comment_request" } },
 
-  { "comment:pr:review-converge-round", "review_loop", "act.review_converge_round_comment", "comment", "lifecycle-authoritative", "review-converge-round:v1;dedup=review-loop/comment", "packages/github-devloop-pr/departments/review_loop/main.lua", { "build_review_converge_round_comment_request", "github-proxy.github_pr_comment_request" } },
+  { "comment:pr:review-converge-round", "review_loop", "act.grant_facade_comment", "comment", "lifecycle-authoritative", "review-converge-round:v1;dedup=review-loop/comment", "packages/github-devloop-pr/departments/review_loop/main.lua", { "restart_effect_facade.make", "comment:pr:review-converge-round", "facade.emit" } },
   { "adapter:github.pr-close", "review_pr", "no_legitimate_diff.close_pr", "adapter", "lifecycle-authoritative", "pr-close/no-legitimate-diff/pr", "packages/github-devloop-pr/core/no_legitimate_diff.lua", { "devloop_commands.gh_pr_close", "no-legitimate-diff-pr-close-failed" } },
   { "comment:pr:review-no-legitimate-diff", "review_pr", "no_legitimate_diff.closed_unmerged_comment", "comment", "lifecycle-authoritative", "state:v1/closed-unmerged;dedup=review-pr/no-legitimate-diff", "packages/github-devloop-pr/core/no_legitimate_diff.lua", { "function M.closed_unmerged_comment_request", "github-proxy.github_pr_comment_request" } },
   { "codex.dispatch:review-meta", "review_meta", "review_meta_codex_decision.codex_dispatch", "codex", "lifecycle-authoritative", "codex-run:review-meta/proposal+version+worker", "packages/github-devloop-pr/departments/review_meta/main.lua", { "workflow_codex.dispatch", "from_parts(\"review-meta\"" } },
-  { "comment:pr:review-meta-result", "review_meta", "apply_review_meta_decision.comment", "comment", "lifecycle-authoritative", "state:v1/fixing|blocked+review-meta:v1", "packages/github-devloop-pr/departments/review_meta/main.lua", { "build_review_meta_comment_request", "github-proxy.github_pr_comment_request" } },
-  { "label:issue:review-meta-result", "review_meta", "apply_review_meta_decision.label", "label", "lifecycle-authoritative", "state-label:fixing|blocked;dedup=review-meta/label", "packages/github-devloop-pr/departments/review_meta/main.lua", { "build_review_meta_label_request", "github-proxy.github_issue_label_request" } },
-  { "comment:pr:review-result", "review_result", "apply_review_result.comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_comment_request", "github-proxy.github_pr_comment_request" } },
+  { "comment:pr:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/fixing|blocked+review-meta:v1", "packages/github-devloop-pr/departments/review_meta/main.lua", { "restart_effect_facade.make", "\"comment:pr:review-meta-result\"" } },
+  { "label:issue:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_label", "label", "lifecycle-authoritative", "state-label:fixing|blocked;dedup=review-meta/label", "packages/github-devloop-pr/departments/review_meta/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
+  { "comment:pr:review-result", "review_result", "apply_review_result.grant_facade_comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment", "packages/github-devloop-pr/departments/review_result/main.lua", { "restart_effect_facade.make", "\"comment:pr:review-result\"" } },
   { "comment:pr:review-result-divergence", "review_result", "first_result.divergence_audit", "comment", "grantless-non-lifecycle", "result-divergence:v1;dedup=review-result-divergence/logical-result", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_divergence_comment_request", "suppress-divergent-result" } },
   { "comment:pr:high-risk-review-evidence", "review_result", "apply_review_result.evidence_comment", "comment", "lifecycle-authoritative", "high-risk-review-evidence:v1;dedup=review-result/evidence", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_high_risk_review_evidence_comment_request", "evidence_request" } },
-  { "label:issue:review-result", "review_result", "apply_review_result.label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_label_request", "github-proxy.github_issue_label_request" } },
+  { "label:issue:review-result", "review_result", "apply_review_result.grant_facade_label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta", "packages/github-devloop-pr/departments/review_result/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
 }
 
 local observation_deferrals = {

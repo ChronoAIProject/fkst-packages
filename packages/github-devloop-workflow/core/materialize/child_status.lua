@@ -1,12 +1,12 @@
 local base_ids = require("devloop.base_ids")
 local child_result = require("core.child_result")
 local commands = require("devloop.commands")
+local impl_failure = require("devloop.impl_failure")
 local devloop_marker_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_pr = require("devloop.parsers.pr")
-local strings = require("contract.strings")
 
 local M = {}
 
@@ -55,60 +55,10 @@ local function pr_is_merged(current_pr)
   return type(current_pr.merged_at) == "string" and current_pr.merged_at ~= ""
 end
 
-local function marker_attr(marker, name)
-  return marker:match(name .. '="([^"]*)"')
-end
-
-local function impl_failed_state_marker_version(core, comments, proposal_id)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local latest = nil
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local version = marker_attr(marker, "version")
-      if marker_attr(marker, "proposal") == tostring(proposal_id)
-        and marker_attr(marker, "state") == "impl-failed"
-        and strings.is_bounded_string(version, core._max_dedup_len) then
-        local order = devloop_state.version_order_key(version)
-        if latest == nil or tostring(order) > latest.order then
-          latest = {
-            version = version,
-            order = tostring(order),
-          }
-        end
-      end
-    end
-  end
-  return latest and latest.version or nil
-end
-
-local function trusted_impl_failure_reason(core, comments, proposal_id, dedup_key)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:impl%-failure:v1.-%-%->"
-  local latest = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local reason = marker_attr(marker, "reason")
-      local dedup = marker_attr(marker, "dedup")
-      if marker_attr(marker, "proposal") == tostring(proposal_id)
-        and dedup == tostring(dedup_key)
-        and reason ~= nil
-        and strings.is_bounded_string(reason, core._max_key_len)
-        and strings.is_bounded_string(dedup, core._max_dedup_len) then
-        latest = reason
-      end
-    end
-  end
-  return latest
-end
-
 local function production_child_status_deps(core, repo)
   local issue_cache = {}
   local pr_cache = {}
+  local impl_failure_cache = {}
 
   local function issue(child_ref)
     local number = tostring(child_ref.issue_number or child_ref.number or "")
@@ -133,6 +83,22 @@ local function production_child_status_deps(core, repo)
       pr_cache[number] = pr_view(core, repo, link.pr_number)
     end
     return pr_cache[number]
+  end
+
+  local function current_impl_failure(child_ref)
+    local number = tostring(child_ref.issue_number or child_ref.number or "")
+    if impl_failure_cache[number] == nil then
+      local child = issue(child_ref)
+      impl_failure_cache[number] = {
+        fact = impl_failure.current_fact(
+          core._max_key_len,
+          core._max_dedup_len,
+          child.comments,
+          child_ref.proposal_id
+        ),
+      }
+    end
+    return impl_failure_cache[number]
   end
 
   return {
@@ -171,7 +137,12 @@ local function production_child_status_deps(core, repo)
     end,
     irreversible_terminal = function(child_ref)
       local child = issue(child_ref)
-      if devloop_state.has_blocked_label(child.labels) then
+      local current = devloop_state.route_current(
+        child.comments,
+        child.proposal_id or child_ref.proposal_id,
+        { blocked = true }
+      )
+      if current.route == true then
         return true
       end
       if tostring(child.state or ""):upper() == "CLOSED" then
@@ -189,20 +160,17 @@ local function production_child_status_deps(core, repo)
     recovery_in_progress = function()
       return false
     end,
-    impl_failed_retryable = function()
-      return false
+    impl_failed_retryable = function(child_ref)
+      local current = current_impl_failure(child_ref)
+      return current.fact ~= nil and impl_failure.retry_allowed(current.fact)
     end,
     impl_failed_non_retryable = function(child_ref)
-      local child = issue(child_ref)
-      return devloop_state.has_impl_failed_label(child.labels)
+      local current = current_impl_failure(child_ref)
+      return current.fact ~= nil and not impl_failure.retry_allowed(current.fact)
     end,
     impl_failed_reason = function(child_ref)
-      local child = issue(child_ref)
-      local state_version = impl_failed_state_marker_version(core, child.comments, child_ref.proposal_id)
-      if state_version == nil then
-        return nil
-      end
-      return trusted_impl_failure_reason(core, child.comments, child_ref.proposal_id, state_version)
+      local current = current_impl_failure(child_ref)
+      return current.fact and current.fact.reason or nil
     end,
   }
 end

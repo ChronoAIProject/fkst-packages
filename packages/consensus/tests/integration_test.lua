@@ -1,4 +1,6 @@
-local core = require("core")
+local core = require("consensus.core")
+local synthesis_contract = require("consensus.synthesis_contract")
+local reach_test_helper = require("tests.reach_test_helpers")
 local t = fkst.test
 require("tests.cache_seed_helpers")
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -49,17 +51,11 @@ local function proposal(extra)
 end
 
 local function run_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function run_namespaced_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "consensus.proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function seed_cache(key, value, run_opts)
@@ -128,11 +124,6 @@ local function assert_judgment_dir_created_without_permission_control(count)
   t.eq(seen, count)
 end
 
-local function assert_no_judgment_dir_created()
-  for _, call in ipairs(t.command_calls()) do
-    t.is_nil(call.rendered:find("mkdir -p", 1, true))
-  end
-end
 
 local function mock_judgment_runtime()
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -340,7 +331,7 @@ return {
     t.is_nil(teleology_call.stdin:find("runtime-cache:consensus-test/context", 1, true))
   end,
 
-  test_runtime_cache_context_manifest_missing_file_ack_drops_without_judgment = function()
+  test_runtime_cache_context_manifest_missing_file_fails_typed_without_judgment = function()
     mock_judgment_runtime()
     local run_opts = opts("stdin-runtime-cache-missing-file")
     seed_cache("consensus-test/missing-context", "Issue JSON: /tmp/fkst-packages-test/consensus/missing-file.json", run_opts)
@@ -349,24 +340,26 @@ return {
       content_fetch = "runtime-cache:consensus-test/missing-context",
     }), run_opts)
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
-  test_runtime_cache_context_cache_miss_is_terminal_ack_drop = function()
+  test_runtime_cache_context_cache_miss_fails_typed = function()
     mock_judgment_runtime()
 
     local result = run_decide(proposal({
       content_fetch = "runtime-cache:consensus-test/stale-missing-context",
     }), opts("stdin-runtime-cache-stale-miss"))
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
-  test_runtime_cache_context_unreadable_manifest_file_is_terminal_ack_drop = function()
+  test_runtime_cache_context_unreadable_manifest_file_fails_typed = function()
     mock_judgment_runtime()
     local run_opts = opts("stdin-runtime-cache-stale-file")
     local root = run_opts.env.FKST_RUNTIME_ROOT
@@ -384,8 +377,9 @@ return {
       content_fetch = "runtime-cache:consensus-test/stale-file",
     }), run_opts)
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
+    t.is_true(tostring(result.error):find("error_class=stale_generation_context", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
@@ -539,21 +533,60 @@ return {
     mock_rebuttal_defend("teleology", "approve", "Teleology still accepts a small adapter.")
     mock_rebuttal_defend("parsimony", "abstain", "Parsimony still wants the retry boundary explicit.")
     mock_rebuttal_defend("fidelity", "approve", "Fidelity still accepts removing duplicate wiring.")
-    mock_synthesis("⟦FKST:PLAN⟧ Keep the adapter, make retry ownership explicit, and remove duplicate wiring.")
-    mock_synthesis_repair("converge: retry ownership remains unresolved + inspect the retry owner record")
+    local finding = string.rep("x", 700)
+    local finding_prefix = "open:\n"
+    local final_finding_len = synthesis_contract.findings_record_max_bytes + 1
+      - (2 * (#finding_prefix + #finding) + #finding_prefix + 2 * #"\n")
+    local final_finding = string.rep("é", math.floor(final_finding_len / #"é"))
+      .. string.rep("x", final_finding_len % #"é")
+    mock_synthesis(table.concat({
+      "converge: retry ownership remains unresolved + inspect the retry owner record",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. final_finding,
+    }, "\n"))
+    mock_synthesis_repair(table.concat({
+      "converge: retry ownership remains unresolved + inspect the retry owner record",
+      "open: keep repaired findings within the aggregate byte budget",
+    }, "\n"))
 
     local result = run_decide(proposal(), opts("split-synthesis-repair"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
     t.eq(result.raises[1].payload.narrowed_question, "retry ownership remains unresolved + inspect the retry owner record")
+    t.eq(result.raises[1].payload.findings_record, "open:\nkeep repaired findings within the aggregate byte budget")
     t.eq(#codex_calls(), 8)
+    local synthesis_call = judgment_call("synthesis")
+    assert_judgment_worktree(synthesis_call, "synthesis")
+    t.is_true(synthesis_call.stdin:find(
+      "The aggregate findings record, including all finding text, labels, and separators, must not exceed "
+        .. tostring(synthesis_contract.findings_record_max_bytes)
+        .. " bytes.",
+      1,
+      true
+    ) ~= nil)
     local repair = judgment_call("synthesis-repair")
     assert_judgment_worktree(repair, "synthesis-repair")
     t.is_true(repair.stdin:find("Repair attempt:", 1, true) ~= nil)
+    t.is_true(repair.stdin:find(
+      "The aggregate findings record, including all finding text, labels, and separators, must not exceed "
+        .. tostring(synthesis_contract.findings_record_max_bytes)
+        .. " bytes.",
+      1,
+      true
+    ) ~= nil)
+    t.is_true(repair.stdin:find("> converge: retry ownership remains unresolved", 1, true) ~= nil)
+    t.is_true(repair.stdin:find(
+      "Validation diagnostic: reason=findings-record-overlong actual_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes + 1)
+        .. " limit_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes),
+      1,
+      true
+    ) ~= nil)
     assert_judgment_worktree(judgment_call("angle-teleology"), "angle-teleology")
     assert_judgment_worktree(judgment_call("rebuttal-teleology"), "rebuttal-teleology")
-    assert_judgment_worktree(judgment_call("synthesis"), "synthesis")
     t.is_true(repair.stdin:find("You are running in an empty runtime scratch directory", 1, true) ~= nil)
     assert_judgment_dir_created_without_permission_control(8)
   end,
@@ -574,6 +607,9 @@ return {
     t.eq(#result.raises, 0)
     t.is_true(tostring(result.error):find("synthesis-unparseable", 1, true) ~= nil)
     t.eq(#codex_calls(), 8)
+    t.is_true(judgment_call("synthesis-repair").stdin:find(
+      "Validation diagnostic: reason=response-contract-invalid.", 1, true
+    ) ~= nil)
   end,
 
   test_synthesis_repair_worker_failure_fails_closed_as_codex_failed = function()
@@ -804,7 +840,7 @@ return {
     t.eq(#codex_calls(), 3)
   end,
 
-  test_missing_source_ref_fails_closed_without_codex = function()
+  test_missing_source_ref_skips_without_codex = function()
     local result = run_decide(proposal({ source_ref = false }), opts("no-source-ref"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)

@@ -62,8 +62,36 @@ class SagaSplitRatchetTest(unittest.TestCase):
             "local M = {}\nreturn M\n",
             encoding="utf-8",
         )
+        (root / "packages" / "github-devloop" / "core.lua").write_text(
+            """local M = {}
+M.restart_lifecycle_states = {
+  "thinking",
+  "dependency_wait",
+  "ready",
+  "implementing",
+  "awaiting-pr",
+  "impl-failed",
+  "declined",
+  "blocked",
+  "merged",
+}
+return M
+""",
+            encoding="utf-8",
+        )
         (root / "libraries" / "devloop" / "restart" / "issue" / "pr_partition_contract.lua").write_text(
-            """local PR_PHASE_STATES = {
+            """local ISSUE_STATES = {
+  "thinking",
+  "dependency_wait",
+  "ready",
+  "implementing",
+  "awaiting-pr",
+  "impl-failed",
+  "declined",
+  "blocked",
+  "merged",
+}
+local PR_PHASE_STATES = {
   "pr-open",
   "reviewing",
   "fixing",
@@ -102,7 +130,11 @@ return {}
         ]
 
     def repository_messages(self, root: Path) -> list[str]:
-        with mock.patch.object(saga_split, "allowlist_at_dev_base", return_value=("present", saga_split.load_allowlist(root / saga_split.ALLOWLIST))):
+        with mock.patch.object(
+            saga_split.check_repo_config,
+            "allowlist_at_dev_base",
+            return_value=("present", saga_split.load_allowlist(root / saga_split.ALLOWLIST)),
+        ):
             return saga_split.repository_messages(root)
 
     def test_exhaustive_manifest_passes(self) -> None:
@@ -150,6 +182,23 @@ return {}
             (root / saga_split.CONTRACT).write_text("local PR_PHASE_STATES = {}\nreturn {}\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "contract-malformed"):
                 saga_split.load_pr_phase_states(root)
+
+    def test_issue_state_contract_cross_check_reports_mismatch_and_matching_fixture_is_silent(self) -> None:
+        tmp, root = self.make_repo()
+        with tmp:
+            self.write_manifest(root, self.base_rows())
+            self.write_allowlist(root, [])
+            self.assertEqual(self.repository_messages(root), [])
+
+            contract = root / saga_split.CONTRACT
+            contract.write_text(
+                contract.read_text(encoding="utf-8").replace('  "declined",', '  "contract-only",'),
+                encoding="utf-8",
+            )
+            self.assertIn(
+                "issue-state-contract-mismatch: contract-only=[contract-only] package-only=[declined]",
+                self.repository_messages(root),
+            )
 
     def test_missing_stale_and_duplicate_manifest_entries_fail(self) -> None:
         tmp, root = self.make_repo()
@@ -283,7 +332,11 @@ end
                 "function M.issue_authoritative_linked_state(issue_state, linked_state)\n  return linked_state or issue_state\nend\n",
                 encoding="utf-8",
             )
-            with mock.patch.object(saga_split, "allowlist_at_dev_base", return_value=("present", set())):
+            with mock.patch.object(
+                saga_split.check_repo_config,
+                "allowlist_at_dev_base",
+                return_value=("present", set()),
+            ):
                 growth = saga_split.repository_messages(root)
             self.assertTrue(any("allowlist-growth" in message for message in growth))
 

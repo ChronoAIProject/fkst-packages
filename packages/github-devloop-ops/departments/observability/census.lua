@@ -72,26 +72,6 @@ local function put_pr_entity(entities, repo, pr_number, pr)
   return entity
 end
 
-local function merge_deferred_reason(current, incoming)
-  local next_reason = incoming
-  if type(incoming) == "table" then
-    next_reason = incoming.reason
-  end
-  next_reason = tostring(next_reason or "")
-  if next_reason == "" then
-    return current
-  end
-  if current == nil or current == "" or next_reason == "timeout" then
-    return next_reason
-  end
-  if current == "timeout" then
-    return current
-  end
-  if next_reason == "deadline" then
-    return next_reason
-  end
-  return current
-end
 
 local function display_fetch_issue(repo, issue_number, limits, deadline)
   return common.fetch_issue(core, repo, issue_number, limits, deadline, core.observability_display_read_cmd)
@@ -110,7 +90,7 @@ local function observe_issue_candidate(repo, issue_number, entities, seen_prs, l
   local issue, reason = display_fetch_issue(repo, issue_number, limits, deadline)
   if issue == nil then
     budget.deadline_deferred = true
-    budget.deferred_reason = merge_deferred_reason(budget.deferred_reason, reason or "deadline")
+    budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
     return issue_views, pr_views
   end
   budget.remaining = budget.remaining - 1
@@ -124,7 +104,7 @@ local function observe_issue_candidate(repo, issue_number, entities, seen_prs, l
     local pr, reason = display_fetch_pr(repo, link.pr_number, limits, deadline)
     if pr == nil then
       budget.deadline_deferred = true
-      budget.deferred_reason = merge_deferred_reason(budget.deferred_reason, reason or "deadline")
+      budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
       return issue_views, pr_views
     end
     budget.remaining = budget.remaining - 1
@@ -146,7 +126,7 @@ local function observe_pr_candidate(repo, pr_number, entities, seen_prs, limits,
     local pr, reason = display_fetch_pr(repo, pr_number, limits, deadline)
     if pr == nil then
       budget.deadline_deferred = true
-      budget.deferred_reason = merge_deferred_reason(budget.deferred_reason, reason or "deadline")
+      budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
       return pr_views
     end
     budget.remaining = budget.remaining - 1
@@ -255,7 +235,7 @@ local function log_summary(counts, total)
     "tag=OBSERVE_SUMMARY",
     "total=" .. tostring(total or 0),
   }
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     table.insert(fields, state .. "=" .. tostring(counts[state] or 0))
   end
   if counts.unmanaged ~= nil then
@@ -279,9 +259,25 @@ function core.observe_entity_log_line(proposal_id, fields)
 end
 
 function core.collect_observability_entities(event, repo, limits, deadline)
-  local labels = { devloop_base._enabled_label }
-  for _, state in ipairs(devloop_state.issue_state_order()) do
-    table.insert(labels, devloop_state.state_label(state))
+  -- One paginated `gh issue list` runs per entry of this list, so a repeated label
+  -- costs a full redundant sweep every cycle. Several states share one label
+  -- (dependency_wait and ready both map to fkst-dev:ready; closed-unmerged and
+  -- blocked both map to fkst-dev:blocked), so dedupe before sweeping. The entity
+  -- set is unchanged: observability_sorted_numbers already collapses repeats by
+  -- issue number downstream.
+  local labels = {}
+  local label_seen = {}
+  local function add_label(label)
+    if label == nil or label_seen[label] then
+      return
+    end
+    label_seen[label] = true
+    table.insert(labels, label)
+  end
+  add_label(devloop_base._enabled_label)
+  add_label(devloop_base._hold_label)
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
+    add_label(devloop_state.state_label(state))
   end
   local rotation_seed = core.observability_rotation_seed(event)
   local issue_items, deferred_issue_pages, issue_list_deferred_reason = core.observability_list_issue_candidates(repo, labels, limits, deadline, rotation_seed)
@@ -297,9 +293,9 @@ function core.collect_observability_entities(event, repo, limits, deadline)
   if deferred_issue_pages > 0 or deferred_pr_pages > 0 or deferred_candidates > 0
     or view_deferred_reason ~= nil or remaining_budget == 0 or not core.observability_has_budget(deadline) then
     local deferred_reason = nil
-    deferred_reason = merge_deferred_reason(deferred_reason, issue_list_deferred_reason)
-    deferred_reason = merge_deferred_reason(deferred_reason, pr_list_deferred_reason)
-    deferred_reason = merge_deferred_reason(deferred_reason, view_deferred_reason)
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, issue_list_deferred_reason)
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, pr_list_deferred_reason)
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, view_deferred_reason)
     deferred_reason = deferred_reason or (core.observability_has_budget(deadline) and "batch-cap" or "deadline")
     observability_deferred = {
       reason = deferred_reason,

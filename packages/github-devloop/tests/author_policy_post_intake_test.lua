@@ -41,7 +41,8 @@ return {
     }))
 
     t.eq(result.exit_code, 0)
-    t.eq(h.find_raise(result.raises, "consensus.proposal") ~= nil, true)
+    t.eq(h.take_consensus_proposal() ~= nil, true)
+    t.eq(h.find_raise(result.raises, "devloop_consensus_request") ~= nil, true)
     t.eq(h.find_raise(result.raises, "github-proxy.github_issue_comment_request") ~= nil, true)
   end,
 }

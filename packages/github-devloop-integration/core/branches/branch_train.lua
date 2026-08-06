@@ -4,40 +4,25 @@ local strings = require("contract.strings")
 local forge_validators = require("devloop.forge_validators")
 local decimal_checksum = strings.decimal_checksum
 
-function BranchTrain.install(M, shared)
+function BranchTrain.install(M, shared, bounded_lock_key)
   local require_safe_branch = shared.require_safe_branch
   local require_safe_sha = shared.require_safe_sha
   local require_safe_repo = shared.require_safe_repo
   local require_sync_result = shared.require_sync_result
   local runtime_root_path = shared.runtime_root_path
 
-  local function bounded_lock_key(prefix, repo, upstream, integration)
-    local safe_repo = base_ids.safe_repo(require_safe_repo(repo))
-    local branches = {
-      require_safe_branch("upstream branch", upstream),
-      require_safe_branch("integration branch", integration),
-    }
-    local component_limit = math.floor((M._max_key_len - #prefix - #safe_repo - 3) / 2)
-    for index, branch in ipairs(branches) do
-      local checksum = decimal_checksum(branch)
-      local readable_limit = component_limit - #checksum - 1
-      local readable = strings.sanitize_key(branch, false):gsub("/", "-"):sub(1, readable_limit)
-      branches[index] = readable .. "-" .. checksum
-    end
-
-    local key = table.concat({ prefix, safe_repo, branches[1], branches[2] }, "/")
-    if not strings.is_path_safe_key(key, M._max_key_len) then
-      error("github-devloop: lock-key-invalid: invalid branch lock key")
-    end
-    return key
-  end
-
   function M.branch_sync_lock_key(repo, upstream, integration)
-    return bounded_lock_key("github-devloop/branch-sync", repo, upstream, integration)
+    return bounded_lock_key("github-devloop/branch-sync", repo, {
+      { name = "upstream branch", value = upstream },
+      { name = "integration branch", value = integration },
+    })
   end
 
   function M.rollup_lock_key(repo, upstream, integration)
-    return bounded_lock_key("github-devloop/rollup", repo, upstream, integration)
+    return bounded_lock_key("github-devloop/rollup", repo, {
+      { name = "upstream branch", value = upstream },
+      { name = "integration branch", value = integration },
+    })
   end
 
   function M.rollup_source_ref(repo, pr_number)

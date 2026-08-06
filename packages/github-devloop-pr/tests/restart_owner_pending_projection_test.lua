@@ -77,6 +77,11 @@ local pending_order_goldens = {
   ["github-devloop-pr/merging/entry/review_reject_to_blocked"] = no,
   ["github-devloop-pr/merging/entry/bounded_fix_to_blocked"] = no,
   ["github-devloop-pr/reviewing/entry/review_reject_to_blocked"] = no,
+  ["github-devloop-pr/reviewing/entry/review_reconcile_true_stall"] = no,
+  ["github-devloop-pr/fixing/entry/watchdog_reconcile_terminal"] = no,
+  ["github-devloop-pr/merging/entry/watchdog_reconcile_terminal"] = no,
+  ["github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal"] = no,
+  ["github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal"] = no,
   ["github-devloop-pr/reviewing/operator_reentry/rereview_blocked"] = no,
   ["github-devloop-pr/reviewing/operator_reentry/rereview_review_meta"] = no,
   ["github-devloop-pr/reviewing/operator_reentry/rereview_reviewing"] = no,
@@ -96,7 +101,7 @@ local function assert_pending_order_goldens(edges)
     if edge.pending_order.participates then participating = participating + 1 end
   end
   for id in pairs(pending_order_goldens) do t.eq(seen[id], true) end
-  t.eq(#edges, 38)
+  t.eq(#edges, 43)
   t.eq(participating, 17)
 end
 

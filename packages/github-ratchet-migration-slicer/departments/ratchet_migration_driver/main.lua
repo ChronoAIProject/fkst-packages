@@ -178,9 +178,6 @@ local function timestamp_now()
   return os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(now()) or os.time())
 end
 
-local function issue_create_marker(dedup_key)
-  return "<!-- fkst:github-proxy:issue-create:" .. tostring(dedup_key) .. " -->"
-end
 
 local function issue_create_intent_marker(dedup_key)
   return '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. tostring(dedup_key) .. '" -->'
@@ -473,7 +470,7 @@ local function reconcile_one(github, git, repo, ratchet)
       return "parent-already-closed"
     end
     if write_enabled() then
-      github.issue_close(repo, ratchet.parent_issue, 30)
+      github.issue_close(repo, ratchet.parent_issue, { kind = "completed" }, 30)
       return "closed-parent"
     end
     return "would-close-parent"

@@ -59,6 +59,7 @@ function C.with_current_classification(repo, pr_number, expected_head, effect, c
     kind = classified.kind,
     reason = classified.reason,
     ci_failure_key = classified.ci_failure_key,
+    gate_failure_excerpt = classified.gate_failure_excerpt,
     current_pr = current_pr,
   })
 end

@@ -6,6 +6,7 @@ local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local testing = require("testkit_internal.testing")
 local _workflow_codex = require("workflow_internal.codex")
+local consensus_call = require("devloop.consensus_call")
 local consensus_result_module = require("departments.consensus_result.main")
 
 local t = h.t
@@ -21,7 +22,7 @@ local PREFIX = "entry-consensus-result-"
 local SITE = {
   path = "packages/github-devloop/departments/consensus_result/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_reached",
+  ordinal = "consumes:devloop_consensus_request",
 }
 
 local RESULT_COMMENT = "comment:issue:consensus-result"
@@ -32,7 +33,7 @@ local RELEASE_COMMENT = "comment:issue:dependency-release"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "skip-foreign(proposal_id)",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 143,
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 249,
     payload = { schema = "unsupported.result.v1", proposal_id = PROPOSAL_ID, dedup_key = VERSION } },
   { disposition = "fail-owned-malformed-proposal", status = "error", reason = "owned-proposal-malformed",
     cas = "fail-closed(consensus-result-invalid)", target = "reject", source_line = 149, error = "owned proposal_id is malformed",
@@ -63,7 +64,7 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "repair-ready-comment-and-label", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "ready", source_line = 228,
-    current_state = "ready", current_version = VERSION, labels = {}, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    current_state = "ready", current_version = VERSION, labels = {}, effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "repair-declined-comment-only", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "declined", source_line = 228,
     decision = "reject", current_state = "declined", current_version = VERSION, labels = { "fkst-dev:declined" },
@@ -71,7 +72,7 @@ local FIXTURES = ra.json_array({
   { disposition = "repair-dependency-wait-hold-effects", status = "admitted", reason = "result-effects-incomplete",
     cas = "hold-dependency", target = "dependency_wait", source_line = 228,
     current_state = "dependency_wait", current_version = VERSION, gate_kind = "waiting", labels = {},
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "skip-incoming-version-older", status = "rejected", reason = "incoming-version-older",
     cas = "skip-stale(incoming version < current marker version)", target = "reject", source_line = 234,
     current_state = "thinking", current_version = VERSION, event_version = OLDER },
@@ -86,26 +87,55 @@ local FIXTURES = ra.json_array({
     current_state = nil, current_version = nil, error = "state-marker-pending" },
   { disposition = "admitted-ready", status = "admitted", reason = "approve-dependency-satisfied",
     cas = "applied", target = "ready", source_line = 243, current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "admitted-ready-with-dependency-release", status = "admitted", reason = "dependency-notes-released",
     cas = "applied", target = "ready", source_line = 243, current_state = "thinking", current_version = VERSION,
-    gate_kind = "release", effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, RELEASE_COMMENT }) },
+    gate_kind = "release", effects = ra.json_array({ RESULT_COMMENT, RELEASE_COMMENT }) },
   { disposition = "admitted-declined", status = "admitted", reason = "premise-refuted",
     cas = "applied", target = "declined", source_line = 243, decision = "reject",
-    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
+    current_state = "thinking", current_version = VERSION, effects = ra.json_array({ RESULT_COMMENT }) },
   { disposition = "admitted-dependency-wait", status = "admitted", reason = "dependency-waiting",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "waiting",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "admitted-dependency-cycle", status = "admitted", reason = "dependency-cycle",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "cycle",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
   { disposition = "admitted-dependency-unresolvable", status = "admitted", reason = "dependency-unresolvable",
     cas = "hold-dependency", target = "dependency_wait", source_line = 243, gate_kind = "unresolvable",
     current_state = "thinking", current_version = VERSION,
-    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL, HOLD_COMMENT, HOLD_LABEL }) },
+    effects = ra.json_array({ RESULT_COMMENT, HOLD_COMMENT, HOLD_LABEL }) },
 })
+
+local function transform_projected_handoff_record(record)
+  local target = record.typed_intent and record.typed_intent.target
+  if target ~= "ready" and target ~= "dependency_wait" and target ~= "declined" then
+    return record
+  end
+  local outcome = record.old_outcome
+  local emitted = ra.json_array()
+  for _, effect in ipairs(outcome.emitted_effects or {}) do
+    if effect.effect_id ~= RESULT_LABEL then
+      effect.ordinal = #emitted + 1
+      table.insert(emitted, effect)
+    end
+  end
+  outcome.emitted_effects = emitted
+  local writes = ra.json_array()
+  for _, write in ipairs(outcome.observable_writes or {}) do
+    if write.effect_id ~= RESULT_LABEL then
+      if write.effect_id == RESULT_COMMENT then
+        write.payload.handoff_kind = target == "ready" and "github-devloop.ready"
+          or target == "dependency_wait" and "github-devloop.ready-split-label"
+          or "github-devloop.declined-label"
+      end
+      table.insert(writes, write)
+    end
+  end
+  outcome.observable_writes = writes
+  return record
+end
 
 local function event_for(fixture)
   local payload = fixture.payload and ra.copy_value(fixture.payload) or h.reached({
@@ -113,7 +143,7 @@ local function event_for(fixture)
     decision_reason = fixture.decision == "reject" and "premise-refuted" or nil,
     effect_version = fixture.event_version,
   })
-  return { queue = "consensus.consensus_reached", ts = "2026-06-03T02:03:04Z", payload = payload }
+  return { queue = "devloop_consensus_request", ts = "2026-06-03T02:03:04Z", payload = payload }
 end
 
 local function trusted(body)
@@ -122,16 +152,29 @@ end
 
 local function gate_for(fixture)
   if fixture.gate_kind == "waiting" then
-    return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
+    return { kind = "waiting", hold_kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
   elseif fixture.gate_kind == "cycle" then
-    return { ok = false, kind = "cycle", reason = "dependency-cycle", unmet = { 42, 53 }, notes = {} }
+    return {
+      kind = "verified_cannot_proceed",
+      hold_kind = "cycle",
+      reason = "dependency-cycle",
+      unmet = { 42, 53 },
+      notes = {},
+      proof = {
+        kind = "dependency-cycle",
+        repo = REPO,
+        issue_number = ISSUE_NUMBER,
+        target_repo = REPO,
+        target_issue_number = ISSUE_NUMBER,
+      },
+    }
   elseif fixture.gate_kind == "unresolvable" then
-    return { ok = false, kind = "unresolvable", reason = "dependency-read-failed", unmet = { 53 }, notes = {} }
+    return { kind = "unavailable", hold_kind = "unresolvable", reason = "dependency-read-failed", unmet = {}, notes = {} }
   elseif fixture.gate_kind == "release" then
-    return { ok = true, kind = "satisfied", reason = "dependency-void", unmet = {},
+    return { kind = "satisfied", reason = "dependency-void", unmet = {},
       notes = { { kind = "dependency-void", blocker_number = 53, reason = "blocker-closed-unmerged" } } }
   end
-  return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+  return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
 end
 
 local function capture(fixture)
@@ -139,7 +182,7 @@ local function capture(fixture)
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
   end
   if fixture.first_decision then
     table.insert(comments, trusted(m_builders.result_marker(PROPOSAL_ID, fixture.first_decision, event.payload.dedup_key,
@@ -165,6 +208,7 @@ local function capture(fixture)
   local restorations = {}
   local captured = ra.capture_logging("consensus_result", devloop_logging, restorations)
   ra.replace(core, "dependency_gate", function() return gate_for(fixture) end, restorations)
+  ra.replace(consensus_call, "reach", function() return event.payload end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)
@@ -191,6 +235,9 @@ end
 
 return {
   test_consensus_result_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
-    ra.assert_site(t, { dept = "consensus_result", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE })
+    ra.assert_site(t, {
+      dept = "consensus_result", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
+      transform_committed_record = transform_projected_handoff_record,
+    })
   end,
 }

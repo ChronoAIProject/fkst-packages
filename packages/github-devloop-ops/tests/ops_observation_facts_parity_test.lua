@@ -73,8 +73,8 @@ local over_doctor_golden = {
   },
   thinking = {
     budget_minutes = 150,
-    reason = "state age 151m exceeds 150m liveness budget for consensus.proposal",
-    suggested = "inspect consensus.proposal delivery and re-run observe/liveness",
+    reason = "state age 151m exceeds 150m liveness budget for devloop_consensus_request",
+    suggested = "inspect devloop_consensus_request delivery and re-run observe/liveness",
   },
 }
 
@@ -106,7 +106,7 @@ local state_gap_golden = {
 
 local function state_comment(state_name, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, "v1"),
+    body = h.state_comment(proposal_id, state_name, "v1"),
     author_login = "fkst-test-bot",
     created_at = created_at,
   }

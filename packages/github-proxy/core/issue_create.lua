@@ -3,11 +3,16 @@ local S = {}
 function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
-local max_title_len = 240
-local max_body_len = 12000
+local sha256 = require("contract.sha256")
+local issue_create_limits = require("contract.github_issue_create").limits()
+local max_repo_len = issue_create_limits.repo
+local max_title_len = issue_create_limits.title
+local max_body_len = issue_create_limits.body
 local max_label_len = 80
 local max_login_len = 80
-local max_dedup_len = 512
+local max_dedup_len = issue_create_limits.dedup_key
+local max_source_ref_kind_len = issue_create_limits.source_ref_kind
+local max_source_ref_ref_len = issue_create_limits.source_ref_ref
 local max_runtime_id_len = 180
 local max_issue_number_len = 32
 
@@ -30,11 +35,10 @@ local function safe_runtime_segment(value)
 end
 
 local function issue_create_runtime_identity(dedup_key)
-  local id = "issue-create-" .. safe_runtime_segment(dedup_key)
-  if #id > max_runtime_id_len then
-    return id:sub(1, max_runtime_id_len)
-  end
-  return id
+  local prefix = "issue-create-"
+  local digest = "-" .. sha256.hex(tostring(dedup_key or ""))
+  local readable_limit = max_runtime_id_len - #prefix - #digest
+  return prefix .. safe_runtime_segment(dedup_key):sub(1, readable_limit) .. digest
 end
 
 local function filtered_labels(labels)
@@ -152,6 +156,16 @@ function M.issue_create_once_key(dedup_key)
   return "github-proxy/issue-create-once/" .. issue_create_runtime_identity(dedup_key)
 end
 
+function M.assert_issue_create_once_owner(cached_owner, dedup_key)
+  if cached_owner == nil then
+    return false
+  end
+  if tostring(cached_owner) ~= tostring(dedup_key) then
+    error("github-proxy: issue-create-once-owner-mismatch: cached issue-create owner differs from request dedup_key")
+  end
+  return true
+end
+
 function M.github_issue_create_search(repo, dedup_key, timeout)
   return M.github().issue_search(
     repo,
@@ -176,7 +190,7 @@ local function normalize_parent_comment_target(target)
   if target == nil then
     return nil
   end
-  if type(target) ~= "table" or not strings.is_bounded_string(target.repo, 200) then
+  if type(target) ~= "table" or not strings.is_bounded_string(target.repo, max_repo_len) then
     return false
   end
   if shared.is_positive_integer(target.pr_number) then
@@ -375,7 +389,7 @@ function M.validate_issue_create_payload(payload)
   if payload.schema ~= "github-proxy.issue-create.v1" then
     return false
   end
-  if not strings.is_bounded_string(payload.repo, 200) then
+  if not strings.is_bounded_string(payload.repo, max_repo_len) then
     return false
   end
   if not strings.is_bounded_string(payload.title, max_title_len) then
@@ -388,8 +402,8 @@ function M.validate_issue_create_payload(payload)
     return false
   end
   if type(payload.source_ref) ~= "table"
-    or not strings.is_bounded_string(payload.source_ref.kind, 80)
-    or not strings.is_bounded_string(payload.source_ref.ref, 200) then
+    or not strings.is_bounded_string(payload.source_ref.kind, max_source_ref_kind_len)
+    or not strings.is_bounded_string(payload.source_ref.ref, max_source_ref_ref_len) then
     return false
   end
   if payload.labels ~= nil then
@@ -521,7 +535,7 @@ function M.write_issue_create_request(payload)
     -- also publish intent and created facts into the parent ledger.
     local once_key = M.issue_create_once_key(payload.dedup_key)
     local ran = false
-    if cache_get(once_key) == nil then
+    if not M.assert_issue_create_once_owner(cache_get(once_key), payload.dedup_key) then
       ran = true
       local body = tostring(payload.body) .. "\n\n" .. M.issue_create_marker(payload.dedup_key) .. "\n"
       body = M.with_github_debug_stamp(body, {
@@ -543,7 +557,7 @@ function M.write_issue_create_request(payload)
       end
       maybe_add_parent_sub_issue(payload, issue_number)
       maybe_raise_post_create_blocked_by(payload, issue_number)
-      cache_set(once_key, "1")
+      cache_set(once_key, tostring(payload.dedup_key))
     end
     if not ran then
       log.info("github-proxy: skip-idempotent issue-create once marker already present")

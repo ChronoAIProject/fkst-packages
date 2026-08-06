@@ -314,7 +314,7 @@ return {
     if reviewed.exit_code ~= 0 then
       error("review_pr redrive failed: " .. tostring(reviewed.error or reviewed.stderr))
     end
-    local proposal = find_raise(reviewed, "consensus.proposal")
+    local proposal = find_raise(reviewed, "devloop_review_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.proposal_id, review_id)
     t.eq(proposal.payload.dedup_key, delivery_dedup_key)
@@ -342,12 +342,11 @@ return {
       review_round_comment("2026-06-03T00:00:00Z"),
     })
     t.eq(result.exit_code, 0)
-    local reconcile = find_raise(result, "devloop_timeout_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.state, "reviewing")
-    t.eq(reconcile.payload.issue_version, timeout_version)
-    t.eq(reconcile.payload.round, 3)
-    t.eq(reconcile.payload.source_ref.ref, "owner/repo#pr/7")
+    -- Owner directive (#2725): a reviewing stale-past-budget PR converge round is a
+    -- round/counter condition that must NEVER escalate to a terminal reconcile/blocked; it
+    -- REDRIVES, emitting the next timeout-attempt PR comment instead.
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.is_true(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt") ~= nil)
   end,
 
   test_liveness_scan_reviewing_issue_side_heartbeat_is_not_read_as_pr_live = function()
@@ -402,12 +401,11 @@ return {
       review_round_comment("2026-06-03T00:00:00Z"),
     })
     t.eq(result.exit_code, 0)
-    local reconcile = find_raise(result, "devloop_timeout_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.state, "reviewing")
-    t.eq(reconcile.payload.issue_version, timeout_version)
-    t.eq(reconcile.payload.round, 3)
-    t.eq(reconcile.payload.source_ref.ref, "owner/repo#pr/7")
+    -- Owner directive (#2725): a reviewing stale-past-budget PR converge round is a
+    -- round/counter condition that must NEVER escalate to a terminal reconcile/blocked; it
+    -- REDRIVES, emitting the next timeout-attempt PR comment instead.
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.is_true(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt") ~= nil)
   end,
 
   test_liveness_scan_pr_base_unmanaged_block_reinjects_observe_before_decompose = function()

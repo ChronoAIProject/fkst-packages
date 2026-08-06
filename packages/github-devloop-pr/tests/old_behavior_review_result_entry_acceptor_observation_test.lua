@@ -13,6 +13,7 @@ local result_facts = require("devloop.markers.result_facts")
 local testing = require("testkit_internal.testing")
 local _observation_support = require("testkit_internal.old_behavior_observation_support")
 local _workflow_codex = require("workflow_internal.codex")
+local consensus_call = require("devloop.consensus_call")
 local review_result_module = require("departments.review_result.main")
 
 local t = h.t
@@ -30,7 +31,7 @@ local PREFIX = "entry-review-result-"
 local SITE = {
   path = "packages/github-devloop-pr/departments/review_result/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_reached",
+  ordinal = "consumes:devloop_review_request",
 }
 
 local RESULT_COMMENT = "comment:pr:review-result"
@@ -42,7 +43,7 @@ local DECOMPOSE = "queue:github-devloop-decompose.devloop_decompose"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-payload",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 52,
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 73,
     payload = { schema = "unsupported.review-result.v1", proposal_id = PROPOSAL_ID, dedup_key = "bad" } },
   { disposition = "fail-owned-malformed-proposal", status = "error", reason = "owned-proposal-malformed",
     cas = "fail-closed(review-result-invalid)", target = "reject", source_line = 58,
@@ -155,7 +156,7 @@ end
 
 local function capture(fixture)
   h.mock_bot_env()
-  local event = { queue = "consensus.consensus_reached", ts = "2026-06-03T02:03:04Z", payload = review_payload(fixture) }
+  local event = { queue = "devloop_review_request", ts = "2026-06-03T02:03:04Z", payload = review_payload(fixture) }
   local ports = ra.fake_ports()
   local restorations = {}
   local captured = ra.capture_logging("review_result", devloop_logging, restorations)
@@ -184,6 +185,7 @@ local function capture(fixture)
   end
   ra.replace(config, "branch_config", function() return { integration = "dev", upstream = "dev" } end, restorations)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function() return true end, restorations)
+  ra.replace(consensus_call, "reach", function() return event.payload end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   if fixture.origin_repo then
     ra.replace(require("devloop.markers.facts"), "pr_origin_fact", function()

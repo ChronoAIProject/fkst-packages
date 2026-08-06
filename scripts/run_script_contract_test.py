@@ -43,14 +43,14 @@ class RunScriptContractTest(unittest.TestCase):
         source = self.source()
         expected = (
             "check_repo.py", "ratchet_base_test.py", "check_repo_fkst_layout.py", "check_repo_dedup_test.py",
-            "check_repo_content_truncation_test.py", "check_repo_coverage_test.py",
+            "check_repo_content_truncation_test.py", "check_repo_fanout_only_test.py", "check_repo_coverage_test.py",
             "check_repo_integration_coverage_test.py", "check_repo_intake_default_surface_test.py", "check_repo_dead_letter_test.py", "check_repo_producer_liveness_test.py", "check_repo_monotone_gate_test.py", "check_repo_hidden_state_test.py",
-            "check_repo_test_graphql.py", "check_repo_interface_test.py", "lua_coverage_to_lcov_test.py", "check_repo_test.py", "check_repo_github_content_ingress_test.py", "check_repo_error_class_test.py", "check_repo_dependency_cycle_test.py",
+            "check_repo_test_graphql.py", "check_repo_interface_test.py", "lua_coverage_to_lcov_test.py", "check_repo_test.py", "check_repo_github_content_ingress_test.py", "check_repo_error_class_test.py", "check_repo_library_error_class_test.py", "check_repo_dependency_cycle_test.py",
             "check_repo_std_dependency_model_test.py", "check_repo_devloop_installer_test.py", "check_repo_saga_head_test.py",
             "check_repo_namespaced_queue_test.py", "check_repo_shell_out_to_self_test.py", "check_repo_fkst_layout_test.py",
-            "bin_cache_test.py", "bin_bootstrap_test.py", "host_entry_test.py", "host_run_test.py", "host_run_local_iteration_test.py", "host_run_equivalence_test.py",
-            "run_sh_coverage_test.py", "run_sh_test_affected_test.py", "board_test.py", "dogfood_board_test.py", "doctor_test.py", "ratchet_migration_slicer_test.py",
-            "competence_gate_test.py", "test_parallel_test.py",
+            "bin_cache_test.py", "bin_bootstrap_test.py", "host_entry_test.py", "host_run_test.py", "host_run_restart_test.py", "host_run_local_iteration_test.py", "host_run_equivalence_test.py",
+            "run_sh_coverage_test.py", "run_sh_test_affected_test.py", "board_test.py", "dogfood_board_test.py", "dogfood_split_test.py", "doctor_test.py", "ratchet_migration_slicer_test.py",
+            "competence_gate_test.py", "test_parallel_test.py", "check_repo_restart_preflight_test.py",
         )
         for path in expected:
             self.assertIn(f'python3 -B "$ROOT/scripts/{path}"', source)
@@ -70,7 +70,7 @@ class RunScriptContractTest(unittest.TestCase):
         source = self.source()
 
         self.assertIn("elif ! _chk_out=\"$(cmd_check 2>&1)\"; then", source)
-        self.assertIn("printf '%s\\n' \"$_chk_out\"; exit 1", source)
+        self.assertIn("printf '%s\\n' \"$_chk_out\"; return 1", source)
         self.assertLess(source.index("cmd_check"), source.index("resolve_bin; ensure_fresh_bin; cmd_test"))
 
     def test_full_test_fails_on_g1_before_bin_resolution(self) -> None:
@@ -79,13 +79,96 @@ class RunScriptContractTest(unittest.TestCase):
             probe = Path(tmp) / "repo"
             scripts = probe / "scripts"
             pkg = probe / "packages" / "oversized"
+            contract = probe / "libraries" / "contract"
             scripts.mkdir(parents=True)
             pkg.mkdir(parents=True)
+            contract.mkdir(parents=True)
 
-            for name in ("run.sh", "test_affected.sh", "test_parallel.sh", "bin_bootstrap.sh", "host_entry.sh", "host_run.sh", "composed_manifest.sh", "check_repo.py", "check_repo_config.py", "check_repo_runner.py", "check_repo_content_truncation.py", "check_repo_coverage.py", "check_repo_cross_package.py", "check_repo_dead_letter.py", "check_repo_dependency_cycle.py", "check_repo_devloop_godlib.py", "check_repo_devloop_decouple.py", "check_repo_devloop_installer.py", "check_repo_service_locator.py", "check_repo_ambient_surface.py", "check_repo_core_param.py", "check_repo_dedup.py", "check_repo_error_class.py", "check_repo_gh_git_adapter.py", "check_repo_github_content_ingress.py", "check_repo_hidden_state.py", "check_repo_ingress.py", "check_repo_intake_default_surface.py", "check_repo_intake_routing.py", "check_repo_integration_coverage.py", "check_repo_library_layering.py", "check_repo_live_run_dispatch.py", "check_repo_lower_injected_m.py", "check_repo_monotone_gate.py", "check_repo_namespaced_queue.py", "check_repo_ownership_gate.py", "check_repo_perm.py", "check_repo_producer_liveness.py", "check_repo_restart_lifecycle.py", "check_repo_saga_handler.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_shell_out_to_self.py", "check_repo_std_dependency_model.py", "check_repo_version_suffix.py", "ratchet_base.py"):
+            for name in ("run.sh", "test_affected.sh", "test_parallel.sh", "test_deadline.sh", "run_department.sh", "bin_bootstrap.sh", "local_iteration_result.sh", "run_bin.sh", "host_entry.sh", "host_run.sh", "composed_manifest.sh", "check_repo.py", "check_repo_config.py", "check_repo_runner.py", "check_repo_codex_timeout.py", "check_repo_content_truncation.py", "check_repo_fanout_only.py", "check_repo_coverage.py", "check_repo_cross_package.py", "check_repo_dead_letter.py", "check_repo_dept_failure_surface.py", "check_repo_dependency_cycle.py", "check_repo_devloop_godlib.py", "check_repo_devloop_decouple.py", "check_repo_devloop_installer.py", "check_repo_service_locator.py", "check_repo_ambient_surface.py", "check_repo_core_param.py", "check_repo_dedup.py", "check_repo_error_class.py", "check_repo_gh_git_adapter.py", "check_repo_github_content_ingress.py", "check_repo_hidden_state.py", "check_repo_ingress.py", "check_repo_intake_default_surface.py", "check_repo_intake_routing.py", "check_repo_intent_bounded_replay.py", "check_repo_intent_bounded_replay_trace_catalog.py", "check_repo_integration_coverage.py", "check_repo_library_layering.py", "check_repo_live_run_dispatch.py", "check_repo_lower_injected_m.py", "check_repo_lua.py", "check_repo_monotone_gate.py", "check_repo_namespaced_queue.py", "check_repo_ownership_gate.py", "check_repo_pagination.py", "check_repo_perm.py", "check_repo_producer_liveness.py", "check_repo_restart_lifecycle.py", "check_repo_saga_handler.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_shell_out_to_self.py", "check_repo_std_dependency_model.py", "check_repo_version_suffix.py", "ratchet_base.py"):
                 shutil.copy2(root / "scripts" / name, scripts / name)
-            for name in ("check_repo_coverage_test.py", "check_repo_integration_coverage_test.py", "check_repo_intake_default_surface_test.py", "check_repo_dead_letter_test.py", "check_repo_dedup_test.py", "check_repo_content_truncation_test.py", "check_repo_dependency_cycle_test.py", "check_repo_producer_liveness_test.py", "check_repo_monotone_gate_test.py", "check_repo_hidden_state_test.py", "check_repo_test_graphql.py", "check_repo_interface_test.py", "lua_coverage_to_lcov_test.py", "check_repo_test.py", "check_repo_github_content_ingress_test.py", "check_repo_error_class_test.py", "check_repo_library_layering_test.py", "check_repo_std_dependency_model_test.py", "check_repo_devloop_installer_test.py", "check_repo_restart_lifecycle_test.py", "check_repo_saga_head_test.py", "check_repo_namespaced_queue_test.py", "check_repo_shell_out_to_self_test.py", "check_repo_fkst_layout.py", "check_repo_fkst_layout_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "host_entry_test.py", "host_run_test.py", "host_run_equivalence_test.py", "run_sh_coverage_test.py", "run_sh_test_affected_test.py", "composed_manifest_test.py", "board_test.py", "dogfood_board_test.py", "doctor_test.py", "ratchet_migration_slicer_test.py", "run_script_contract_test.py", "ratchet_base_test.py", "competence_gate_test.py", "test_parallel_test.py"):
+            shutil.copy2(root / "scripts/check_repo_restart_preflight.py", scripts / "check_repo_restart_preflight.py")
+            shutil.copy2(root / "libraries/contract/error_facts.lua", contract / "error_facts.lua")
+            for name in ("check_repo_coverage_test.py", "check_repo_integration_coverage_test.py", "check_repo_intake_default_surface_test.py", "check_repo_dead_letter_test.py", "check_repo_dedup_test.py", "check_repo_content_truncation_test.py", "check_repo_fanout_only_test.py", "check_repo_codex_timeout_test.py", "check_repo_dependency_cycle_test.py", "check_repo_producer_liveness_test.py", "check_repo_monotone_gate_test.py", "check_repo_hidden_state_test.py", "check_repo_test_graphql.py", "check_repo_interface_test.py", "lua_coverage_to_lcov_test.py", "check_repo_test.py", "check_repo_github_content_ingress_test.py", "check_repo_error_class_test.py", "check_repo_library_error_class_test.py", "check_repo_library_layering_test.py", "check_repo_std_dependency_model_test.py", "check_repo_devloop_installer_test.py", "check_repo_restart_lifecycle_test.py", "check_repo_saga_head_test.py", "check_repo_namespaced_queue_test.py", "check_repo_shell_out_to_self_test.py", "check_repo_fkst_layout.py", "check_repo_fkst_layout_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "host_entry_test.py", "host_run_test.py", "host_run_restart_test.py", "host_run_equivalence_test.py", "run_sh_coverage_test.py", "run_sh_test_affected_test.py", "composed_manifest_test.py", "board_test.py", "dogfood_board_test.py", "dogfood_split_test.py", "doctor_test.py", "ratchet_migration_slicer_test.py", "run_script_contract_test.py", "ratchet_base_test.py", "competence_gate_test.py", "test_parallel_test.py"):
                 (scripts / name).write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
+            (scripts / "check_repo_restart_preflight_test.py").write_text(
+                "#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8"
+            )
+
+            intent_replay = scripts / "intent_bounded_replay"
+            intent_replay.mkdir()
+            for name in ("normalize.py", "compare.py", "semantic_tree.py", "delivery_authorization.py"):
+                shutil.copy2(root / "scripts" / "intent_bounded_replay" / name, intent_replay / name)
+            migration = probe / "migration"
+            migration.mkdir()
+            thinking_corpus = migration / "intent_bounded_replay" / "corpus"
+            thinking_corpus.mkdir(parents=True)
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/thinking.json",
+                thinking_corpus / "thinking.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/issue-reconcile.json",
+                thinking_corpus / "issue-reconcile.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/loop-plain.json",
+                thinking_corpus / "loop-plain.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/implement-activation.json",
+                thinking_corpus / "implement-activation.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/awaiting-pr.json",
+                thinking_corpus / "awaiting-pr.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/timeout-reconcile.json",
+                thinking_corpus / "timeout-reconcile.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/observe-issue-entry.json",
+                thinking_corpus / "observe-issue-entry.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-review-result.json",
+                thinking_corpus / "pr-review-result.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-review-meta.json",
+                thinking_corpus / "pr-review-meta.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-fix.json",
+                thinking_corpus / "pr-fix.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-review-activation.json",
+                thinking_corpus / "pr-review-activation.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/observe-pr-fix.json",
+                thinking_corpus / "observe-pr-fix.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-review-loop.json",
+                thinking_corpus / "pr-review-loop.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json",
+                thinking_corpus / "pr-fix-reconcile.json",
+            )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-merge.json",
+                thinking_corpus / "pr-merge.json",
+            )
+            (migration / "intent-bounded-replay.allowlist").write_text(
+                "# R9 intent-bounded-replay: zero behavior-change intent-diffs during refactor.\n",
+                encoding="utf-8",
+            )
+            intent_diffs = migration / "intent-diffs"
+            intent_diffs.mkdir()
+            (intent_diffs / ".gitkeep").write_text("", encoding="utf-8")
 
             core_lines = [
                 "local M = {}",

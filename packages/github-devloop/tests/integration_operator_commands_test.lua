@@ -23,28 +23,7 @@ local merge_comments = h.merge_comments
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local function pr_event(updated_at)
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    dedup_key = "owner/repo#pr#7@" .. tostring(updated_at or "2026-06-04T03:00:00Z"),
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#pr/7",
-    },
-  }
-end
 
-local function trusted_command(id)
-  return {
-    id = id or "IC_rereview_1",
-    body = "fkst: rereview\n\nCI was rerun.",
-    author_login = "fkst-test-bot",
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
 
 local function trusted_issue_command(command, id)
   return {
@@ -63,7 +42,7 @@ local function thinking_converge_comments(event, rounds, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -86,7 +65,7 @@ local function thinking_changing_converge_comments(event, rounds, command)
   local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -127,7 +106,7 @@ return {
     local result = run_observe(event, opts("operator-issue-rereview-thinking-converge"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
     t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
@@ -144,7 +123,7 @@ return {
 
     local result = run_observe(event, opts("operator-issue-rereview-round-7"))
     t.eq(result.exit_code, 0)
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
     t.eq(proposal_raise.payload.round, 8)
     t.eq(proposal_raise.payload.convergence_question, "Narrowed question 7")
@@ -166,7 +145,7 @@ return {
     local result = run_observe(event, opts("operator-issue-rereview-plain-stalled"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.eq(proposal_raise.payload.dedup_key, base_version)
     t.eq(proposal_raise.payload.round, nil)
@@ -191,7 +170,7 @@ return {
     t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("stalled thinking state", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
@@ -203,7 +182,7 @@ return {
     })
     local replay = run_observe(event, opts("operator-issue-rereview-active-replay"))
     t.eq(replay.exit_code, 0)
-    t.eq(find_raise(replay.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(replay.raises, "devloop_consensus_request"), nil)
     local replay_comment = find_raise(replay.raises, "github-proxy.github_issue_comment_request")
     t.is_true(replay_comment ~= nil)
     t.is_true(replay_comment.payload.body:find("operator command refused", 1, true) ~= nil)
@@ -215,7 +194,7 @@ return {
     local event = reached()
     local command = trusted_issue_command("reready", "IC_issue_reready_release")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }, "OPEN", {
-      core.state_marker(event.proposal_id, "dependency_wait", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "dependency_wait", event.dedup_key),
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_unresolvable_marker(event.proposal_id, event.dedup_key, { 42 }),
       command,
@@ -227,11 +206,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(command_response.payload.body:find('outcome="applied"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    local ready_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return type(payload.handoff) == "table"
         and payload.handoff.kind == "github-devloop.ready"
-    end) ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_label_request") ~= nil)
+    end)
+    t.is_true(ready_comment ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.is_true(type(ready_comment.payload.handoff.label_request) == "table")
   end,
 
   test_issue_reready_command_invalid_state_refuses = function()
@@ -257,7 +238,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_ready")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
@@ -302,7 +283,7 @@ return {
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_pr_link")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
       m_builders.pr_link_marker(proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
@@ -330,7 +311,8 @@ return {
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
       command,
     })
 
@@ -342,7 +324,10 @@ return {
     t.is_true(command_response.payload.body:find('command="reimplement"', 1, true) ~= nil)
     t.is_true(ready_raise ~= nil)
     t.eq(ready_raise.payload.proposal_id, event.proposal_id)
-    t.eq(ready_raise.payload.dedup_key, ready_version)
+    t.eq(ready_raise.payload.implementation_version, ready_version)
+    t.eq(ready_raise.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_issue_reimplement")
+    t.is_true(ready_raise.payload.dedup_key ~= ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
   end,
 
@@ -377,9 +362,13 @@ return {
     t.is_true(command_response ~= nil)
     t.is_true(ready_raise ~= nil)
     t.eq(ready_raise.payload.proposal_id, proposal_id)
-    t.eq(ready_raise.payload.dedup_key, ready_version)
+    t.eq(ready_raise.payload.implementation_version, ready_version)
+    t.eq(ready_raise.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_issue_reimplement_timeout_without_pr")
+    t.is_true(ready_raise.payload.dedup_key ~= ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
-    t.eq(core.implementation_attempt_version(ready_raise.payload.dedup_key, ready_raise.payload.impl_retry_attempt), ready_version .. "/reimplement/2")
+    t.eq(core.implementation_attempt_version(ready_raise.payload.implementation_version,
+      ready_raise.payload.impl_retry_attempt), ready_version .. "/reimplement/2")
     t.eq(ready_raise.payload.operator_reentry.command, "reimplement")
     t.eq(ready_raise.payload.operator_reentry.from_state, "blocked")
     t.eq(ready_raise.payload.operator_reentry.terminal_reason, "implementing-timeout-without-pr")

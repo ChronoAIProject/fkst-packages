@@ -1,6 +1,7 @@
 local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
+local devloop_base = require("devloop.base")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local testing = require("testkit_internal.testing")
 
@@ -198,6 +199,8 @@ return {
     t.eq(request.parent_comment_target.repo, repo)
     t.eq(request.parent_comment_target.issue_number, issue_number)
     t.eq(request.source_ref.ref, "owner/repo#issue/42")
+    t.eq(devloop_base.is_intake_held(request.labels), true)
+    t.eq(devloop_base.is_opted_in(request.labels), false)
     t.is_true(request.title:find("state-output-obligation-timeout", 1, true) ~= nil)
     t.is_true(request.body:find("`failure_kind`: `OutputObligationFailure`", 1, true) ~= nil)
     t.is_true(request.body:find("`reason_class`: `state-output-obligation-timeout`", 1, true) ~= nil)
@@ -304,6 +307,8 @@ return {
     t.eq(raised.payload.schema, "github-proxy.issue-create.v1")
     t.eq(raised.payload.repo, repo)
     t.eq(raised.payload.parent_comment_target.issue_number, issue_number)
+    t.eq(#raised.payload.labels, 1)
+    t.eq(raised.payload.labels[1], core._hold_label)
     t.is_true(raised.payload.body:find("`failure_kind`: `OutputObligationFailure`", 1, true) ~= nil)
   end,
 

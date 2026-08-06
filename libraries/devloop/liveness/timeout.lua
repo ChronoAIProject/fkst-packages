@@ -99,29 +99,27 @@ function M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   return M.liveness_timeout_due(row, state, now_seconds)
 end
 
+-- Owner directive (issue ChronoAIProject/fkst-packages#2725): a TIMEOUT — or any
+-- transient / liveness / resource / attempt-counter / round-budget condition — must
+-- NEVER transition a devloop entity to a terminal state (blocked). Only an EXPLICIT
+-- cannot-proceed (consensus reject / explicit operator block) may reach terminal, via
+-- its own dedicated edge. The raw `escalate_after_attempts` counter therefore no
+-- longer forces termination: a state past its output-obligation budget REDRIVES
+-- indefinitely. Liveness is still bounded by the upstream gates that run before this
+-- function — `restart_row_receiver_liveness` (`action="defer"` while a receiver is
+-- provably live) and `liveness_timeout_due*` (`action="wait"` before budget) — so the
+-- redrive is gated by real liveness/progress, not by a raw count. The `on_escalate`
+-- config (force-terminate/blocked) is retained on rows so the CAS grant-facade edge
+-- synthesis + frozen timeout-reconcile parity corpus stay byte-exact (conservative
+-- extension), but the live watchdog never produces an `escalate` decision, so those
+-- terminal edges are no longer traversed at runtime.
 local function timeout_escalation(row, state, age, facts)
   local attempt = M.liveness_timeout_attempt(row, state, facts)
-  local limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
-  local next_version = M.next_liveness_timeout_version(row, state, facts)
-  if attempt >= limit then
-    return {
-      action = "escalate",
-      attempt = attempt,
-      age_minutes = age,
-    }
-  end
-  if attempt + 1 >= limit then
-    return {
-      action = "escalate",
-      attempt = attempt + 1,
-      age_minutes = age,
-    }
-  end
   return {
     action = "redrive",
     attempt = attempt + 1,
     age_minutes = age,
-    version = next_version,
+    version = M.next_liveness_timeout_version(row, state, facts),
   }
 end
 
@@ -256,6 +254,11 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     devloop_logging.log_cas_decision(dept, proposal_id, state, "blocked", row.driving_queue, "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
     return true
   end
+  if row.from_state == "implementing"
+    and M.implementing_version_mismatch_budget_exhausted(comments, proposal_id, state and state.version) then
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", row.driving_queue, "skip-idempotent(version-mismatch-exhausted)", "implementing re-drive would hand implement a version-mismatch whose delivery budget is already exhausted (terminal fail-closed)")
+    return true
+  end
   local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
   if receiver_liveness.action == "defer" then
     local signal = receiver_liveness.signal or {}
@@ -281,6 +284,20 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
       return true
     end
     return false
+  end
+  -- Owner directive (#2725) anti-spin decompose-escape: timeouts/counters REDRIVE and
+  -- never drop ACTIVE work to terminal `blocked`, BUT the `blocked` state is ALREADY
+  -- terminal and its decompose OUTPUT obligation still needs a bounded terminal STOP so
+  -- the redrive loop does not spin forever. Emitting the decompose-exhausted marker once
+  -- the attempt budget is reached is NOT a timeout->terminal transition (the issue is
+  -- already blocked); it is exactly the "decompose escape" the doctrine requires. This
+  -- restores the terminal-stop that previously lived on the (now never-taken) escalate
+  -- branch above, without reintroducing any active-state force-terminate.
+  if row.from_state == "blocked" then
+    local escape_limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
+    if escape_limit ~= nil and tonumber(decision.attempt) ~= nil and tonumber(decision.attempt) >= escape_limit then
+      return emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, decision.attempt)
+    end
   end
   local replay = replayer.replay_from_table_classified(M, dept, entity, {
     state = state.state,

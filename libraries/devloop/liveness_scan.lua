@@ -32,14 +32,18 @@ function C.liveness_scan_cursor_key(repo, prefix)
 end
 
 function C.liveness_scan_log_deferred(reason, fields)
-  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", {
+  local fact_fields = {
     "reason=" .. tostring(reason or "budget"),
     "listed_issues=" .. tostring(fields and fields.listed_issues or 0),
     "listed_prs=" .. tostring(fields and fields.listed_prs or 0),
     "processed=" .. tostring(fields and fields.processed or 0),
     "deferred=" .. tostring(fields and fields.deferred or 0),
     "entity_cap=" .. tostring(fields and fields.entity_cap or 0),
-  })
+  }
+  if fields and fields.error_class ~= nil then
+    table.insert(fact_fields, 2, "error_class=" .. tostring(fields.error_class))
+  end
+  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", fact_fields)
 end
 
 function C.liveness_scan_is_timeout_result(M, result)
@@ -51,7 +55,18 @@ function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
   if cursor_key == nil then
     return
   end
-  cache_set(cursor_key, tostring(sweep_bounds.sweep_cursor_advance(cursor, total, processed)))
+  local state = type(cursor) == "table" and cursor or {}
+  local attempted = tonumber(processed) or 0
+  local remaining = tonumber(state.remaining) or 0
+  if attempted >= remaining then
+    cache_set(cursor_key, "0")
+    return
+  end
+  local last_attempted = tonumber(state.activation_numbers and state.activation_numbers[attempted])
+  if attempted > 0 and last_attempted ~= nil then
+    state.last_number = last_attempted
+  end
+  cache_set(cursor_key, tostring(state.last_number or 0) .. ":" .. tostring(state.high_water or 0))
 end
 
 function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
@@ -83,10 +98,14 @@ function C.liveness_scan_state_is_non_terminal(M, state)
   return row ~= nil and row.terminal ~= true
 end
 
-function C.liveness_scan_should_reinject_state(M, proposal_id, state)
+function C.liveness_scan_should_reinject_state(M, proposal_id, state, labels)
   if state == nil or state.state == nil then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-no-state", "no current restart state marker")
     return false
+  end
+  if type(labels) == "table" and not M.state_label_hint_matches(labels, state.state) then
+    devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "reinject-label-projection", "current issue state label does not match the canonical state marker")
+    return true, "label-projection-mismatch"
   end
   if not C.liveness_scan_state_is_non_terminal(M, state) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "skip-terminal", "current restart state is terminal or unknown")
@@ -146,12 +165,30 @@ function C.liveness_scan_observe_queue(kind)
   return "devloop_observe_issue"
 end
 
+local function rate_limit_deferred_outcome(result)
+  if type(result) == "table"
+    and result.error_class == "gh-rate-limited"
+    and result.retryable == true then
+    return {
+      status = "deferred",
+      reason = result.error_class,
+      error_class = result.error_class,
+      retryable = true,
+    }
+  end
+  return nil
+end
+
 function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
   local list = entity_list_cache.fetch_shared_issue_observe_list(M, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-issue-list-failed: " .. tostring(list.stderr))
   end
   return parsers_issue.parse_issue_list_observe(list.stdout)
@@ -163,6 +200,10 @@ function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-pr-list-failed: " .. tostring(list.stderr))
   end
   return parsers_pr.parse_pr_list_observe(list.stdout)
@@ -175,26 +216,65 @@ local function sort_by_number(items)
   return items
 end
 
+local function decode_scan_cursor(value)
+  local last_number, high_water = tostring(value or ""):match("^(%d+):(%d+)$")
+  last_number = tonumber(last_number)
+  high_water = tonumber(high_water)
+  if last_number == nil or high_water == nil or last_number > high_water then
+    return 0, nil
+  end
+  return last_number, high_water
+end
+
+local function entities_in_cursor_cycle(activations, last_number, high_water)
+  local eligible = {}
+  for _, activation in ipairs(activations) do
+    local number = tonumber(activation.entity and activation.entity.number)
+    if number ~= nil and number > last_number and number <= high_water then
+      table.insert(eligible, activation)
+    end
+  end
+  return eligible
+end
+
 function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   local activations = {}
   for _, entity in ipairs(sort_by_number(items or {})) do
     table.insert(activations, { kind = kind, entity = entity })
   end
   local total = #activations
-  if total > LIVENESS_SCAN_MAX_PER_TICK then
-    local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-    local cursor = cache_get(cursor_key)
-    local bounded, deferred = sweep_bounds.sweep_cursor_batch(
-      activations,
-      cursor,
-      LIVENESS_SCAN_MAX_PER_TICK,
-      LIVENESS_SCAN_MAX_PER_TICK
-    )
-    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
-    return bounded, deferred, cursor_key, cursor, total
+  local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
+  local last_number, high_water = decode_scan_cursor(cache_get(cursor_key))
+  local current_high_water = total > 0 and tonumber(activations[total].entity.number) or 0
+  if high_water == nil then
+    high_water = current_high_water
   end
-  cache_set(C.liveness_scan_cursor_key(repo, cursor_prefix), "0")
-  return activations, 0, nil, nil, total
+  local eligible = entities_in_cursor_cycle(activations, last_number, high_water)
+  if total > 0 and #eligible == 0 then
+    last_number = 0
+    high_water = current_high_water
+    eligible = entities_in_cursor_cycle(activations, last_number, high_water)
+  end
+
+  local bounded = {}
+  local activation_numbers = {}
+  for index, activation in ipairs(eligible) do
+    if index > LIVENESS_SCAN_MAX_PER_TICK then
+      break
+    end
+    table.insert(bounded, activation)
+    table.insert(activation_numbers, tonumber(activation.entity.number))
+  end
+  local deferred = math.max(0, #eligible - #bounded)
+  if deferred > 0 then
+    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(deferred) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
+  end
+  return bounded, deferred, cursor_key, {
+    last_number = last_number,
+    high_water = high_water,
+    activation_numbers = activation_numbers,
+    remaining = #eligible,
+  }, total
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)

@@ -37,7 +37,7 @@ return {
     local result = run_review_pr(event, opts("review-pr-no-ci-gate"))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal").payload.schema, "consensus.proposal.v1")
+    t.eq(find_raise(result.raises, "devloop_review_request").payload.schema, "consensus.proposal.v1")
     t.eq(count_calls("statusCheckRollup"), 0)
   end,
 
@@ -58,7 +58,7 @@ return {
     local result = run_review_pr(event, opts("review-pr-review-loop-suffix-proceeds"))
 
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = find_raise(result.raises, "devloop_review_request")
     t.eq(proposal.payload.schema, "consensus.proposal.v1")
     t.eq(proposal.payload.proposal_id, devloop_base.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
   end,

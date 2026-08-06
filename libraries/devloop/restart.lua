@@ -1,5 +1,6 @@
 local parsers_misc = require("devloop.parsers.misc")
 local conv_rounds = require("devloop.convergence.rounds")
+local convergence_shared = require("devloop.convergence.shared")
 local S = {}
 local registry = require("workflow_internal.registry")
 local transition_version = require("contract.transition_version")
@@ -169,14 +170,14 @@ local RESTART_OP_KEYS = required_op_set()
 
 local function assert_restart_ops_table(ops)
   if type(ops) ~= "table" then
-    error("restart kernel: ops must be a table")
+    error("restart.kernel: restart-ops-not-table: ops must be a table")
   end
 end
 
 local function validate_restart_ops(ops, used_ops)
   for _, key in ipairs(REQUIRED_OPS) do
     if used_ops[key] and ops[key] == nil then
-      error("restart kernel: missing op " .. key)
+      error("restart.kernel: restart-op-missing: missing op " .. key)
     end
   end
 end
@@ -187,7 +188,7 @@ local function restart_build_env(values, ops, used_ops)
       if RESTART_OP_KEYS[key] then
         used_ops[key] = true
         if ops[key] == nil then
-          error("restart kernel: missing op " .. key)
+          error("restart.kernel: restart-op-missing: missing op " .. key)
         end
         return ops[key]
       end
@@ -324,9 +325,17 @@ function M.restart_effect_contract_errors(rows, consumer_sources)
   return errors
 end
 
-function M.latest_complete_converge_round(comments, proposal_id, _base_version, _source_ref)
+function M.latest_complete_converge_round(comments, proposal_id, epoch_version, source_ref)
+  if epoch_version == nil or source_ref == nil then
+    return nil
+  end
   local latest = nil
-  local facts = conv_rounds.converge_round_facts_for_proposal(comments, proposal_id)
+  local facts = conv_rounds.converge_round_facts_for_epoch(
+    comments,
+    proposal_id,
+    epoch_version,
+    convergence_shared.source_ref_digest(source_ref)
+  )
   for _, fact in ipairs(facts) do
     if fact.narrowed_question ~= nil
       and fact.narrowed_question ~= ""

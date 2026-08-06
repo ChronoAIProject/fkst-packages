@@ -5,7 +5,8 @@ local digest = require("core.digest")
 local devloop_base = require("devloop.base")
 local devloop_facts = require("devloop.markers.facts")
 local devloop_marker_builders = require("devloop.markers.builders")
-local devloop_state = require("devloop.state")
+local restart_cas_catalog = require("devloop.restart_cas_catalog")
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local execution_start = require("devloop.execution_start")
 local graph = require("testkit.graph")
 local marker = require("core.marker")
@@ -15,6 +16,16 @@ local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
 
 local candidate_queue = "github-devloop-intake.devloop_intake_candidate"
+local restart_projection = owner_pending_projection.frozen_projection()
+
+local function catalog_versioned_status(current, source_states, target_state, incoming_version)
+  return restart_cas_catalog.resolve("cas.base_versioned_legacy_v1", {
+    current = current,
+    source_states = source_states,
+    target_state = target_state,
+    incoming_version = incoming_version,
+  }, restart_projection).status
+end
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -398,7 +409,7 @@ local tests = {
 
     local ready_version = "consensus:" .. tostring(request.dedup_key)
     t.eq(ready_event_version_from_marker_version(ready_version), "ready/consensus-" .. tostring(normal.dedup_key))
-    t.eq(devloop_state.versioned_transition_status(
+    t.eq(catalog_versioned_status(
       { state = "ready", version = ready_version },
       { "ready" },
       "implementing",
@@ -414,7 +425,7 @@ local tests = {
       "scaffold",
       "github-devloop/issue/owner/repo/191",
     })
-    t.eq(devloop_state.versioned_transition_status(
+    t.eq(catalog_versioned_status(
       { state = "ready", version = live_current_ready_marker_version },
       { "ready" },
       "implementing",

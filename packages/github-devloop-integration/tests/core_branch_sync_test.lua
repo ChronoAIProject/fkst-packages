@@ -112,6 +112,10 @@ return {
       "github-devloop/rollup/owner/repo/dev-2006806159/integration-dev-3436629376"
     )
     t.eq(
+      core.pr_freshness_lock_key("owner/repo", "integration/dev"),
+      "github-devloop/pr-freshness/owner/repo/integration-dev-3436629376"
+    )
+    t.eq(
       git_mechanics.repo_ref_store_lock_key("owner/repo"),
       "github-devloop/git/owner/repo/fetch"
     )
@@ -150,12 +154,16 @@ return {
 
     local branch_sync_key = core.branch_sync_lock_key(repo, upstream, integration)
     local rollup_key = core.rollup_lock_key(repo, upstream, integration)
+    local pr_freshness_key = core.pr_freshness_lock_key(repo, integration)
     t.is_true(strings.is_path_safe_key(branch_sync_key, 200))
     t.is_true(strings.is_path_safe_key(rollup_key, 200))
+    t.is_true(strings.is_path_safe_key(pr_freshness_key, 200))
     t.eq(branch_sync_key, core.branch_sync_lock_key(repo, upstream, integration))
     t.eq(rollup_key, core.rollup_lock_key(repo, upstream, integration))
+    t.eq(pr_freshness_key, core.pr_freshness_lock_key(repo, integration))
     t.is_true(branch_sync_key ~= core.branch_sync_lock_key(repo, upstream, different_integration))
     t.is_true(rollup_key ~= core.rollup_lock_key(repo, upstream, different_integration))
+    t.is_true(pr_freshness_key ~= core.pr_freshness_lock_key(repo, different_integration))
     t.is_true(core.branch_sync_lock_key(repo, "a/b", "c") ~= core.branch_sync_lock_key(repo, "a", "b/c"))
   end,
 
@@ -173,12 +181,17 @@ return {
 
     local branch_sync_key = core.branch_sync_lock_key(repo, upstream, integration)
     local rollup_key = core.rollup_lock_key(repo, upstream, integration)
+    local pr_freshness_key = core.pr_freshness_lock_key(repo, integration)
     t.is_true(strings.is_path_safe_key(branch_sync_key, 200))
     t.is_true(strings.is_path_safe_key(rollup_key, 200))
+    t.is_true(strings.is_path_safe_key(pr_freshness_key, 200))
     t.is_true(#branch_sync_key <= 200)
     t.is_true(#rollup_key <= 200)
+    t.is_true(#pr_freshness_key <= 200)
     t.eq(#branch_sync_key, 199)
     t.eq(#rollup_key, 200)
+    t.eq(#pr_freshness_key, 200)
+    t.is_true(pr_freshness_key ~= core.pr_freshness_lock_key(repo, integration:sub(1, -2) .. "j"))
   end,
 
   test_branch_sync_rejects_unsafe_shapes = function()
@@ -253,8 +266,21 @@ return {
 
     local result = run_shell(command)
 
-    t.eq(result.exit_code, 0, result.output)
-    t.eq(read_file(state_dir .. "/status"), "0 0\n")
+    local status = read_file(state_dir .. "/status")
+    local sync_rc, rollup_rc = status:match("^(%d+) (%d+)\n$")
+    t.is_true(sync_rc ~= nil and rollup_rc ~= nil)
+    local exit_codes = { tonumber(sync_rc), tonumber(rollup_rc) }
+    table.sort(exit_codes)
+
+    -- Substrate #305 defines exit 75 as a supervise-owned transient defer when with_lock is busy.
+    t.eq(result.exit_code, 75, result.output)
+    t.eq(exit_codes[1], 0, status)
+    t.eq(exit_codes[2], 75, status)
+    local deferred_output = read_file(state_dir .. (tonumber(sync_rc) == 75 and "/sync.out" or "/rollup.out"))
+    t.is_true(
+      deferred_output:find("with_lock lock busy: github-devloop/git/owner/repo/fetch", 1, true) ~= nil,
+      deferred_output
+    )
     local violations = io.open(state_dir .. "/violations", "r")
     if violations ~= nil then
       local body = violations:read("*a")

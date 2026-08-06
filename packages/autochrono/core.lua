@@ -7,9 +7,9 @@ local strings = require("contract.strings")
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
-  local class = text:match("autochrono: ([%w%-]+):")
-    or text:match("autochrono: ([%w%-]+) failed:")
-  return class or "caught-failure"
+  local class =
+    text:match("autochrono: ([%w%-]+) failed:")
+  return class or error_facts.error_class_from_message(text)
 end
 
 function M.log_error_fact(level, dept, tag, error_class, queue, message, context)
@@ -234,9 +234,7 @@ function M.max_body_len()
   return max_body_len
 end
 
--- Fail-closed gate before raising to consensus: the derived proposal must satisfy consensus's
--- own eligibility (path-safe bounded keys, bounded title/body, valid source_ref) AND its
--- proposal_id must round-trip so the reply department can recover repo/issue_number.
+-- Fail closed before calling consensus with a malformed derived proposal.
 function M.validate_proposal(proposal)
   if type(proposal) ~= "table" then
     return false
@@ -244,17 +242,7 @@ function M.validate_proposal(proposal)
   if proposal.schema ~= "consensus.proposal.v1" then
     return false
   end
-  if not is_path_safe_key(proposal.proposal_id, max_key_len) then
-    return false
-  end
   if not is_path_safe_key(proposal.dedup_key, max_key_len) then
-    return false
-  end
-  local repo, issue_number = M.parse_proposal_id(proposal.proposal_id)
-  if repo == nil or issue_number == nil then
-    return false
-  end
-  if proposal.proposal_id ~= M.proposal_id(repo, issue_number) then
     return false
   end
   if not is_bounded_string(proposal.title, max_title_len) then
@@ -269,13 +257,9 @@ function M.validate_proposal(proposal)
   return source_refs.has_bounded_source_ref(proposal.source_ref, max_key_len)
 end
 
--- Fail-closed gate before raising a reply: a malformed consensus_reached (missing/oversized
--- body or source_ref) must not produce an empty reply nor wrongly mark the issue replied.
+-- Fail closed before raising a reply from a malformed reached value.
 function M.validate_reached(reached)
   if type(reached) ~= "table" then
-    return false
-  end
-  if not is_bounded_string(reached.proposal_id, max_key_len) then
     return false
   end
   if not is_bounded_string(reached.body, max_body_len) then

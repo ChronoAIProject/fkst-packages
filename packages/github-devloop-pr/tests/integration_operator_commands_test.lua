@@ -49,75 +49,9 @@ local function trusted_command(id)
   }
 end
 
-local function trusted_issue_command(command, id)
-  return {
-    id = id or ("IC_" .. tostring(command) .. "_issue_1"),
-    body = "fkst: " .. tostring(command),
-    author_login = "fkst-test-bot",
-    created_at = "2026-06-04T03:00:00Z",
-  }
-end
 
-local function thinking_converge_comments(event, rounds, command)
-  local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(event).dedup_key
-  local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
-  local angle_digests = {
-    { angle = "minimal", verdict = "abstain", digest = "same-digest" },
-  }
-  local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
-  }
-  for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
-      base_version,
-      sr_digest,
-      n,
-      base_version .. "/loop/" .. tostring(n),
-      "Same narrowed question",
-      angle_digests
-    ))
-  end
-  if command ~= nil then
-    table.insert(comments, command)
-  end
-  return comments, base_version
-end
 
-local function thinking_changing_converge_comments(event, rounds, command)
-  local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(event).dedup_key
-  local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
-  local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
-  }
-  for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
-      base_version,
-      sr_digest,
-      n,
-      base_version .. "/loop/" .. tostring(n),
-      "Narrowed question " .. tostring(n),
-      {
-        { angle = "minimal", verdict = "abstain", digest = "digest-" .. tostring(n) },
-      }
-    ))
-  end
-  if command ~= nil then
-    table.insert(comments, command)
-  end
-  return comments, base_version
-end
 
-local function find_issue_comment_raise(raises, needle)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == "github-proxy.github_issue_comment_request"
-      and raised.payload.body:find(needle, 1, true) ~= nil then
-      return raised
-    end
-  end
-  return nil
-end
 
 return {
   test_trusted_rereview_command_reenters_reviewing = function()
@@ -149,7 +83,36 @@ return {
     }, "devloop-owner-repo-42-01HY", "feedface")
     local review = run_review_pr(reviewing_raise.payload, opts("operator-rereview-review"))
     t.eq(review.exit_code, 0)
-    t.eq(find_raise(review.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(review.raises, "devloop_review_request"), nil)
+  end,
+
+  test_output_obligation_rereview_refuses_when_authorized_head_is_stale = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/review-loop/3"
+    local authorized_head = "deadbeef"
+    local target_version = operator_commands.operator_rereview_version(blocked_version, authorized_head)
+    local command = {
+      id = "IC_rereview_stale_authority",
+      body = "fkst: rereview\n\n"
+        .. '<!-- fkst:github-devloop-ops:output-obligation-command:v1 escalation_dedup="output-obligation/stale-head"'
+        .. ' terminal_version="blocked/terminal" decision="rereview" pr="7"'
+        .. ' head_sha="' .. authorized_head .. '" target_version="' .. target_version .. '" -->',
+      author_login = "fkst-test-bot",
+      created_at = "2026-06-04T03:00:00Z",
+    }
+    mock_pr_origin({
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      command,
+    }, "devloop-owner-repo-42-01HY", "feedface")
+
+    local result = run_observe_pr(pr_event(), opts("operator-rereview-stale-authority"))
+
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
+    t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
   end,
 
   test_untrusted_rereview_command_is_ignored = function()

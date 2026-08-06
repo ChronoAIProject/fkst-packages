@@ -20,15 +20,12 @@ function C.pr_source_ref(repo, pr_number)
 end
 
 function C.issue_source_ref(repo, issue_number)
-  return {
-    kind = "external",
-    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
-  }
+  return base_ids.issue_source_ref(repo, issue_number)
 end
 
 function C.build_entity_comment_request(target, body, dedup_key, source_ref, opts)
   if type(target) ~= "table" then
-    error("github-devloop: invalid entity comment target")
+    error("github-devloop: entity-comment-target-invalid: invalid entity comment target")
   end
   local request = {
     schema = "github-proxy.v1",
@@ -46,7 +43,7 @@ function C.build_entity_comment_request(target, body, dedup_key, source_ref, opt
   elseif target.kind == "pr" then
     request.pr_number = target.number
   else
-    error("github-devloop: invalid entity comment target kind")
+    error("github-devloop: entity-comment-target-kind-invalid: invalid entity comment target kind")
   end
   return request
 end
@@ -61,8 +58,8 @@ local function command_indicates_not_found(result)
     or stderr:find("not found", 1, true) ~= nil
 end
 
-local function linked_pr_numbers(M, issue_comments, proposal_id)
-  local numbers = {}
+local function linked_pr_links(M, issue_comments, proposal_id)
+  local links = {}
   local seen = {}
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue_comments)) do
@@ -79,14 +76,51 @@ local function linked_pr_numbers(M, issue_comments, proposal_id)
         and forge_validators.is_git_ref_safe(marker_base_branch)
         and not seen[tostring(marker_pr)] then
         seen[tostring(marker_pr)] = true
-        table.insert(numbers, tonumber(marker_pr))
+        table.insert(links, {
+          pr_number = tonumber(marker_pr),
+          branch = marker_branch,
+          impl_version = marker_impl_version,
+          base_branch = marker_base_branch,
+        })
       end
     end
   end
-  return numbers
+  return links
 end
 
-function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
+local function linked_pr_delegations(M, issue_comments, proposal_id)
+  local links = {}
+  local seen = {}
+  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-delegation:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue_comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_pr_proposal = marker:match('pr_proposal="([^"]+)"')
+      local marker_pr = marker:match('pr="([^"]+)"')
+      local marker_version = marker:match('version="([^"]*)"')
+      local marker_delegation = marker:match('delegation="([^"]*)"')
+      local _, proposal_pr_number = C.parse_pr_proposal_id(marker_pr_proposal)
+      if marker_proposal == proposal_id
+        and forge_validators.is_positive_pr_number(marker_pr)
+        and tostring(proposal_pr_number or "") == tostring(marker_pr)
+        and strings.is_bounded_string(marker_version, M._max_dedup_len)
+        and strings.is_path_safe_key(marker_delegation, M._max_dedup_len)
+        and not seen[tostring(marker_pr)] then
+        seen[tostring(marker_pr)] = true
+        table.insert(links, {
+          kind = "delegation",
+          pr_number = tonumber(marker_pr),
+          pr_proposal_id = marker_pr_proposal,
+          version = marker_version,
+          delegation = marker_delegation,
+        })
+      end
+    end
+  end
+  return links
+end
+
+local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
   local options = opts or {}
   local snapshot = {
     comments = issue_comments or {},
@@ -95,7 +129,8 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
     deferred = false,
     defer_reason = nil,
   }
-  for _, pr_number in ipairs(linked_pr_numbers(M, issue_comments, proposal_id)) do
+  for _, link in ipairs(links) do
+    local pr_number = link.pr_number
     local pr_view
     if options.cache_only == true then
       pr_view = M.cached_entity_view(repo, "pr", pr_number)
@@ -104,6 +139,13 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
         snapshot.defer_reason = "pr-surface-not-cached"
         return snapshot
       end
+    elseif options.github ~= nil then
+      pr_view = M.gh_pr_view_freshness(
+        repo,
+        pr_number,
+        tonumber(options.timeout) or 30,
+        options.github
+      )
     else
       pr_view = M.gh_pr_view_observe(repo, pr_number, 30)
     end
@@ -111,15 +153,16 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
       if command_indicates_not_found(pr_view) then
         snapshot.absent_prs[tostring(pr_number)] = true
       else
-        error("github-devloop: linked PR state view failed: " .. tostring(pr_view.stderr))
+        error("github-devloop: linked-pr-state-view-failed: linked PR state view failed: " .. tostring(pr_view.stderr))
       end
     else
       local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
       if type(current_pr.comments) ~= "table" or tostring(current_pr.state or "") == "" then
-        error("github-devloop: linked PR state view malformed")
+        error("github-devloop: linked-pr-state-view-malformed: linked PR state view malformed")
       end
       table.insert(snapshot.prs, {
         number = pr_number,
+        link = link,
         current = current_pr,
       })
     end
@@ -130,13 +173,33 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
   return snapshot
 end
 
+function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
+  return linked_pr_surface_snapshot(
+    M,
+    repo,
+    issue_comments,
+    linked_pr_links(M, issue_comments, proposal_id),
+    opts
+  )
+end
+
+function C.linked_pr_delegation_surface_snapshot(reader, repo, proposal_id, issue_comments, opts)
+  return linked_pr_surface_snapshot(
+    reader,
+    repo,
+    issue_comments,
+    linked_pr_delegations(reader, issue_comments, proposal_id),
+    opts
+  )
+end
+
 function C.pr_proposal_id(repo, pr_number)
   if not require("devloop.pr_safety").is_safe_pr_number(pr_number) then
-    error("github-devloop: invalid PR proposal number")
+    error("github-devloop: invalid-pr-number: invalid PR proposal number")
   end
   local safe_repo = strings.sanitize_key(repo, false)
   if safe_repo == nil or safe_repo == "" then
-    error("github-devloop: invalid PR proposal repo")
+    error("github-devloop: pr-proposal-repo-invalid: invalid PR proposal repo")
   end
   return "github-devloop/pr/" .. safe_repo .. "/" .. tostring(pr_number)
 end

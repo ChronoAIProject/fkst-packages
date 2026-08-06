@@ -21,17 +21,28 @@ return function(M, h)
     to_states = {},
     driving_queue = decompose_queue,
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
-    output_obligation = obligation({ "decomposed:v1", "output-obligation-escalation:v1", "github-proxy.github_issue_create_request[*]", "operator reintake command" }, { "blocked", "thinking" }),
-    reentry_commands = { "rereview", "reintake" },
+    output_obligation = obligation({ "decomposed:v1", "output-obligation-escalation:v1", "github-proxy.github_issue_create_request[*]" }, { "blocked", "thinking" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/blocked/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 1440,
+        },
+      },
+    },
+    reentry_commands = { "rereview" },
     operator_reentry = {
       kind = "external_command",
       not_autonomous_successor = true,
       resets_budget = true,
-      commands = { "rereview", "reintake" },
+      commands = { "rereview" },
     },
     non_durable_advance = {
       category = "terminal-hold",
-      reason = "blocked is a recovery hold: operator commands or the decompose escape can create follow-up work, but no single poll-derived durable fact is expected to advance this row to a normal successor.",
+      reason = "blocked is a recovery hold: the rereview command or decompose escape can create follow-up work, but no single poll-derived durable fact is expected to advance this row to a normal successor.",
     },
     budget = budget(1440, "No receiver work is expected; the row waits up to 1410 minutes for operator reentry before the 30 minute watchdog margin."),
     liveness_contract = liveness({

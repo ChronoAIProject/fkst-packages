@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(kind, semantic_variant, effect_ids)
+  local id = "github-devloop-pr/pr-open/" .. kind .. "/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -28,12 +35,47 @@ return function(M, h)
       },
     },
     output_obligation = obligation({ "state:v1 reviewing", "devloop_reviewing", "state:v1 fixing", "devloop_fixing", "state:v1 blocked" }, { "reviewing", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/pr-open/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 30,
+        },
+      },
+    },
     budget = budget(30, "No long receiver work is expected; the row uses the standard 30 minute watchdog margin after PR creation."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 0,
     }),
     on_timeout = timeout("devloop_reviewing"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "pr_open_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+    },
     responsibility_signature = responsibility_signature({
       receiver_kind = "pr-viability-router",
       driving_queue = "devloop_reviewing",
@@ -49,6 +91,9 @@ return function(M, h)
           state = "reviewing",
           output_variant = "review_requested",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("autonomous", "review_requested", {
+            "github-proxy.github_pr_comment_request",
+          }),
           pending_order = { participates = true, predecessor_state = "pr-open" },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",
@@ -57,7 +102,22 @@ return function(M, h)
         {
           state = "fixing",
           output_variant = "not_mergeable_repair",
+          cas_policy_id = "cas.legacy_observe_pr_fix_v1",
+          cas_variant = "pr_open_to_fixing",
           kind = "autonomous",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = false },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",
@@ -67,6 +127,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "pr_base_unmanaged",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("guard_boundary", "pr_base_unmanaged", {
+            "github-proxy.github_pr_comment_request",
+          }),
           pending_order = { participates = true, predecessor_state = "pr-open" },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",

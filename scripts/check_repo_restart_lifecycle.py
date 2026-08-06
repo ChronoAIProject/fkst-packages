@@ -293,6 +293,7 @@ def inventory_references_new_modules(inventory: Any) -> list[str]:
     return messages
 
 
+# Local variant: preserves ordering and treats nonempty comment lines as entries.
 def load_allowlist(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -307,14 +308,23 @@ def validate_site_provenance(site: dict[str, Any], label: str, root: Path) -> li
     if not isinstance(path_value, str) or not path_value:
         return messages
     path = root / path_value
-    if not path.exists():
-        messages.append(f"{INVENTORY}: site_id {site_id}: path does not exist: {path_value}")
-        return messages
     if not isinstance(symbol_value, str) or not symbol_value:
         messages.append(f"{INVENTORY}: site_id {site_id}: symbol must be a non-empty string")
         return messages
-    content = path.read_text(encoding="utf-8")
-    if symbol_value not in content:
+
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+        if symbol_value in content:
+            return messages
+
+    # Terminal deletion preserves OLD inventory rows after their live producers
+    # disappear, so provenance falls back only to the protected merge base.
+    base_status, base_content = ratchet_base.file_at_base(root, path_value)
+    if base_status == "present" and symbol_value in (base_content or ""):
+        return messages
+    if not path.exists():
+        messages.append(f"{INVENTORY}: site_id {site_id}: path does not exist: {path_value}")
+    else:
         messages.append(f"{INVENTORY}: site_id {site_id}: symbol not found in {path_value}: {symbol_value}")
     return messages
 

@@ -45,7 +45,7 @@ local function run_review_loop_raw(payload, run_opts)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = "", stderr = "", exit_code = 0 })
   return t.run_department("departments/review_loop/main.lua", {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_review_continue",
     payload = payload,
   }, run_opts)
 end

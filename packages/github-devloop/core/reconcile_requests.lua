@@ -15,6 +15,8 @@ function M.build_reconcile_label_request(repo, issue_number, reconcile)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    reconcile.proposal_id,
+    conv_reconcile.reconcile_state_version(reconcile.base_version, reconcile.round),
     base_ids.dedup_key({
       "reconcile",
       "label",
@@ -28,6 +30,8 @@ function M.build_review_reconcile_label_request(repo, issue_number, review_recon
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    review_reconcile.proposal_id,
+    conv_reconcile.review_reconcile_state_version(review_reconcile.issue_version, review_reconcile.round),
     base_ids.dedup_key({
       "review-reconcile",
       "label",
@@ -41,6 +45,8 @@ function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    fix_reconcile.proposal_id,
+    conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version),
     base_ids.dedup_key({
       "fix-reconcile",
       "label",

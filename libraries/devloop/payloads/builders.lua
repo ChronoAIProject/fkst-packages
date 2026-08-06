@@ -12,6 +12,16 @@ local shared = require("devloop.payloads.shared")
 local board = require("devloop.payloads.board")
 local transition_version = require("contract.transition_version")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local payload_registry = require("devloop.payload_registry")
+local premise_correction = require("devloop.premise_correction")
+
+local function resolve_payload_token(token, context)
+  local value, failure = payload_registry.resolve(token, context)
+  if failure ~= nil then
+    error("github-devloop: payload-token-resolution-failed: payload token resolution failed: " .. tostring(failure), 0)
+  end
+  return value
+end
 
 local function commit_subject_title(current)
   if type(current) ~= "table" then
@@ -49,9 +59,9 @@ end
 
 function C.fixing_repair_input(review_fact)
   if review_fact ~= nil and review_fact.ci_failure_key ~= nil then
-    return "ci-failure"
+    return resolve_payload_token("typed:ci-failure")
   end
-  return "review-feedback"
+  return resolve_payload_token("typed:review-feedback")
 end
 
 function C.fixing_work_unit_key(fix)
@@ -77,27 +87,42 @@ function C.fixing_work_unit_key(fix)
 end
 
 function C.build_devloop_ready_payload(M, source)
-  local ready_version = base_ids.dedup_key({
-    "ready",
-    tostring(source.dedup_key),
+  local ready_version = resolve_payload_token("dedup:ready", {
+    dedup_key = source.dedup_key,
   })
   local marker_version = tostring(source.effect_version or source.dedup_key)
   local payload = {
-    schema = "github-devloop.ready.v1",
+    schema = resolve_payload_token("literal:github-devloop.ready.v1"),
     proposal_id = source.proposal_id,
     dedup_key = ready_version,
-    source_ref = base_ids.normalize_source_ref(source.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source.source_ref,
+    }),
   }
+  if source.redrive_delivery ~= nil and source.operator_reimplement_delivery ~= nil then
+    error("github-devloop: implementation-delivery-identity-conflict: conflicting implementation delivery identities")
+  end
   if source.redrive_delivery ~= nil then
     payload.implementation_version = ready_version
     payload.redrive_delivery = {
       generation_key = source.redrive_delivery.generation_key,
       attempt = source.redrive_delivery.attempt,
     }
-    payload.dedup_key = shared.ready_redrive_delivery_dedup_key(
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
       source.proposal_id,
       ready_version,
       payload.redrive_delivery
+    )
+  end
+  if source.operator_reimplement_delivery ~= nil then
+    payload.implementation_version = ready_version
+    payload.operator_reimplement_delivery = {
+      command_key = source.operator_reimplement_delivery.command_key,
+    }
+    payload.dedup_key = shared.ready_operator_reimplement_delivery_dedup_key(
+      source.proposal_id,
+      ready_version,
+      payload.operator_reimplement_delivery
     )
   end
   if source.include_ready_hand_off == true and source.ready_comment_id ~= nil then
@@ -119,7 +144,7 @@ function C.build_devloop_ready_payload(M, source)
   local attempt = tonumber(source.impl_retry_attempt)
   if attempt ~= nil then
     if attempt < 1 or attempt ~= math.floor(attempt) or attempt > M._max_impl_retry_attempts then
-      error("github-devloop: invalid implementation retry attempt")
+      error("github-devloop: implementation-retry-attempt-invalid: invalid implementation retry attempt")
     end
     payload.impl_retry_attempt = attempt
   end
@@ -132,17 +157,18 @@ end
 function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, version)
   local review_version = version or origin.impl_version
   local payload = {
-    schema = "github-devloop.reviewing.v1",
+    schema = resolve_payload_token("literal:github-devloop.reviewing.v1"),
     proposal_id = origin.proposal_id,
     pr_number = pr_number,
     version = review_version,
-    dedup_key = base_ids.dedup_key({
-      "reviewing",
-      tostring(origin.proposal_id),
-      tostring(review_version),
-      tostring(pr_number),
+    dedup_key = resolve_payload_token("dedup:reviewing", {
+      proposal_id = origin.proposal_id,
+      version = review_version,
+      pr_number = pr_number,
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
   if origin.reviewing_comment_id ~= nil then
     payload.reviewing_hand_off = {
@@ -159,14 +185,17 @@ function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
 end
 
 function C.build_current_head_reviewing_payload(origin, pr_number, current_pr, state, source_ref)
-  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
+  local state_version = resolve_payload_token("marker:state.version", {
+    state = state,
+  })
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state_version, current_pr.head_sha)
   if m_facts.has_any_review_result_marker(current_pr.comments, review_proposal_id, origin.proposal_id) then
     return nil
   end
   return C.build_devloop_reviewing_payload({
     proposal_id = origin.proposal_id,
-    impl_version = state.version,
-  }, pr_number, source_ref, state.version)
+    impl_version = state_version,
+  }, pr_number, source_ref, state_version)
 end
 
 function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_ref)
@@ -185,7 +214,9 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     reviewed_head_sha = review_fact.reviewed_head_sha,
     repair_input = repair_input,
     ci_failure_key = review_fact.ci_failure_key,
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
   if repair_input == "ci-failure" then
     payload.dedup_key = base_ids.dedup_key({
@@ -209,29 +240,29 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   if framing ~= nil then
     payload.framing = framing
   end
-  local blocking_gap = shared.bounded_control_text(review_fact.blocking_gap, devloop_base._max_blocking_gap_len)
-  if blocking_gap ~= nil then
-    payload.blocking_gap = blocking_gap
-  end
   if review_fact.gate_baseline_sha ~= nil then
     if not forge_validators.is_git_sha(review_fact.gate_baseline_sha) then
-      error("github-devloop: invalid gate baseline sha")
+      error("github-devloop: gate-baseline-sha-invalid: invalid gate baseline sha")
     end
     payload.gate_baseline_sha = tostring(review_fact.gate_baseline_sha)
   end
   if review_fact.predecessor_set ~= nil then
     if not strings.is_path_safe_key(review_fact.predecessor_set, devloop_base._max_dedup_len) then
-      error("github-devloop: invalid predecessor set")
+      error("github-devloop: predecessor-set-invalid: invalid predecessor set")
     end
     payload.predecessor_set = tostring(review_fact.predecessor_set)
   end
   if payload.ci_failure_key ~= nil and not ci_failure_keys.is_valid(payload.ci_failure_key, devloop_base._max_dedup_len) then
-    error("github-devloop: invalid ci failure key")
+    error("github-devloop: ci-failure-key-invalid: invalid ci failure key")
   end
   payload.work_unit_key = C.fixing_work_unit_key(payload)
   local gate_failure_excerpt = shared.bounded_control_text(review_fact.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len)
   if gate_failure_excerpt ~= nil then
     payload.gate_failure_excerpt = gate_failure_excerpt
+  end
+  local blocking_gap = shared.bounded_control_text(review_fact.blocking_gap, devloop_base._max_blocking_gap_len)
+  if blocking_gap ~= nil then
+    payload.blocking_gap = blocking_gap
   end
   return payload
 end
@@ -239,14 +270,14 @@ end
 local function replay_fact_sha(value, fallback)
   if value ~= nil then
     if not forge_validators.is_git_sha(value) then
-      error("github-devloop: invalid replay fact sha")
+      error("github-devloop: replay-fact-sha-invalid: invalid replay fact sha")
     end
     return tostring(value)
   end
   return fallback
 end
 
-function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref)
+function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref, redrive_delivery)
   local payload = C.build_devloop_fixing_payload(origin, pr_number, {
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
@@ -255,7 +286,7 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
     gate_baseline_sha = feedback.gate_baseline_sha,
     predecessor_set = feedback.predecessor_set,
     ci_failure_key = feedback.ci_failure_key,
-    gate_failure_excerpt = feedback.reason or feedback.review_reason,
+    gate_failure_excerpt = feedback.gate_failure_excerpt or feedback.reason or feedback.review_reason,
   }, source_ref)
   if payload.repair_input ~= "ci-failure" then
     payload.dedup_key = base_ids.dedup_key({
@@ -271,12 +302,23 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
       replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
     })
   end
+  if redrive_delivery ~= nil then
+    payload.redrive_delivery = {
+      generation_key = redrive_delivery.generation_key,
+      attempt = redrive_delivery.attempt,
+    }
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      origin.proposal_id,
+      payload.dedup_key,
+      payload.redrive_delivery
+    )
+  end
   return payload
 end
 
 function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
   return {
-    schema = "github-devloop.review-meta.v1",
+    schema = resolve_payload_token("literal:github-devloop.review-meta.v1"),
     proposal_id = issue_proposal_id,
     review_proposal_id = unresolved.proposal_id,
     review_dedup_key = unresolved.dedup_key,
@@ -291,7 +333,9 @@ function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issu
       tostring(n),
       tostring(unresolved.dedup_key),
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref or unresolved.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref or unresolved.source_ref,
+    }),
   }
 end
 
@@ -325,7 +369,7 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
     current_head_sha = review_fact and review_fact.reviewed_head_sha
   end
   return {
-    schema = "github-devloop.merge-ready.v1",
+    schema = resolve_payload_token("literal:github-devloop.merge-ready.v1"),
     proposal_id = issue_proposal_id,
     pr_number = pr_number,
     version = version,
@@ -340,7 +384,9 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
       tostring(review_fact and review_fact.review_dedup_key or "review"),
       tostring(current_head_sha or "nohead"),
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
 end
 
@@ -359,12 +405,21 @@ function C.build_devloop_decompose_payload(fix_reconcile)
       tostring(fix_reconcile.proposal_id),
       tostring(fix_reconcile.issue_version),
     }),
-    source_ref = base_ids.normalize_source_ref(fix_reconcile.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = fix_reconcile.source_ref,
+    }),
   }
 end
 
 function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at, options)
   local opts = options or {}
+  local has_premise = opts.premise_fingerprint ~= nil
+  local has_correction = opts.correction_fingerprint ~= nil
+  if has_premise ~= has_correction
+    or (has_premise and not premise_correction.is_premise_fingerprint(opts.premise_fingerprint))
+    or (has_correction and not premise_correction.is_correction_fingerprint(opts.correction_fingerprint)) then
+    error("github-devloop: premise-correction-candidate-identity-invalid: invalid premise correction candidate identity")
+  end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local source_ref = {
     kind = "external",
@@ -381,8 +436,8 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
     proposal_id = proposal_id,
     dedup_key = dedup_key,
     effect_id = effect_id,
-    reintake_command_created_at = opts.reintake_command_created_at,
-    reintake_effect_updated_at = opts.reintake_effect_updated_at,
+    premise_fingerprint = opts.premise_fingerprint,
+    correction_fingerprint = opts.correction_fingerprint,
     source_ref = source_ref,
   }
 end
@@ -398,7 +453,7 @@ function C.build_proposal(issue)
     .. "\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver."
 
   return {
-    schema = "consensus.proposal.v1",
+    schema = resolve_payload_token("literal:consensus.proposal.v1"),
     verdict_mode = "converge",
     proposal_id = proposal_id,
     title = title,
@@ -406,7 +461,9 @@ function C.build_proposal(issue)
     content_fetch = issue.content_fetch,
     worktree = ".",
     dedup_key = devloop_base.proposal_dedup_key(proposal_id, issue.updated_at),
-    source_ref = base_ids.normalize_source_ref(issue.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = issue.source_ref,
+    }),
   }
 end
 
@@ -491,18 +548,20 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
       .. "\nJudge whether THE NAMED GAP is closed; new objections only for fix regressions inside the issue's stated bounds. For rollup-red or failing-check re-review, scope the question to the diff change and the named failing check, not to restoration of gate state."
   end
   if #body > M._max_body_len then
-    error("github-devloop: PR review proposal exceeds bounded body")
+    error("github-devloop: pr-review-proposal-body-limit-exceeded: PR review proposal exceeds bounded body")
   end
 
   return apply_high_risk_angles({
-    schema = "consensus.proposal.v1",
+    schema = resolve_payload_token("literal:consensus.proposal.v1"),
     verdict_mode = "gate",
     proposal_id = review_id,
     title = devloop_base.neutralize_untrusted_prompt_text(title),
     body = body,
     content_fetch = content_fetch,
     dedup_key = devloop_base.pr_review_proposal_dedup_key(review_id),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }, high_risk)
 end
 

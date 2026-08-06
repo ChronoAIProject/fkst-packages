@@ -3,21 +3,16 @@ local PrFreshness = {}
 local strings = require("contract.strings")
 local decimal_checksum = strings.decimal_checksum
 
-function PrFreshness.install(M, shared)
+function PrFreshness.install(M, shared, bounded_lock_key)
   local require_safe_branch = shared.require_safe_branch
   local require_safe_sha = shared.require_safe_sha
   local require_safe_repo = shared.require_safe_repo
   local runtime_root_path = shared.runtime_root_path
 
   function M.pr_freshness_lock_key(repo, branch)
-    local key = "github-devloop/pr-freshness/"
-      .. base_ids.safe_repo(require_safe_repo(repo))
-      .. "/"
-      .. require_safe_branch("managed branch", branch)
-    if not strings.is_path_safe_key(key, M._max_key_len) then
-      error("github-devloop: lock-key-invalid: invalid PR freshness lock key")
-    end
-    return key
+    return bounded_lock_key("github-devloop/pr-freshness", repo, {
+      { name = "managed branch", value = branch },
+    })
   end
 
   function M.pr_freshness_dedup_key(repo, branch, baseline_sha)

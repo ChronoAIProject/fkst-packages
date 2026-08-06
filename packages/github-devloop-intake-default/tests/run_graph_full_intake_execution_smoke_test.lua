@@ -7,6 +7,7 @@ local core = require("core")
 local h = require("tests.devloop_base_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -14,8 +15,19 @@ local updated_at = "2026-06-03T01:02:03Z"
 local title = "Add retry backoff to failed widget sync"
 local body = "Implement exponential backoff for widget sync retries."
 local proposal_id = base_ids.proposal_id(repo, issue_number)
+local decision_version = devloop_base.intake_decision_dedup_key(proposal_id, {
+  title = title,
+  body = body,
+})
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local consensus_angles = {
+  "teleology",
+  "parsimony",
+  "fidelity",
+  "natural-ownership",
+  "proportional-containment",
+}
 
 local function source_ref()
   return entity_lib.issue_source_ref(repo, issue_number)
@@ -43,8 +55,8 @@ local function initial_event()
 end
 
 local function mock_env()
-  author_policy.mock_env(t, nil, { times = 32 })
-  for _ = 1, 32 do
+  author_policy.mock_env(t, nil, { times = 96, configure = devloop_base })
+  for _ = 1, 96 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
       stdout = "",
       stderr = "",
@@ -56,7 +68,7 @@ local function mock_env()
       exit_code = 0,
     })
   end
-  for _ = 1, 12 do
+  for _ = 1, 36 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime",
       stderr = "",
@@ -66,7 +78,9 @@ local function mock_env()
 end
 
 local function mock_issue_reads()
-  entity_read_mocks.mock_issue_read_with_defaults(t, {}, {}, {
+  entity_read_mocks.mock_issue_read_with_defaults(t, { "fkst-dev:thinking" }, {
+    core.state_marker(proposal_id, "thinking", decision_version),
+  }, {
     repo = repo,
     number = issue_number,
     title = title,
@@ -109,6 +123,10 @@ end
 
 local function mock_context_bundle()
   local ok = { stdout = "", stderr = "", exit_code = 0 }
+  context_fixtures.materialize_context_bundle({
+    proposal_id = proposal_id,
+    dedup_key = decision_version,
+  }, "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime")
   for _ = 1, 6 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
     t.mock_command("test -e", { stdout = "", stderr = "", exit_code = 1 })
@@ -140,7 +158,7 @@ local function mock_context_bundle()
     entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), { stdout = "[]\n" })
     t.mock_command("gh pr list", { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
-  for _ = 1, 16 do
+  for _ = 1, 48 do
     t.mock_command("touch ", ok)
     t.mock_command("printf %s '", ok)
     t.mock_command(" > ", ok)
@@ -153,17 +171,26 @@ local function mock_context_bundle()
 end
 
 local function mock_codex()
-  for _ = 1, 4 do
-    t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
-  end
+  t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
     stdout = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph full chain smoke.",
     stderr = "",
     exit_code = 0,
   })
-  for _ = 1, 3 do
+  for _ in ipairs(consensus_angles) do
+    t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("codex exec", {
       stdout = verdict_label .. " approve\n" .. reply_label .. " full chain smoke approves.",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_consensus_checkouts()
+  for _ in ipairs(consensus_angles) do
+    t.mock_command("test -d '.' && test -e '.'/.git", {
+      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -183,10 +210,11 @@ return {
   test_run_graph_full_intake_execution_chain_reaches_consensus_proposal = function()
     mock_env()
     mock_issue_reads()
+    mock_consensus_checkouts()
     mock_context_bundle()
     mock_codex()
 
-    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 12 }))
+    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 16 }))
     graph.assert_covers(trace, {
       "github-proxy.github_entity_changed -> github-devloop-intake.admission",
       "github-devloop-intake.devloop_intake_candidate -> github-devloop-intake-default.intake_judge",
@@ -234,7 +262,7 @@ return {
     local thinking_label = require_raise_from_step(trace, execute_index, "github-proxy.github_issue_label_request")
     t.eq(thinking_label.payload.add_labels[1], "fkst-dev:thinking")
 
-    local proposal = require_raise_from_step(trace, execute_index, "consensus.proposal", function(raised)
+    local proposal = require_raise_from_step(trace, execute_index, "github-devloop.devloop_consensus_request", function(raised)
       local payload = raised.payload or {}
       return payload.schema == "consensus.proposal.v1"
         and payload.proposal_id == proposal_id

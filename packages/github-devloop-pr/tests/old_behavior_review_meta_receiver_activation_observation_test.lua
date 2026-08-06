@@ -1,6 +1,7 @@
 local ra = require("tests.receiver_activation_observation_helpers")
 local context_bundle = require("devloop.context_bundle")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
@@ -10,6 +11,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local workflow_codex = require("workflow_internal.codex")
 local review_meta_module = require("departments.review_meta.main")
+local restart_effects = require("core.restart_effects")
 
 local t = h.t
 local core = h.core
@@ -22,6 +24,7 @@ local OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-
 local ORDER_EQUAL_CURRENT = VERSION .. "/loop/01"
 local ORDER_EQUAL_EVENT = VERSION .. "/loop/1"
 local HEAD_SHA = "def456"
+local REVIEW_META_DISPATCH_ENTITLEMENT_ID = "github-devloop-pr/review-meta/receiver_dispatch"
 local PREFIX = "receiver-activation-review-meta-"
 local SITE = {
   path = "packages/github-devloop-pr/departments/review_meta/main.lua",
@@ -86,6 +89,45 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "blocked", source_line = 249,
     current_state = "review-meta", current_version = VERSION, action = "block",
     effects = ra.json_array({ "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result" }),
+  },
+})
+
+local SINK_PROBES = ra.json_array({
+  {
+    id = "r9-shadow-review-meta-reviewing-needs-review-meta-idempotent",
+    current_state = "review-meta", from_states = { "reviewing" }, target_state = "review-meta",
+    version = VERSION, expected_status = "idempotent",
+    fixture = {
+      disposition = "shadow-reviewing-needs-review-meta", status = "admitted", reason = "admitted-fix",
+      cas = "applied", target = "fixing", source_line = 249,
+      current_state = "review-meta", current_version = VERSION, action = "fix",
+      effects = ra.json_array({
+        "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
+      }),
+    },
+    entitlements = {
+      ["codex.dispatch:review-meta"] = {
+        REVIEW_META_DISPATCH_ENTITLEMENT_ID,
+      },
+    },
+  },
+  {
+    id = "r9-shadow-review-meta-fixing-revision-failed-idempotent",
+    current_state = "review-meta", from_states = { "fixing" }, target_state = "review-meta",
+    version = VERSION, expected_status = "idempotent",
+    fixture = {
+      disposition = "shadow-fixing-revision-failed", status = "admitted", reason = "admitted-fix",
+      cas = "applied", target = "fixing", source_line = 249,
+      current_state = "review-meta", current_version = VERSION, action = "fix",
+      effects = ra.json_array({
+        "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
+      }),
+    },
+    entitlements = {
+      ["codex.dispatch:review-meta"] = {
+        REVIEW_META_DISPATCH_ENTITLEMENT_ID,
+      },
+    },
   },
 })
 
@@ -176,9 +218,30 @@ local function capture(fixture)
 end
 
 return {
+  test_review_meta_codex_sink_consumes_exact_grant = function()
+    local original = restart_effects.verify_grant
+    local verified = {}
+    restart_effects.verify_grant = function(grant, effect_id, snapshot)
+      local accepted = original(grant, effect_id, snapshot)
+      if accepted then verified[effect_id] = true end
+      return accepted
+    end
+    local ok, failure = pcall(capture, FIXTURES[8])
+    restart_effects.verify_grant = original
+    if not ok then error(failure, 0) end
+    t.eq(verified["codex.dispatch:review-meta"], true)
+  end,
+
   test_review_meta_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
+    local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
+      probes = SINK_PROBES,
+      capture = capture,
+      devloop_state = devloop_state,
+    })
     ra.assert_site(t, {
       dept = "review_meta", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
+      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-review-meta.json",
+      shadow_sink_records = shadow_sink_records,
     })
   end,
 }

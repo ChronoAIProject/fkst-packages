@@ -1,5 +1,23 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant)
+  local id = "github-devloop/implementing/autonomous/" .. semantic_variant
+  local effect_ids = {
+    "github-proxy.github_issue_comment_request",
+  }
+  if semantic_variant ~= "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
+  if semantic_variant == "revision_published" then
+    table.insert(effect_ids, "git.push:implementation-branch")
+  elseif semantic_variant == "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
+  end
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -12,6 +30,10 @@ return function(M, h)
   local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
   return {
     from_state = "implementing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop/implementing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:implement" },
+    },
     liveness_class_id = "implementing.active",
     watchdog = {
       mode = "live-defer",
@@ -29,10 +51,23 @@ return function(M, h)
       redrive_opens_generation = true,
     },
     terminal = false,
-    to_states = { "awaiting-pr", "impl-failed" },
+    to_states = { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" },
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
-    output_obligation = obligation({ "state:v1 awaiting-pr", "state:v1 impl-failed" }, { "awaiting-pr", "impl-failed" }),
+    output_obligation = obligation(
+      { "state:v1 awaiting-pr", "state:v1 dependency_wait", "state:v1 blocked", "state:v1 impl-failed" },
+      { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/implementing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 120,
+        },
+      },
+    },
     budget = budget(120, "A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -55,7 +90,7 @@ return function(M, h)
       state_kind = "worker",
       liveness_class = "implementing.active",
       input_fact_family = "ready/devloop_ready",
-      output_postcondition_family = "revision_published",
+      output_postcondition_family = "implementation_attempt_result",
       phase_rank = devloop_state.stage_rank("implementing"),
       lineage_keys = { "state.version", "implementing.dedup", "source_ref" },
       successors = {
@@ -63,14 +98,36 @@ return function(M, h)
           state = "awaiting-pr",
           output_variant = "revision_published",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_awaiting_pr_v1",
+          cas_variant = "implementing_to_awaiting_pr",
+          transition_effect_entitlements = effect_entitlements("revision_published"),
           pending_order = { participates = true, predecessor_state = "implementing" },
-          postcondition_family = "revision_published",
+          postcondition_family = "implementation_attempt_result",
+          monotonic = true,
+        },
+        {
+          state = "dependency_wait",
+          output_variant = "precursor_waiting",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("precursor_waiting"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
+          bump = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "implementation_refused",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("implementation_refused"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
           monotonic = true,
         },
         {
           state = "impl-failed",
           output_variant = "revision_failed",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("revision_failed"),
           pending_order = { participates = true, predecessor_state = "implementing" },
           failure = true,
           monotonic = true,

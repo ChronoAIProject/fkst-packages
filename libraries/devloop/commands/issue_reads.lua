@@ -20,18 +20,18 @@ local issue_view_fields = {
   commit_subject = "number,title,author",
   review_loop = "title,labels,comments,assignees,author",
   merge = "title,labels,comments,state,assignees,author",
-  observe = "title,body,comments,state,stateReason,assignees,author",
+  observe = "title,body,comments,labels,state,stateReason,assignees,author",
 }
 
 local function issue_fields(fields_key_or_fields)
-  return issue_view_fields[tostring(fields_key_or_fields or "")] or validators.validate_fields(fields_key_or_fields, "github-devloop: invalid issue view fields")
+  return issue_view_fields[tostring(fields_key_or_fields or "")] or validators.validate_fields(fields_key_or_fields, "github-devloop: issue-view-fields-invalid: invalid issue view fields")
 end
 
   function C.gh_issue_list_intake(repo, limit, timeout)
     return support.gh_result(function()
       return support.github().issue_list_intake(
         repo,
-        validators.bounded_limit(limit, 100, 1, 100, "github-devloop: invalid intake issue list limit"),
+        validators.bounded_limit(limit, 100, 1, 100, "github-devloop: intake-list-limit-invalid: invalid intake issue list limit"),
         timeout
       )
     end)
@@ -52,7 +52,7 @@ end
     return support.gh_result(function()
       return support.github().issue_list_recent_closed(
         repo,
-        validators.bounded_limit(limit, 30, 1, 100, "github-devloop: invalid closed issue list limit"),
+        validators.bounded_limit(limit, 30, 1, 100, "github-devloop: closed-list-limit-invalid: invalid closed issue list limit"),
         timeout
       )
     end)
@@ -142,16 +142,16 @@ end
 
   function C.gh_issue_comment_get(repo, comment_id, timeout)
     if not payloads_predicates.is_safe_comment_id(comment_id) then
-      error("github-devloop: invalid comment id")
+      error("github-devloop: comment-id-invalid: invalid comment id")
     end
     return support.gh_result(function()
       return support.github().comment_get(repo, comment_id, timeout)
     end)
   end
 
-  function C.gh_issue_close(repo, issue_number, timeout)
+  function C.gh_issue_close(repo, issue_number, disposition, timeout)
     return support.gh_result(function()
-      return support.github().issue_close(repo, issue_number, timeout)
+      return support.github().issue_close(repo, issue_number, disposition, timeout)
     end)
   end
 

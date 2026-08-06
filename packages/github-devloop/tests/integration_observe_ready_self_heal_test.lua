@@ -87,40 +87,18 @@ local function merge_gate_fix_marker(event)
   )
 end
 
-local function assert_ready_redrive(result, expected_proposal_id, expected_dedup_key)
-  t.eq(result.exit_code, 0)
-  t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
-  t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-  local ready = find_raise(result.raises, "devloop_ready")
-  t.is_true(ready ~= nil)
-  t.eq(ready.payload.proposal_id, expected_proposal_id)
-  t.eq(ready.payload.dedup_key, expected_dedup_key)
-  t.eq(ready.payload.source_ref.ref, "owner/repo#issue/42")
-end
 
-local function assert_merged_terminal(result)
-  t.eq(result.exit_code, 0)
-  t.eq(find_raise(result.raises, "devloop_ready"), nil)
-  t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
-  t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-  local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-  t.is_true(comment ~= nil)
-  t.is_true(tostring(comment.payload.body):find('state="merged"', 1, true) ~= nil)
-  t.is_true(tostring(comment.payload.body):find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
-  local merged_label = nil
-  for _, raise in ipairs(result.raises or {}) do
-    if raise.queue == "github-proxy.github_issue_label_request"
-      and has_value(raise.payload.add_labels, "fkst-dev:merged") then
-      merged_label = raise
-      break
-    end
-  end
-  t.is_true(merged_label ~= nil)
-end
 
 local function fresh_thinking_marker(proposal_id, version)
   return {
     body = core.state_marker(proposal_id, "thinking", version),
+    created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+  }
+end
+
+local function fresh_state_marker(proposal_id, state, version)
+  return {
+    body = h.state_comment(proposal_id, state, version),
     created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
   }
 end
@@ -136,7 +114,7 @@ return {
     local first = run_observe(event, opts("observe-issue-thinking-self-heal-1"))
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 1)
-    local first_proposal = find_raise(first.raises, "consensus.proposal").payload
+    local first_proposal = find_raise(first.raises, "devloop_consensus_request").payload
     t.eq(first_proposal.schema, "consensus.proposal.v1")
     t.eq(first_proposal.proposal_id, original.proposal_id)
     t.eq(first_proposal.dedup_key, original.dedup_key)
@@ -148,7 +126,7 @@ return {
     local same = run_observe(event, opts("observe-issue-thinking-self-heal-same-fact"))
     t.eq(same.exit_code, 0)
     t.eq(#same.raises, 1)
-    local same_proposal = find_raise(same.raises, "consensus.proposal").payload
+    local same_proposal = find_raise(same.raises, "devloop_consensus_request").payload
     t.eq(same_proposal.dedup_key, first_proposal.dedup_key)
     t.eq(same_proposal.content_fetch, first_proposal.content_fetch)
 
@@ -159,7 +137,7 @@ return {
     local second = run_observe(updated_event, opts("observe-issue-thinking-self-heal-2"))
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
-    local second_proposal = find_raise(second.raises, "consensus.proposal").payload
+    local second_proposal = find_raise(second.raises, "devloop_consensus_request").payload
     t.eq(second_proposal.dedup_key, first_proposal.dedup_key)
     t.eq(second_proposal.content_fetch, first_proposal.content_fetch)
     t.eq(count_calls("--json body"), 0)
@@ -181,7 +159,7 @@ return {
     local result = run_observe(event, opts("observe-issue-thinking-mid-loop-self-heal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_consensus_request").payload
     t.eq(proposal.dedup_key, payloads_builders.build_proposal(event).dedup_key .. "/loop/1")
     t.eq(proposal.round, 1)
     t.eq(proposal.convergence_question, "Narrow the question")
@@ -190,7 +168,7 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_issue_replays_proposal_wide_thinking_lineage = function()
+  test_observe_issue_ignores_prior_epoch_thinking_lineage = function()
     local old_event = issue()
     local event = issue({ updated_at = "2026-06-03T01:02:04Z" })
     local original = payloads_builders.build_proposal(old_event)
@@ -205,10 +183,10 @@ return {
     local result = run_observe(event, opts("observe-issue-thinking-stale-lineage-replay"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
-    t.eq(proposal.dedup_key, original.dedup_key .. "/loop/1")
-    t.eq(proposal.round, 1)
-    t.eq(proposal.convergence_question, "Old question")
+    local proposal = find_raise(result.raises, "devloop_consensus_request").payload
+    t.eq(proposal.dedup_key, payloads_builders.build_proposal(event).dedup_key)
+    t.eq(proposal.round, nil)
+    t.eq(proposal.convergence_question, nil)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -226,7 +204,7 @@ return {
       now = "2026-06-03T02:00:00Z",
     }))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_consensus_request").payload
     t.eq(proposal.proposal_id, original.proposal_id)
     t.eq(proposal.dedup_key, original.dedup_key .. "/loop/1")
     t.eq(proposal.round, 1)
@@ -248,9 +226,10 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_consensus_request").payload
     t.eq(proposal.proposal_id, original.proposal_id)
-    t.eq(proposal.dedup_key, original.dedup_key)
+    t.eq(proposal.effect_version, original.dedup_key)
+    t.is_true(proposal.dedup_key ~= original.dedup_key)
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
@@ -261,7 +240,7 @@ return {
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
         id = "IC_ready_self_heal",
-        body = core.state_marker(event.proposal_id, "ready", event.dedup_key, "result-marker,ready-label,devloop-ready"),
+        body = h.projected_state_comment(event.proposal_id, "ready", event.dedup_key, "result-marker,ready-label,devloop-ready"),
         created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
       },
     })
@@ -287,8 +266,8 @@ return {
     local exec_ref = core.implement_exec_ref(event.proposal_id, ready_payload.dedup_key)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, ready_payload.dedup_key)
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
-      core.state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
+      fresh_state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
     })
 
@@ -298,7 +277,7 @@ return {
     t.eq(count_calls("--json body"), 0)
 
     mock_issue_implement_raw({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
       core.state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
       m_builders.implementing_marker(event.proposal_id, ready_payload.dedup_key, branch, "abc123", "dev", "def456"),
@@ -443,7 +422,7 @@ return {
 
     local result = run_observe(issue({ labels = { "fkst-dev:enabled" } }), opts("observe-issue-pr-local-reviewing-no-label"))
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:awaiting-pr")
   end,

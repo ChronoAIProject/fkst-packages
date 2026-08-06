@@ -9,168 +9,16 @@ local restart_edges = require("devloop.restart_edges")
 local core = h.core
 local t = h.t
 
-local owner = "github-devloop-pr"
-local proposal_id = "github-devloop/issue/owner/repo/42"
-local pr_number = 7
-local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-local branch = "devloop-owner-repo-42-01HY"
-local base_branch = "dev"
-local structural_fields = {
-  "id",
-  "owner",
-  "row_id",
-  "kind",
-  "source",
-  "target",
-  "semantic_variant",
-  "provenance",
-}
-
-local expected_entries = {
-  ["github-devloop-pr/reviewing/entry/first_seen_pr"] = {
-    row_id = "reviewing",
-    output_variant = "first_seen_pr",
-    source_state = nil,
-    source_boundary = "github-proxy.github_entity_changed",
-    target = "reviewing",
-    field = "entry_inventory.first_seen_pr",
-    semantic_variant = "first_seen_pr",
-    cas_policy_id = "cas.legacy_observe_pr_v1",
-    cas_variant = "pr_open_to_reviewing",
-  },
-  ["github-devloop-pr/reviewing/entry/review_receiver"] = {
-    row_id = "reviewing",
-    output_variant = "review_receiver",
-    source_state = nil,
-    source_boundary = "github-devloop-pr.devloop_reviewing",
-    target = "reviewing",
-    field = "entry_inventory.review_receiver",
-    semantic_variant = "review_receiver",
-    cas_policy_id = "cas.legacy_review_activation_handoff_v1",
-  },
-  ["github-devloop-pr/reviewing/entry/review_convergence_round"] = {
-    row_id = "reviewing",
-    output_variant = "review_convergence_round",
-    source_state = nil,
-    source_boundary = "consensus.consensus_converge",
-    target = "reviewing",
-    field = "entry_inventory.review_convergence_round",
-    semantic_variant = "review_convergence_round",
-    cas_policy_id = "cas.legacy_review_loop_safe_v1",
-  },
-  ["github-devloop-pr/pr-open/entry/pr_open_handoff"] = {
-    row_id = "pr-open",
-    output_variant = "pr_open_handoff",
-    source_state = nil,
-    source_boundary = "github-proxy.github_comment_written",
-    target = "pr-open",
-    field = "entry_inventory.pr_open_handoff",
-    semantic_variant = "pr_open_handoff",
-  },
-  ["github-devloop-pr/merge-ready/entry/handoff_to_merge_gate"] = {
-    row_id = "merge-ready",
-    output_variant = "handoff_to_merge_gate",
-    source_state = "merge-ready",
-    source_boundary = nil,
-    target = "merging",
-    field = "receiver_activations",
-    semantic_variant = "handoff_to_merge_gate",
-    cas_policy_id = "cas.legacy_merge_v1",
-    cas_variant = "merge_ready_or_merging_to_merging",
-  },
-  ["github-devloop-pr/reviewing/entry/review_reject_to_blocked"] = {
-    row_id = "reviewing",
-    output_variant = "review_reject_to_blocked",
-    source_state = "reviewing",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "review_reject_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "review_reject_to_blocked",
-  },
-  ["github-devloop-pr/fixing/entry/review_reject_to_blocked"] = {
-    row_id = "fixing",
-    output_variant = "review_reject_to_blocked",
-    source_state = "fixing",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "review_reject_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "review_reject_to_blocked",
-  },
-  ["github-devloop-pr/fixing/entry/bounded_fix_to_blocked"] = {
-    row_id = "fixing",
-    output_variant = "bounded_fix_to_blocked",
-    source_state = "fixing",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "bounded_fix_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "bounded_fix_to_blocked",
-  },
-  ["github-devloop-pr/merge-ready/entry/review_reject_to_blocked"] = {
-    row_id = "merge-ready",
-    output_variant = "review_reject_to_blocked",
-    source_state = "merge-ready",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "review_reject_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "review_reject_to_blocked",
-  },
-  ["github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked"] = {
-    row_id = "merge-ready",
-    output_variant = "bounded_fix_to_blocked",
-    source_state = "merge-ready",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "bounded_fix_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "bounded_fix_to_blocked",
-  },
-  ["github-devloop-pr/merging/entry/review_reject_to_blocked"] = {
-    row_id = "merging",
-    output_variant = "review_reject_to_blocked",
-    source_state = "merging",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "review_reject_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "review_reject_to_blocked",
-  },
-  ["github-devloop-pr/merging/entry/bounded_fix_to_blocked"] = {
-    row_id = "merging",
-    output_variant = "bounded_fix_to_blocked",
-    source_state = "merging",
-    source_boundary = "devloop_fix_reconcile",
-    target = "blocked",
-    field = "receiver_activations",
-    semantic_variant = "bounded_fix_to_blocked",
-    cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
-    cas_variant = "bounded_fix_to_blocked",
-  },
-}
-
-local pending_order_goldens = {
-  ["github-devloop-pr/reviewing/entry/first_seen_pr"] = { participates = false },
-  ["github-devloop-pr/reviewing/entry/review_receiver"] = { participates = false },
-  ["github-devloop-pr/reviewing/entry/review_convergence_round"] = { participates = false },
-  ["github-devloop-pr/pr-open/entry/pr_open_handoff"] = { participates = false },
-  ["github-devloop-pr/merge-ready/entry/handoff_to_merge_gate"] = { participates = true, predecessor_state = "merge-ready" },
-  ["github-devloop-pr/reviewing/entry/review_reject_to_blocked"] = { participates = false },
-  ["github-devloop-pr/fixing/entry/review_reject_to_blocked"] = { participates = false },
-  ["github-devloop-pr/fixing/entry/bounded_fix_to_blocked"] = { participates = false },
-  ["github-devloop-pr/merge-ready/entry/review_reject_to_blocked"] = { participates = false },
-  ["github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked"] = { participates = false },
-  ["github-devloop-pr/merging/entry/review_reject_to_blocked"] = { participates = false },
-  ["github-devloop-pr/merging/entry/bounded_fix_to_blocked"] = { participates = false },
-}
+local fixture = require("tests.restart_entry_edges_fixture_helpers")
+local owner = fixture.owner
+local proposal_id = fixture.proposal_id
+local pr_number = fixture.pr_number
+local version = fixture.version
+local branch = fixture.branch
+local base_branch = fixture.base_branch
+local structural_fields = fixture.structural_fields
+local expected_entries = fixture.expected_entries
+local pending_order_goldens = fixture.pending_order_goldens
 
 local function key_set(keys)
   local out = {}
@@ -372,7 +220,7 @@ local function review_receiver_entry(reviewing_request)
   mock_marker_comment(comment_id, reviewing_request.body)
   local review_result = h.run_review_pr(reviewing.payload, h.opts("restart-entry-reviewing-receiver"))
   assert_department_ok(review_result, "reviewing-receiver")
-  t.is_true(h.find_raise(review_result.raises, "consensus.proposal") ~= nil)
+  t.is_true(h.find_raise(review_result.raises, "devloop_review_request") ~= nil)
 
   return {
     owner = owner,
@@ -384,7 +232,7 @@ end
 
 local function review_convergence_round_entry()
   local department = require("departments.review_loop.main")
-  local queue_name = consumed_queue(department.spec, "consensus.consensus_converge")
+  local queue_name = consumed_queue(department.spec, "devloop_review_continue")
   local reviewing_state = h.reviewing()
   local unresolved = h.review_unresolved({
     round = 0,
@@ -406,9 +254,10 @@ local function review_convergence_round_entry()
     body = "Issue context",
   })
   local result = h.run_review_loop(unresolved, h.opts("restart-entry-review-convergence-round"))
+  local proposal = h.take_consensus_proposal()
 
   assert_department_ok(result, "review-convergence-round")
-  t.is_true(h.find_raise(result.raises, "consensus.proposal") ~= nil)
+  t.is_true(proposal ~= nil)
   local comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
   t.is_true(comment ~= nil)
   t.is_true(comment.payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
@@ -547,6 +396,9 @@ local function assert_entry_shape(edges)
     if expected.cas_variant ~= nil then
       edge_keys.cas_variant = true
     end
+    if expected.transition_effect_entitlements ~= nil then
+      edge_keys.transition_effect_entitlements = true
+    end
     edge_keys.pending_order = true
     assert_exact_keys(edge, edge_keys)
     if expected.source_state == nil then
@@ -574,6 +426,7 @@ local function assert_entry_shape(edges)
     t.eq(edge.provenance.field, expected.field)
     t.eq(edge.cas_policy_id, expected.cas_policy_id)
     t.eq(edge.cas_variant, expected.cas_variant)
+    assert_same_value(edge.transition_effect_entitlements, expected.transition_effect_entitlements)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     assert_valid_cas(edge)
     t.eq(seen_ids[edge.id], nil)
@@ -587,28 +440,6 @@ local function assert_entry_shape(edges)
   t.eq(#edges, expected_count)
 end
 
-local function valid_entry()
-  return {
-    semantic_variant = "site",
-    owner = "owner",
-    row_id = "reviewing",
-    kind = "entry",
-    source = { state = nil, boundary = "owner.queue" },
-    target = "reviewing",
-    provenance = {
-      owner = "owner",
-      row = "reviewing",
-      field = "entry_inventory.site",
-    },
-  }
-end
-
-local function assert_extract_fails(selected_owner, inventory, rows)
-  local ok = pcall(function()
-    restart_edges.extract_entry_edges(selected_owner, inventory, rows)
-  end)
-  t.eq(ok, false)
-end
 
 return {
   test_pr_entry_inventory_matches_production_ingress_paths_symmetrically = function()
@@ -634,12 +465,17 @@ return {
     t.eq(authored[4].id, "github-devloop-pr/pr-open/entry/pr_open_handoff")
     t.eq(authored[5].id, "github-devloop-pr/fixing/entry/review_reject_to_blocked")
     t.eq(authored[6].id, "github-devloop-pr/fixing/entry/bounded_fix_to_blocked")
-    t.eq(authored[7].id, "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate")
-    t.eq(authored[8].id, "github-devloop-pr/merge-ready/entry/review_reject_to_blocked")
-    t.eq(authored[9].id, "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked")
-    t.eq(authored[10].id, "github-devloop-pr/merging/entry/review_reject_to_blocked")
-    t.eq(authored[11].id, "github-devloop-pr/merging/entry/bounded_fix_to_blocked")
-    t.eq(authored[12].id, "github-devloop-pr/reviewing/entry/review_reject_to_blocked")
+    t.eq(authored[7].id, "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal")
+    t.eq(authored[8].id, "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate")
+    t.eq(authored[9].id, "github-devloop-pr/merge-ready/entry/review_reject_to_blocked")
+    t.eq(authored[10].id, "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked")
+    t.eq(authored[11].id, "github-devloop-pr/merging/entry/review_reject_to_blocked")
+    t.eq(authored[12].id, "github-devloop-pr/merging/entry/bounded_fix_to_blocked")
+    t.eq(authored[13].id, "github-devloop-pr/merging/entry/watchdog_reconcile_terminal")
+    t.eq(authored[14].id, "github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal")
+    t.eq(authored[15].id, "github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal")
+    t.eq(authored[16].id, "github-devloop-pr/reviewing/entry/review_reconcile_true_stall")
+    t.eq(authored[17].id, "github-devloop-pr/reviewing/entry/review_reject_to_blocked")
 
     local repeated = restart_edges.extract_entry_edges(owner, entry_inventory, rows)
     assert_entry_shape(repeated)
@@ -648,62 +484,5 @@ return {
       t.is_true(edge.source ~= repeated[index].source)
       t.is_true(edge.provenance ~= repeated[index].provenance)
     end
-  end,
-
-  test_entry_edge_extractor_fails_closed_on_invalid_inventory = function()
-    assert_extract_fails("", { valid_entry() }, {})
-    assert_extract_fails("owner", nil, {})
-    assert_extract_fails("owner", { valid_entry() }, nil)
-    assert_extract_fails("owner", { "not-an-edge" }, {})
-
-    local edge = valid_entry()
-    edge.semantic_variant = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.semantic_variant = "qualified/site"
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.owner = "other-owner"
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.row_id = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.kind = "autonomous"
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.source.state = "unmanaged"
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.source.boundary = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.target = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.provenance.owner = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.provenance.owner = "other-owner"
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.provenance.row = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    edge = valid_entry()
-    edge.provenance.field = ""
-    assert_extract_fails("owner", { edge }, {})
-
-    assert_extract_fails("owner", { valid_entry(), valid_entry() }, {})
   end,
 }

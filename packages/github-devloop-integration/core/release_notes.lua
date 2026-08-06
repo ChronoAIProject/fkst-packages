@@ -4,6 +4,7 @@ local S = {}
 local forge_validators = require("devloop.forge_validators")
 local github_factory = require("devloop.github_factory")
 local github_view = require("forge.github_view")
+local workflow_codex = require("workflow_internal.codex")
 
 function S.install(M)
 local max_release_notes_len = 4000
@@ -244,7 +245,7 @@ function M.draft_release_notes(args)
     end
     error(source)
   end
-  local result = spawn_codex_sync({
+  local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("release-notes", {
     prompt = M.build_release_notes_prompt({
       repo = args.repo,
       upstream_branch = args.upstream_branch,
@@ -255,8 +256,7 @@ function M.draft_release_notes(args)
       referenced_github_context = source.referenced_github_context,
     }),
     sandbox = "read-only",
-    timeout = 3600,
-  })
+  }))
   if type(result) ~= "table" or result.exit_code ~= 0 then
     if policy.allow_fallback == true then
       return M.release_notes_fallback_body(args.upstream_branch, args.integration_branch, args.ahead), "fallback"

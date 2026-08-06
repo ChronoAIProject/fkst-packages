@@ -6,15 +6,15 @@ local core = h.core
 local t = h.t
 
 local expected_by_id = {
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_merged"] = {
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_merged"] = {
     cas_policy_id = "cas.legacy_awaiting_pr_v1",
     cas_variant = "awaiting_pr_to_merged",
   },
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_closed_unmerged_replaced"] = {
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_ready"] = {
     cas_policy_id = "cas.legacy_awaiting_pr_v1",
     cas_variant = "awaiting_pr_to_ready",
   },
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_not_merged"] = {
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_blocked"] = {
     cas_policy_id = "cas.legacy_awaiting_pr_v1",
     cas_variant = "awaiting_pr_to_blocked",
   },

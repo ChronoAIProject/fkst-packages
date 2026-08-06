@@ -1,4 +1,4 @@
-kind = "package.composed"
+kind = "package"
 name = "autochrono"
 persistence_class = "judgment_pipeline"
 
@@ -6,7 +6,4 @@ persistence_class = "judgment_pipeline"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow", "testkit", "testkit_internal"]
-
-[event_deps]
-packages = ["consensus"]
+libraries = ["contract", "workflow", "testkit", "testkit_internal", "consensus"]

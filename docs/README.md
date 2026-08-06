@@ -4,6 +4,9 @@ Docs are split by audience:
 
 - **[`user/`](user/)** — for **operators** installing and running the system in a host repo:
   onboarding, install, configuration, operation. Read these to *use* fkst.
+  - [`user/downstream-customization-guide.md`](user/downstream-customization-guide.md) — choose the
+    downstream shape, customization surface, and conformance gate for specialized package or host
+    repos.
   - [`user/new-package-repo-bootstrap.md`](user/new-package-repo-bootstrap.md) — bootstrap a new
     fkst package/host repo scaffold.
   - [`user/github-devloop-dogfood-topology.md`](user/github-devloop-dogfood-topology.md) —

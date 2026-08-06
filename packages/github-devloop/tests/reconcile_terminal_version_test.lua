@@ -53,32 +53,27 @@ local function run_timeout_reconcile(payload, run_opts)
 end
 
 return {
-  test_thinking_reconcile_blocks_when_live_version_outranks_convergence_base = function()
-    local event = reconcile()
-    local state_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
+  test_delayed_thinking_reconcile_does_not_block_newer_epoch = function()
+    local previous_epoch = "github-devloop/issue/owner/repo/42/2026-06-13T05-22-55Z/intake/1287859417"
+    local current_epoch = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
+    local event = reconcile({
+      base_version = previous_epoch,
+      dedup_key = "reconcile:" .. previous_epoch .. "/loop/3",
+    })
     mock_issue_reconcile({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", state_version),
+      core.state_marker(event.proposal_id, "thinking", current_epoch),
     })
 
-    local result = run_reconcile(event, opts("reconcile-terminal-thinking"))
+    local result = run_reconcile(event, opts("reconcile-stale-thinking-epoch"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(state_version, event.round)
-    t.eq(core.versioned_transition_status({ state = "thinking", version = state_version }, { "thinking" }, "blocked", version), "apply")
-    t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
-
-    mock_issue_reconcile({ "fkst-dev:blocked" }, { comment.body })
-    local idempotent = run_reconcile(event, opts("reconcile-terminal-thinking-idempotent"))
-    t.eq(idempotent.exit_code, 0)
-    t.eq(#idempotent.raises, 0)
+    t.eq(#result.raises, 0)
   end,
 
   test_thinking_reconcile_does_not_override_advanced_state = function()
     local event = reconcile()
     local state_version = conv_reconcile.reconcile_terminal_state_version("github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418", event.round)
     mock_issue_reconcile({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", state_version),
+      h.projected_state_comment(event.proposal_id, "ready", state_version),
     })
 
     local ready_result = run_reconcile(event, opts("reconcile-terminal-ready"))
@@ -94,7 +89,7 @@ return {
     t.eq(#implementing_result.raises, 0)
   end,
 
-  test_implementing_timeout_reconcile_adopts_open_pr_instead_of_blocking = function()
+  test_implementing_timeout_reconcile_is_neutralized_noop = function()
     local event = h.ready()
     local impl_version = event.dedup_key
     local state_version = impl_version .. "/timeout/implementing/2"
@@ -168,26 +163,14 @@ return {
     local result = run_timeout_reconcile(payload, opts("timeout-reconcile-open-pr-adopts"))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload_body, raised)
-      return raised.queue == "github-proxy.github_issue_comment_request"
-        and tostring(payload_body.body or ""):find('state="blocked"', 1, true) ~= nil
-    end), nil)
-    local issue_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload_body, raised)
-      return raised.queue == "github-proxy.github_issue_comment_request"
-        and tostring(payload_body.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
-    end)
-    t.is_true(issue_comment ~= nil)
-    t.is_true(tostring(issue_comment.payload.body):find("fkst:github-devloop:pr-delegation:v1", 1, true) ~= nil)
-    t.is_true(tostring(issue_comment.payload.body):find('pr="7"', 1, true) ~= nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request", function(payload_body)
-      return tostring(payload_body.body or ""):find('state="blocked"', 1, true) ~= nil
-    end), nil)
-    local pr_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    t.is_true(pr_comment ~= nil)
-    t.is_true(tostring(pr_comment.payload.body):find('state="pr-open"', 1, true) ~= nil)
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.is_true(label ~= nil)
-    t.eq(label.payload.add_labels[1], "fkst-dev:awaiting-pr")
+    -- Owner directive (#2725): the timeout-reconcile department path is neutralized. The
+    -- re-derived timeout DECISION is redrive (never escalate), so a timeout-reconcile
+    -- event is a no-op skip (no-longer-over-budget). The live redrive path (not this
+    -- legacy department) adopts an open PR / re-dispatches; this event neither blocks nor
+    -- mutates the issue or PR.
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
   end,
 
 }

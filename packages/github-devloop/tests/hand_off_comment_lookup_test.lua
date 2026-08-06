@@ -33,7 +33,7 @@ return {
     local event_version = "ready/consensus-github-devloop/issue/owner/repo/42/intake/123"
     mock_comment_get(
       "IC_ready_by_id",
-      core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+      h.projected_state_comment(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
     )
 
     local state, reason = verify({

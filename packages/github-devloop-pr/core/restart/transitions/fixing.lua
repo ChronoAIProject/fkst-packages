@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant, effect_ids)
+  local id = "github-devloop-pr/fixing/autonomous/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -12,6 +19,10 @@ return function(M, h)
   local advancing_fact = h.advancing_fact
   return {
     from_state = "fixing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop-pr/fixing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:fix" },
+    },
     generation_entry = "always",
     liveness_class_id = "fixing.actionable",
     watchdog = {
@@ -36,6 +47,17 @@ return function(M, h)
     driving_queue = "devloop_fixing",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "fix:v1", "state:v1 reviewing", "review-meta:v1", "ci-repair-attempt:v1", "fix-reconcile:v1", "state:v1 blocked" }, { "reviewing", "review-meta", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/fixing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run_with_durable_hold:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 120,
+        },
+      },
+    },
     budget = budget(120, "A live or indeterminate fixing codex defers; after a completed own-CI repair attempt, the trusted attempt fact defers until its version-derived due time and opens a new due-time generation before the fixing watchdog can accrue timeout attempts."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -59,6 +81,19 @@ return function(M, h)
         output_variant = "review_reject_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
       {
@@ -68,6 +103,41 @@ return function(M, h)
         output_variant = "bounded_fix_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "bounded_fix_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "fixing_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },
@@ -86,6 +156,20 @@ return function(M, h)
           output_variant = "revision_published",
           cas_policy_id = "cas.legacy_fix_v1",
           cas_variant = "fixing_to_reviewing",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+                "git.push:fix-branch",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/idempotent",
+              effect_ids = {},
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "fixing" },
           postcondition_family = "revision_published",
@@ -95,6 +179,11 @@ return function(M, h)
           state = "review-meta",
           output_variant = "revision_failed",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_fix_v1",
+          cas_variant = "fixing_to_review_meta",
+          transition_effect_entitlements = effect_entitlements("revision_failed", {
+            "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+          }),
           pending_order = { participates = true, predecessor_state = "fixing" },
           failure = true,
           monotonic = true,
@@ -103,6 +192,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "fix_budget_exhausted",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
           pending_order = { participates = false },
           terminal = true,
           monotonic = true,
@@ -110,7 +202,7 @@ return function(M, h)
       },
     }),
     payload_builder = payloads_builders.build_devloop_fixing_payload,
-    dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>",
+    dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>; timeout delivery appends delivery-redrive/<generation_key>/<attempt> to the logical replay identity",
     required_facts = {
       fact("state", "marker-read"),
       fact("pr-link", "marker-read"),

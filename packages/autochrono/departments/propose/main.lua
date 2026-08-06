@@ -5,7 +5,7 @@ local saga = require("workflow.saga")
 local spec = {
   consumes = { "issue" },
   published_seam = { "issue" },
-  produces = { "consensus.proposal" },
+  produces = { "judge_issue" },
   published_seam = { "issue" },
   stall_window = "30s",
 }
@@ -48,7 +48,14 @@ local function act_propose(event)
       return
     end
 
-    raise("consensus.proposal", proposal)
+    raise("judge_issue", {
+      schema = "autochrono.judge_issue.v1",
+      repo = tostring(issue.repo),
+      issue_number = tostring(issue.issue_number),
+      proposal = proposal,
+      dedup_key = proposal.dedup_key,
+      source_ref = proposal.source_ref,
+    })
     cache_set(cache_key, core.proposal_id(issue.repo, issue.issue_number))
   end)
 end

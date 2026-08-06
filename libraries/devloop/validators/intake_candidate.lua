@@ -2,15 +2,19 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
+local premise_correction = require("devloop.premise_correction")
 
 local C = {}
 function C.is_supported_intake_candidate(payload)
+  local has_premise = type(payload) == "table" and payload.premise_fingerprint ~= nil
+  local has_correction = type(payload) == "table" and payload.correction_fingerprint ~= nil
   if type(payload) ~= "table"
     or payload.schema ~= "github-devloop.intake-candidate.v1"
     or not devloop_base.is_safe_proposal_ref(payload.proposal_id, payload.dedup_key)
     or (payload.effect_id ~= nil and not strings.is_path_safe_key(payload.effect_id, devloop_base._max_dedup_len))
-    or (payload.reintake_command_created_at ~= nil and not strings.is_bounded_string(payload.reintake_command_created_at, 128))
-    or (payload.reintake_effect_updated_at ~= nil and not strings.is_bounded_string(payload.reintake_effect_updated_at, 128))
+    or has_premise ~= has_correction
+    or (has_premise and not premise_correction.is_premise_fingerprint(payload.premise_fingerprint))
+    or (has_correction and not premise_correction.is_correction_fingerprint(payload.correction_fingerprint))
     or not source_refs.has_bounded_source_ref(payload.source_ref, devloop_base._max_key_len) then
     return false
   end

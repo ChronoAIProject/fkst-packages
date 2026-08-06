@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(kind, semantic_variant, effect_ids)
+  local id = "github-devloop-pr/merge-ready/" .. kind .. "/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -21,6 +28,17 @@ return function(M, h)
     driving_queue = "devloop_merge_ready",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 merging", "state:v1 blocked" }, { "merging", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/merge-ready/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 390,
+        },
+      },
+    },
     budget = budget(390, "The merge-ready receiver is bounded by 30 minutes of merge work plus a 360 minute external CI wait window."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
@@ -44,6 +62,16 @@ return function(M, h)
         output_variant = "handoff_to_merge_gate",
         cas_policy_id = "cas.legacy_merge_v1",
         cas_variant = "merge_ready_or_merging_to_merging",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/apply",
+            effect_ids = { "github-proxy.github_pr_comment_request" },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/idempotent",
+            effect_ids = { "github-proxy.github_pr_comment_request" },
+          },
+        },
         pending_order = { participates = true, predecessor_state = "merge-ready" },
       },
       {
@@ -53,6 +81,19 @@ return function(M, h)
         output_variant = "review_reject_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
       {
@@ -62,6 +103,19 @@ return function(M, h)
         output_variant = "bounded_fix_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "bounded_fix_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },
@@ -79,6 +133,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "fix_budget_exhausted",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("autonomous", "fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
           pending_order = { participates = true, predecessor_state = "merge-ready" },
           terminal = true,
           monotonic = true,
@@ -97,6 +154,9 @@ return function(M, h)
           {
             state = "reviewing",
             output_variant = "approval_stale",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "approval_stale", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
             pending_order = { participates = false },
             decision_type = "MergeEligibility",
             bump = true,
@@ -104,6 +164,18 @@ return function(M, h)
           {
             state = "merging",
             output_variant = "eligible_now",
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_or_merging_to_merging",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/apply",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/idempotent",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+            },
             pending_order = { participates = true, predecessor_state = "merge-ready" },
             decision_type = "MergeEligibility",
             monotonic = true,
@@ -111,6 +183,11 @@ return function(M, h)
           {
             state = "fixing",
             output_variant = "code_repair_needed",
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_to_fixing",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "code_repair_needed", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
             pending_order = { participates = false },
             decision_type = "MergeEligibility",
             failure = true,
@@ -122,6 +199,19 @@ return function(M, h)
             kind = "timeout",
             cas_policy_id = "cas.legacy_timeout_reconcile_v1",
             cas_variant = "merge_ready_to_blocked",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/apply",
+                effect_ids = {
+                  "github-proxy.github_pr_comment_request",
+                  "github-proxy.github_issue_label_request",
+                },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/idempotent",
+                effect_ids = {},
+              },
+            },
             pending_order = { participates = false },
             failure = true,
             terminal = true,

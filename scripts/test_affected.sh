@@ -42,11 +42,26 @@ test_affected_is_broad_path() {
 }
 
 test_affected_run_test() {
+  local result_file exit_code merge_code=0
+  result_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-result.XXXXXX")" || {
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
   if [ -n "${FKST_TEST_AFFECTED_RUNNER:-}" ]; then
-    "$FKST_TEST_AFFECTED_RUNNER" "$@"
-    return $?
+    if FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$FKST_TEST_AFFECTED_RUNNER" "$@"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+  elif FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$ROOT/scripts/run.sh" "$@"; then
+    exit_code=0
+  else
+    exit_code=$?
   fi
-  "$ROOT/scripts/run.sh" "$@"
+  local_iteration_result_merge_file "$result_file" "$exit_code" || merge_code=$?
+  rm -f "$result_file"
+  [ "$merge_code" -eq 0 ] || return 1
+  return "$exit_code"
 }
 
 cmd_test_affected() {
@@ -73,13 +88,17 @@ cmd_test_affected() {
   rm -f "$changed_file"
 
   if [ "$full" -eq 1 ] || [ -z "${packages# }" ]; then
-    test_affected_run_test test
-    return $?
-  fi
-  for package in $packages; do
-    if ! test_affected_run_test test "$package"; then
-      status=1
+    if test_affected_run_test test; then
+      status=0
+    else
+      status=$?
     fi
-  done
+  else
+    for package in $packages; do
+      if ! test_affected_run_test test "$package"; then
+        status=1
+      fi
+    done
+  fi
   return "$status"
 }

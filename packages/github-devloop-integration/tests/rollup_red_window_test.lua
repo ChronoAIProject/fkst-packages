@@ -9,6 +9,20 @@ local function exec_returning(value)
   end
 end
 
+local function red_pr(head_sha, failing_head_sha)
+  return {
+    head_sha = head_sha,
+    status_check_rollup = {
+      {
+        name = "test",
+        state = "COMPLETED",
+        conclusion = "FAILURE",
+        headSha = failing_head_sha,
+      },
+    },
+  }
+end
+
 return {
   -- Regression guard for the latent bug fixed alongside the _trim decouple: the old
   -- ambient M._trim returned two values (the trimmed string plus the chained gsub's
@@ -45,5 +59,33 @@ return {
     t.raises(function()
       core.rollup_health_dedup_key("owner/repo", "test: COMPLETED/FAILURE", "not-a-sha")
     end)
+  end,
+
+  test_rollup_health_noops_on_stale_red_check_head = function()
+    local result = core.observe_rollup_health(
+      "owner/repo",
+      "dev",
+      "integration/dev",
+      red_pr("aaaa1111", "bbbb2222"),
+      now(),
+      30
+    )
+
+    t.eq(result.action, "no-op")
+    t.eq(result.reason, "stale-red-check-head")
+  end,
+
+  test_rollup_health_keeps_unknown_red_check_head_distinct = function()
+    local result = core.observe_rollup_health(
+      "owner/repo",
+      "dev",
+      "integration/dev",
+      red_pr("aaaa1111", nil),
+      now(),
+      30
+    )
+
+    t.eq(result.action, "no-op")
+    t.eq(result.reason, "red-check-head-unknown")
   end,
 }

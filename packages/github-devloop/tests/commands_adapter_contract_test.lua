@@ -72,7 +72,7 @@ return {
     end)
 
     t.eq(ok, false)
-    t.is_true(tostring(err):find("forge.merge: github_handle is required", 1, true) ~= nil)
+    t.is_true(tostring(err):find("forge.merge: github-handle-required: github_handle is required", 1, true) ~= nil)
   end,
 
   test_sweep_exec_accepts_typed_run_command = function()
@@ -150,7 +150,7 @@ return {
       "api",
       "graphql",
       "-f",
-      'query={repository(owner:"owner",name:"repo"){issue(number:42){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner}}}}}}',
+      'query={repository(owner:"owner",name:"repo"){issue(number:42){number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}} blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}}}}}',
     })
     t.eq(calls[1].timeout, 35)
     t.is_nil(calls[1].cmd)

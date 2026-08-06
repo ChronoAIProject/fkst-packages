@@ -21,6 +21,17 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "impl-failure:v1 retryable fact", "operator reready/reimplement command", "state:v1 implementing" }, { "implementing", "impl-failed" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/impl-failed/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 1440,
+        },
+      },
+    },
     reentry_commands = { "reready", "reimplement" },
     budget = budget(1440, "No receiver work is expected; the row waits up to 1410 minutes for operator reentry before the 30 minute watchdog margin."),
     liveness_contract = liveness({
@@ -37,6 +48,19 @@ return function(M, h)
         output_variant = "retry-implementation",
         cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
         cas_variant = "impl_failed_to_implementing",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop/impl-failed/entry/retry-implementation/apply",
+            effect_ids = {
+              "github-proxy.github_issue_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop/impl-failed/entry/retry-implementation/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = true, predecessor_state = "impl-failed" },
       },
     },
@@ -64,7 +88,7 @@ return function(M, h)
     },
     version_identity = "ready_payload_inner_version(impl-failure.dedup) plus next_impl_retry_attempt(impl-failure)",
     effects = effect({ "devloop_ready" }, "impl-failed replay is complete when trusted retryable impl-failure attempt is below the retry ceiling"),
-    marker_facts = "state:v1 impl-failed plus impl-failure:v1 retryable reason attempt<N",
+    marker_facts = "state:v1 impl-failed plus impl-failure:v1 retryable=true attempt<N",
     kickoff = "devloop_ready",
     replay = "Observe re-raises ready/<version> after one observe tick for bounded retryable implementation failures.",
   }

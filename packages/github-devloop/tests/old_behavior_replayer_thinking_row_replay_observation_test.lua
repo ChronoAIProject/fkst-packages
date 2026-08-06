@@ -4,6 +4,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -35,6 +36,7 @@ local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local MARKER_CREATED_AT = "2099-01-01T00:00:00Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 
 local function event_payload()
   return h.issue({
@@ -58,7 +60,7 @@ local function issue_event()
 end
 
 local BASE_VERSION = payloads_builders.build_proposal(event_payload()).dedup_key
-local CONVERGE_BASE_VERSION = "consensus:" .. BASE_VERSION
+local CONSENSUS_BASE_DEDUP = "consensus:" .. BASE_VERSION
 
 local function trusted_comment(body, created_at)
   return {
@@ -70,11 +72,11 @@ end
 
 local function converge_round_comment(round, options)
   local selected = options or {}
-  local dedup = round == 0 and CONVERGE_BASE_VERSION
-    or transition_version.loop_at(CONVERGE_BASE_VERSION, round)
+  local dedup = round == 0 and CONSENSUS_BASE_DEDUP
+    or transition_version.loop_at(CONSENSUS_BASE_DEDUP, round)
   return trusted_comment(conv_rounds.converge_round_marker(
     PROPOSAL_ID,
-    CONVERGE_BASE_VERSION,
+    BASE_VERSION,
     convergence_shared.source_ref_digest(SOURCE_REF),
     round,
     dedup,
@@ -105,8 +107,8 @@ local function comments_for(fixture)
 end
 
 local EFFECTS = {
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -128,8 +130,8 @@ local FIXTURES = json_array({
     expected_status = "re-raised",
     expected_reason = "replay-current-thinking-proposal",
     expected_decision = "applied(replay)",
-    expected_target = "consensus.proposal",
-    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
     expected_department_raises = 1,
   },
@@ -140,8 +142,8 @@ local FIXTURES = json_array({
     expected_status = "re-raised",
     expected_reason = "replay-next-converge-round-proposal",
     expected_decision = "applied(replay)",
-    expected_target = "consensus.proposal",
-    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
     expected_department_raises = 1,
   },
@@ -151,24 +153,26 @@ local FIXTURES = json_array({
     expected_status = "no-op",
     expected_reason = "matching-consensus-run-live",
     expected_decision = "skip-idempotent(live-exec-ref)",
-    expected_target = "consensus.proposal",
+    expected_target = "devloop_consensus_request",
     expected_effect_ids = json_array(),
     expected_issued = false,
     expected_department_raises = 3,
   },
   {
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer a terminal
+    -- cause, so a converge round past the former budget REDRIVES the next round -- the
+    -- thinking row-replay re-enters the local consensus request instead of routing to a terminal
+    -- blocked reconcile. The row-replay decision is now applied(replay) targeting
+    -- consensus request, never blocked.
     name = "terminal-convergence-route-blocked",
     converge_round = 1,
-    expected_status = "route-to-transition",
-    expected_reason = "evidence-continuation-budget-exhausted-after-1-rounds",
-    expected_decision = "applied",
-    expected_target = "blocked",
-    expected_effect_ids = json_array({
-      "comment:issue:reconcile-blocked",
-      "label:issue:reconcile-blocked",
-    }),
+    expected_status = "re-raised",
+    expected_reason = "replay-next-converge-round-proposal",
+    expected_decision = "applied(replay)",
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
-    expected_department_raises = 2,
+    expected_department_raises = 1,
   },
 })
 
@@ -289,9 +293,10 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "thinking",
-      transition_kind = "versioned_transition_status",
       run = function()
-        return testing.run_fake(observe_issue_department, event)
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
       end,
       codex_runs_for_read = controlled_codex_runs(fixture),
       write_mode = "real",
@@ -308,7 +313,7 @@ local function capture_runtime(fixture)
   t.eq(dispatch.state, "thinking", fixture.name .. ": production-derived replay state")
   t.eq(dispatch.version, BASE_VERSION, fixture.name .. ": production-derived replay version")
   t.eq(dispatch.row_from_state, "thinking", fixture.name .. ": production thinking row")
-  t.eq(dispatch.driving_queue, "consensus.proposal", fixture.name .. ": production thinking driving queue")
+  t.eq(dispatch.driving_queue, "devloop_consensus_request", fixture.name .. ": production thinking driving queue")
   t.eq(dispatch.issued, fixture.expected_issued, fixture.name .. ": exact row replay return disposition")
   t.eq(#captured.decisions, 1, fixture.name .. ": one replay disposition")
   t.eq(captured.decisions[1].outcome, fixture.expected_decision, fixture.name .. ": exact replay decision")
@@ -336,8 +341,8 @@ local function build_record(fixture)
   )
 
   local target_version = nil
-  if fixture.expected_target == "consensus.proposal" and dispatch.raises[1] ~= nil then
-    target_version = dispatch.raises[1].payload.dedup_key
+  if fixture.expected_target == "devloop_consensus_request" and dispatch.raises[1] ~= nil then
+    target_version = dispatch.raises[1].payload.effect_version
   elseif fixture.expected_target == "blocked" then
     target_version = dispatch.applies[1] and dispatch.applies[1].version or nil
   end
@@ -530,16 +535,6 @@ local function assert_internal_no_op_branches_are_not_production_reachable()
   local derived = devloop_state.current_state(terminal_comments, PROPOSAL_ID)
   t.eq(derived.state, "blocked", "visible reconcile marker is production-paired with blocked state marker")
   t.eq(derived.version, terminal_version, "paired blocked marker carries the terminal replay version")
-  t.eq(
-    devloop_state.versioned_transition_status(
-      { state = "thinking", version = BASE_VERSION },
-      { "thinking" },
-      "blocked",
-      terminal_version
-    ),
-    "apply",
-    "production thinking-to-blocked replay CAS cannot be idempotent or stale"
-  )
 end
 
 return {
@@ -562,20 +557,10 @@ return {
     local runtime_tuples = record_tuple_set(first, "runtime records")
     assert_bidirectional_membership(runtime_tuples, fixtures, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    local inventory_tuples = record_tuple_set(expected, "inventory records")
-    assert_bidirectional_membership(runtime_tuples, inventory_tuples, "runtime records", "inventory records", first)
-    local inventory_difference = first_difference(
+    observation_support.assert_old_behavior_records(
       first,
       expected,
-      "old_behavior_observations[replayer-thinking-row-replay]"
+      "runtime-bound OLD thinking row replay observation"
     )
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD thinking row replay observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
   end,
 }

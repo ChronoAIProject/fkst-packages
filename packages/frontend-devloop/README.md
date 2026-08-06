@@ -26,7 +26,6 @@ Host package composition is explicit. A frontend host includes these platform pa
 
 ```text
 fkst-packages:packages/github-proxy
-fkst-packages:packages/consensus
 fkst-packages:packages/github-devloop-intake
 fkst-packages:packages/github-devloop-intake-default
 fkst-packages:packages/github-devloop-decompose

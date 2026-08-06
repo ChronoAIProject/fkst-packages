@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import ratchet_base
+import check_repo_config
+import check_repo_lua
 
 
 ALLOWLIST = "migration/content-truncation.allowlist"
@@ -29,7 +30,6 @@ FUNCTION_RE = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\("
     r"|^\s*(?P<assign>[A-Za-z_][A-Za-z0-9_]*(?:\s*[.:]\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*=\s*function\b"
 )
-LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
 @dataclass(frozen=True, order=True)
@@ -78,60 +78,8 @@ class FunctionBlock:
     source: str
 
 
-def lua_code_mask(text: str) -> str:
-    chars = list(text)
-    index = 0
-    while index < len(text):
-        if text.startswith("--", index):
-            newline = text.find("\n", index)
-            end = len(text) if newline == -1 else newline
-            _mask(chars, index, end)
-            index = end
-            continue
-        char = text[index]
-        if char in {"'", '"'}:
-            end = _quoted_string_end(text, index)
-            _mask(chars, index, end)
-            index = end
-            continue
-        index += 1
-    return "".join(chars)
-
-
-def _mask(chars: list[str], start: int, end: int) -> None:
-    for index in range(start, end):
-        if chars[index] != "\n":
-            chars[index] = " "
-
-
-def _quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
-
-
-def block_delta(line: str) -> int:
-    tokens = LUA_WORD_RE.findall(line)
-    delta = 0
-    for index, token in enumerate(tokens):
-        if token in {"function", "do", "repeat"}:
-            delta += 1
-        elif token == "then" and (index == 0 or tokens[index - 1] != "elseif"):
-            delta += 1
-        elif token in {"end", "until"}:
-            delta -= 1
-    return delta
-
-
 def function_blocks(source: str) -> list[FunctionBlock]:
-    masked_lines = lua_code_mask(source).splitlines()
+    masked_lines = check_repo_lua.code_mask(source, recognize_long_brackets=False).splitlines()
     original_lines = source.splitlines()
     blocks: list[FunctionBlock] = []
     index = 0
@@ -140,11 +88,11 @@ def function_blocks(source: str) -> list[FunctionBlock]:
         if match is None:
             index += 1
             continue
-        depth = block_delta(masked_lines[index])
+        depth = check_repo_lua.block_delta(masked_lines[index])
         end = index
         while depth > 0 and end + 1 < len(masked_lines):
             end += 1
-            depth += block_delta(masked_lines[end])
+            depth += check_repo_lua.block_delta(masked_lines[end])
         name = (match.group("name") or match.group("assign") or "unknown").replace(" ", "")
         blocks.append(FunctionBlock(name=name, start=index + 1, end=end + 1, source="\n".join(original_lines[index:end + 1])))
         index = end + 1
@@ -193,7 +141,7 @@ def sink_for_block(block_source: str, truncation_index: int) -> str | None:
 
 def block_sites(path: str, block: FunctionBlock, caps: set[str]) -> set[ContentTruncationSite]:
     sites: set[ContentTruncationSite] = set()
-    lines = lua_code_mask(block.source).splitlines()
+    lines = check_repo_lua.code_mask(block.source, recognize_long_brackets=False).splitlines()
     for index, line in enumerate(lines):
         cap = truncation_cap_on_line(line, caps)
         if cap is None:
@@ -207,7 +155,7 @@ def block_sites(path: str, block: FunctionBlock, caps: set[str]) -> set[ContentT
 
 def truncation_candidates(path: str, block: FunctionBlock, caps: set[str]) -> set[ContentTruncationSite]:
     candidates: set[ContentTruncationSite] = set()
-    lines = lua_code_mask(block.source).splitlines()
+    lines = check_repo_lua.code_mask(block.source, recognize_long_brackets=False).splitlines()
     for index, line in enumerate(lines):
         cap = truncation_cap_on_line(line, caps)
         if cap is not None:
@@ -217,7 +165,10 @@ def truncation_candidates(path: str, block: FunctionBlock, caps: set[str]) -> se
 
 def block_calls_function(block: FunctionBlock, function_name: str) -> bool:
     basename = function_name.split(".")[-1].split(":")[-1]
-    return re.search(r"\b" + re.escape(basename) + r"\s*\(", lua_code_mask(block.source)) is not None
+    return re.search(
+        r"\b" + re.escape(basename) + r"\s*\(",
+        check_repo_lua.code_mask(block.source, recognize_long_brackets=False),
+    ) is not None
 
 
 def source_sites(path: str, source: str) -> set[ContentTruncationSite]:
@@ -256,6 +207,7 @@ def sites(sources: dict[str, str]) -> set[ContentTruncationSite]:
     return result
 
 
+# Local variants parse typed ContentTruncationSite entries for current and dev data.
 def load_allowlist(path: Path) -> set[ContentTruncationSite]:
     if not path.exists():
         return set()
@@ -267,6 +219,14 @@ def load_allowlist(path: Path) -> set[ContentTruncationSite]:
         entry = ContentTruncationSite.parse(stripped)
         entries.add(entry)
     return entries
+
+
+def parse_dev_allowlist_lines(lines: list[str]) -> set[ContentTruncationSite]:
+    return {
+        ContentTruncationSite.parse(line.strip())
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def covered_by_allowlist(site: ContentTruncationSite, allowlist: set[ContentTruncationSite]) -> bool:
@@ -294,25 +254,14 @@ def ratchet_messages(
     return messages
 
 
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[ContentTruncationSite] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", {
-            ContentTruncationSite.parse(line.strip())
-            for line in shown.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-    except Exception:
-        return "unresolved", None
-
-
 def repository_messages(root: Path, packages: Path, read_text, rel) -> list[str]:
     current = sites(package_lua_sources(root, packages, read_text, rel))
     allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
+    base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(
+        root,
+        allowlist=ALLOWLIST,
+        parse_allowlist_lines=parse_dev_allowlist_lines,
+    )
     messages: list[str] = []
     if base_status == "unresolved":
         messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")

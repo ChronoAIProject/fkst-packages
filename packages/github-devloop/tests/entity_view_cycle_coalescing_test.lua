@@ -12,6 +12,10 @@ local updated_at = "2026-06-03T01:02:03Z"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
+local function recent_iso(seconds_ago)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60))
+end
+
 local function proposal_for(number)
   return "github-devloop/issue/" .. repo .. "/" .. tostring(number)
 end
@@ -97,7 +101,7 @@ local function mock_issue_state()
       {
         body = core.state_marker(proposal_id, "thinking", version),
         author_login = "fkst-test-bot",
-        created_at = "2026-06-03T01:00:00Z",
+        created_at = recent_iso(60),
       },
     },
     assignees = { "fkst-test-bot" },
@@ -120,7 +124,7 @@ return {
         {
           body = core.state_marker(issue_proposal, state, version .. "-" .. tostring(number)),
           author_login = "fkst-test-bot",
-          created_at = "2026-06-03T01:00:00Z",
+          created_at = recent_iso(60),
         },
       }
       if number == delegated_issue_number then
@@ -133,7 +137,7 @@ return {
             "g1"
           ),
           author_login = "fkst-test-bot",
-          created_at = "2026-06-03T01:00:01Z",
+          created_at = recent_iso(59),
         })
       end
       entity_read_mocks.mock_issue_read_forms(t, {
@@ -162,7 +166,7 @@ return {
           body = m_builders.pr_origin_marker(proposal_for(delegated_issue_number), delegated_issue_number, "devloop-owner-repo-44-01HY", version .. "-" .. tostring(delegated_issue_number), "dev")
             .. "\n" .. core.state_marker(pr_proposal_for(delegated_pr_number), "reviewing", version .. "-" .. tostring(delegated_issue_number)),
           author_login = "fkst-test-bot",
-          created_at = "2026-06-03T01:00:02Z",
+          created_at = recent_iso(58),
         },
       },
       times = 2,

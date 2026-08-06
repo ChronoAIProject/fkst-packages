@@ -1,4 +1,3 @@
-local m_claims = require("devloop.claims")
 local C = {}
 local shared = require("devloop.parsers.shared")
 local parsers_misc = require("devloop.parsers.misc")
@@ -6,6 +5,23 @@ local parsers_misc = require("devloop.parsers.misc")
 function C.parse_issue_view_state(M, stdout)
   local decoded = json.decode(stdout or "{}")
   return C.issue_state_from_json(M, decoded)
+end
+
+function C.parse_issue_list_freshness(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local data = type(decoded) == "table" and decoded.data or nil
+  local repository = type(data) == "table" and data.repository or nil
+  local versions = {}
+  if type(repository) ~= "table" then
+    return versions
+  end
+  for _, issue in pairs(repository) do
+    local number = type(issue) == "table" and tonumber(issue.number) or nil
+    if number ~= nil then
+      versions[number] = issue.updatedAt or issue.updated_at
+    end
+  end
+  return versions
 end
 
 function C.issue_state_from_json(M, decoded)
@@ -25,8 +41,8 @@ function C.issue_state_from_json(M, decoded)
     labels = labels,
     comments = parsers_misc.comments_from_json(decoded.comments),
     state = decoded.state,
-    assignees = m_claims.assignee_logins(decoded.assignees),
-    author_login = m_claims.issue_author_login(decoded),
+    assignees = shared.assignee_logins(decoded.assignees),
+    author_login = shared.issue_author_login(decoded),
   }
 end
 
@@ -50,8 +66,8 @@ function C.parse_issue_list_intake(M, stdout, limit)
         created_at = issue.createdAt or issue.created_at,
         updated_at = issue.updatedAt or issue.updated_at,
         labels = shared.label_names(issue.labels),
-        assignees = m_claims.assignee_logins(issue.assignees),
-        author_login = m_claims.issue_author_login(issue),
+        assignees = shared.assignee_logins(issue.assignees),
+        author_login = shared.issue_author_login(issue),
       })
     end
   end)
@@ -62,14 +78,14 @@ function C.parse_issue_list_recent_closed(stdout)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
   if type(decoded) ~= "table" then
-    error("github-devloop: recent closed issue list decode failed")
+    error("github-devloop: recent-closed-issue-list-decode-failed: recent closed issue list decode failed")
   end
   shared.each_paginated_item(decoded, function(issue)
     local number = type(issue) == "table" and tonumber(issue.number) or nil
     local title = type(issue) == "table" and issue.title or nil
     local closed_at = type(issue) == "table" and (issue.closedAt or issue.closed_at) or nil
     if number == nil or title == nil or closed_at == nil or type(issue.labels) ~= "table" then
-      error("github-devloop: recent closed issue list item missing required fields")
+      error("github-devloop: recent-closed-issue-list-item-fields-missing: recent closed issue list item missing required fields")
     end
     table.insert(issues, {
       number = number,
@@ -121,7 +137,7 @@ function C.parse_issue_view_result(M, stdout)
   return {
     labels = state.labels,
     comments = state.comments,
-    assignees = m_claims.assignee_logins(decoded.assignees),
+    assignees = shared.assignee_logins(decoded.assignees),
     author_login = state.author_login,
   }
 end
@@ -151,14 +167,14 @@ function C.parse_issue_view_intake_judge(M, stdout)
   local milestone_number = nil
   if milestone ~= nil then
     if type(milestone) ~= "table" then
-      error("github-devloop: issue milestone must be an object or null")
+      error("github-devloop: issue-milestone-shape-invalid: issue milestone must be an object or null")
     end
     milestone_number = tonumber(milestone.number)
     if milestone_number == nil
       or milestone_number < 1
       or milestone_number > 2147483647
       or milestone_number ~= math.floor(milestone_number) then
-      error("github-devloop: issue milestone number must be a positive integer")
+      error("github-devloop: issue-milestone-number-invalid: issue milestone number must be a positive integer")
     end
   end
   return {
@@ -190,7 +206,7 @@ function C.parse_issue_view_implement(M, stdout)
   local result = C.parse_issue_view_meta(M, stdout)
   result.body = tostring(decoded.body or "")
   result.state = decoded.state
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -213,8 +229,8 @@ end
 function C.parse_issue_view_review(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(decoded.assignees)
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.assignees = shared.assignee_logins(decoded.assignees)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -238,8 +254,8 @@ end
 function C.parse_issue_view_review_loop(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(decoded.assignees)
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.assignees = shared.assignee_logins(decoded.assignees)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -259,9 +275,10 @@ function C.parse_issue_view_observe(M, stdout)
     created_at = decoded.createdAt or decoded.created_at,
     state = decoded.state,
     state_reason = decoded.stateReason or decoded.state_reason,
+    labels = shared.label_names(decoded.labels),
     comments = parsers_misc.comments_from_json(decoded.comments),
-    assignees = m_claims.assignee_logins(decoded.assignees),
-    author_login = m_claims.issue_author_login(decoded),
+    assignees = shared.assignee_logins(decoded.assignees),
+    author_login = shared.issue_author_login(decoded),
   }
 end
 

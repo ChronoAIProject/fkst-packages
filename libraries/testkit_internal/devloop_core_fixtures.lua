@@ -27,7 +27,7 @@ end
 
 function M.new(deps)
   deps = deps or {}
-  local core = deps.core or error("testkit_internal.devloop_core_fixtures: deps.core is required")
+  local core = deps.core or error("testkit_internal.devloop_core_fixtures: fixture-dependency-missing: deps.core is required")
   local t = deps.t or fkst.test
 
   gh_argv.install(t, core)
@@ -93,6 +93,8 @@ function M.new(deps)
 
   return {
     core = core,
+    projected_state_comment = deps.projected_state_comment,
+    state_comment = deps.state_comment,
     t = t,
     has_value = has_value,
     source_ref = source_ref,

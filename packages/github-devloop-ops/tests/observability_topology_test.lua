@@ -154,7 +154,10 @@ local function topology_fixture()
   b.department("github-devloop.fix", { "github-devloop.devloop_fixing" }, { "github-devloop.devloop_reviewing", "github-devloop.devloop_review_meta" })
   b.department("github-devloop.liveness_scan", { "github-devloop.devloop_liveness_tick" }, { "github-devloop.devloop_observe_redrive", "consensus.proposal" })
   b.department("github-devloop.loop", { "consensus.consensus_converge" }, { "consensus.proposal", "github-devloop.devloop_reconcile" })
-  b.department("github-devloop-ops.observability", { "github-devloop-ops.devloop_observe_tick" }, { "github-proxy.github_issue_create_request" })
+  b.department("github-devloop-ops.observability", { "github-devloop-ops.devloop_observe_tick" }, {
+    "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_create_request",
+  })
   b.department("branch-topology.pr_freshness_scan", { "branch-topology.devloop_branch_tick" }, { "branch-topology.devloop_sync_conflict" })
   b.department("github-devloop.reconcile", {
     "github-devloop.devloop_reconcile",
@@ -282,8 +285,9 @@ return {
     assert_ops_departments_do_not_produce_devloop_lifecycle_queues(graph)
     for _, node in ipairs(graph.nodes or {}) do
       if node.kind == "department" and node.id == "department:github-devloop-ops.observability" then
-        t.eq(#node.produces, 1)
-        t.eq(node.produces[1], "github-proxy.github_issue_create_request")
+        t.eq(#node.produces, 2)
+        t.eq(node.produces[1], "github-proxy.github_issue_comment_request")
+        t.eq(node.produces[2], "github-proxy.github_issue_create_request")
         return
       end
     end

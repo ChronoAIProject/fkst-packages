@@ -32,6 +32,7 @@ local check_run_state = check_runs.check_run_state
 local parse_commit_check_runs = check_runs.parse_commit_check_runs
 local required_head_check_run_status_value = check_runs.required_head_check_run_status
 local required_head_ci_failure_key_value = check_runs.required_head_ci_failure_key
+local required_head_ci_failure_summary_value = check_runs.required_head_ci_failure_summary
 local required_check_run_names = {}
 for _, name in ipairs(check_runs.required_check_run_names or {}) do
   table.insert(required_check_run_names, name)
@@ -70,6 +71,10 @@ local function required_head_ci_failure_key(runs, head_sha)
   return required_head_ci_failure_key_value(runs, head_sha, required_check_run_names)
 end
 
+local function required_head_ci_failure_summary(runs, head_sha, limit)
+  return required_head_ci_failure_summary_value(runs, head_sha, required_check_run_names, limit)
+end
+
 local function ci_classification(kind, reason, extra)
   local result = extra or {}
   result.kind = kind
@@ -93,16 +98,16 @@ local function build_reason_class_map(entries)
     local key = entry.key
     local row = entry.row
     if type(key) ~= "string" or key == "" then
-      error("forge.merge: reason class key must be a non-empty string")
+      error("forge.merge: merge-reason-class-key-invalid: reason class key must be a non-empty string")
     end
     if type(row) ~= "table" then
-      error("forge.merge: reason class row must be a table: " .. key)
+      error("forge.merge: merge-reason-class-row-invalid: reason class row must be a table: " .. key)
     end
     if row.reason ~= key then
-      error("forge.merge: reason class key " .. key .. " does not match row reason " .. tostring(row.reason))
+      error("forge.merge: merge-reason-class-reason-mismatch: reason class key " .. key .. " does not match row reason " .. tostring(row.reason))
     end
     if map[key] ~= nil then
-      error("forge.merge: duplicate reason class key " .. key)
+      error("forge.merge: merge-reason-class-key-duplicate: duplicate reason class key " .. key)
     end
     map[key] = {
       class = row.class,
@@ -153,6 +158,7 @@ return {
   required_check_run_names = required_check_run_names,
   required_head_check_run_status = required_head_check_run_status,
   required_head_ci_failure_key = required_head_ci_failure_key,
+  required_head_ci_failure_summary = required_head_ci_failure_summary,
   ci_classification = ci_classification,
   integration_or_external_red = integration_or_external_red,
   merge_gate_reason_classes = merge_gate_reason_classes,

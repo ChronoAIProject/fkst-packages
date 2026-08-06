@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 import check_repo_dedup as code_dedup
 import check_repo_gh_git_adapter as gh_git_adapter
+import check_repo_lua
 
 
 TARGET_COUNT = 0
@@ -163,8 +164,10 @@ class GithubClient:
             stdout = self.run(argv)
         return parse_created_issue_number(stdout)
 
-    def issue_close(self, repo: str, number: int) -> None:
-        self.run(["gh", "issue", "close", str(number), "--repo", repo])
+    def issue_close(self, repo: str, number: int, disposition: str) -> None:
+        if disposition not in {"completed", "not planned"}:
+            raise ValueError(f"unsupported issue close disposition: {disposition}")
+        self.run(["gh", "issue", "close", str(number), "--repo", repo, "--reason", disposition])
 
 
 def repo_rel(root: Path, path: Path) -> str:
@@ -200,7 +203,7 @@ def line_for_offset(text: str, offset: int) -> int:
 
 
 def gh_git_head_locations(source: str) -> dict[str, int]:
-    mask = gh_git_adapter.lua_code_mask(source)
+    mask = check_repo_lua.code_mask(source)
     contexts = gh_git_adapter.lua_call_contexts(mask)
     literals = gh_git_adapter.lua_string_literals(source)
     literals_by_start = {literal.start: literal for literal in literals}
@@ -268,7 +271,7 @@ def load_code_dedup_inventory(root: Path, spec: MigrationSpec) -> list[Inventory
 
 
 def line_for_function_basename(source: str, basename: str) -> int | None:
-    code = code_dedup.code_without_comments_and_strings(source)
+    code = check_repo_lua.code_mask(source)
     expected = code_dedup.function_basename(basename)
     for offset, line in enumerate(code.splitlines(), start=1):
         match = code_dedup.FUNCTION_RE.match(line)
@@ -278,7 +281,7 @@ def line_for_function_basename(source: str, basename: str) -> int | None:
 
 
 def strip_lua_comments_and_strings(text: str) -> str:
-    return gh_git_adapter.lua_code_mask(text)
+    return check_repo_lua.code_mask(text)
 
 
 def specs() -> dict[str, MigrationSpec]:
@@ -676,7 +679,7 @@ def reconcile_ratchet(
         if state != "OPEN":
             return ReconcileResult(spec.ratchet, "parent-already-closed", None, parent_issue=parent_issue)
         if write_enabled:
-            client.issue_close(repo, parent_issue)
+            client.issue_close(repo, parent_issue, "completed")
             return ReconcileResult(spec.ratchet, "closed-parent", None, parent_issue=parent_issue)
         return ReconcileResult(spec.ratchet, "would-close-parent", None, parent_issue=parent_issue, reason="FKST_GITHUB_WRITE!=1")
 

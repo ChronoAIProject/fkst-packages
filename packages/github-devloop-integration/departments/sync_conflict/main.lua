@@ -16,6 +16,9 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_commands = require("devloop.commands.prs")
 local github_factory = require("devloop.github_factory")
+local workflow_codex = require("workflow_internal.codex")
+local forge_validators = require("devloop.forge_validators")
+local sync_conflict_attempts = require("sync_conflict_department_caps").production()
 
 local spec = {
   consumes = { "devloop_sync_conflict" },
@@ -143,6 +146,133 @@ local function raise_sync_conflict_escalation(conflict, fingerprint, attempt, re
     attempt = attempt,
     terminal = true,
   })
+end
+
+local function read_sync_conflict_attempt_ledger(git, conflict)
+  local ref = sync_conflict_attempts.ref(conflict)
+  local listed = git.ls_remote_ref("origin", ref, 30)
+  if type(listed) ~= "table" or listed.exit_code ~= 0 then
+    error("github-devloop: sync-conflict-ledger-ls-remote-failed: "
+      .. tostring(listed and listed.stderr or "missing result"))
+  end
+  local sha = sync_conflict_attempts.parse_ref_sha(listed.stdout, conflict)
+  if sha == nil then
+    return { ref = ref }
+  end
+  local fetched = git.fetch_ref("origin", ref, 30)
+  if type(fetched) ~= "table" or fetched.exit_code ~= 0 then
+    error("github-devloop: sync-conflict-ledger-fetch-failed: "
+      .. tostring(fetched and fetched.stderr or "missing result"))
+  end
+  local commit = git.cat_file_pretty(sha, 30)
+  if type(commit) ~= "table" or commit.exit_code ~= 0 then
+    error("github-devloop: sync-conflict-ledger-read-failed: "
+      .. tostring(commit and commit.stderr or "missing result"))
+  end
+  local data = sync_conflict_attempts.decode(commit.stdout, conflict)
+  if data == nil then
+    error("github-devloop: sync-conflict-ledger-invalid: invalid sync conflict attempt ledger")
+  end
+  return {
+    ref = ref,
+    sha = sha,
+    data = data,
+  }
+end
+
+local function sync_conflict_attempt_count(ledger, conflict)
+  if type(ledger) ~= "table"
+    or type(ledger.data) ~= "table"
+    or ledger.data.lineage ~= sync_conflict_attempts.lineage(conflict) then
+    return 0
+  end
+  return ledger.data.attempt
+end
+
+local function write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
+  local tree = git.rev_parse_ref_tree(conflict.integration_sha, 30)
+  if type(tree) ~= "table" or tree.exit_code ~= 0 then
+    error("github-devloop: sync-conflict-ledger-tree-failed: "
+      .. tostring(tree and tree.stderr or "missing result"))
+  end
+  local tree_sha = tostring(tree.stdout or ""):match("(%x+)")
+  if not forge_validators.is_git_sha(tree_sha) then
+    error("github-devloop: sync-conflict-ledger-tree-invalid: invalid ledger tree SHA")
+  end
+  local message_file = core.branch_sync_message_file(
+    runtime,
+    conflict.repo,
+    conflict.upstream_branch,
+    conflict.integration_branch,
+    conflict.upstream_sha,
+    conflict.integration_sha
+  )
+  file.write(message_file, sync_conflict_attempts.encode(conflict, attempt) .. "\n")
+  local commit = git.commit_tree(tree_sha, ledger.sha, message_file, 30)
+  if type(commit) ~= "table" or commit.exit_code ~= 0 then
+    error("github-devloop: sync-conflict-ledger-commit-failed: "
+      .. tostring(commit and commit.stderr or "missing result"))
+  end
+  local commit_sha = tostring(commit.stdout or ""):match("(%x+)")
+  if not forge_validators.is_git_sha(commit_sha) then
+    error("github-devloop: sync-conflict-ledger-commit-invalid: invalid ledger commit SHA")
+  end
+  local pushed = git.push_ref_update("origin", commit_sha, ledger.ref, ledger.sha or "", 60)
+  return type(pushed) == "table" and pushed.exit_code == 0, pushed, commit_sha
+end
+
+local function sync_conflict_attempt_commit_visible(git, conflict, commit_sha)
+  local ledger = read_sync_conflict_attempt_ledger(git, conflict)
+  if ledger.sha == commit_sha then
+    return true
+  end
+  if ledger.sha == nil then
+    return false
+  end
+  local ancestry = git.is_ancestor(commit_sha, ledger.sha, 30)
+  if type(ancestry) ~= "table" then
+    error("github-devloop: sync-conflict-ledger-ancestry-failed: missing result")
+  end
+  if ancestry.exit_code == 0 then
+    return true
+  end
+  if ancestry.exit_code == 1 then
+    return false
+  end
+  error("github-devloop: sync-conflict-ledger-ancestry-failed: "
+    .. tostring(ancestry.stderr or "missing error"))
+end
+
+local function record_sync_conflict_attempt(git, conflict, runtime)
+  local max_attempts = sync_conflict_attempts.max_attempts()
+  for _ = 1, max_attempts do
+    local ledger = read_sync_conflict_attempt_ledger(git, conflict)
+    local previous_attempts = sync_conflict_attempt_count(ledger, conflict)
+    if previous_attempts >= max_attempts then
+      return previous_attempts
+    end
+    local attempt = previous_attempts + 1
+    if config.write_mode() ~= "real" then
+      devloop_logging.log_line("info", "sync_conflict", "branch-sync", "OUTBOUND", {
+        "mode=dry-run",
+        "attempt=" .. tostring(attempt),
+        "lineage=" .. sync_conflict_attempts.lineage(conflict),
+        "reason=sync conflict attempt ledger requires FKST_GITHUB_WRITE=1; attempt is not persisted",
+      })
+      return attempt
+    end
+    devloop_base.assert_trusted_bot_configured()
+    local written, pushed, commit_sha = write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
+    if written or sync_conflict_attempt_commit_visible(git, conflict, commit_sha) then
+      return attempt
+    end
+    devloop_logging.log_line("warn", "sync_conflict", "branch-sync", "CAS_RETRY", {
+      "attempt=" .. tostring(attempt),
+      "lineage=" .. sync_conflict_attempts.lineage(conflict),
+      "reason=" .. error_facts.one_line(pushed and pushed.stderr or "missing push result"),
+    })
+  end
+  error("github-devloop: sync-conflict-ledger-contention: attempt ledger CAS retries exhausted")
 end
 
 local function commit_resolution(git, worktree, runtime, conflict)
@@ -442,8 +572,11 @@ local function act(event, ports)
         error("github-devloop: merge-conflict-state-missing: sync conflict merge failed without unmerged paths")
       end
       local active_fingerprint = core.sync_conflict_fingerprint(active_conflict, tostring(unmerged.stdout or ""))
-      local prior_attempts = core.sync_conflict_attempt_count(active_conflict, active_fingerprint)
-      if prior_attempts >= core.max_sync_conflict_attempts() then
+      local prior_attempts = sync_conflict_attempt_count(
+        read_sync_conflict_attempt_ledger(git, active_conflict),
+        active_conflict
+      )
+      if prior_attempts >= sync_conflict_attempts.max_attempts() then
         if not recover_exhausted_pr_freshness(ports.github, git, active_conflict) then
           raise_sync_conflict_escalation(
             active_conflict,
@@ -457,10 +590,10 @@ local function act(event, ports)
       end
 
       devloop_logging.log_codex_start("sync_conflict", "branch-sync", "sync-conflict")
-      local result = spawn_codex_sync({
+      local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("sync-conflict", {
         prompt = core.build_sync_conflict_prompt(active_conflict),
         worktree = worktree,
-      })
+      }))
       if type(result) ~= "table" or result.exit_code ~= 0 then
         local stderr = type(result) == "table" and result.stderr or "nil result"
         devloop_logging.log_codex_result("sync_conflict", "branch-sync", "sync-conflict", result, nil, stderr, {
@@ -474,18 +607,16 @@ local function act(event, ports)
       local resolved, remaining_unmerged = require_clean_resolution(git, worktree)
       if not resolved then
         local fingerprint = core.sync_conflict_fingerprint(active_conflict, remaining_unmerged)
-        local previous_attempts = core.sync_conflict_attempt_count(active_conflict, fingerprint)
-        local attempt = previous_attempts + 1
-        core.record_sync_conflict_attempt(active_conflict, fingerprint, attempt)
+        local attempt = record_sync_conflict_attempt(git, active_conflict, runtime)
         local reason = "sync conflict remains unresolved after codex completed"
         devloop_logging.log_codex_result("sync_conflict", "branch-sync", "sync-conflict", result, nil, reason, {
           queue = event.queue,
           source_ref = conflict.source_ref,
           attempt = attempt,
-          terminal = attempt >= core.max_sync_conflict_attempts(),
+          terminal = attempt >= sync_conflict_attempts.max_attempts(),
           error_class = "sync-conflict-unresolved",
         })
-        if attempt >= core.max_sync_conflict_attempts() then
+        if attempt >= sync_conflict_attempts.max_attempts() then
           if not recover_exhausted_pr_freshness(ports.github, git, active_conflict) then
             raise_sync_conflict_escalation(active_conflict, fingerprint, attempt, reason, remaining_unmerged)
           end

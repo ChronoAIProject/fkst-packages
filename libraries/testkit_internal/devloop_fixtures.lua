@@ -5,6 +5,7 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local testing = require("testkit_internal.testing")
 local run_fake = testing.run_fake
 local run_fake_expecting_failure = testing.run_fake_expecting_failure
+local run_fake_outcome = testing.run_fake_outcome
 local gh_fake = require("forge.github_fake")
 local git_fake = require("forge.git_fake")
 local mocks_factory = require("testkit_internal.devloop_fixtures.mocks")
@@ -26,17 +27,22 @@ end
 function M.new(deps)
   deps = deps or {}
   local t = deps.t or fkst.test
-  local core = deps.core or error("testkit_internal.devloop_fixtures: deps.core is required")
+  local core = deps.core or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.core is required")
   local entity_read_mocks = deps.entity_read_mocks
-    or error("testkit_internal.devloop_fixtures: deps.entity_read_mocks is required")
-  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: deps.devloop_base is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
+  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.devloop_base is required")
   local payloads_builders = deps.payloads_builders
-    or error("testkit_internal.devloop_fixtures: deps.payloads_builders is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.payloads_builders is required")
   local conv_reconcile = deps.conv_reconcile
-    or error("testkit_internal.devloop_fixtures: deps.conv_reconcile is required")
-  local m_builders = deps.m_builders or error("testkit_internal.devloop_fixtures: deps.m_builders is required")
-  local pr_safety = deps.pr_safety or error("testkit_internal.devloop_fixtures: deps.pr_safety is required")
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.conv_reconcile is required")
+  local m_builders = deps.m_builders or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.m_builders is required")
+  local pr_safety = deps.pr_safety or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.pr_safety is required")
+  local consensus_call = deps.consensus_call
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.consensus_call is required")
   local consensus_result_department = deps.consensus_result_department
+  local loop_department = deps.loop_department
+  local review_loop_department = deps.review_loop_department
+  local review_result_department = deps.review_result_department
   local decompose_queue = deps.decompose_queue or "devloop_decompose"
   local runtime_package_name = deps.runtime_package_name or "github-devloop"
   local mock_merge_pr_diff_name_only = deps.mock_merge_pr_diff_name_only == true
@@ -50,14 +56,70 @@ function M.new(deps)
     entity_read_mocks = entity_read_mocks,
     m_builders = m_builders,
     pr_safety = pr_safety,
-    has_value = has_value,
+    has_value = has_value, projected_state_comment = deps.projected_state_comment,
     default_pr_origin_times = deps.default_pr_origin_times,
     pr_origin_view_times_enabled = deps.pr_origin_view_times_enabled == true,
     pending_result_issue = nil,
     pending_result_read_failure = nil,
     pr_phase_comments = nil,
     pending_pr_origin = nil,
+    next_consensus_result = nil,
+    last_consensus_proposal = nil,
   }
+
+  local function default_converge_result(proposal)
+    return {
+      status = "converge",
+      schema = "consensus.consensus_converge.v1",
+      proposal_id = proposal.proposal_id,
+      dedup_key = "consensus:" .. tostring(proposal.dedup_key),
+      source_ref = proposal.source_ref,
+      round = tonumber(proposal.round) or 0,
+      narrowed_question = "Resolve the remaining review disagreement.",
+      angle_digests = {},
+      effect_version = proposal.effect_version,
+    }
+  end
+
+  local function mock_next_consensus_result(result)
+    ctx.next_consensus_result = result
+  end
+
+  local function take_consensus_proposal()
+    local proposal = ctx.last_consensus_proposal
+    ctx.last_consensus_proposal = nil
+    return proposal
+  end
+
+  local function with_consensus_call_mock(fn)
+    ctx.last_consensus_proposal = nil
+    local original_reach = consensus_call.reach
+    consensus_call.reach = function(proposal)
+      ctx.last_consensus_proposal = proposal
+      local configured = ctx.next_consensus_result
+      ctx.next_consensus_result = nil
+      local result
+      if type(configured) == "function" then
+        result = configured(proposal)
+      elseif configured ~= nil then
+        result = configured
+      else
+        result = default_converge_result(proposal)
+      end
+      local caller_result = {}
+      for key, value in pairs(result) do
+        caller_result[key] = value
+      end
+      caller_result.proposal_id = proposal.proposal_id
+      return caller_result
+    end
+    local ok, result = pcall(fn)
+    consensus_call.reach = original_reach
+    if not ok then
+      error(result, 0)
+    end
+    return result
+  end
 
   local function runtime_root(name)
     return "/tmp/fkst-packages-test/" .. runtime_package_name .. "/" .. tostring(now()) .. "/" .. nonce() .. "/" .. name
@@ -339,19 +401,20 @@ function M.new(deps)
     return t.run_department(path, event, run_opts)
   end
 
-  local function run_observe(payload, run_opts)
+  local function run_observe(payload, run_opts, event_ts)
     return run_department("departments/observe_issue/main.lua", {
       queue = "github-proxy.github_entity_changed",
       payload = payload,
+      ts = event_ts,
     }, run_opts)
   end
 
-  local function build_result_dept()
+  local function build_result_dept(missing_issue)
     if consensus_result_department == nil then
-      error("testkit_internal.devloop_fixtures: deps.consensus_result_department is required for run_result")
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.consensus_result_department is required for run_result")
     end
     local model = gh_fake.model({
-      issues = {
+      issues = missing_issue and {} or {
         ["owner/repo#issue/42"] = ctx.pending_result_issue or mocks.mock_result_issue_value(),
       },
     })
@@ -363,31 +426,64 @@ function M.new(deps)
     return dept, model
   end
 
+  local function proposal_request_for_result(result, fallback_proposal_id)
+    local proposal_id = type(result) == "table" and result.proposal_id or nil
+    proposal_id = proposal_id or fallback_proposal_id or "github-devloop/issue/owner/repo/42"
+    local dedup_key = type(result) == "table" and tostring(result.dedup_key or "") or ""
+    dedup_key = dedup_key:gsub("^consensus:", "")
+    if dedup_key == "" then
+      dedup_key = proposal_id .. "/request"
+    end
+    return {
+      schema = "consensus.proposal.v1",
+      proposal_id = proposal_id,
+      dedup_key = dedup_key,
+      source_ref = type(result) == "table" and result.source_ref or source_ref(),
+    }
+  end
+
   local function run_result(payload, run_opts)
+    local is_request = type(payload) == "table" and payload.schema == "consensus.proposal.v1"
+    local request = is_request and payload or proposal_request_for_result(payload)
+    if not is_request then
+      mock_next_consensus_result(payload)
+    end
     if ctx.pending_result_read_failure ~= nil then
       ctx.pending_result_read_failure = nil
-      return run_department("departments/consensus_result/main.lua", {
-        queue = "consensus.consensus_reached",
-        payload = payload,
-      }, run_opts)
+      local dept, model = build_result_dept(true)
+      return with_consensus_call_mock(function()
+        local result = run_fake_outcome(dept, {
+          queue = "devloop_consensus_request",
+          payload = request,
+        })
+        result.model = model
+        return result
+      end)
     end
 
-    local dept, model = build_result_dept()
-    local result = run_fake(dept, {
-      queue = "consensus.consensus_reached",
-      payload = payload,
-    })
-    result.exit_code = 0
-    result.model = model
-    return result
+    local function run()
+      local dept, model = build_result_dept()
+      local result = run_fake(dept, {
+        queue = "devloop_consensus_request",
+        payload = request,
+      })
+      result.exit_code = 0
+      result.model = model
+      return result
+    end
+    return with_consensus_call_mock(run)
   end
 
   local function run_result_expecting_failure(payload, _run_opts)
+    local request = proposal_request_for_result(payload)
+    mock_next_consensus_result(payload)
     local dept, model = build_result_dept()
-    local result = run_fake_expecting_failure(dept, {
-      queue = "consensus.consensus_reached",
-      payload = payload,
-    })
+    local result = with_consensus_call_mock(function()
+      return run_fake_expecting_failure(dept, {
+        queue = "devloop_consensus_request",
+        payload = request,
+      })
+    end)
     result.exit_code = 1
     result.model = model
     return result
@@ -398,10 +494,21 @@ function M.new(deps)
   end
 
   local function run_loop(payload, run_opts)
-    return run_department("departments/loop/main.lua", {
-      queue = "consensus.consensus_converge",
+    if loop_department == nil then
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.loop_department is required for run_loop")
+    end
+    install_author_policy_env(run_opts)
+    ctx.last_consensus_proposal = nil
+    local result = run_fake_outcome(loop_department, {
+      queue = "devloop_consensus_continue",
       payload = payload,
-    }, run_opts)
+    })
+    for _, raised in ipairs(result.raises or {}) do
+      if raised.queue == "devloop_consensus_request" then
+        ctx.last_consensus_proposal = raised.payload
+      end
+    end
+    return result
   end
 
   local function run_reconcile(payload, run_opts)
@@ -490,12 +597,25 @@ function M.new(deps)
 
   local function run_review_result(payload, run_opts)
     mock_branch_config_env()
-    local _, _, _, head_sha = devloop_base.parse_pr_review_proposal_id(payload.proposal_id)
+    local is_request = type(payload) == "table" and payload.schema == "consensus.proposal.v1"
+    local fallback = review_reached().proposal_id
+    local request = is_request and payload or proposal_request_for_result(payload, fallback)
+    if not is_request then
+      mock_next_consensus_result(payload)
+    end
+    local _, _, _, head_sha = devloop_base.parse_pr_review_proposal_id(request.proposal_id)
     mocks.mock_pr_origin_from_cached({ proposal_id = "github-devloop/issue/owner/repo/42", version = reviewing().version }, head_sha)
-    return run_department("departments/review_result/main.lua", {
-      queue = "consensus.consensus_reached",
-      payload = payload,
-    }, run_opts)
+    local function run()
+      if review_result_department == nil then
+        error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.review_result_department is required for run_review_result")
+      end
+      install_author_policy_env(run_opts)
+      return run_fake_outcome(review_result_department, {
+        queue = "devloop_review_request",
+        payload = request,
+      })
+    end
+    return with_consensus_call_mock(run)
   end
 
   local function run_fix(payload, run_opts)
@@ -530,13 +650,24 @@ function M.new(deps)
   end
 
   local function run_review_loop(payload, run_opts)
+    if review_loop_department == nil then
+      error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.review_loop_department is required for run_review_loop")
+    end
     mock_branch_config_env()
+    install_author_policy_env(run_opts)
     local _, _, _, head_sha = devloop_base.parse_pr_review_proposal_id(payload.proposal_id)
     mocks.mock_pr_origin_from_cached({ proposal_id = "github-devloop/issue/owner/repo/42", version = reviewing().version }, head_sha)
-    return run_department("departments/review_loop/main.lua", {
-      queue = "consensus.consensus_converge",
+    ctx.last_consensus_proposal = nil
+    local result = run_fake_outcome(review_loop_department, {
+      queue = "devloop_review_continue",
       payload = payload,
-    }, run_opts)
+    })
+    for _, raised in ipairs(result.raises or {}) do
+      if raised.queue == "devloop_review_request" then
+        ctx.last_consensus_proposal = raised.payload
+      end
+    end
+    return result
   end
 
   local function run_review_meta(payload, run_opts)
@@ -575,6 +706,8 @@ function M.new(deps)
   return {
     t = t,
     core = core,
+    projected_state_comment = deps.projected_state_comment,
+    state_comment = deps.state_comment,
     action_label = deps.action_label or "⟦FKST:ACTION⟧",
     reason_label = deps.reason_label or "⟦FKST:REASON⟧",
     has_value = has_value,
@@ -613,6 +746,8 @@ function M.new(deps)
     run_review_result = run_review_result,
     run_fix = run_fix,
     run_review_loop = run_review_loop,
+    mock_next_consensus_result = mock_next_consensus_result,
+    take_consensus_proposal = take_consensus_proposal,
     run_review_meta = run_review_meta,
     run_merge = run_merge,
     json_string = mocks.json_string,

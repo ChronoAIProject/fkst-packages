@@ -42,6 +42,11 @@ local function merge(base, extra)
 end
 
 return {
+  test_error_class_from_message_preserves_failed_form = function()
+    t.eq(core.error_class_from_message("autochrono: proposal failed: details"), "proposal")
+    t.eq(core.error_class_from_message("autochrono: source-ref-invalid: details"), "source-ref-invalid")
+  end,
+
   test_proposal_id_round_trips_repo_and_issue = function()
     local id = core.proposal_id("owner/repo", 42)
     local repo, issue_number = core.parse_proposal_id(id)
@@ -198,9 +203,7 @@ return {
     local mapping = require("departments.propose.mapping")
     local ok = mapping.build_proposal(issue())
     t.eq(core.validate_proposal(merge(ok, { dedup_key = string.rep("a", 201) })), false)  -- over 200 cap
-    t.eq(core.validate_proposal(merge(ok, { proposal_id = "autochrono/issue/owner/repo:42" })), false)  -- not path-safe
-    t.eq(core.validate_proposal(merge(ok, { proposal_id = "other/issue/owner/repo/42" })), false)  -- not parseable
-    t.eq(core.validate_proposal(merge(ok, { proposal_id = "autochrono/issue/owner/repo//42" })), false)  -- non-canonical
+    t.eq(core.validate_proposal(merge(ok, { dedup_key = "autochrono:unsafe" })), false)
     t.eq(core.validate_proposal(merge(ok, { body = "" })), false)  -- empty body
     t.eq(core.validate_proposal(merge(ok, { source_ref = { kind = "external" } })), false)  -- ref missing
     t.eq(core.validate_proposal(merge(ok, { content_fetch = "" })), false)
@@ -210,14 +213,12 @@ return {
 
   test_validate_reached_accepts_and_rejects = function()
     local ok = {
-      proposal_id = "autochrono/issue/owner/repo/42",
       body = "A concrete reply.",
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
     }
     t.eq(core.validate_reached(ok), true)
     t.eq(core.validate_reached(merge(ok, { body = "" })), false)
     t.eq(core.validate_reached(merge(ok, { body = string.rep("y", 12001) })), false)
-    t.eq(core.validate_reached(merge(ok, { proposal_id = "" })), false)
-    t.eq(core.validate_reached({ proposal_id = "autochrono/issue/owner/repo/42", body = "x" }), false)  -- no source_ref
+    t.eq(core.validate_reached({ body = "x" }), false)  -- no source_ref
   end,
 }

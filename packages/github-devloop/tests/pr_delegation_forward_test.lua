@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local transition_version = require("contract.transition_version")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_core_helpers")
@@ -107,7 +108,7 @@ local function first_line(body)
 end
 
 return {
-  test_retry_attempt_and_replacement_generation_are_independent = function()
+  test_retry_attempt_selects_matching_branch_and_delegation_generation = function()
     t.eq(core.implementation_branch_version(impl_version, 2), impl_version)
     t.eq(core.implementation_attempt_version(impl_version, 2), impl_version .. "/reimplement/2")
     t.eq(core.implementation_delegation_generation(impl_version, 2), 1)
@@ -115,9 +116,9 @@ return {
     t.eq(core.implementation_branch_version(impl_version .. "/reimplement/2", 2), impl_version)
     t.eq(core.implementation_delegation_generation(impl_version .. "/reimplement/2", 2), 1)
 
-    t.eq(core.implementation_branch_version(replacement_version, 2), replacement_version)
-    t.eq(core.implementation_attempt_version(replacement_version, 2), replacement_version)
-    t.eq(core.implementation_delegation_generation(replacement_version, 2), 2)
+    t.eq(core.implementation_branch_version(replacement_version, 2), impl_version)
+    t.eq(core.implementation_attempt_version(replacement_version, 2), impl_version .. "/reimplement/2")
+    t.eq(core.implementation_delegation_generation(replacement_version, 2), 1)
   end,
 
   test_ensure_pr_child_creates_then_adopts_by_branch_and_writes_split_facts = function()
@@ -211,7 +212,7 @@ return {
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
     local terminal_child = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. core.state_marker(issue_proposal, "blocked", impl_version .. "/blocked/child-pr-blocked")
+      .. "\n" .. core.state_marker(issue_proposal, "blocked", transition_version.next_blocked(impl_version, "child-pr-blocked"))
     mock_branch_list(7)
 
     local result = core.ensure_pr_child(issue({

@@ -30,24 +30,22 @@ local function issue_payload()
   }
 end
 
-local function reached_payload()
+local function judgment_payload()
+  local source_issue = issue_payload()
   return {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = "autochrono/issue/owner/repo/42",
-    decision = "approve",
-    body = "Thanks for opening this. I will review the details and follow up with the next concrete step.",
-    dedup_key = "consensus:autochrono/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#issue/42",
-    },
+    schema = "autochrono.judge_issue.v1",
+    repo = source_issue.repo,
+    issue_number = source_issue.issue_number,
+    proposal = require("departments.propose.mapping").build_proposal(source_issue),
+    dedup_key = source_issue.dedup_key,
+    source_ref = source_issue.source_ref,
   }
 end
 
 local function payload_for_queue(_path, queue)
   local payloads = {
     issue = issue_payload(),
-    ["consensus.consensus_reached"] = reached_payload(),
+    judge_issue = judgment_payload(),
   }
   local payload = payloads[queue]
   if payload == nil then

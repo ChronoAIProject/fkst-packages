@@ -3,6 +3,8 @@ local devloop_base = require("devloop.base")
 local devloop_claims = require("devloop.claims")
 local devloop_entity = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
+local requests_labels = require("devloop.requests.labels")
+local state_labels = require("devloop.state_labels")
 local marker = require("core.marker")
 local materialization = require("core.materialization")
 local parsers_misc = require("devloop.parsers.misc")
@@ -179,6 +181,110 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
     tostring(state),
     tostring(reason_code),
   })
+end
+
+function M.terminal_projection_state(terminal_fact)
+  local terminal_state = tostring(terminal_fact and terminal_fact.state or "")
+  if terminal_state == "blocked" or terminal_state == "error" then
+    return "blocked"
+  end
+  error("github-devloop-workflow: invalid-terminal-projection-state: terminal label projection requires a trusted workflow terminal disposition")
+end
+
+function M.done_label_request(repo, issue_number, origin, current_labels)
+  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, "merged")
+  if #add_labels == 0 and #remove_labels == 0 then
+    return nil
+  end
+
+  local request = requests_labels.build_label_request(
+    repo,
+    issue_number,
+    add_labels,
+    remove_labels,
+    base_ids.dedup_key({
+      "workflow",
+      "terminal-label",
+      tostring(origin),
+      "done",
+    }),
+    safe_source_ref(repo, issue_number)
+  )
+  request.require_marker_guard = true
+  request.marker_guard = {
+    namespace = "github-devloop-workflow",
+    marker = "terminal",
+    version = "v1",
+    match = {
+      origin = tostring(origin),
+    },
+    expected = {
+      state = "done",
+    },
+    order_by = {
+      "monotonic",
+    },
+  }
+  return request
+end
+
+function M.label_projection_marker_request(repo, issue_number, origin, projection_state, generation)
+  local built, err = marker.build_label_projection_marker(origin, projection_state, generation)
+  if built == nil then
+    error("github-devloop-workflow: label-projection-marker-build-failed: label projection marker build failed: " .. tostring(err and err.code or "unknown"))
+  end
+  return build_comment_request(repo, issue_number, origin, built, {
+    "label-projection",
+    tostring(generation),
+  })
+end
+
+function M.label_projection_request(repo, issue_number, origin, projection_fact, current_labels)
+  if tostring(projection_fact and projection_fact.origin or "") ~= tostring(origin) then
+    error("github-devloop-workflow: invalid-label-projection-origin: label projection fact does not belong to the workflow origin")
+  end
+  local projection_state = tostring(projection_fact and projection_fact.state or "")
+  local generation = projection_fact and projection_fact.generation
+  local _, marker_err = marker.build_label_projection_marker(origin, projection_state, generation)
+  if marker_err ~= nil then
+    error("github-devloop-workflow: invalid-label-projection-fact: label projection fact is invalid: " .. tostring(marker_err.code or "unknown"))
+  end
+  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, projection_state)
+  if #add_labels == 0 and #remove_labels == 0 then
+    return nil
+  end
+
+  local request = requests_labels.build_label_request(
+    repo,
+    issue_number,
+    add_labels,
+    remove_labels,
+    base_ids.dedup_key({
+      "workflow",
+      "label-projection",
+      tostring(origin),
+      projection_state,
+      tostring(generation),
+    }),
+    safe_source_ref(repo, issue_number)
+  )
+  request.require_marker_guard = true
+  request.marker_guard = {
+    namespace = "github-devloop-workflow",
+    marker = "label-projection",
+    version = "v1",
+    match = {
+      origin = tostring(origin),
+    },
+    expected = {
+      state = projection_state,
+      generation = tostring(generation),
+    },
+    order_by = {
+      "generation",
+    },
+  }
+  return request
 end
 
 function M.materialization_comment_request(repo, issue_number, origin, entry, state, child_issue)
@@ -377,7 +483,7 @@ local function generated_fact_for_child(facts, child_dedup)
   return nil
 end
 
-function M.record_existing_child_or_created_marker(core, deps, repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, child_dedup, facts, current, trusted_comments, log_decision)
+function M.record_existing_child_or_created_marker(core, deps, repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, child_dedup, facts, current, trusted_comments, log_decision, raise_request)
   local child_issue = M.trusted_issue_created_number(core, current, child_dedup, trusted_comments)
   local generated_fact = generated_fact_for_child(facts, child_dedup)
   local found = nil
@@ -429,7 +535,7 @@ function M.record_existing_child_or_created_marker(core, deps, repo, issue_numbe
     and "trusted github-proxy issue-created marker is visible"
     or "trusted github-proxy issue-create marker is visible on child"
   log_decision(origin, "materialization", "created", outcome, reason)
-  M.raise_request(
+  raise_request(
     origin,
     "github-proxy.github_issue_comment_request",
     M.materialization_comment_request(repo, issue_number, origin, created_entry, "created", created_entry.child_issue)
@@ -437,7 +543,7 @@ function M.record_existing_child_or_created_marker(core, deps, repo, issue_numbe
   return true, nil
 end
 
-function M.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, trusted_comments, log_decision)
+function M.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, trusted_comments, log_decision, raise_request)
   -- A slot whose "created" ledger fact already exists must NOT be re-derived from
   -- its "generated" fact on every tick: the generated marker stays visible next to
   -- the created marker, so re-writing "created" and returning true here forever
@@ -467,7 +573,8 @@ function M.maybe_write_created_from_existing_child(core, deps, repo, issue_numbe
         facts,
         current,
         trusted_comments,
-        log_decision
+        log_decision,
+        raise_request
       )
       if wrote == "wait" then
         return "wait"
@@ -483,7 +590,7 @@ function M.maybe_write_created_from_existing_child(core, deps, repo, issue_numbe
   return false
 end
 
-function M.record_created_or_raise_create(core, deps, repo, issue_number, origin, blueprint_fact, current, trusted_comments, facts, blueprint_digest, slot, predecessor_ref_digest, generated_spec, log_decision)
+function M.record_created_or_raise_create(core, deps, repo, issue_number, origin, blueprint_fact, current, trusted_comments, facts, blueprint_digest, slot, predecessor_ref_digest, generated_spec, log_decision, raise_request)
   local entry = materialization.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec)
   if entry == nil then
     return nil, "invalid-materialization-entry"
@@ -501,7 +608,8 @@ function M.record_created_or_raise_create(core, deps, repo, issue_number, origin
     facts,
     current,
     trusted_comments,
-    log_decision
+    log_decision,
+    raise_request
   )
   if wrote == "wait" then
     return "wait", nil
@@ -513,7 +621,7 @@ function M.record_created_or_raise_create(core, deps, repo, issue_number, origin
     return true, nil
   end
   log_decision(origin, "materialization", "create", "applied(proceed-create)", "generated spec digest is ready and no child ledger is visible")
-  M.raise_request(
+  raise_request(
     origin,
     "github-proxy.github_issue_create_request",
     M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot.id, entry, generated_spec)

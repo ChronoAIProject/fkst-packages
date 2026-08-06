@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant, effect_ids)
+  local id = "github-devloop-pr/merging/autonomous/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -21,6 +28,17 @@ return function(M, h)
     driving_queue = "devloop_merge_ready",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "merged:v1", "state:v1 reviewing", "state:v1 fixing", "state:v1 blocked" }, { "merged", "reviewing", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/merging/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 390,
+        },
+      },
+    },
     budget = budget(390, "The merging receiver is bounded by 30 minutes of merge work plus a 360 minute external CI wait window."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
@@ -44,6 +62,19 @@ return function(M, h)
         output_variant = "review_reject_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merging/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merging/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
       {
@@ -53,6 +84,41 @@ return function(M, h)
         output_variant = "bounded_fix_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "bounded_fix_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merging/entry/bounded_fix_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merging/entry/bounded_fix_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "merging_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merging/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merging/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },
@@ -72,6 +138,11 @@ return function(M, h)
           state = "merged",
           output_variant = "merge-completed",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_merge_completion_v1",
+          cas_variant = "merge_ready_or_merging_to_merged",
+          transition_effect_entitlements = effect_entitlements("merge-completed", {
+            "github-proxy.github_pr_comment_request",
+          }),
           pending_order = { participates = true, predecessor_state = "merging" },
           postcondition_family = "merge_execution_result",
           decision_type = "MergeExecutionResult",
@@ -81,6 +152,9 @@ return function(M, h)
           state = "reviewing",
           output_variant = "head-advanced",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("head-advanced", {
+            "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+          }),
           pending_order = { participates = true, predecessor_state = "merging" },
           postcondition_family = "merge_execution_result",
           decision_type = "MergeExecutionResult",
@@ -90,6 +164,11 @@ return function(M, h)
           state = "fixing",
           output_variant = "merge-needs-fix",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_merge_v1",
+          cas_variant = "merging_to_fixing",
+          transition_effect_entitlements = effect_entitlements("merge-needs-fix", {
+            "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+          }),
           pending_order = { participates = true, predecessor_state = "merging" },
           postcondition_family = "merge_execution_result",
           decision_type = "MergeExecutionResult",
@@ -100,6 +179,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "fix_budget_exhausted",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
           pending_order = { participates = true, predecessor_state = "merging" },
           terminal = true,
           monotonic = true,

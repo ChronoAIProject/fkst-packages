@@ -4,6 +4,7 @@ local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local contract_time = require("contract.time")
 local m_facts = require("devloop.markers.facts")
+local transition_version = require("contract.transition_version")
 local core = h.core
 local t = h.t
 local replay_fields = require("devloop.replay_fields")
@@ -29,6 +30,7 @@ local upstream_branch = "dev"
 local upstream_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
 local rollup_pr_number = 9
 local rollup_head_sha = "2222222222222222222222222222222222222222"
+local other_rollup_head_sha = "3333333333333333333333333333333333333333"
 local original_branch = devloop_base.implement_branch(repo, issue_number, core.implementation_base_version(version))
 local replacement_version = version .. "/reimplement/1"
 local replacement_branch = devloop_base.implement_branch(repo, issue_number, replacement_version)
@@ -77,19 +79,13 @@ local function mock_issue_close()
   })
 end
 
-local function run_timeout_reconcile(payload, opts)
-  return t.run_department("departments/reconcile/main.lua", {
-    queue = "devloop_timeout_reconcile",
-    payload = payload,
-  }, opts)
-end
 
 local function parent_comments(fields)
   local f = fields or {}
   local state = f.state or "awaiting-pr"
   local state_version = f.version or version
   local comments = {
-    comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
+    comment(h.state_comment(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
     table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
@@ -108,7 +104,7 @@ local function child_comments(state, child_version, opts)
   local base_branch = options.base_branch or integration_branch
   local branch = options.branch or original_branch
   local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
-    .. "\n" .. core.state_marker(parent, state, effective_version)
+    .. "\n" .. h.state_comment(parent, state, effective_version)
   if state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
   end
@@ -166,7 +162,17 @@ local function mock_branch_config(split)
   })
 end
 
-local function mock_rollup_landing(exit_code)
+local function git_fetch_pr_head_oid_cmd(remote, number)
+  return "git fetch --no-write-fetch-head " .. tostring(remote)
+    .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
+end
+
+local function git_rev_parse_pr_head_oid_cmd(number)
+  return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
+end
+
+local function mock_rollup_landing(exit_code, fetched_head_sha)
+  local fetched_head = fetched_head_sha or rollup_head_sha
   t.mock_command(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch), {
     stdout = '[[{"number":' .. tostring(rollup_pr_number)
       .. ',"state":"closed","merged_at":"2026-06-03T03:03:04Z"'
@@ -175,13 +181,13 @@ local function mock_rollup_landing(exit_code)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number), {
+  t.mock_command(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number), {
     stdout = "",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.git_fetch_head_commit_cmd(), {
-    stdout = rollup_head_sha .. "\n",
+  t.mock_command(git_rev_parse_pr_head_oid_cmd(rollup_pr_number), {
+    stdout = fetched_head .. "\n",
     stderr = "",
     exit_code = 0,
   })
@@ -310,6 +316,21 @@ local function assert_resume_has_autonomy_result(resume)
 end
 
 return {
+  test_rollup_receipt_fetch_and_rev_parse_stay_inside_repo_ref_store_lock = function()
+    -- fetch_pr_head_oid synchronously runs both commands pinned by the forge adapter
+    -- contract test. This proves exclusion only against writers using this runtime
+    -- lock; it does not claim exclusion against external Git writers.
+    local source = file.read("packages/github-devloop/core/awaiting_pr_replayer.lua")
+    local lock_start = assert(source:find(
+      "local landed = git_mechanics.with_repo_ref_store_lock(issue.repo, function()",
+      1,
+      true
+    ))
+    local lock_end = assert(source:find("\n  end)", lock_start, true))
+    local fetch_call = assert(source:find("git_commands.git_fetch_pr_head_oid", lock_start, true))
+    t.is_true(fetch_call < lock_end, "PR-head fetch and rev-parse must execute under the repo ref-store lock")
+  end,
+
   test_child_merged_reconciles_parent_to_merged = function()
     mock_issue_close()
     mock_branch_config()
@@ -324,6 +345,26 @@ return {
     assert_resume_has_autonomy_result(resume)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_rollup_receipt_head_mismatch_preserves_exact_error = function()
+    mock_branch_config()
+    mock_rollup_landing(0, other_rollup_head_sha)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error or result.stderr):find(
+      "github-devloop: awaiting-pr-rollup-receipt-head-mismatch: fetched rollup PR head differs from GitHub metadata",
+      1,
+      true
+    ) ~= nil)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
   end,
 
   test_parent_poll_reconciles_canonical_merged_child_pr_without_child_terminal_markers = function()
@@ -407,7 +448,7 @@ return {
   end,
 
   test_blocked_issue_poll_closes_after_canonical_child_merge_lands = function()
-    local blocked_version = version .. "/blocked/child-pr-blocked"
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     mock_issue_close()
     mock_branch_config()
     mock_rollup_landing(0)
@@ -481,7 +522,10 @@ return {
     assert_resume_has_autonomy_result(resume)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
-    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha), 1)
     t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
     t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. upstream_head_sha), 0)
@@ -514,7 +558,9 @@ return {
     t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor"), 0)
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
   end,
@@ -597,7 +643,7 @@ return {
   end,
 
   test_child_blocked_replay_is_idempotent_when_target_marker_is_visible = function()
-    local blocked_version = version .. "/blocked/child-pr-blocked"
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     local comments = parent_comments()
     table.insert(comments, comment(core.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
     local state = {
@@ -684,7 +730,7 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), close_calls_before)
   end,
 
-  test_over_budget_awaiting_pr_timeout_reconcile_writes_why_terminal = function()
+  test_over_budget_awaiting_pr_redrives_never_terminal = function()
     local state = {
       state = "awaiting-pr",
       version = version .. "/timeout/awaiting-pr/2",
@@ -702,51 +748,11 @@ return {
       fresh_current_state = state,
       now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
     }
-    local raised = {}
-    local original_log_raise = devloop_logging.log_raise
-    devloop_logging.log_raise = function(_, _, queue, payload)
-      table.insert(raised, { queue = queue, payload = payload })
-    end
-    local ok, err = pcall(function()
-      t.eq(core.maybe_timeout_redrive_from_table("observe_issue", {
-        repo = repo,
-        number = issue_number,
-        source_ref = entity_lib.issue_source_ref(repo, issue_number),
-      }, state, row, facts), true)
-    end)
-    devloop_logging.log_raise = original_log_raise
-    if not ok then
-      error(err)
-    end
-    local reconcile = find_raise(raised, "devloop_timeout_reconcile")
-
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.state, "awaiting-pr")
-    t.eq(reconcile.payload.issue_version, state.version)
-    t.eq(reconcile.payload.round, 3)
-    mock_env()
-    entity_mocks.mock_issue_view_selector(t, {
-      repo = repo,
-      number = issue_number,
-      labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
-      comments = parent_comments({
-        version = state.version,
-        delegation_version = state.version,
-        created_at = "2025-01-01T00:00:00Z",
-      }),
-      assignees = { "fkst-test-bot" },
-      author_login = "fkst-test-bot",
-    }, "title,updatedAt,labels,comments,state,author")
-
-    local result = run_timeout_reconcile(reconcile.payload, h.opts("awaiting-pr-timeout-reconcile-terminal"))
-
-    t.eq(result.exit_code, 0)
-    local terminal = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.is_true(terminal ~= nil)
-    t.is_true(terminal.payload.body:find('state="blocked"', 1, true) ~= nil)
-    t.is_true(terminal.payload.body:find("reason_class=state-output-obligation-timeout", 1, true) ~= nil)
-    t.is_true(label ~= nil)
-    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    -- Owner directive (#2725): an over-budget awaiting-pr timeout must NEVER escalate to a
+    -- terminal reconcile / blocked; the timeout DECISION is `redrive` (never `escalate`),
+    -- advancing the attempt/version lineage so the parent keeps polling the child PR.
+    local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(decision.action, "redrive")
+    t.eq(core.version_timeout_round(decision.version, "awaiting-pr"), 3)
   end,
 }

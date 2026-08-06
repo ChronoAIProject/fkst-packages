@@ -8,6 +8,7 @@ local saga = require("workflow.saga")
 local config = require("devloop.config")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
+local topology = require("topology")
 
 local spec = {
   consumes = { "devloop_branch_tick" },
@@ -192,7 +193,17 @@ local function act(event)
   end
 
   with_lock(core.branch_sync_lock_key(repo, branches.upstream, branches.integration), function()
-    git_mechanics.fetch_branches(core.git, repo, { branches.upstream, branches.integration }, "branch fetch")
+    if not topology.integration_topology_available({
+      git = core.git,
+      repo = repo,
+      branches = branches,
+      department = "sync_scan",
+      domain = "branch-sync",
+      error_class = "branch fetch",
+      fetch_upstream = true,
+    }) then
+      return
+    end
     local upstream_sha = git_mechanics.remote_head(core.git, branches.upstream, "remote branch head", "unsafe remote branch head")
     local integration_sha = git_mechanics.remote_head(core.git, branches.integration, "remote branch head", "unsafe remote branch head")
 

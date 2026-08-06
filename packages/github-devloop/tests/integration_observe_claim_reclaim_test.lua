@@ -43,13 +43,6 @@ local function mock_add_self()
   })
 end
 
-local function mock_remove_self()
-  t.mock_command("gh issue edit '42' --repo 'owner/repo' --remove-assignee 'fkst-test-bot'", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 local function mock_claim_view(logins)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
@@ -69,7 +62,7 @@ return {
     local result = run_observe(issue(), opts("observe-managed-unassigned-reclaim", { FKST_GITHUB_WRITE = "1" }))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "2026-06-02T00-00-00Z")
+    t.eq(find_raise(result.raises, "devloop_consensus_request").payload.effect_version, "2026-06-02T00-00-00Z")
     t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 1)
     t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
   end,
@@ -81,7 +74,7 @@ return {
     local result = run_observe(issue(), opts("observe-stalled-self-claim-held", { FKST_GITHUB_WRITE = "1" }))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "2026-06-02T00-00-00Z")
+    t.eq(find_raise(result.raises, "devloop_consensus_request").payload.effect_version, "2026-06-02T00-00-00Z")
     t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
     t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 0)
   end,

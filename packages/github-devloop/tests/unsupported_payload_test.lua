@@ -24,16 +24,7 @@ local function department_paths()
   return result
 end
 
-local function read_file(path)
-  local handle = assert(io.open(path, "r"))
-  local body = handle:read("*a")
-  handle:close()
-  return body
-end
 
-local function department_source(path)
-  return read_file(package_root .. "/" .. path)
-end
 
 local function load_department_spec(path)
   local old_pipeline = pipeline
@@ -67,17 +58,6 @@ local function review_proposal_id()
   return devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", "def456")
 end
 
-local function review_consensus_payload()
-  local proposal_id = review_proposal_id()
-  return {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = proposal_id,
-    decision = "approve",
-    body = "All angles approve.",
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function issue_unresolved_payload()
   return {
@@ -88,15 +68,6 @@ local function issue_unresolved_payload()
   }
 end
 
-local function review_unresolved_payload()
-  local proposal_id = review_proposal_id()
-  return {
-    schema = "consensus.consensus_converge.v1",
-    proposal_id = proposal_id,
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function issue_entity_payload()
   return {
@@ -113,19 +84,6 @@ local function issue_entity_payload()
   }
 end
 
-local function pr_entity_payload()
-  return {
-    schema = "github-proxy.v1",
-    type = "pr",
-    repo = "owner/repo",
-    number = 7,
-    title = "Implement decision recorder",
-    state = "OPEN",
-    updated_at = "2026-06-03T01:02:03Z",
-    dedup_key = "owner/repo#pr#7@2026-06-03T01:02:03Z",
-    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-  }
-end
 
 local function run_department_with_logs(path, event)
   local result = t.run_department(path, event)
@@ -135,14 +93,42 @@ local function run_department_with_logs(path, event)
   }, "\n")
 end
 
-local function branch_tick_payload()
-  return { schema = "github-devloop.branch-tick.v1" }
+
+local function execution_request_payload()
+  return execution_start.build_execution_request_payload({
+    proposal_id = "github-devloop/issue/owner/repo/42",
+    dedup_key = "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+    source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+    origin = {
+      package = "github-devloop-intake-default",
+      route = "default",
+      decision = "enable",
+    },
+    service_class = "standard",
+  })
+end
+
+local function consensus_request_payload()
+  local request = execution_request_payload()
+  local proposal = payloads_builders.build_proposal({
+    repo = "owner/repo",
+    number = 42,
+    title = "Implement decision recorder",
+    updated_at = "2026-06-03T01:02:03Z",
+    content_fetch = "runtime-cache:github-devloop/test-consensus-request-context",
+    source_ref = request.source_ref,
+  })
+  proposal.dedup_key = request.dedup_key
+  proposal.effect_version = request.dedup_key
+  proposal.intake_hand_off = execution_start.execution_intake_hand_off(request)
+  return proposal
 end
 
 local function payload_for_queue(queue)
   local payloads = {
-    ["consensus.consensus_converge"] = issue_unresolved_payload(),
-    ["consensus.consensus_reached"] = issue_consensus_payload(),
+    ["devloop_consensus_continue"] = issue_unresolved_payload(),
+    devloop_consensus_request = consensus_request_payload(),
+    ["devloop_issue_decision"] = issue_consensus_payload(),
     dead_letter = {
       delivery_id = "delivery/v1/raised/queue/github-devloop.devloop_ready/dept/github-devloop.implement/01HY",
       queue = "github-devloop.devloop_ready",
@@ -154,17 +140,7 @@ local function payload_for_queue(queue)
     },
     devloop_doctor_tick = { schema = "github-devloop.doctor-tick.v1" },
     devloop_ensure_repo_tick = { schema = "github-devloop.ensure-repo-tick.v1" },
-    devloop_execute_request = execution_start.build_execution_request_payload({
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      dedup_key = "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
-      origin = {
-        package = "github-devloop-intake-default",
-        route = "default",
-        decision = "enable",
-      },
-      service_class = "standard",
-    }),
+    devloop_execute_request = execution_request_payload(),
     devloop_fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/3", "def456"),
@@ -307,11 +283,6 @@ end
 
 local cases = {
   {
-    dept = "loop",
-    path = "departments/loop/main.lua",
-    queue = "consensus.consensus_converge",
-  },
-  {
     dept = "implement",
     path = "departments/implement/main.lua",
     queue = "devloop_ready",
@@ -319,7 +290,7 @@ local cases = {
   {
     dept = "consensus_result",
     path = "departments/consensus_result/main.lua",
-    queue = "consensus.consensus_reached",
+    queue = "devloop_consensus_request",
   },
   {
     dept = "observe_issue",
@@ -434,9 +405,10 @@ return {
           queue = case.queue,
           payload = payload,
         })
+        local context = case.dept .. " queue=" .. case.queue .. " payload_type=" .. type(payload)
 
-        t.eq(result.exit_code, 0)
-        t.eq(#result.raises, 0)
+        t.eq(result.exit_code, 0, context .. " exit_code")
+        t.eq(#result.raises, 0, context .. " raises")
       end
     end
   end,

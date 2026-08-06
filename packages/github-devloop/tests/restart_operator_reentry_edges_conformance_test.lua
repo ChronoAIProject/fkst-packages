@@ -32,6 +32,8 @@ local blocked_open_pr_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr"
 local blocked_timeout_without_pr_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr"
+local blocked_implementation_refusal_id =
+  "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"
 local cas_metadata_golden = {
   [blocked_open_pr_id] = {
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
@@ -41,12 +43,25 @@ local cas_metadata_golden = {
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
     cas_variant = "blocked_to_implementing",
   },
+  [blocked_implementation_refusal_id] = {
+    cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
+    cas_variant = "blocked_to_implementing",
+  },
 }
 local pending_order_goldens = {
   ["github-devloop/implementing/operator_reentry/reimplement_impl_failed"] = { participates = true, predecessor_state = "impl-failed" },
   [blocked_open_pr_id] = { participates = false },
   [blocked_timeout_without_pr_id] = { participates = false },
+  [blocked_implementation_refusal_id] = { participates = false },
 }
+
+local function implement_activation_entitlements(edge_id)
+  return {
+    apply = { id = edge_id .. "/apply", effect_ids = {
+      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request" } },
+    idempotent = { id = edge_id .. "/idempotent", effect_ids = {} },
+  }
+end
 
 local function key_set(keys)
   local out = {}
@@ -255,7 +270,7 @@ local function run_reimplement_case(case)
       t.eq(tonumber(reentry.pr_number), 7)
     else
       boundary = reentry.terminal_reason
-      t.eq(boundary, "implementing-timeout-without-pr")
+      t.eq(boundary, case.expected_boundary)
     end
   else
     t.eq(reentry, nil)
@@ -280,7 +295,7 @@ local function observe_impl_failed_reimplement()
     source_state = "impl-failed",
     comments = {
       core.state_marker(proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(proposal_id, ready_version, "codex-failed", 2),
+      core.impl_failure_marker(proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true),
       trusted_command("reimplement", "IC_reimplement_impl_failed"),
     },
   })
@@ -306,6 +321,30 @@ local function observe_blocked_open_pr_reimplement()
   })
 end
 
+local function observe_blocked_implementation_refusal_reimplement()
+  local event = h.reached()
+  local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  return run_reimplement_case({
+    name = "restart-operator-reentry-blocked-implementation-refusal",
+    event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+    labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+    source_state = "blocked",
+    expected_boundary = "implementation-refusal",
+    comments = {
+      core.state_marker(proposal_id, "blocked", ready_version),
+      core.implement_attempt_marker(proposal_id, ready_version, 1, "100"),
+      core.implementation_refusal_marker(
+        proposal_id,
+        ready_version,
+        "precursor-missing",
+        "The generated parser required by this implementation is absent.",
+        1
+      ),
+      trusted_command("reimplement", "IC_reimplement_blocked_implementation_refusal"),
+    },
+  })
+end
+
 local function observe_blocked_timeout_reimplement()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
   local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
@@ -320,6 +359,7 @@ local function observe_blocked_timeout_reimplement()
     event = event,
     labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
     source_state = "blocked",
+    expected_boundary = "implementing-timeout-without-pr",
     comments = {
       core.state_marker(proposal_id, "implementing", ready_version),
       core.state_marker(proposal_id, "blocked", blocked_version),
@@ -382,6 +422,7 @@ local function assert_operator_reentry_shape(edges)
   local seen_ids = {}
   for _, edge in ipairs(edges) do
     local edge_keys = key_set(structural_fields)
+    edge_keys.transition_effect_entitlements = true
     local expected_cas = cas_metadata_golden[edge.id]
     if expected_cas ~= nil then
       edge_keys.cas_policy_id = true
@@ -415,6 +456,9 @@ local function assert_operator_reentry_shape(edges)
     t.eq(edge.provenance.row, "implementing")
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
+    local expected_entitlements = expected_cas and implement_activation_entitlements(edge.id)
+      or operator_reentry_inventory[1].transition_effect_entitlements
+    assert_same_value(edge.transition_effect_entitlements, expected_entitlements)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     t.eq(seen_ids[edge.id], nil)
     seen_ids[edge.id] = true
@@ -428,7 +472,7 @@ local function thinking_converge_comments(event, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/7"),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for round = 1, 7 do
     table.insert(comments, conv_rounds.converge_round_marker(
@@ -453,7 +497,7 @@ local function observe_rereview_row_replay()
   local result = h.run_observe(event, h.opts("restart-operator-negative-rereview"))
   assert_department_ok(result, "negative-rereview")
 
-  local proposal = h.find_raise(result.raises, "consensus.proposal")
+  local proposal = h.find_raise(result.raises, "devloop_consensus_request")
   local response = find_issue_comment(result.raises, "operator command accepted: rereview")
   t.is_true(proposal ~= nil, "negative rereview: consensus proposal was not replayed")
   t.is_true(response ~= nil, "negative rereview: applied response was not emitted")
@@ -471,7 +515,7 @@ local function observe_ready_reready_row_replay()
   local ready_version = payloads_builders.build_devloop_ready_payload(core, h.reached()).dedup_key
   local comments = {
     trusted_comment(
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       "IC_ready_handoff"
     ),
     trusted_command("reready", "IC_negative_reready_ready"),
@@ -496,7 +540,7 @@ local function observe_dependency_wait_reready_row_replay()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:ready" } })
   local version = "ready/consensus-github-devloop/issue/owner/repo/42/dependency"
   local comments = {
-    core.state_marker(proposal_id, "dependency_wait", version),
+    h.projected_state_comment(proposal_id, "dependency_wait", version),
     "github-devloop dependency hold: unresolvable\n\n"
       .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
     trusted_command("reready", "IC_negative_reready_dependency_wait"),
@@ -522,7 +566,7 @@ local function observe_blocked_reready_row_replay()
   local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
   local comments = {
     trusted_comment(
-      core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       "IC_ready_before_timeout"
     ),
     core.state_marker(proposal_id, "blocked", blocked_version),
@@ -548,52 +592,6 @@ local function observe_blocked_reready_row_replay()
   return { kind = "row-replay", command = "reready", source_state = "blocked" }
 end
 
-local function observe_reintake_admission_contract()
-  local command_comment = trusted_command("reintake", "IC_negative_reintake")
-  local active_comments = {
-    core.state_marker(proposal_id, "thinking", "thinking/reintake-refused"),
-    command_comment,
-  }
-  h.mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", active_comments)
-  local observed = h.run_observe(
-    h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
-    h.opts("restart-operator-negative-reintake-observe-issue")
-  )
-  assert_department_ok(observed, "negative-reintake-observe-issue")
-  t.eq(find_issue_comment(observed.raises, "operator command accepted: reintake"), nil)
-
-  local blocked_comments = {
-    core.state_marker(proposal_id, "blocked", "blocked/reintake-admission"),
-    command_comment,
-  }
-  local command = operator_commands.operator_command_fact(blocked_comments, "reintake")
-  t.is_true(command ~= nil, "negative reintake: trusted command fact missing")
-  t.eq(operator_commands.has_operator_command_response(blocked_comments, command), false)
-
-  t.eq(operator_commands.reintake_has_active_devloop_state(
-    { "fkst-dev:enabled", "fkst-dev:blocked" },
-    blocked_comments,
-    proposal_id
-  ), false)
-
-  local response = operator_commands.build_operator_issue_reintake_comment_request(
-    "owner/repo",
-    42,
-    command,
-    { dedup_key = "intake-candidate/github-devloop/issue/owner/repo/42" },
-    h.issue().source_ref
-  )
-  t.eq(tostring(response.body):find("fkst:github-devloop:state:v1", 1, true), nil)
-  applied_cause_evidence(blocked_comments, "reintake", response.body)
-
-  t.eq(operator_commands.reintake_has_active_devloop_state(
-    { "fkst-dev:enabled", "fkst-dev:thinking" },
-    active_comments,
-    proposal_id
-  ), true)
-  return { kind = "admission", command = "reintake", source_state = nil }
-end
-
 local function assert_negative_witnesses_absent(witnesses, authored)
   for _, witness in ipairs(witnesses) do
     t.is_true(witness.kind == "row-replay" or witness.kind == "admission",
@@ -614,6 +612,10 @@ local function valid_operator_reentry()
     kind = "operator_reentry",
     source = { state = "impl-failed", boundary = nil },
     target = "implementing",
+    transition_effect_entitlements = {
+      apply = { id = "owner/implementing/operator_reentry/reimplement_impl_failed/apply", effect_ids = {} },
+      idempotent = { id = "owner/implementing/operator_reentry/reimplement_impl_failed/idempotent", effect_ids = {} },
+    },
     cause_evidence = {
       command = "reimplement",
       requires_applied_certificate = true,
@@ -638,7 +640,7 @@ local function assert_observed_inventory_edge(index, observed)
   local snapshot = copy_value(operator_reentry_inventory)
   local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
   assert_operator_reentry_shape(authored)
-  t.eq(#authored, 3)
+  t.eq(#authored, 4)
   assert_symmetric_edge_sets({ observed }, { authored[index] })
   assert_same_value(operator_reentry_inventory, snapshot)
 end
@@ -656,13 +658,21 @@ return {
     assert_observed_inventory_edge(3, observe_blocked_timeout_reimplement())
   end,
 
+  test_issue_blocked_implementation_refusal_operator_reentry_matches_production_apply_decision = function()
+    assert_observed_inventory_edge(4, observe_blocked_implementation_refusal_reimplement())
+  end,
+
   test_issue_blocked_operator_reentry_cas_metadata_references_declared_policies = function()
     local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     local edges_by_id = {}
     for _, edge in ipairs(authored) do
       edges_by_id[edge.id] = edge
     end
-    for _, id in ipairs({ blocked_open_pr_id, blocked_timeout_without_pr_id }) do
+    for _, id in ipairs({
+      blocked_open_pr_id,
+      blocked_timeout_without_pr_id,
+      blocked_implementation_refusal_id,
+    }) do
       local edge = edges_by_id[id]
       local expected = cas_metadata_golden[id]
       t.is_true(edge ~= nil)
@@ -681,6 +691,7 @@ return {
     t.eq(authored[1].id, "github-devloop/implementing/operator_reentry/reimplement_impl_failed")
     t.eq(authored[2].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr")
     t.eq(authored[3].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr")
+    t.eq(authored[4].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal")
 
     local repeated = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     assert_operator_reentry_shape(repeated)
@@ -710,11 +721,6 @@ return {
   test_issue_blocked_reready_is_row_replay_not_operator_reentry = function()
     local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     assert_negative_witnesses_absent({ observe_blocked_reready_row_replay() }, authored)
-  end,
-
-  test_issue_reintake_is_admission_not_operator_reentry = function()
-    local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
-    assert_negative_witnesses_absent({ observe_reintake_admission_contract() }, authored)
   end,
 
   test_operator_reentry_edge_extractor_fails_closed_on_invalid_inventory = function()

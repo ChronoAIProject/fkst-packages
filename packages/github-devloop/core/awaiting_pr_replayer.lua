@@ -2,7 +2,6 @@ local git_mechanics = require("devloop.git_mechanics")
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
-local requests_labels = require("devloop.requests.labels")
 local parsers_pr = require("devloop.parsers.pr")
 local config = require("devloop.config")
 local m_facts = require("devloop.markers.facts")
@@ -84,7 +83,7 @@ local function parent_state_for_child_terminal(state, child_state, generation)
     if generation == "replacement" then
       return {
         to_state = "blocked",
-        version = tostring(state.version or "") .. "/blocked/replacement-budget-exhausted",
+        version = transition_version.next_blocked(state.version, "replacement-budget-exhausted"),
         reason = "replacement-budget-exhausted",
       }
     end
@@ -96,7 +95,7 @@ local function parent_state_for_child_terminal(state, child_state, generation)
   end
   return {
     to_state = "blocked",
-    version = tostring(state.version or "") .. "/blocked/child-pr-blocked",
+    version = transition_version.next_blocked(state.version, "child-pr-blocked"),
     reason = "child-pr-blocked",
   }
 end
@@ -170,17 +169,7 @@ end
 
 local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local state_marker = devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
-  local request = entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = issue.repo,
-    number = issue.number,
-  }, "github-devloop resumed parent issue from delegated PR child state"
-    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
-    .. "\nChild state: " .. tostring(child_state.state)
-    .. "\nReason: " .. tostring(next_state.reason)
-    .. "\n\n" .. state_marker
-    .. resume_terminal_markers(issue, next_state, delegation, current_pr), base_ids.dedup_key({
+  local comment_dedup_key = base_ids.dedup_key({
     "awaiting-pr",
     "resume",
     tostring(delegation.proposal_id),
@@ -190,23 +179,60 @@ local function build_resume_comment_request(issue, state, next_state, child_stat
     tostring(child_state.state),
     tostring(next_state.to_state),
     tostring(next_state.version),
-  }), source_ref)
+  })
+  local body_before_marker = "github-devloop resumed parent issue from delegated PR child state"
+    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
+    .. "\nChild state: " .. tostring(child_state.state)
+    .. "\nReason: " .. tostring(next_state.reason)
+    .. "\n\n"
+  local body_after_marker = resume_terminal_markers(issue, next_state, delegation, current_pr)
   if next_state.to_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
+    return devloop_state.build_projected_state_comment_request({
+      repo = issue.repo,
+      issue_number = issue.number,
       proposal_id = delegation.proposal_id,
-      version = next_state.version,
+      state = "ready",
       marker_version = next_state.version,
+      handoff_version = next_state.version,
+      body_before_marker = body_before_marker,
+      body_after_marker = body_after_marker,
+      comment_dedup_key = comment_dedup_key,
+      label_policy = {
+        dedup_key = base_ids.dedup_key({
+          "awaiting-pr",
+          "label",
+          tostring(delegation.proposal_id),
+          tostring(delegation.pr_number),
+          tostring(delegation.delegation),
+          "ready",
+          tostring(next_state.version),
+        }),
+      },
       source_ref = source_ref,
-    }
+    })
   end
-  return request
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = issue.repo,
+    number = issue.number,
+  }, body_before_marker
+    .. devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
+    .. body_after_marker, comment_dedup_key, source_ref)
 end
+S.build_resume_comment_request = build_resume_comment_request
 
-local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation)
+local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation, child_state)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
   local child_proposal = delegation.pr_proposal_id or delegation.pr_proposal
-  local body = "github-devloop canonicalized delegated PR handoff after child merge"
+  local terminal_event = ({
+    merged = "merge",
+    ["closed-unmerged"] = "closure without merge",
+    blocked = "blocked state",
+  })[child_state.state]
+  if terminal_event == nil then
+    error("github-devloop: invalid-terminal-child: awaiting-pr canonicalization requires a terminal child state")
+  end
+  local body = "github-devloop canonicalized delegated PR handoff after child " .. terminal_event
     .. "\n\nDelegated PR: #" .. tostring(delegation.pr_number)
     .. "\n\n" .. devloop_state.state_marker(delegation.proposal_id, "awaiting-pr", state.version)
     .. "\n" .. m_builders.pr_delegation_marker(delegation.proposal_id,
@@ -229,16 +255,139 @@ local function build_awaiting_pr_canonicalization_comment_request(issue, state, 
     tostring(delegation.delegation),
   }), source_ref)
 end
+S.build_awaiting_pr_canonicalization_comment_request = build_awaiting_pr_canonicalization_comment_request
 
-function M.implementing_to_awaiting_pr_transition_status(state)
-  return devloop_state.versioned_transition_status(state, { "implementing" }, "awaiting-pr", state and state.version)
+function M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
+  local restart_effects = require("core.restart_effects")
+  local lock_key = entity_lib.transition_lock_key(proposal_id)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = M.restart_package_name,
+    entity = { kind = "issue", repo = issue.repo, number = issue.number },
+    proposal_id = proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "awaiting-pr-canonicalization",
+      tostring(proposal_id),
+      tostring(state and state.state or ""),
+      tostring(state and state.version or ""),
+    }, "|"),
+    lock_epoch = tostring(lock_key or "") .. "@" .. tostring(state and state.version or ""),
+    generation = state and state.version,
+  })
+  local decision = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "implementing_terminal_delegated_pr",
+    source_boundary = nil,
+    target = "awaiting-pr",
+    incoming_version = state and state.version,
+  })
+  return decision.status, snapshot, decision
 end
 
-function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, facts)
+function M.awaiting_pr_exit_transition_status(issue, proposal_id, state, to_state)
+  local restart_effects = require("core.restart_effects")
+  local lock_key = entity_lib.transition_lock_key(proposal_id)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = M.restart_package_name,
+    entity = { kind = "issue", repo = issue.repo, number = issue.number },
+    proposal_id = proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "awaiting-pr-exit",
+      tostring(proposal_id),
+      tostring(state and state.state or ""),
+      tostring(state and state.version or ""),
+      tostring(to_state or ""),
+    }, "|"),
+    lock_epoch = tostring(lock_key or "") .. "@" .. tostring(state and state.version or ""),
+    generation = state and state.version,
+  })
+  local decision = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "awaiting_pr_to_" .. tostring(to_state or ""),
+    source_boundary = nil,
+    target = to_state,
+    incoming_version = state and state.version,
+  })
+  return decision.status, snapshot, decision
+end
+
+local terminal_milestones = { "merged", "closed-unmerged", "blocked" }
+local terminal_requires_canonical_merge = { merged = true }
+local terminal_generation = {
+  ["closed-unmerged"] = closed_unmerged_generation,
+}
+
+local function child_reached(current_pr, delegation, milestone, lineage_base)
+  return devloop_state.reached(current_pr.comments, delegation.proposal_id, milestone, {
+    domain = "github-devloop-pr",
+    lineage_base = lineage_base,
+  })
+end
+
+local function monotone_terminal_child(state, delegation, current_pr)
+  for _, milestone in ipairs(terminal_milestones) do
+    if child_reached(current_pr, delegation, milestone, state.version) then
+      return { state = milestone, version = delegation.version }
+    end
+  end
+  for _, milestone in ipairs(terminal_milestones) do
+    if child_reached(current_pr, delegation, milestone) then
+      return nil, "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage"
+    end
+  end
+  if child_reached(current_pr, delegation, "pr-open", state.version) then
+    return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
+  end
+  if child_reached(current_pr, delegation, "pr-open") then
+    return nil, "skip-stale(child-state-lineage)", "child state does not match parent delegation lineage"
+  end
+  return nil, "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state"
+end
+
+local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
+  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
+  local child_state = canonical_merged_state or observed_child_state
+  local outcome, reason
+  if child_state == nil then
+    child_state, outcome, reason = monotone_terminal_child(state, delegation, current_pr)
+  end
+  if child_state == nil or child_state.state == nil then
+    return nil, outcome or "skip-pending(child-terminal-missing)", reason or "delegated child PR has no trusted terminal marker or canonical merged state"
+  end
+  if child_terminal_states[child_state.state] ~= true then
+    return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
+  end
+  if not child_lineage_matches_delegation(state, delegation, child_state) then
+    return nil, "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage"
+  end
+  if terminal_requires_canonical_merge[child_state.state] and canonical_merged_state == nil then
+    return nil, "skip-pending(canonical-child-pr-merged-missing)", "delegated child PR has a merged marker but is not canonically merged by GitHub"
+  end
+  local generation = nil
+  local generation_resolver = terminal_generation[child_state.state]
+  if generation_resolver ~= nil then
+    generation = generation_resolver(issue, state, current_pr)
+    if generation == nil then
+      return nil, "skip-stale(child-branch-lineage)", "closed child PR is not on a deterministic original or replacement implementation branch"
+    end
+  end
+  return {
+    child_state = child_state,
+    canonical_merged_state = canonical_merged_state,
+    generation = generation,
+  }
+end
+
+function M.canonicalize_implementing_terminal_delegated_pr(dept, issue, state, facts)
+  local restart_effect_facade = require("core.restart_effect_facade")
+  local restart_effects = require("core.restart_effects")
   local proposal_id = facts.proposal_id
-  local transition = M.implementing_to_awaiting_pr_transition_status(state)
-  if transition ~= "apply" and transition ~= "idempotent" then
-    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", devloop_state.cas_outcome(state, transition, state and state.version), "merged delegated PR canonicalization requires implementing state")
+  local transition, snapshot, decision = M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
+  if transition == "pending" or transition == "stale" then
+    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", decision.cas_outcome, "terminal delegated PR canonicalization requires implementing state")
+  end
+  if decision.status ~= "apply" and decision.status ~= "idempotent" then
+    error("github-devloop: restart-effect-decision-illegal: awaiting-pr canonicalization decision rejected: "
+      .. tostring(decision.reason_code))
   end
   local delegation = facts["pr-delegation"] or facts.pr_delegation
   if delegation == nil then
@@ -256,37 +405,46 @@ function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, fac
   if type(current_pr) ~= "table" or current_pr.force_fresh ~= true then
     current_pr = read_delegated_child_pr(dept, issue, delegation)
   end
-  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
-  if canonical_merged_state == nil then
-    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", "skip-pending(canonical-child-pr-merged-missing)", "delegated child PR is not canonically merged by GitHub")
+  local terminal_child, outcome, reason = resolve_delegated_terminal_child(
+    issue, state, delegation, current_pr, facts.child_state or facts["child-state"]
+  )
+  if terminal_child == nil then
+    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", outcome, reason)
   end
-  if transition == "idempotent" then
+  if decision.status == "idempotent" then
     return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", "skip-idempotent(already at to_state)", "parent issue already has awaiting-pr marker")
   end
-
-  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local comment_request = build_awaiting_pr_canonicalization_comment_request(issue, state, delegation)
-  local label_request = requests_labels.build_state_label_request(issue.repo,
-    issue.number,
-    "awaiting-pr",
-    base_ids.dedup_key({
-      "awaiting-pr",
-      "canonicalize",
-      "implementing",
-      "label",
-      tostring(proposal_id),
-      tostring(state.version),
-      tostring(delegation.pr_number),
-      tostring(delegation.delegation),
-    }),
-    source_ref
-  )
-  local add_labels, remove_labels = devloop_state.state_label_changes("awaiting-pr")
-  devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "awaiting-pr", "applied(merged-delegated-pr-canonicalized)", "canonical merged PR child made missing parent handoff visible")
-  return raise_effects(dept, proposal_id, "awaiting-pr", state.version, { add = add_labels, remove = remove_labels }, {
-    { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-    { queue = "github-proxy.github_issue_label_request", payload = label_request },
+  local grant = restart_effects.mint_grant(snapshot, decision, "comment:issue:awaiting-pr-state")
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: awaiting-pr canonicalization grant was not minted")
+  end
+  local facade = restart_effect_facade.make({
+    family = "awaiting-pr",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = require("core.restart.sink_inventory"),
   })
+  local args = {
+    issue = issue,
+    state = state,
+    delegation = delegation,
+    child_state = terminal_child.child_state,
+  }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: awaiting-pr canonicalization effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
+
+  local add_labels, remove_labels = devloop_state.state_label_changes("awaiting-pr")
+  local applied_outcome = terminal_child.canonical_merged_state ~= nil
+    and "applied(merged-delegated-pr-canonicalized)"
+    or "applied(terminal-delegated-pr-canonicalized)"
+  devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "awaiting-pr", applied_outcome, "trusted terminal PR child made missing parent handoff visible")
+  return raise_effects(dept, proposal_id, "awaiting-pr", state.version, { add = add_labels, remove = remove_labels }, effects)
 end
 
 function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
@@ -321,7 +479,7 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", "skip-dry-run", "canonical merged delegated issue would close in real write mode")
     return false, current_pr
   end
-  local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, 60)
+  local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, { kind = "completed" }, 60)
   if close_result.exit_code ~= 0 then
     error("github-devloop: canonical-merged-issue-close-failed: " .. tostring(close_result.stderr))
   end
@@ -348,38 +506,15 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(pr-delegation-child)", "pr-delegation child identity is malformed or cross-repo")
   end
   local current_pr = (facts.current_pr ~= nil and facts.current_pr.force_fresh == true) and facts.current_pr or read_delegated_child_pr(dept, issue, delegation)
-  local child_state = facts.child_state or facts["child-state"] or require("devloop.entity").current_entity_state(current_pr.comments, delegation.proposal_id)
-  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
-  if canonical_merged_state ~= nil then
-    child_state = canonical_merged_state
-  end
-  if child_state == nil or child_state.state == nil then
-    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state")
-  end
-  if child_terminal_states[child_state.state] ~= true then
-    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-pending(child-nonterminal)", "delegated child PR is not terminal")
-  end
-  if not child_lineage_matches_delegation(state, delegation, child_state) then
-    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage")
-  end
-  local generation = nil
-  local child_closed_unmerged = devloop_state.reached(
-    current_pr.comments,
-    delegation.proposal_id,
-    "closed-unmerged",
-    { domain = "github-devloop-pr", lineage_base = state.version }
-  ) and not devloop_state.reached(
-    current_pr.comments,
-    delegation.proposal_id,
-    "merged",
-    { domain = "github-devloop-pr", lineage_base = state.version }
+  local terminal_child, outcome, reason = resolve_delegated_terminal_child(
+    issue, state, delegation, current_pr, facts.child_state or facts["child-state"]
   )
-  if child_closed_unmerged then
-    generation = closed_unmerged_generation(issue, state, current_pr)
-    if generation == nil then
-      return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(child-branch-lineage)", "closed child PR is not on a deterministic original or replacement implementation branch")
-    end
+  if terminal_child == nil then
+    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason)
   end
+  local child_state = terminal_child.child_state
+  local canonical_merged_state = terminal_child.canonical_merged_state
+  local generation = terminal_child.generation
   local next_state = parent_state_for_child_terminal(state, child_state, generation)
   if next_state.to_state == "merged" then
     if canonical_merged_state == nil then
@@ -390,9 +525,13 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
       return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason)
     end
   end
-  local transition = devloop_state.versioned_transition_status(state, { "awaiting-pr" }, next_state.to_state, state.version)
+  local restart_effect_facade = require("core.restart_effect_facade")
+  local restart_effects = require("core.restart_effects")
+  local transition, snapshot, decision = M.awaiting_pr_exit_transition_status(
+    issue, proposal_id, state, next_state.to_state
+  )
   if transition ~= "apply" and transition ~= "idempotent" then
-    return log_skip(dept, proposal_id, state, "awaiting-pr", next_state.to_state, devloop_state.cas_outcome(state, transition, state.version), next_state.reason)
+    return log_skip(dept, proposal_id, state, "awaiting-pr", next_state.to_state, decision.cas_outcome, next_state.reason)
   end
   if transition == "idempotent" then
     return log_skip(dept, proposal_id, state, "awaiting-pr", next_state.to_state, "skip-idempotent(already at to_state)", "parent issue already reflects delegated child terminal")
@@ -401,29 +540,38 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     return log_skip(dept, proposal_id, state, "awaiting-pr", next_state.to_state, "skip-idempotent(target marker already visible)", "parent issue already has the exact delegated child terminal marker")
   end
 
-  local comment_request = build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
-  local label_request = requests_labels.build_state_label_request(issue.repo,
-    issue.number,
-    next_state.to_state,
-    base_ids.dedup_key({
-      "awaiting-pr",
-      "label",
-      tostring(proposal_id),
-      tostring(delegation.pr_number),
-      tostring(delegation.delegation),
-      tostring(next_state.to_state),
-      tostring(next_state.version),
-    }),
-    issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  )
+  local grant = restart_effects.mint_grant(snapshot, decision, "comment:issue:awaiting-pr-terminal")
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: awaiting-pr exit grant was not minted")
+  end
+  local facade = restart_effect_facade.make({
+    family = "awaiting-pr-exit",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = require("core.restart.sink_inventory"),
+  })
+  local args = {
+    issue = issue,
+    state = state,
+    next_state = next_state,
+    child_state = child_state,
+    delegation = delegation,
+    current_pr = current_pr,
+    proposal_id = proposal_id,
+  }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
+
   local add_labels, remove_labels = devloop_state.state_label_changes(next_state.to_state)
   devloop_logging.log_cas_decision(dept, proposal_id, state, "awaiting-pr", next_state.to_state, "applied(" .. next_state.reason .. ")", "delegated child terminal fact matched parent delegation")
-  local effects = {
-    { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-    { queue = "github-proxy.github_issue_label_request", payload = label_request },
-  }
   if next_state.to_state == "merged" and config.write_mode() == "real" then
-    local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, 60)
+    local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, { kind = "completed" }, 60)
     if close_result.exit_code ~= 0 then
       error("github-devloop: awaiting-pr-issue-close-failed: " .. tostring(close_result.stderr))
     end
@@ -511,12 +659,8 @@ merged_child_landed_on_upstream = function(dept, issue, state, delegation, curre
           error("github-devloop: awaiting-pr-rollup-receipt-invalid: merged rollup PR metadata is incomplete")
         end
         if tostring(candidate.head_repository) == tostring(issue.repo) then
-          git_mechanics.run_required(
-            git_commands.git_fetch_pr_head_ref("origin", candidate.number, 60),
-            "awaiting-pr rollup receipt fetch"
-          )
           local fetched = git_mechanics.run_required(
-            git_commands.git_fetch_head_commit(30),
+            git_commands.git_fetch_pr_head_oid("origin", candidate.number, 60),
             "awaiting-pr rollup receipt head"
           )
           local fetched_head = contract_strings.trim(fetched.stdout)
@@ -540,7 +684,8 @@ end
 return {
   ["awaiting-pr"] = M.replay_awaiting_pr_state,
   implementing_to_awaiting_pr_transition_status = M.implementing_to_awaiting_pr_transition_status,
-  canonicalize_implementing_merged_delegated_pr = M.canonicalize_implementing_merged_delegated_pr,
+  awaiting_pr_exit_transition_status = M.awaiting_pr_exit_transition_status,
+  canonicalize_implementing_terminal_delegated_pr = M.canonicalize_implementing_terminal_delegated_pr,
   close_canonically_merged_delegated_issue = M.close_canonically_merged_delegated_issue,
   delegation_identity_matches = M.delegation_identity_matches,
 }

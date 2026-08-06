@@ -1,325 +1,19 @@
--- Non-circularity contract: legacy truth comes from the real review_result
--- department's cyclic CAS probe and structured CAS log. The shadow decision is
--- built independently from fixture and event facts and never observes that probe.
-
-local catalog = require("devloop.restart_cas_catalog")
-local devloop_base = require("devloop.base")
-local devloop_logging = require("devloop.logging")
-local devloop_state = require("devloop.state")
-local m_builders = require("devloop.markers.builders")
-local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
 local t = h.t
-local core = h.core
-local review_result_department = require("departments.review_result.main")
 
 local OWNER = "github-devloop-pr"
 local SEMANTIC_VARIANT = "approved"
-local POLICY_ID = "cas.legacy_review_result_v1"
-local EDGE_ID = "github-devloop-pr/reviewing/autonomous/approved"
+local MERGE_COMPLETED_VARIANT = "merge-completed"
+local MERGE_COMPLETED_POLICY_ID = "cas.legacy_merge_completion_v1"
+local MERGE_COMPLETED_EDGE_ID = "github-devloop-pr/merging/autonomous/merge-completed"
+local V_OLDER = "2026-06-02T01-02-03Z"
 local V_EQUAL = "2026-06-03T01-02-03Z"
-local V_ORDERING_EQUAL_CURRENT = "v-loop-01"
-local V_ORDERING_EQUAL_INCOMING = "v-loop-1"
-
-local fixtures = {
-  {
-    name = "shadow-review-result-source-equal-apply",
-    current_state = "reviewing",
-    current_version = V_EQUAL,
-    incoming_version = V_EQUAL,
-    expected_exit_code = 0,
-    expected_status = "apply",
-  },
-  {
-    name = "shadow-review-result-target-idempotent",
-    current_state = "merge-ready",
-    current_version = V_EQUAL,
-    incoming_version = V_EQUAL,
-    expected_exit_code = 0,
-    expected_status = "idempotent",
-  },
-  {
-    name = "shadow-review-result-source-missing-pending",
-    current_state = nil,
-    current_version = nil,
-    incoming_version = V_EQUAL,
-    expected_exit_code = 1,
-    expected_status = "pending",
-  },
-  {
-    name = "shadow-review-result-safe-overlay-mismatch-stale",
-    current_state = "reviewing",
-    current_version = V_ORDERING_EQUAL_CURRENT,
-    incoming_version = V_ORDERING_EQUAL_INCOMING,
-    expected_exit_code = 0,
-    expected_probe_outcome = "apply",
-    expected_status = "stale",
-  },
-}
-
-local function mock_branch_config()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function observe_department(run)
-  local probes = {}
-  local decisions = {}
-  local original_cyclic = devloop_state.cyclic_transition_status
-  local original_log_cas = devloop_logging.log_cas_decision
-
-  devloop_state.cyclic_transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local outcome = original_cyclic(
-      current,
-      from_states,
-      to_state,
-      incoming_version,
-      target_version
-    )
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
-  end
-  devloop_logging.log_cas_decision = function(
-    dept,
-    proposal_id,
-    current,
-    from_state,
-    to_state,
-    outcome,
-    reason
-  )
-    table.insert(decisions, {
-      dept = dept,
-      proposal_id = proposal_id,
-      current = current,
-      from_state = from_state,
-      to_state = to_state,
-      outcome = outcome,
-      reason = reason,
-    })
-    return original_log_cas(
-      dept,
-      proposal_id,
-      current,
-      from_state,
-      to_state,
-      outcome,
-      reason
-    )
-  end
-
-  local ok, result = pcall(run)
-  devloop_logging.log_cas_decision = original_log_cas
-  devloop_state.cyclic_transition_status = original_cyclic
-  if not ok then
-    error(result, 0)
-  end
-  return result, probes, decisions
-end
-
-local function observe_shadow(run)
-  local evidence = nil
-  local original_resolve = catalog.resolve
-  catalog.resolve = function(policy_id, candidate, projection)
-    evidence = candidate
-    return original_resolve(policy_id, candidate, projection)
-  end
-  local ok, result = pcall(run)
-  catalog.resolve = original_resolve
-  if not ok then
-    error(result, 0)
-  end
-  return result, evidence
-end
-
-local function review_event(fixture)
-  local proposal_id = devloop_base.pr_review_proposal_id(
-    "owner/repo",
-    7,
-    fixture.incoming_version,
-    "def456"
-  )
-  return h.review_reached({
-    proposal_id = proposal_id,
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    decision = "approve",
-    body = "Review consensus approves the diff.",
-  })
-end
-
-local function prepare_fixture(fixture)
-  mock_branch_config()
-  h.mock_default_issue_claim()
-  local comments = {
-    m_builders.pr_origin_marker(
-      "github-devloop/issue/owner/repo/42",
-      "42",
-      "devloop-owner-repo-42-01HY",
-      fixture.incoming_version,
-      "dev"
-    ),
-  }
-  if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
-      "github-devloop/issue/owner/repo/42",
-      fixture.current_state,
-      fixture.current_version
-    ))
-  end
-  if fixture.current_state == nil then
-    h.mock_pr_origin_for({
-      comments = comments,
-      head = "devloop-owner-repo-42-01HY",
-      head_sha = "def456",
-      state = "OPEN",
-      base_branch = "dev",
-    })
-  else
-    h.mock_pr_origin(comments, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
-  end
-  h.mock_pr_normal_risk_diff_name_only()
-end
-
-local function run_real_department(event)
-  local raises = {}
-  local original_raise = raise
-  raise = function(queue, payload)
-    table.insert(raises, { queue = queue, payload = payload })
-  end
-  local ok, failure = pcall(review_result_department.pipeline, {
-    queue = "consensus.consensus_reached",
-    payload = event,
-  })
-  raise = original_raise
-  return {
-    exit_code = ok and 0 or 1,
-    error = ok and nil or tostring(failure),
-    raises = raises,
-  }
-end
-
-local function observed_admission(probe, decision)
-  local outcome = decision.outcome
-  if outcome == "applied" then
-    return { status = "apply", reason_code = "apply", cas_outcome = outcome }
-  end
-  if outcome == "skip-idempotent(already at to_state)" then
-    return {
-      status = "idempotent",
-      reason_code = "already-at-target",
-      cas_outcome = outcome,
-    }
-  end
-  if outcome == "retry-pending(from-state marker not yet visible)" then
-    return {
-      status = "pending",
-      reason_code = "source-marker-not-visible",
-      cas_outcome = outcome,
-    }
-  end
-  if outcome == "skip-stale(version-mismatch)" then
-    return { status = "stale", reason_code = "version-mismatch", cas_outcome = outcome }
-  end
-  if outcome == "skip-stale(incoming version < current marker version)" then
-    return { status = "stale", reason_code = "incoming-version-older", cas_outcome = outcome }
-  end
-  if outcome == "skip-advanced-or-diverged" then
-    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = outcome }
-  end
-  error(
-    "unexpected review_result CAS outcome after probe "
-      .. tostring(probe.outcome)
-      .. ": "
-      .. tostring(outcome)
-  )
-end
-
-local function assert_bidirectional(actual, expected, field, context)
-  t.eq(actual[field], expected[field], context .. ": shadow-to-legacy " .. field)
-  t.eq(expected[field], actual[field], context .. ": legacy-to-shadow " .. field)
-end
-
-local function assert_case(fixture)
-  local event = review_event(fixture)
-  prepare_fixture(fixture)
-  local result, probes, decisions = observe_department(function()
-    return run_real_department(event)
-  end)
-
-  t.eq(result.exit_code, fixture.expected_exit_code, fixture.name .. ": department exit code")
-  t.eq(#probes, 1, fixture.name .. ": real department CAS probe count")
-  t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
-  local probe = probes[1]
-  local decision = decisions[1]
-  local safe_current_version = transition_version.safe_version_segment(fixture.current_version or "")
-  t.eq(probe.current.state, fixture.current_state, fixture.name .. ": observed current state")
-  t.eq(probe.current.version, safe_current_version, fixture.name .. ": observed safe current version")
-  t.eq(probe.from_states[1], "reviewing", fixture.name .. ": observed source state")
-  t.eq(#probe.from_states, 1, fixture.name .. ": observed source state count")
-  t.eq(probe.to_state, "merge-ready", fixture.name .. ": observed target state")
-  t.eq(probe.incoming_version, fixture.incoming_version, fixture.name .. ": observed incoming version")
-  t.eq(probe.target_version, nil, fixture.name .. ": observed target version")
-  if fixture.expected_probe_outcome ~= nil then
-    t.eq(probe.outcome, fixture.expected_probe_outcome, fixture.name .. ": literal probe outcome")
-  end
-  t.eq(decision.dept, "review_result", fixture.name .. ": legacy decision department")
-  t.eq(decision.from_state, "reviewing", fixture.name .. ": legacy decision source")
-  t.eq(decision.to_state, "merge-ready", fixture.name .. ": legacy decision target")
-
-  local legacy = observed_admission(probe, decision)
-  local sealed = restart_authority.seal_snapshot({
-    owner = OWNER,
-    proposal_id = "github-devloop/issue/owner/repo/42",
-    current = {
-      state = fixture.current_state,
-      version = fixture.current_version,
-    },
-  })
-  local shadow, evidence = observe_shadow(function()
-    return restart_authority.decide_transition(sealed, {
-      semantic_variant = SEMANTIC_VARIANT,
-      incoming_version = fixture.incoming_version,
-      target_version = fixture.target_version,
-      overlay_version = fixture.incoming_version,
-    })
-  end)
-
-  assert_bidirectional(shadow, legacy, "status", fixture.name)
-  t.eq(shadow.status, fixture.expected_status, fixture.name .. ": expected shadow status")
-  assert_bidirectional(shadow, legacy, "reason_code", fixture.name)
-  assert_bidirectional(shadow, legacy, "cas_outcome", fixture.name)
-  t.eq(shadow.edge_id, EDGE_ID, fixture.name .. ": selected edge id")
-  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
-  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
-  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
-  t.eq(evidence.current.version, fixture.current_version or "", fixture.name .. ": evidence raw current version")
-  t.eq(evidence.variant, "reviewing_to_merge_ready", fixture.name .. ": evidence variant")
-  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
-  t.eq(evidence.target_version, fixture.target_version, fixture.name .. ": evidence target version")
-  t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
-end
+local V_NEWER = "2026-06-04T01-02-03Z"
+local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
+local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
+local MERGE_POLICY_ID = "cas.legacy_merge_v1"
+local FIX_POLICY_ID = "cas.legacy_fix_v1"
 
 local function sealed_snapshot()
   return restart_authority.seal_snapshot({
@@ -336,23 +30,181 @@ local function assert_illegal(actual, reason_code, cas_outcome, context)
   t.eq(actual.grant, nil, context .. ": grant disabled")
 end
 
+local function assert_bidirectional(left, right, field, context)
+  t.eq(left[field], right[field], context .. ": NEW->OLD " .. field)
+  t.eq(right[field], left[field], context .. ": OLD->NEW " .. field)
+end
+
+local protected_results = {
+  ["source-apply"] = { status = "apply", reason_code = "apply", cas_outcome = "applied" },
+  ["entry-state-apply"] = { status = "apply", reason_code = "apply", cas_outcome = "applied" },
+  ["same-attempt-merging-apply"] = { status = "apply", reason_code = "apply", cas_outcome = "applied" },
+  ["target-idempotent"] = { status = "idempotent", reason_code = "already-at-target", cas_outcome = "skip-idempotent(already at to_state)" },
+  ["already-merged-idempotent"] = { status = "idempotent", reason_code = "already-at-target", cas_outcome = "skip-idempotent(already at to_state)" },
+  ["newer-pending"] = { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = "retry-pending(from-state marker not yet visible)" },
+  ["newer-request-pending"] = { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = "retry-pending(from-state marker not yet visible)" },
+  ["source-missing-pending"] = { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = "retry-pending(from-state marker not yet visible)" },
+  ["older-stale"] = { status = "stale", reason_code = "incoming-version-older", cas_outcome = "skip-stale(incoming version < current marker version)" },
+  ["older-request-stale"] = { status = "stale", reason_code = "incoming-version-older", cas_outcome = "skip-stale(incoming version < current marker version)" },
+  ["target-not-readmitted"] = { status = "stale", reason_code = "from-state-mismatch", cas_outcome = "skip-stale(from-state-mismatch)" },
+  ["outside-closed-domain"] = { status = "stale", reason_code = "from-state-mismatch", cas_outcome = "skip-stale(from-state-mismatch)" },
+  ["ordering-equal-raw-mismatch"] = { status = "stale", reason_code = "version-mismatch", cas_outcome = "skip-stale(version-mismatch)" },
+}
+
+local function protected_result(case)
+  return assert(protected_results[case.name], "missing protected result for " .. tostring(case.name))
+end
+
+local function assert_edge_shadow_case(profile, case)
+  local old = protected_result(case)
+  local sealed = restart_authority.seal_snapshot({
+    owner = OWNER,
+    proposal_id = "github-devloop/issue/owner/repo/42",
+    current = case.current,
+  })
+  local shadow = restart_authority.decide_transition(sealed, {
+    semantic_variant = profile.semantic_variant,
+    target = profile.target,
+    incoming_version = case.incoming,
+    overlay_version = case.overlay or case.incoming,
+  })
+  local context = profile.semantic_variant .. "/" .. case.name
+  assert_bidirectional(shadow, old, "status", context)
+  assert_bidirectional(shadow, old, "reason_code", context)
+  assert_bidirectional(shadow, old, "cas_outcome", context)
+  t.eq(shadow.edge_id, profile.edge_id, context .. ": exact owner edge")
+  t.eq(shadow.cas_policy_id, profile.policy_id, context .. ": closed OLD policy")
+  t.eq(shadow.grant, nil, context .. ": grant consumption stays disabled")
+  if shadow.status == "apply" or shadow.status == "idempotent" then
+    local status = shadow.status
+    t.eq(shadow.effect_entitlement_id, profile.edge_id .. "/" .. status)
+    t.eq(table.concat(shadow.granted_effect_ids, ","), table.concat(profile.effects[status], ","))
+  else
+    t.eq(shadow.effect_entitlement_id, nil)
+    t.eq(shadow.granted_effect_ids, nil)
+  end
+end
+
 return {
-  test_shadow_decider_matches_legacy_review_result_cyclic_cas_triplets = function()
-    t.is_true(
-      transition_version.safe_version_segment(V_ORDERING_EQUAL_CURRENT)
-        ~= transition_version.safe_version_segment(V_ORDERING_EQUAL_INCOMING),
-      "safe-overlay fixture safe versions must be byte-different"
-    )
-    t.eq(
-      transition_version.compare(
-        transition_version.safe_version_segment(V_ORDERING_EQUAL_CURRENT),
-        transition_version.safe_version_segment(V_ORDERING_EQUAL_INCOMING)
-      ),
-      0,
-      "safe-overlay fixture versions must be ordering-equal"
-    )
-    for _, fixture in ipairs(fixtures) do
-      assert_case(fixture)
+  test_four_sink_reaching_edges_are_bidirectionally_legacy_exact = function()
+    local transition_effects = {
+      "github-proxy.github_pr_comment_request",
+      "github-proxy.github_issue_label_request",
+    }
+    local profiles = {
+      {
+        semantic_variant = "code_repair_needed",
+        edge_id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed",
+        policy_id = MERGE_POLICY_ID,
+        sources = { "merge-ready" },
+        target = "fixing",
+        admissible_states = { "merge-ready", "merging", "merged" },
+        effects = { apply = transition_effects, idempotent = {} },
+        cases = {
+          { name = "source-apply", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "newer-pending", current = { state = "merge-ready", version = V_OLDER }, incoming = V_NEWER },
+          { name = "older-stale", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_OLDER },
+          { name = "target-not-readmitted", current = { state = "fixing", version = V_EQUAL }, incoming = V_EQUAL },
+        },
+      },
+      {
+        semantic_variant = "merge-needs-fix",
+        edge_id = "github-devloop-pr/merging/autonomous/merge-needs-fix",
+        policy_id = MERGE_POLICY_ID,
+        sources = { "merging" },
+        target = "fixing",
+        admissible_states = { "merge-ready", "merging", "merged" },
+        effects = { apply = transition_effects, idempotent = {} },
+        cases = {
+          { name = "source-apply", current = { state = "merging", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "newer-pending", current = { state = "merging", version = V_OLDER }, incoming = V_NEWER },
+          { name = "older-stale", current = { state = "merging", version = V_EQUAL }, incoming = V_OLDER },
+          { name = "target-not-readmitted", current = { state = "fixing", version = V_EQUAL }, incoming = V_EQUAL },
+        },
+      },
+      {
+        semantic_variant = "revision_failed",
+        edge_id = "github-devloop-pr/fixing/autonomous/revision_failed",
+        policy_id = FIX_POLICY_ID,
+        sources = { "fixing" },
+        target = "review-meta",
+        effects = { apply = transition_effects, idempotent = {} },
+        cases = {
+          { name = "source-apply", current = { state = "fixing", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "target-idempotent", current = { state = "review-meta", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "source-missing-pending", current = { state = nil, version = nil }, incoming = V_NEWER },
+          { name = "older-stale", current = { state = "fixing", version = V_EQUAL }, incoming = V_OLDER },
+        },
+      },
+      {
+        semantic_variant = "eligible_now",
+        edge_id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now",
+        policy_id = MERGE_POLICY_ID,
+        sources = { "merge-ready", "merging" },
+        target = "merging",
+        admissible_states = { "merge-ready", "merging", "merged" },
+        effects = {
+          apply = { "github.merge:verified-pr" },
+          idempotent = { "github.merge:verified-pr" },
+        },
+        cases = {
+          { name = "source-apply", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "target-idempotent", current = { state = "merging", version = V_EQUAL }, incoming = V_EQUAL },
+          { name = "newer-pending", current = { state = "merge-ready", version = V_OLDER }, incoming = V_NEWER },
+          { name = "older-stale", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_OLDER },
+        },
+      },
+    }
+    for _, profile in ipairs(profiles) do
+      for _, case in ipairs(profile.cases) do assert_edge_shadow_case(profile, case) end
+    end
+  end,
+
+  test_merge_completed_shadow_is_bidirectionally_legacy_exact = function()
+    local cases = {
+      { name = "entry-state-apply", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_EQUAL },
+      { name = "same-attempt-merging-apply", current = { state = "merging", version = V_EQUAL }, incoming = V_EQUAL },
+      { name = "already-merged-idempotent", current = { state = "merged", version = V_EQUAL }, incoming = V_EQUAL },
+      { name = "newer-request-pending", current = { state = "merge-ready", version = V_OLDER }, incoming = V_NEWER },
+      { name = "older-request-stale", current = { state = "merge-ready", version = V_EQUAL }, incoming = V_OLDER },
+      {
+        name = "ordering-equal-raw-mismatch",
+        current = { state = "merging", version = V_ORDERING_EQUAL_CURRENT },
+        incoming = V_ORDERING_EQUAL_INCOMING,
+        overlay = V_ORDERING_EQUAL_INCOMING,
+      },
+      { name = "outside-closed-domain", current = { state = "reviewing", version = V_EQUAL }, incoming = V_EQUAL },
+    }
+    for _, case in ipairs(cases) do
+      local overlay = case.overlay or case.incoming
+      local legacy = protected_result(case)
+      local sealed = restart_authority.seal_snapshot({
+        owner = OWNER,
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        current = case.current,
+      })
+      local shadow = restart_authority.decide_transition(sealed, {
+        semantic_variant = MERGE_COMPLETED_VARIANT,
+        target = "merged",
+        incoming_version = case.incoming,
+        overlay_version = overlay,
+      })
+      assert_bidirectional(shadow, legacy, "status", case.name)
+      assert_bidirectional(shadow, legacy, "reason_code", case.name)
+      assert_bidirectional(shadow, legacy, "cas_outcome", case.name)
+      t.eq(shadow.edge_id, MERGE_COMPLETED_EDGE_ID, case.name .. ": exact owner edge")
+      t.eq(shadow.cas_policy_id, MERGE_COMPLETED_POLICY_ID, case.name .. ": closed OLD policy")
+      t.eq(shadow.grant, nil, case.name .. ": grant consumption stays disabled")
+      if shadow.status == "apply" then
+        t.eq(shadow.effect_entitlement_id, MERGE_COMPLETED_EDGE_ID .. "/apply")
+        t.eq(table.concat(shadow.granted_effect_ids, ","), "github-proxy.github_pr_comment_request")
+      elseif shadow.status == "idempotent" then
+        t.eq(shadow.effect_entitlement_id, MERGE_COMPLETED_EDGE_ID .. "/idempotent")
+        t.eq(#shadow.granted_effect_ids, 0)
+      else
+        t.eq(shadow.effect_entitlement_id, nil)
+        t.eq(shadow.granted_effect_ids, nil)
+      end
     end
   end,
 

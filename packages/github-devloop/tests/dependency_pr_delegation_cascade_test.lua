@@ -47,7 +47,7 @@ local function mock_dependent_issue()
     number = dependent_number,
     labels = { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
     comments = {
-      core.state_marker(dependent_proposal, "dependency_wait", dependent_version),
+      h.projected_state_comment(dependent_proposal, "dependency_wait", dependent_version),
       core.dependency_wait_marker(dependent_proposal, dependent_version, { blocker_number }),
     },
     assignees = { "fkst-test-bot" },
@@ -66,7 +66,7 @@ local function mock_delegated_blocker_issue()
     },
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,comments,state,stateReason,assignees,author")
+  }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
 local function mock_merged_child_pr()

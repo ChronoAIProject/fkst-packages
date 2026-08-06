@@ -14,7 +14,7 @@ local spec = {
   consumes = { "devloop_execute_request" },
   published_seam = { "devloop_execute_request" },
   produces = {
-    "consensus.proposal",
+    "devloop_consensus_request",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_label_request",
   },
@@ -61,11 +61,11 @@ local function raise_execution_start(repo, issue_number, request, current, event
   }, {
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_label_request",
-    "consensus.proposal",
+    "devloop_consensus_request",
   })
   devloop_logging.log_raise("execute_start", request.proposal_id, "github-proxy.github_issue_comment_request", effects.thinking_comment_request)
   devloop_logging.log_raise("execute_start", request.proposal_id, "github-proxy.github_issue_label_request", effects.thinking_label_request)
-  devloop_logging.log_raise("execute_start", request.proposal_id, "consensus.proposal", proposal)
+  devloop_logging.log_raise("execute_start", request.proposal_id, "devloop_consensus_request", proposal)
   return true
 end
 

@@ -9,8 +9,28 @@ return function(M, h)
   local liveness = h.liveness
   local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
   local advancing_fact = h.advancing_fact
+  local function effect_entitlements(semantic_variant)
+    local edge_id = "github-devloop-pr/review-meta/autonomous/" .. semantic_variant
+    return {
+      apply = {
+        id = edge_id .. "/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = edge_id .. "/idempotent",
+        effect_ids = {},
+      },
+    }
+  end
   return {
     from_state = "review-meta",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop-pr/review-meta/receiver_dispatch",
+      effect_ids = { "codex.dispatch:review-meta" },
+    },
     liveness_class_id = "review_meta.actionable",
     watchdog = {
       mode = "live-defer",
@@ -32,6 +52,17 @@ return function(M, h)
     driving_queue = "devloop_review_meta",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "review-meta:v1", "state:v1 fixing", "state:v1 blocked" }, { "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/review-meta/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 90,
+        },
+      },
+    },
     budget = budget(90, "A live review-meta codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is indeterminate; only positively not-running status falls back to the marker-budget timeout path."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -47,6 +78,30 @@ return function(M, h)
       },
     }),
     on_timeout = timeout("devloop_review_meta"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "review_meta_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+    },
     responsibility_signature = responsibility_signature({
       receiver_kind = "review-meta-judge",
       driving_queue = "devloop_review_meta",
@@ -63,6 +118,7 @@ return function(M, h)
           output_variant = "fix",
           cas_policy_id = "cas.legacy_review_meta_v1",
           cas_variant = "predecision_eligibility",
+          transition_effect_entitlements = effect_entitlements("fix"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "review-meta" },
           postcondition_family = "review-meta-decision",
@@ -74,6 +130,7 @@ return function(M, h)
           output_variant = "block",
           cas_policy_id = "cas.legacy_review_meta_v1",
           cas_variant = "predecision_eligibility",
+          transition_effect_entitlements = effect_entitlements("block"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "review-meta" },
           postcondition_family = "review-meta-decision",

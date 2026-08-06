@@ -2,7 +2,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local parsers_misc = require("devloop.parsers.misc")
 local common = require("departments.observability.common")
-local dashboard_commands = require("devloop.commands.dashboard")
+local dashboard_commands = require("core.dashboard_commands")
 local strings = require("contract.strings")
 local devloop_state = require("devloop.state")
 local decimal_checksum = strings.decimal_checksum
@@ -28,6 +28,7 @@ local function ensure_dashboard_label(repo, limits, deadline)
     end,
   }, limits, deadline, "dashboard label get")
   if core.observability_result_deferred(existing) then return "deferred" end
+  if core.observability_result_timeout(existing) then return "deferred" end
   if existing.exit_code == 0 then
     return "exists"
   end
@@ -42,6 +43,7 @@ local function ensure_dashboard_label(repo, limits, deadline)
     end,
   }, limits, deadline, "dashboard label create")
   if core.observability_result_deferred(created) then return "deferred" end
+  if core.observability_result_timeout(created) then return "deferred" end
   if created.exit_code == 0 then
     log.info("github-devloop dept=observability tag=DASHBOARD_LABEL_CREATED label=" .. dashboard_label)
     return "created"
@@ -315,7 +317,7 @@ function core.render_observability_dashboard(args)
   local generated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now_seconds)
   local instance = devloop_base.read_env("FKST_GITHUB_BOT_LOGIN") or "unknown"
   local by_state = { unmanaged = {} }
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     by_state[state] = {}
   end
   for _, entity in ipairs(list) do
@@ -357,7 +359,7 @@ function core.render_observability_dashboard(args)
   lines = {}
   table.insert(lines, "## Board by state")
   table.insert(lines, "Total: " .. tostring(#list))
-  for _, state in ipairs(devloop_state.issue_state_order()) do
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
     table.insert(lines, "- " .. tostring(state) .. ": " .. tostring(counts[state] or 0))
   end
   if counts.unmanaged ~= nil then
@@ -468,6 +470,9 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
   if core.observability_result_deferred(listed) then
     return "deferred"
   end
+  if core.observability_result_timeout(listed) then
+    return "deferred"
+  end
   if listed.exit_code ~= 0 then
     log.warn("github-devloop dept=observability tag=DASHBOARD_LOCATOR_FAILED"
       .. " locator=label-list"
@@ -492,7 +497,7 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
 end
 
 local function trusted_dashboard_issue_by_number(repo, issue_number, bot_login, limits, deadline)
-  local view = core.observability_run_cmd({
+  local view = core.observability_display_read_cmd({
     run = function(timeout)
       return dashboard_commands.gh_dashboard_issue_get(repo, issue_number, timeout)
     end,

@@ -23,6 +23,7 @@ local pr_mergeable = check_runs.pr_mergeable
 local is_not_mergeable_reason = check_runs.is_not_mergeable_reason
 local required_head_check_run_status = shared.required_head_check_run_status
 local required_head_ci_failure_key = shared.required_head_ci_failure_key
+local required_head_ci_failure_summary = shared.required_head_ci_failure_summary
 local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
 local merge_gate_reason_row = shared.merge_gate_reason_row
@@ -52,7 +53,7 @@ end
 local function commit_check_runs_merge_gate(repo, head_sha, opts)
   local result = github("forge.merge").gh_commit_check_runs(repo, head_sha, 30)
   if result.exit_code ~= 0 then
-    error("forge.merge: gh commit check-runs failed: " .. tostring(result.stderr))
+    error("forge.merge: gh-commit-check-runs-failed: gh commit check-runs failed: " .. tostring(result.stderr))
   end
   local runs = parse_commit_check_runs(result.stdout)
   local green, reason = commit_check_runs_green(runs)
@@ -96,7 +97,11 @@ local function classify_pr_ci_gate(pr, opts)
   end
   local ci_failure_key = required_head_ci_failure_key(runs, head_sha)
   if ci_failure_key ~= nil then
-    return ci_classification("OWN_CI_RED", "own-ci-red", { check_runs = runs, ci_failure_key = ci_failure_key })
+    return ci_classification("OWN_CI_RED", "own-ci-red", {
+      check_runs = runs,
+      ci_failure_key = ci_failure_key,
+      gate_failure_excerpt = required_head_ci_failure_summary(runs, head_sha, opts and opts.failure_summary_limit),
+    })
   end
   if reason == "rollup-pending" then
     return ci_classification("CHECKS_PENDING", "checks-pending", { check_runs = runs })

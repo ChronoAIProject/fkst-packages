@@ -137,10 +137,12 @@ local function pr_view_open_stdout(pr_number)
     .. '"headRefName":"feature","baseRefName":"workflow-dogfood","comments":[]}\n'
 end
 
-local function impl_failed_comments(child_proposal_id, version, reason)
+local function impl_failed_comments(child_proposal_id, version, reason, attempt)
+  local attempt_field = attempt == nil and "" or ' attempt="' .. tostring(attempt) .. '"'
   local marker = '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. tostring(child_proposal_id)
     .. '" reason="' .. tostring(reason)
-    .. '" dedup="' .. tostring(version)
+    .. '"' .. attempt_field
+    .. ' dedup="' .. tostring(version)
     .. '" -->'
   return {
     comment(table.concat({
@@ -374,7 +376,7 @@ local tests = {
     t.eq(reader(child_ref), "running")
   end,
 
-  test_reader_marks_no_changes_child_with_merged_predecessor_blocked_with_why = function()
+  test_reader_marks_no_changes_child_with_stale_thinking_label_blocked_with_why = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
       configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
     })
@@ -404,7 +406,7 @@ local tests = {
       exit_code = 0,
     })
     t.mock_command("gh issue view", {
-      stdout = issue_view_stdout(second_issue, "OPEN", impl_failed_comments(second_proposal_id, second_version, "no-changes"), { "fkst-dev:impl-failed" }),
+      stdout = issue_view_stdout(second_issue, "OPEN", impl_failed_comments(second_proposal_id, second_version, "no-changes"), { "fkst-dev:thinking" }),
       stderr = "",
       exit_code = 0,
     })
@@ -436,7 +438,96 @@ local tests = {
     t.eq(action.child_ref.proposal_id, second_proposal_id)
   end,
 
-  test_reader_ignores_stale_no_changes_failure_marker_for_current_impl_failed_state = function()
+  test_reader_keeps_current_retryable_impl_failure_recoverable_with_stale_thinking_label = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 251
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local version = "ready/consensus-github-devloop/issue/owner/repo/251/2026-07-04T00-00-00Z"
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(
+        child_issue,
+        "OPEN",
+        impl_failed_comments(child_proposal_id, version, "codex-failed", 1),
+        { "fkst-dev:thinking" }
+      ),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "recoverable")
+  end,
+
+  test_reader_ignores_historical_blocked_marker_after_current_state_advances_to_thinking = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 252
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local blocked_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-00-00Z/intake/1"
+    local thinking_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-01-00Z/intake/2"
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", {
+        comment(core.state_marker(child_proposal_id, "blocked", blocked_version)),
+        comment(core.state_marker(child_proposal_id, "thinking", thinking_version)),
+      }, { "fkst-dev:blocked" }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "running")
+  end,
+
+  test_reader_uses_canonical_blocked_marker_when_label_is_stale = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 253
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", {
+        comment(core.state_marker(child_proposal_id, "blocked", "2026-07-04T00-00-00Z")),
+      }, { "fkst-dev:thinking" }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "fatal")
+  end,
+
+  test_reader_ignores_old_impl_failure_after_current_state_advances = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 261
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local failed_version = "ready/consensus-github-devloop/issue/owner/repo/261/2026-07-04T00-00-00Z"
+    local current_version = failed_version .. "/reimplement/2"
+    local comments = impl_failed_comments(child_proposal_id, failed_version, "codex-failed", 1)
+    comments[#comments + 1] = comment(core.state_marker(child_proposal_id, "implementing", current_version))
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", comments, { "fkst-dev:impl-failed" }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "running")
+  end,
+
+  test_reader_uses_current_retryable_failure_instead_of_stale_no_changes = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
       configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
     })
@@ -503,9 +594,8 @@ local tests = {
       second_fact,
     }), reader)
 
-    t.eq(action.action, "terminal")
-    t.eq(action.state, "blocked")
-    t.eq(action.reason_code, "child-fatal-second-codex-failed")
+    t.eq(action.action, "wait")
+    t.eq(action.why, "child-recoverable")
   end,
 }
 

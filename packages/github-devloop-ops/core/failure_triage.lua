@@ -229,6 +229,102 @@ local function output_obligation_escalation_marker(fact)
     .. '" -->'
 end
 
+local output_obligation_escalation_pattern = "<!%-%- fkst:github%-devloop%-ops:output%-obligation%-escalation:v1.-%-%->"
+
+local function output_obligation_escalation_marker_from_issue(issue)
+  local found = nil
+  for marker in tostring(issue and issue.body or ""):gmatch(output_obligation_escalation_pattern) do
+    if found ~= nil then
+      return nil, "ambiguous-escalation-marker"
+    end
+    found = marker
+  end
+  if found == nil then
+    return nil, "missing-escalation-marker"
+  end
+  return found, nil
+end
+
+local function classify_output_obligation_escalation_issue(issue, observed_repo, observed_issue_number)
+  if type(issue) ~= "table" then
+    return nil, "escalation-not-table"
+  end
+  if parsers_misc._comment_author_login(issue) ~= devloop_base.trusted_bot_login() then
+    return nil, "untrusted-escalation-author"
+  end
+  if not devloop_base.is_intake_held(issue.labels) then
+    return nil, "escalation-not-held"
+  end
+  if tostring(issue.state or ""):upper() ~= "OPEN" then
+    return nil, "escalation-not-open"
+  end
+
+  local marker, marker_reason = output_obligation_escalation_marker_from_issue(issue)
+  if marker == nil then
+    return nil, marker_reason
+  end
+  local proposal_id = attr(marker, "proposal")
+  local terminal_version = attr(marker, "terminal_version")
+  local dedup_key = attr(marker, "dedup")
+  local marker_reason_class = attr(marker, "reason_class")
+  local parent = attr(marker, "parent")
+  if marker_reason_class ~= "state-output-obligation-timeout" then
+    return nil, "unsupported-reason-class"
+  end
+  if not strings.is_bounded_string(terminal_version, M._max_dedup_len) then
+    return nil, "invalid-terminal-version"
+  end
+  if not strings.is_bounded_string(dedup_key, M._max_dedup_len) then
+    return nil, "invalid-escalation-dedup"
+  end
+
+  local proposal_repo, proposal_issue_number = base_ids.parse_proposal_id(proposal_id)
+  if proposal_repo == nil or not base_ids.issue_ref_round_trips(proposal_repo, proposal_issue_number) then
+    return nil, "invalid-escalation-proposal"
+  end
+  local ok_parent, parent_source_ref = pcall(base_ids.normalize_source_ref, {
+    kind = "external",
+    ref = parent,
+  })
+  if not ok_parent then
+    return nil, "invalid-escalation-parent"
+  end
+  local parent_repo, parent_issue_number = devloop_base.parse_issue_source_ref(parent_source_ref)
+  if parent_repo ~= proposal_repo or tostring(parent_issue_number or "") ~= tostring(proposal_issue_number) then
+    return nil, "proposal-parent-mismatch"
+  end
+  if tostring(observed_repo or "") ~= proposal_repo then
+    return nil, "escalation-repo-mismatch"
+  end
+  local escalation_issue_number = tonumber(observed_issue_number or issue.number)
+  if escalation_issue_number == nil or escalation_issue_number < 1 or escalation_issue_number % 1 ~= 0 then
+    return nil, "invalid-escalation-issue"
+  end
+  local expected_dedup = output_obligation_dedup_key(
+    proposal_repo,
+    proposal_id,
+    terminal_version,
+    marker_reason_class
+  )
+  if dedup_key ~= expected_dedup then
+    return nil, "escalation-dedup-mismatch"
+  end
+
+  return {
+    proposal_id = proposal_id,
+    parent = parent,
+    terminal_version = terminal_version,
+    dedup_key = dedup_key,
+    reason_class = marker_reason_class,
+    source_ref = parent_source_ref,
+    source_repo = parent_repo,
+    source_issue_number = tonumber(parent_issue_number),
+    escalation_repo = proposal_repo,
+    escalation_issue_number = escalation_issue_number,
+    escalation_source_ref = base_ids.issue_source_ref(proposal_repo, escalation_issue_number),
+  }, nil
+end
+
 local function issue_created_drain_edge(comments, dedup_key)
   if type(comments) ~= "table" then
     return nil
@@ -252,8 +348,7 @@ local function issue_created_drain_edge(comments, dedup_key)
 end
 
 local function issue_body_semantic_drain_edge(issue, issue_number, dedup_key, terminal_version)
-  local marker_pattern = "<!%-%- fkst:github%-devloop%-ops:output%-obligation%-escalation:v1.-%-%->"
-  for marker in tostring(issue and issue.body or ""):gmatch(marker_pattern) do
+  for marker in tostring(issue and issue.body or ""):gmatch(output_obligation_escalation_pattern) do
     if attr(marker, "dedup") == tostring(dedup_key)
       and (terminal_version == nil or attr(marker, "terminal_version") == tostring(terminal_version)) then
       return {
@@ -438,12 +533,16 @@ local function output_obligation_body(fact)
 end
 
 local function output_obligation_issue_request(fact)
+  local labels = {}
+  if fact.reason_class == "state-output-obligation-timeout" then
+    labels = { M._hold_label }
+  end
   return {
     schema = "github-proxy.issue-create.v1",
     repo = fact.source_repo,
     title = output_obligation_title(fact),
     body = output_obligation_body(fact),
-    labels = json.decode("[]"),
+    labels = labels,
     dedup_key = fact.dedup_key,
     parent_comment_target = {
       repo = fact.source_repo,
@@ -519,6 +618,10 @@ end
 
 function M.output_obligation_escalation_marker(fact)
   return output_obligation_escalation_marker(fact)
+end
+
+function M.classify_output_obligation_escalation_issue(issue, repo, issue_number)
+  return classify_output_obligation_escalation_issue(issue, repo, issue_number)
 end
 
 function M.output_obligation_failure_drain_edge(comments, dedup_key, issues, recent_issues, terminal_version)

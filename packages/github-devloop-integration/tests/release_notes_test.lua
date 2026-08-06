@@ -179,12 +179,35 @@ return {
     t.eq(git_calls[1][4], "refs/remotes/origin/dev..def456")
     t.eq(#github_calls, 2)
     t.eq(captured_opts.sandbox, "read-only")
+    t.eq(captured_opts.timeout, 3600)
     t.is_true(captured_opts.prompt:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
     t.is_true(captured_opts.prompt:find(raw_title, 1, true) == nil)
     t.is_true(captured_opts.prompt:find(raw_body, 1, true) == nil)
     t.is_true(captured_opts.prompt:find(raw_comment, 1, true) == nil)
     t.is_true(captured_opts.prompt:find("gh issue view", 1, true) == nil)
     t.is_true(notes_or_error:find("Filtered release highlights", 1, true) ~= nil)
+  end,
+
+  test_release_notes_codex_uses_resolver_env_override = function()
+    t.mock_command('printf %s "$FKST_CODEX_TIMEOUT_RELEASE_NOTES"', { stdout = "2345", stderr = "", exit_code = 0 })
+    local old_spawn = spawn_codex_sync
+    local captured_opts = nil
+    spawn_codex_sync = function(opts)
+      captured_opts = opts
+      return {
+        stdout = "Release highlights\n" .. ai_sentinel,
+        stderr = "",
+        exit_code = 0,
+      }
+    end
+    local ok, notes_or_error = pcall(function()
+      return core.draft_release_notes(release_notes_args({ allow_fallback = false }))
+    end)
+    spawn_codex_sync = old_spawn
+    if not ok then error(notes_or_error) end
+
+    t.eq(captured_opts.timeout, 2345)
+    t.is_true(notes_or_error:find("Release highlights", 1, true) ~= nil)
   end,
 
   test_release_notes_codex_failure_fails_closed_without_fallback = function()

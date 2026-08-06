@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local claims = require("devloop.claims")
 local commands = require("devloop.commands")
 local config = require("devloop.config")
@@ -8,6 +9,7 @@ local forge_validators = require("devloop.forge_validators")
 local marker_facts = require("devloop.markers.facts")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_state = require("devloop.state")
+local premise_correction = require("devloop.premise_correction")
 
 local C = {}
 
@@ -119,7 +121,7 @@ local function contains(values, expected)
   return false
 end
 
-local function issue_is_active(repo, current)
+local function issue_occupies_capacity(repo, current)
   if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
     return false
   end
@@ -129,7 +131,11 @@ local function issue_is_active(repo, current)
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local decision = marker_facts.intake_decision_fact(current.comments, proposal_id)
-  return (decision == nil or decision.decision == "enable")
+  local pending_correction = premise_correction.matching_correction_fact(current.comments, decision)
+  local has_active_state = not marker_facts.has_state_marker(current.comments, proposal_id)
+    or devloop_state.has_active_issue_state(current.labels, current.comments, proposal_id)
+  return (decision == nil or decision.decision == "enable" or pending_correction ~= nil)
+    and has_active_state
     and not devloop_state.current_issue_observation_is_terminal(current.comments, proposal_id)
 end
 
@@ -182,7 +188,7 @@ local function build_snapshot(ports, repo, owner, grant, candidate_number, candi
   return snapshot
 end
 
-local function desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+local function desired_allocation(repo, owner, max_inflight, grant, snapshot, candidate_number)
   local holders = {}
   local selected = {}
 
@@ -193,7 +199,7 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
-      and issue_is_active(repo, current)
+      and issue_occupies_capacity(repo, current)
       and not selected[normalized] then
       table.insert(holders, normalized)
       selected[normalized] = true
@@ -205,18 +211,20 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
     local ownership = claims.issue_claim_state(current.assignees, owner, current.labels)
     local is_current_candidate = tonumber(candidate_number) == number
     if not selected[number]
-      and issue_is_active(repo, current)
+      and issue_occupies_capacity(repo, current)
       and (ownership == "self" or (is_current_candidate and ownership == "unassigned")) then
-      table.insert(candidates, number)
+      table.insert(candidates, {
+        number = number,
+      })
     end
   end
-  table.sort(candidates)
-  for _, number in ipairs(candidates) do
+  table.sort(candidates, function(left, right) return left.number < right.number end)
+  for _, candidate in ipairs(candidates) do
     if #holders >= max_inflight then
       break
     end
-    table.insert(holders, number)
-    selected[number] = true
+    table.insert(holders, candidate.number)
+    selected[candidate.number] = true
   end
   return holders
 end
@@ -228,7 +236,7 @@ local function converge_claims(ports, repo, owner, holders, snapshot)
       and claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
       table.insert(releases, {
         number = number,
-        active = issue_is_active(repo, current),
+        active = issue_occupies_capacity(repo, current),
       })
     end
   end
@@ -276,7 +284,14 @@ function C.new(ports)
     local owner = ports.owner()
     local grant = ports.read_grant(repo, owner)
     local snapshot = build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
-    local holders = desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+    local holders = desired_allocation(
+      repo,
+      owner,
+      max_inflight,
+      grant,
+      snapshot,
+      candidate_number
+    )
 
     if not grant_matches(grant, repo, owner, max_inflight, holders) then
       local record = {
@@ -310,7 +325,8 @@ function C.new(ports)
     if candidate_number == nil then
       return true, "wip-cap-reconciled"
     end
-    if contains(holders, candidate_number) then
+    local holder_granted = contains(holders, candidate_number)
+    if holder_granted then
       if type(ports.log_decision) == "function" then
         ports.log_decision(proposal_id, grant, "granted", "remote capacity grant contains candidate")
       end
@@ -515,7 +531,7 @@ function C.production(_M)
 end
 
 C.schema = schema
-C.issue_is_active = issue_is_active
+C.issue_occupies_capacity = issue_occupies_capacity
 C.grant_ref = grant_ref
 
 return C

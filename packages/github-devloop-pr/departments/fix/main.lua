@@ -19,6 +19,8 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
+local fix_caps = require("fix_department_caps")
+local restart_sink_grants = require("restart_sink_grants")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -75,18 +77,49 @@ local function raise_review_meta(...)
   return requests_review.raise_fix_review_meta(review_meta_caps, ...)
 end
 
-local function raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
-  requests_review.raise_fix_reviewing(core, {
-    dept = "fix",
+local function emit_reviewing(restart_effect, repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
+  fix.fix_summary = bounded_fix_summary(summary)
+  local new_version = restart_effect.decision.target_version
+  local args = {
+    core = core,
     repo = repo,
     issue_number = issue_number,
     fix = fix,
     old_head_sha = old_head_sha,
     new_head_sha = new_head_sha,
-    reason = reason,
-    fix_summary = bounded_fix_summary(summary),
-    clear_fix_summary = true,
-  })
+    new_version = new_version,
+  }
+  local effects = {}
+  local emitted_effect_ids = {}
+  for _, effect_id in ipairs(restart_effect.decision.granted_effect_ids) do
+    if effect_id ~= "git.push:fix-branch"
+      and (effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil) then
+      local payload, rejection = restart_effect.facade.emit(
+        restart_effect.grant,
+        effect_id,
+        restart_effect.snapshot,
+        args
+      )
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: PR fix effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+      table.insert(emitted_effect_ids, effect_id)
+    end
+  end
+
+  local add_labels, remove_labels = devloop_state.state_label_changes("reviewing")
+  devloop_logging.log_cas_decision("fix", fix.proposal_id,
+    { state = "fixing", version = fix.version }, "fixing", "reviewing",
+    restart_effect.decision.cas_outcome, reason)
+  devloop_logging.log_apply("fix", fix.proposal_id, "reviewing", new_version, {
+    add = add_labels,
+    remove = remove_labels,
+  }, emitted_effect_ids)
+  for _, effect in ipairs(effects) do
+    devloop_logging.log_raise("fix", fix.proposal_id, effect.queue, effect.payload)
+  end
 end
 
 local function fix_at_next_attempt_version(fix)
@@ -159,8 +192,25 @@ local function validate_fix_write_gate_snapshot(repo, fix, branch, pr, reason_pr
   return fix_write_gate.validate(repo, fix, branch, pr, state, reason_prefix, fail_closed)
 end
 
+local function authorize_fix_receiver(repo, fix, pr, state, phase)
+  return restart_sink_grants.receiver(fix_caps, {
+    owner = fix_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = fix.pr_number },
+    proposal_id = fix.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({ "fix-receiver", fix.proposal_id,
+      state.state or "missing", state.version or "missing", phase }, "|"),
+    lock_epoch = entity_lib.transition_lock_key(fix.proposal_id)
+      .. "@" .. tostring(state.version or "missing"),
+    generation = fix.version,
+    head = { sha = pr.head_sha },
+  }, { receiver_state = "fixing" }, "codex.dispatch:fix",
+    "github-devloop: fix receiver dispatch grant")
+end
+
 local function run_fix_attempt(plan)
-  local worktree = branch_worktree(plan.repo, plan.issue_number, plan.fix.version, plan.branch)
+  local worktree = branch_worktree(
+    plan.repo, plan.issue_number, plan.impl_version, plan.branch)
   local merge_context, speculative_reason, speculative_current_set
   if plan.speculative_predecessors ~= nil then
     merge_context, speculative_reason = merge_predecessor_entries_for_fix(
@@ -214,12 +264,13 @@ local function run_fix_attempt(plan)
     version = plan.fix.dedup_key,
     tick = plan.event_ts,
   })
+  restart_sink_grants.consume(fix_caps, plan.receiver_authorization, "codex.dispatch:fix",
+    "github-devloop: fix codex dispatch grant")
   local result = workflow_codex.dispatch(convergence_identity.from_parts("fix", plan.fix.proposal_id, plan.fix.work_unit_key, {
     angle_lane = "worker",
   }), {
     prompt = core.build_fix_prompt(plan.fix, plan.current_issue, plan.feedback_reason, plan.fix.framing, content_fetch, merge_context),
     worktree = worktree,
-    timeout = 2 * 60 * 60,  -- 2h: fix loops code+test (#1481)
     sync = true,
   })
   if type(result) == "table" and result.deferred then
@@ -340,7 +391,7 @@ local function run_fix_attempt(plan)
     plan.fix.reviewed_head_sha,
     function(classification)
       local current_pr = classification.current_pr
-      local authorized = validate_fix_write_gate_snapshot(
+      local authorized, authorized_state = validate_fix_write_gate_snapshot(
         plan.repo, plan.fix, plan.branch, current_pr, "pre-dispatch", false
       )
       if authorized == nil then
@@ -354,6 +405,9 @@ local function run_fix_attempt(plan)
         }
       end
       plan.current_pr = current_pr
+      plan.receiver_authorization = authorize_fix_receiver(
+        plan.repo, plan.fix, current_pr, authorized_state, "pre-dispatch"
+      )
       return dispatch()
     end,
     {
@@ -414,10 +468,10 @@ local function pre_spawn_fix_attempt(repo, fix, attempt_plan)
     )
     return false
   end
-  return true
+  return authorize_fix_receiver(repo, fix, prechecked_pr, prechecked_state, "pre-spawn")
 end
 
-local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
+local function apply_fix_outcome(repo, issue_number, fix, branch, outcome, restart_effect)
   if outcome == nil then
     return
   end
@@ -426,7 +480,8 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     return
   end
   if outcome.kind == "reviewing-current" then
-    raise_reviewing(
+    emit_reviewing(
+      restart_effect,
       repo,
       issue_number,
       fix,
@@ -479,6 +534,24 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     error("github-devloop: fix-outcome-unknown: unknown fix outcome")
   end
 
+  local publish_authorization = restart_sink_grants.transition(fix_caps, {
+    owner = fix_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = fix.pr_number },
+    proposal_id = fix.proposal_id,
+    current = current_state,
+    snapshot_fingerprint = table.concat({ "fix-publish", fix.proposal_id,
+      current_state.version or "missing", outcome.new_head_sha }, "|"),
+    lock_epoch = entity_lib.transition_lock_key(fix.proposal_id)
+      .. "@" .. tostring(current_state.version or "missing"),
+    generation = fix.version,
+    head = { sha = outcome.new_head_sha },
+  }, { semantic_variant = "revision_published", target = "reviewing",
+    incoming_version = fix.version, target_version = devloop_state.next_fix_version(fix.version),
+    overlay_version = fix.version }, "git.push:fix-branch",
+    "github-devloop: fix publish grant")
+
+  restart_sink_grants.consume(fix_caps, publish_authorization, "git.push:fix-branch",
+    "github-devloop: fix branch push grant")
   local push = devloop_commands.git_push_ref_update(
     "origin",
     outcome.new_head_sha,
@@ -501,7 +574,8 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     error("github-devloop: pushed-pr-head-mismatch: pushed PR head verification failed")
   end
 
-  raise_reviewing(repo, issue_number, fix, outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
+  emit_reviewing(restart_effect, repo, issue_number, fix,
+    outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
 end
 
 local function act_fix(event)
@@ -547,23 +621,63 @@ local function act_fix(event)
       return
     end
     local state = require("devloop.entity").current_entity_state(current_pr.comments, fix.proposal_id)
-    local transition = devloop_state.cyclic_transition_status(state, { "fixing" }, "reviewing", fix.version, reviewing_version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "fixing state marker not yet visible")
+    local snapshot = fix_caps.restart_effects.seal_snapshot({
+      owner = fix_caps.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = fix.pr_number },
+      proposal_id = fix.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-fix", fix.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local decision = fix_caps.restart_effects.decide_transition(snapshot, {
+      semantic_variant = "revision_published",
+      target = "reviewing",
+      incoming_version = fix.version,
+      target_version = reviewing_version,
+      overlay_version = fix.version,
+    })
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "fix", fix.proposal_id, state, "fixing", "reviewing",
+      "fixing state marker not yet visible") == "error" then
       error("github-devloop: fixing-marker-missing: fixing state marker not yet visible for fix; retrying")
     end
-    if transition == "idempotent" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "reviewing state marker for fix already visible")
+    if decision.status == "idempotent" then
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "reviewing state marker for fix already visible")
       return
     end
-    if state.state ~= "fixing" or transition == "stale" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "issue is not currently fixing")
+    if state.state ~= "fixing" or decision.status == "stale" then
+      local stale_reason = "issue is not currently fixing"
+      if decision.reason_code == "version-mismatch" then
+        stale_reason = "fix event version does not match canonical issue marker"
+      end
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, stale_reason)
       return
     end
-    if tostring(state.version or "") ~= tostring(fix.version) then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(version-mismatch)", "fix event version does not match canonical issue marker")
-      return
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR fix decision rejected: "
+        .. tostring(decision.reason_code))
     end
+    local grant = fix_caps.restart_effects.mint_grant(snapshot, decision, "comment:pr:fix-reviewing")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: PR fix grant was not minted")
+    end
+    local facade = fix_caps.restart_effect_facade.make({
+      family = "pr-fix",
+      verify_grant = fix_caps.restart_effects.verify_grant,
+      sink_inventory = fix_caps.sink_inventory,
+    })
+    if type(facade.emit) ~= "function" then
+      error("github-devloop: restart-effect-facade-invalid: PR fix facade emit is unavailable")
+    end
+    local reviewing_effect = {
+      snapshot = snapshot,
+      decision = decision,
+      grant = grant,
+      facade = facade,
+    }
     local reject_fact = m_facts.review_reject_fact(current_pr.comments, fix.proposal_id, fix.version)
     local meta_fix_fact = nil
     if reject_fact == nil then
@@ -664,7 +778,9 @@ local function act_fix(event)
       end
       if tostring(current_pr.head_sha or "") == intended_head_sha
         and tostring(current_pr.head_sha or "") ~= tostring(fix.reviewed_head_sha) then
-        raise_reviewing(repo, issue_number, fix, fix.reviewed_head_sha, intended_head_sha, "push already visible; self-healing missing reviewing marker")
+        emit_reviewing(reviewing_effect, repo, issue_number, fix,
+          fix.reviewed_head_sha, intended_head_sha,
+          "push already visible; self-healing missing reviewing marker")
         return
       end
       devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(head-advanced)", "PR head changed since rejected review")
@@ -716,6 +832,7 @@ local function act_fix(event)
       fix = fix,
       branches = branches,
       branch = branch,
+      impl_version = origin.impl_version,
       current_pr = current_pr,
       current_issue = current_issue,
       feedback_reason = feedback_reason,
@@ -725,24 +842,27 @@ local function act_fix(event)
       event_queue = event.queue,
       speculative_predecessors = speculative_predecessors,
       speculative_current_set = speculative_current_set,
+      reviewing_effect = reviewing_effect,
     }
   end)
   if attempt_plan == nil then
     return
   end
-  local pre_spawn_gate_ok = false
+  local receiver_authorization = nil
   with_lock(lock_key, function()
-    pre_spawn_gate_ok = pre_spawn_fix_attempt(repo, fix, attempt_plan)
+    receiver_authorization = pre_spawn_fix_attempt(repo, fix, attempt_plan)
   end)
-  if not pre_spawn_gate_ok then
+  if receiver_authorization == nil or receiver_authorization == false then
     return
   end
+  attempt_plan.receiver_authorization = receiver_authorization
   local outcome = run_fix_attempt(attempt_plan)
   if outcome == nil then
     return
   end
   with_lock(lock_key, function()
-    apply_fix_outcome(repo, issue_number, fix, attempt_plan.branch, outcome)
+    apply_fix_outcome(repo, issue_number, fix, attempt_plan.branch, outcome,
+      attempt_plan.reviewing_effect)
   end)
 end
 

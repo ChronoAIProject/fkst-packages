@@ -2,6 +2,7 @@ local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local base_ids = require("devloop.base_ids")
+local contract_pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
 local C = {}
@@ -11,84 +12,50 @@ local transition_version = require("contract.transition_version")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local shared = require("devloop.markers.shared")
 local m_builders = require("devloop.markers.builders")
-local ci_failure_keys = require("devloop.ci_failure_keys")
+local fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
+local premise_correction = require("devloop.premise_correction")
 
 local valid_round = shared.valid_round
 local marker_attr = shared.marker_attr
 local decode_marker_attr = shared.decode_marker_attr
-
-local function review_result_fact_from_marker(marker, comment, issue_proposal_id, issue_version, expected_decision)
-  local review_proposal = marker_attr(marker, "proposal")
-  local marker_issue = marker_attr(marker, "issue_proposal")
-  local decision = marker_attr(marker, "decision")
-  local review_dedup = marker_attr(marker, "dedup")
-  local _, _, review_version, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
-  local canonical_review_dedup = devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
-    review_dedup,
-    review_proposal
-  )
-  if marker_issue == tostring(issue_proposal_id)
-    and (expected_decision == nil or decision == expected_decision)
-    and (decision == "approve" or decision == "reject")
-    and review_version == transition_version.safe_version_segment(devloop_state._strip_latest_fix_version_suffix(issue_version))
-    and canonical_review_dedup ~= nil
-    and strings.is_bounded_string(canonical_review_dedup, devloop_base._max_dedup_len)
-    and forge_validators.is_git_sha(reviewed_head_sha) then
-    local fact = {
-      review_proposal_id = review_proposal,
-      review_dedup_key = canonical_review_dedup,
-      reviewed_head_sha = reviewed_head_sha,
-      decision = decision,
-      review_reason = parsers_misc._comment_body(comment),
-      comment_created_at = parsers_misc._comment_created_at(comment),
-    }
-    if decision == "reject" then
-      local marker_fix_round = valid_round(marker_attr(marker, "fix_round"))
-      if marker_fix_round == nil or marker_fix_round ~= devloop_state.version_fix_round(issue_version) then
-        return nil
-      end
-      local gap = decode_marker_attr(marker_attr(marker, "gap"))
-      if gap == nil or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
-        return nil
-      end
-      fact.blocking_gap = gap
-      fact.fix_round = marker_fix_round
-    end
-    return fact
-  end
-  return nil
-end
+C.parse_fix_feedback_fact = shared.parse_fix_feedback_fact
 
 local function review_proposal_from_dedup(dedup_key)
   return devloop_base.pr_review_proposal_id_from_consensus_dedup_key(dedup_key)
 end
 
-function C.intake_decision_fact(comments, issue_proposal_id)
+function C.intake_decision_fact(comments, issue_proposal_id, expected_dedup_key)
   if type(comments) ~= "table" then
     return nil
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:intake%-decision:v1.-%-%->"
+  local latest = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_issue = marker:match('proposal="([^"]+)"')
       local decision = marker:match('decision="([^"]+)"')
       local service_class = marker:match('class="([^"]+)"')
       local dedup = marker:match('dedup="([^"]*)"')
+      local premise = marker:match('premise="([^"]+)"')
       if marker_issue == tostring(issue_proposal_id)
+        and (expected_dedup_key == nil or dedup == tostring(expected_dedup_key))
         and (decision == "enable" or decision == "track" or decision == "decline" or decision == "escalate-to-class")
         and shared.is_intake_service_class(service_class)
-        and strings.is_bounded_string(dedup, devloop_base._max_dedup_len) then
-        return {
+        and strings.is_bounded_string(dedup, devloop_base._max_dedup_len)
+        and ((decision == "decline" and (premise == nil or premise_correction.is_premise_fingerprint(premise)))
+          or (decision ~= "decline" and premise == nil)) then
+        latest = {
           proposal_id = marker_issue,
           decision = decision,
           service_class = shared.normalize_intake_service_class(service_class),
           dedup_key = dedup,
+          premise_fingerprint = premise,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }
       end
     end
   end
-  return nil
+  return latest
 end
 
 function C.has_intake_decision_marker(comments, issue_proposal_id)
@@ -112,37 +79,8 @@ function C.has_state_marker(comments, issue_proposal_id)
   return false
 end
 
-function C.review_reject_fact(comments, issue_proposal_id, issue_version)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:review%-result:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local fact = review_result_fact_from_marker(marker, comment, issue_proposal_id, issue_version, "reject")
-      if fact ~= nil then
-        return fact
-      end
-    end
-  end
-  return nil
-end
-
-function C.review_result_fact(comments, issue_proposal_id, issue_version, expected_decision)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:review%-result:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local fact = review_result_fact_from_marker(marker, comment, issue_proposal_id, issue_version, expected_decision)
-      if fact ~= nil then
-        return fact
-      end
-    end
-  end
-  return nil
-end
+C.review_reject_fact = fix_feedback_observation.review_reject_fact
+C.review_result_fact = fix_feedback_observation.review_result_fact
 
 local function bounded_marker_line(value, limit)
   local text = tostring(value or ""):gsub("%c", " "):gsub("%s+", " ")
@@ -182,7 +120,8 @@ function C.review_prior_round_ledger(comments, issue_proposal_id, issue_version)
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     local body = parsers_misc._comment_body(comment)
     for marker in body:gmatch(marker_pattern) do
-      local fact = review_result_fact_from_marker(marker, comment, issue_proposal_id, rejected_fix_version, "reject")
+      local fact = fix_feedback_observation.review_result_fact_from_marker(
+        marker, comment, issue_proposal_id, rejected_fix_version, "reject")
       if fact ~= nil and (latest_reject == nil or fact.fix_round > latest_reject.fix_round) then
         latest_reject = {
           gap = fact.blocking_gap,
@@ -220,39 +159,10 @@ function C.review_prior_round_ledger(comments, issue_proposal_id, issue_version)
   return devloop_base.neutralize_untrusted_prompt_text(ledger)
 end
 
-function C.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:review%-meta:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_issue = marker:match('proposal="([^"]+)"')
-      local marker_dedup = marker:match('dedup="([^"]*)"')
-      local action = marker:match('action="([^"]+)"')
-      local version = marker:match('version="([^"]*)"')
-      local gap = decode_marker_attr(marker_attr(marker, "gap"))
-      if marker_issue == tostring(issue_proposal_id)
-        and marker_dedup ~= nil
-        and action == "fix"
-        and version == tostring(issue_version)
-        and strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
-        local review_proposal = review_proposal_from_dedup(marker_dedup)
-        local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
-        return {
-          review_proposal_id = review_proposal,
-          review_dedup_key = marker_dedup,
-          reviewed_head_sha = reviewed_head_sha,
-          review_reason = parsers_misc._comment_body(comment),
-          blocking_gap = gap,
-        }
-      end
-    end
-  end
-  return nil
-end
+C.review_meta_fix_fact = fix_feedback_observation.review_meta_fix_fact
 
-function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
+local function review_meta_decision_fact(comments, issue_proposal_id, issue_version,
+    ignore_legacy_unbound)
   if type(comments) ~= "table" then
     return nil
   end
@@ -264,21 +174,30 @@ function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
       local marker_dedup = marker_attr(marker, "dedup")
       local action = marker_attr(marker, "action")
       local version = marker_attr(marker, "version")
+      local marker_review_dedup = marker_attr(marker, "review_dedup")
       local gap = decode_marker_attr(marker_attr(marker, "gap"))
       local marker_lineage = transition_version.strip_suffixes(version)
       if marker_issue == tostring(issue_proposal_id)
         and marker_lineage == expected_lineage
         and (action == "fix" or action == "block" or action == "spec-amendment")
         and strings.is_bounded_string(marker_dedup, devloop_base._max_dedup_len) then
-        local review_proposal = review_proposal_from_dedup(marker_dedup)
-        local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
-        if review_proposal ~= nil and forge_validators.is_git_sha(reviewed_head_sha) then
-          if action == "fix" and (gap == nil or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len)) then
-            return nil
+        local ignored = ignore_legacy_unbound
+          and fix_feedback_observation.is_legacy_review_meta_unbound_marker(
+            marker, issue_proposal_id, issue_version)
+        if not ignored then
+          local review_proposal, reviewed_head_sha
+          if action == "fix" then
+            review_proposal = marker_attr(marker, "review_proposal")
+            reviewed_head_sha = marker_attr(marker, "head_sha")
+          else
+            review_proposal = review_proposal_from_dedup(marker_dedup)
+            local _, _, _, derived_head_sha =
+              devloop_base.parse_pr_review_proposal_id(review_proposal)
+            reviewed_head_sha = derived_head_sha
           end
-          return {
+          local fact = {
             review_proposal_id = review_proposal,
-            review_dedup_key = marker_dedup,
+            review_dedup_key = action == "fix" and marker_review_dedup or marker_dedup,
             reviewed_head_sha = reviewed_head_sha,
             action = action,
             version = version,
@@ -286,6 +205,16 @@ function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
             blocking_gap = gap,
             comment_created_at = parsers_misc._comment_created_at(comment),
           }
+          if action == "fix" then
+            if gap == nil
+              or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
+              return nil
+            end
+            return C.parse_fix_feedback_fact(fact)
+          end
+          if review_proposal ~= nil and forge_validators.is_git_sha(reviewed_head_sha) then
+            return fact
+          end
         end
       end
     end
@@ -293,76 +222,15 @@ function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
   return nil
 end
 
-local function merge_gate_fix_fact_matches_bindings(fact, opts)
-  if type(opts) ~= "table" then
-    return true
-  end
-  local fact_review_dedup = devloop_base.canonical_pr_review_consensus_dedup_key(fact.review_dedup_key)
-  local opts_review_dedup = nil
-  if opts.review_dedup_key ~= nil then
-    opts_review_dedup = devloop_base.canonical_pr_review_consensus_dedup_key(opts.review_dedup_key)
-  end
-  local baseline_bound = opts.match_gate_baseline_sha == true or opts.gate_baseline_sha ~= nil
-  local predecessor_bound = opts.match_predecessor_set == true or opts.predecessor_set ~= nil
-  local ci_failure_bound = opts.match_ci_failure_key == true or opts.ci_failure_key ~= nil
-  return (opts.review_proposal_id == nil or fact.review_proposal_id == tostring(opts.review_proposal_id))
-    and (opts.review_dedup_key == nil or (fact_review_dedup ~= nil and fact_review_dedup == opts_review_dedup))
-    and (opts.reviewed_head_sha == nil or fact.reviewed_head_sha == tostring(opts.reviewed_head_sha))
-    and (not baseline_bound
-      or (opts.gate_baseline_sha ~= nil and fact.gate_baseline_sha == tostring(opts.gate_baseline_sha))
-      or (opts.gate_baseline_sha == nil and fact.gate_baseline_sha == nil))
-    and (not predecessor_bound or tostring(fact.predecessor_set or "") == tostring(opts.predecessor_set or ""))
-    and (not ci_failure_bound or tostring(fact.ci_failure_key or "") == tostring(opts.ci_failure_key or ""))
+function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
+  return review_meta_decision_fact(comments, issue_proposal_id, issue_version, false)
 end
-function C.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:merge%-gate:v1.-%-%->"
-  local best, best_seconds, matched_binding = nil, nil, false
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_issue = marker:match('proposal="([^"]+)"')
-      local marker_version = marker:match('version="([^"]*)"')
-      local marker_review_proposal = marker:match('review_proposal="([^"]+)"')
-      local marker_review_dedup = marker:match('review_dedup="([^"]*)"')
-      local marker_head_sha = marker:match('head_sha="([^"]+)"')
-      local marker_gate_baseline_sha = marker:match('gate_baseline_sha="([^"]+)"')
-      local marker_predecessor_set = marker:match('predecessor_set="([^"]+)"')
-      local marker_ci_failure_key = marker:match('ci_failure_key="([^"]+)"')
-      local marker_reason = marker:match('reason="([^"]+)"')
-      if marker_issue == tostring(issue_proposal_id)
-        and marker_version == tostring(issue_version)
-        and strings.is_bounded_string(marker_review_proposal, devloop_base._max_key_len)
-        and strings.is_bounded_string(marker_review_dedup, devloop_base._max_dedup_len)
-        and strings.is_path_safe_key(marker_reason, devloop_base._max_key_len)
-        and forge_validators.is_git_sha(marker_head_sha)
-        and (marker_gate_baseline_sha == nil or forge_validators.is_git_sha(marker_gate_baseline_sha))
-        and (marker_predecessor_set == nil or strings.is_path_safe_key(marker_predecessor_set, devloop_base._max_dedup_len))
-        and (marker_ci_failure_key == nil or ci_failure_keys.is_valid(marker_ci_failure_key, devloop_base._max_dedup_len)) then
-        local fact = {
-          review_proposal_id = marker_review_proposal,
-          review_dedup_key = marker_review_dedup,
-          reviewed_head_sha = marker_head_sha,
-          gate_baseline_sha = marker_gate_baseline_sha,
-          predecessor_set = marker_predecessor_set,
-          ci_failure_key = marker_ci_failure_key,
-          reason = marker_reason,
-          review_reason = parsers_misc._comment_body(comment),
-          comment_created_at = parsers_misc._comment_created_at(comment),
-        }
-        if merge_gate_fix_fact_matches_bindings(fact, opts) then
-          matched_binding = true
-        end
-        local candidate_seconds = contract_time.iso_timestamp_epoch_seconds(fact.comment_created_at) or 0
-        if best == nil or candidate_seconds >= best_seconds then
-          best, best_seconds = fact, candidate_seconds
-        end
-      end
-    end
-  end
-  return best, best ~= nil and merge_gate_fix_fact_matches_bindings(best, opts), matched_binding
+
+function C.review_meta_replay_decision_fact(comments, issue_proposal_id, issue_version)
+  return review_meta_decision_fact(comments, issue_proposal_id, issue_version, true)
 end
+
+C.merge_gate_fix_fact = fix_feedback_observation.merge_gate_fix_fact
 
 function C.merge_ready_fact(comments, issue_proposal_id, issue_version, pr_number, head_sha)
   if type(comments) ~= "table" then
@@ -711,17 +579,6 @@ function C.has_any_review_result_marker(comments, review_proposal_id, issue_prop
   return false
 end
 
-local function has_versioned_marker(comments, marker)
-  if type(comments) ~= "table" then
-    return false
-  end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
 
 function C.has_implementing_marker(comments, proposal_id, dedup_key)
   if type(comments) ~= "table" then
@@ -770,6 +627,51 @@ function C.implementing_fact(comments, proposal_id, dedup_key)
     end
   end
   return nil
+end
+
+function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-checkpoint:v1.-%-%->"
+  local best = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker_attr(marker, "proposal")
+      local marker_dedup = marker_attr(marker, "dedup")
+      local marker_branch = marker_attr(marker, "branch")
+      local marker_head_sha = marker_attr(marker, "head_sha")
+      local marker_base_branch = marker_attr(marker, "base_branch")
+      local marker_base_sha = marker_attr(marker, "base_sha")
+      local marker_reason = marker_attr(marker, "reason")
+      local attempt = tonumber(marker_attr(marker, "attempt"))
+      if marker_proposal == proposal_id
+        and marker_dedup == tostring(dedup_key)
+        and forge_validators.is_git_ref_safe(marker_branch)
+        and forge_validators.is_git_sha(marker_head_sha)
+        and forge_validators.is_git_ref_safe(marker_base_branch)
+        and forge_validators.is_git_sha(marker_base_sha)
+        and attempt ~= nil
+        and attempt >= 1
+        and attempt == math.floor(attempt) then
+        local fact = {
+          proposal_id = marker_proposal,
+          dedup_key = marker_dedup,
+          branch = marker_branch,
+          head_sha = marker_head_sha,
+          base_branch = marker_base_branch,
+          base_sha = marker_base_sha,
+          reason = marker_reason,
+          attempt = attempt,
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+        if best == nil or fact.attempt > best.attempt then
+          best = fact
+        end
+      end
+    end
+  end
+  return best
 end
 
 function C.pr_link_fact(comments, proposal_id)
@@ -842,46 +744,18 @@ function C.pr_origin_fact(comments)
   if type(comments) ~= "table" then
     return nil
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
+  local authorities = {
+    parse_issue_proposal_id = base_ids.parse_proposal_id,
+    parse_pr_proposal_id = entity_lib.parse_pr_proposal_id,
+    is_git_ref_safe = forge_validators.is_git_ref_safe,
+    is_implementation_version = function(value)
+      return strings.is_bounded_string(value, devloop_base._max_dedup_len)
+    end,
+  }
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_proposal = marker:match('proposal="([^"]+)"')
-      local marker_issue = marker:match('issue="([^"]+)"')
-      local marker_branch = marker:match('branch="([^"]+)"')
-      local marker_impl_version = marker:match('impl_version="([^"]*)"')
-      local marker_base_branch = marker:match('base_branch="([^"]+)"')
-      local repo, issue_number = base_ids.parse_proposal_id(marker_proposal)
-      if repo ~= nil
-        and marker_issue == issue_number
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = repo,
-          issue_number = issue_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-        }
-      end
-      local pr_repo, pr_number = entity_lib.parse_pr_proposal_id(marker_proposal)
-      if pr_repo ~= nil
-        and marker_issue == tostring(pr_number)
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = pr_repo,
-          issue_number = nil,
-          pr_number = pr_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-          pr_native = true,
-        }
-      end
+    local fact = contract_pr_origin.fact(parsers_misc._comment_body(comment), authorities)
+    if fact ~= nil then
+      return fact
     end
   end
   return nil

@@ -1,9 +1,10 @@
 -- Non-circularity contract: production truth comes from the real observe_pr
--- department's CAS path. The probe, exact guard calls, CAS logs, and effects are
--- observations only. Expected results never call a devloop.state transition
--- helper.
+-- department's owner-decider path. Expected OLD admission comes from the
+-- protected R9 corpus or frozen literal probe outcomes; it never comes from the
+-- production decision under test.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -17,6 +18,8 @@ local replayer = require("devloop.replayer")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -26,6 +29,13 @@ local POLICY_ID = "cas.legacy_observe_pr_v1"
 local VARIANT = "pr_open_to_reviewing"
 local SEMANTIC_VARIANT = "first_seen_pr"
 local SOURCE_BOUNDARY = "github-proxy.github_entity_changed"
+local OWNER = core.restart_package_name
+local TRACE_EDGE_ID = OWNER .. "/reviewing/entry/first_seen_pr"
+local REVIEW_ACTIVATION_CORPUS_PATH =
+  "migration/intent_bounded_replay/corpus/pr-review-activation.json"
+local REVIEW_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-activation-new-trace.json"
+)
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local BRANCH = "devloop-owner-repo-42-01HY"
 local BASE_BRANCH = "dev"
@@ -43,22 +53,31 @@ local function observe_department(run)
   local replay_guard_calls = {}
   local closed_guard_calls = {}
   local post_probe_row_calls = {}
-  local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_restart_transition_row = replay_fields.restart_transition_row
   local original_replay_from_table = replayer.replay_from_table
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == SEMANTIC_VARIANT then
+      local legacy_current = {
+        state = snapshot.current.state,
+        version = snapshot.current.version,
+      }
+      if legacy_current.state == nil then
+        legacy_current.version = nil
+      end
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "pr-open", "unmanaged" },
+        to_state = intent.target,
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        decision = decision,
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -119,7 +138,7 @@ local function observe_department(run)
   replayer.replay_from_table = original_replay_from_table
   replay_fields.restart_transition_row = original_restart_transition_row
   devloop_logging.log_cas_decision = original_log_cas
-  devloop_state.versioned_transition_status = original_versioned
+  restart_effects.decide_transition = original_decide_transition
   if not ok then
     error(result, 0)
   end
@@ -233,21 +252,33 @@ local function decision_summary(decisions)
   return table.concat(out, " | ")
 end
 
-local function observed_admission(fixture, probe, decision, admitted_guard_reached)
+local function protected_probe_outcome(fixture)
+  if fixture.probe_outcome ~= nil then return fixture.probe_outcome end
+  return observation_support.protected_admission_fixture(
+    REVIEW_ACTIVATION_CORPUS_PATH, fixture.fixture_id).cas_status
+end
+
+local function protected_admission(fixture)
+  if fixture.fixture_id == nil then return nil end
+  return observation_support.protected_admission_expectation(
+    REVIEW_ACTIVATION_CORPUS_PATH, fixture.fixture_id)
+end
+
+local function observed_admission(fixture, probe_outcome, probe, decision, admitted_guard_reached)
   if probe == nil then
     return { status = "pre-cas", reason_code = "cas-probe-not-reached" }
   end
-  if probe.outcome == "pending" then
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible" }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target" }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     return { status = "stale", reason_code = "incoming-version-older" }
   end
-  if probe.outcome ~= "apply" then
-    error(fixture.name .. ": observe_pr CAS probe returned " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error(fixture.name .. ": observe_pr protected CAS probe returned " .. tostring(probe_outcome))
   end
 
   local legacy_reason = tostring(decision and decision.reason or "")
@@ -264,9 +295,9 @@ local function observed_admission(fixture, probe, decision, admitted_guard_reach
 end
 
 local function observed_cas_outcome(observed)
-  if observed.status == "apply" then
-    return "applied"
-  end
+  if observed.status == "apply" then return "applied" end
+  if observed.status == "idempotent" then return "skip-idempotent(already at to_state)" end
+  if observed.status == "pending" then return "retry-pending(from-state marker not yet visible)" end
   if observed.reason_code == "incoming-version-older" then
     return "skip-stale(incoming version < current marker version)"
   end
@@ -356,8 +387,10 @@ local function assert_observe_pr_admission_case(fixture)
     fixture.name .. ": admitted-before-builder guard reach"
   )
   local admitted_guard_reached = boundary_reached or pre_builder_admission_reached
+  local protected = probe ~= nil and protected_admission(fixture) or nil
+  local old_probe_outcome = probe ~= nil and protected_probe_outcome(fixture) or nil
   if admitted_guard_reached then
-    t.eq(probe and probe.outcome, "apply", fixture.name .. ": admission boundary requires an applied probe")
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": admission boundary requires an applied OLD probe")
   end
 
   local decision = primary_decision(decisions, probe ~= nil)
@@ -369,10 +402,15 @@ local function assert_observe_pr_admission_case(fixture)
   t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
   t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
 
-  local observed = observed_admission(fixture, probe, decision, admitted_guard_reached)
+  local observed = protected
+    or observed_admission(fixture, old_probe_outcome, probe, decision, admitted_guard_reached)
   local actual = nil
   if probe ~= nil then
     actual = catalog.resolve(POLICY_ID, evidence_from_probe(probe), projection)
+    t.eq(probe.decision.status, observed.status, fixture.name .. ": production owner status vs protected OLD")
+    t.eq(probe.decision.reason_code, observed.reason_code, fixture.name .. ": production owner reason vs protected OLD")
+    t.eq(probe.decision.cas_outcome, observed.cas_outcome or observed_cas_outcome(observed),
+      fixture.name .. ": production owner outcome vs protected OLD")
     t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
     t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
     if observed.status == "apply" or observed.status == "stale" then
@@ -398,7 +436,7 @@ local function assert_observe_pr_admission_case(fixture)
       local legacy = {
         status = observed.status,
         reason_code = observed.reason_code,
-        cas_outcome = observed_cas_outcome(observed),
+        cas_outcome = observed.cas_outcome or observed_cas_outcome(observed),
       }
       assert_bidirectional(shadow, legacy, "status", fixture.name)
       assert_bidirectional(shadow, legacy, "reason_code", fixture.name)
@@ -413,7 +451,7 @@ local function assert_observe_pr_admission_case(fixture)
     end
   end
   if fixture.probe_outcome ~= nil then
-    t.eq(probe and probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
   end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
@@ -442,6 +480,13 @@ local function assert_observe_pr_admission_case(fixture)
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": no admitted state effect")
   end
+  return {
+    result = result,
+    event = pr_event(fixture.pr_number),
+    probe = probe,
+    decision = decision,
+    observed = observed,
+  }
 end
 
 local function assert_malformed_event_is_pre_cas()
@@ -487,7 +532,167 @@ local function assert_illegal(actual, reason_code, context)
   t.eq(actual.grant, nil, context .. ": grant disabled")
 end
 
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "source-equal-apply",
+    name = "r9-pr-review-activation-source-equal",
+    pr_number = 721,
+    current_state = "pr-open",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    probe_outcome = "apply",
+    boundary_reached = true,
+    admission_status = "apply",
+    admission_reason_code = "apply",
+    effect_state = "reviewing",
+    post_admission_disposition = "effect-emitted(reviewing)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "source-newer-version-mismatch-stale",
+    name = "r9-pr-review-activation-source-newer",
+    pr_number = 722,
+    current_state = "pr-open",
+    current_version = V_EQUAL,
+    incoming_version = V_NEWER,
+    probe_outcome = "apply",
+    admission_status = "stale",
+    admission_reason_code = "version-mismatch",
+    legacy_log_outcome = "skip-stale(version-mismatch)",
+  },
+  {
+    fixture_id = "source-older-stale",
+    name = "r9-pr-review-activation-source-older",
+    pr_number = 723,
+    current_state = "pr-open",
+    current_version = V_EQUAL,
+    incoming_version = V_OLDER,
+    probe_outcome = "stale",
+    admission_status = "stale",
+    admission_reason_code = "incoming-version-older",
+    legacy_log_outcome = "skip-stale(version-mismatch)",
+  },
+}
+
+local function review_activation_trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-pr-review-activation-trace.v1",
+    OWNER,
+    "pr-review-activation",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_review_activation_trace_fixture(fixture, production)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = "owner/repo", number = fixture.pr_number },
+    proposal_id = PROPOSAL_ID,
+    current = { state = fixture.current_state, version = fixture.current_version },
+    snapshot_fingerprint = "r9-pr-review-activation:" .. fixture.fixture_id,
+    lock_epoch = "r9-pr-review-activation:lock",
+    generation = "r9-pr-review-activation:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = SEMANTIC_VARIANT,
+    source_boundary = SOURCE_BOUNDARY,
+    target = "reviewing",
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  })
+  local writes = observation_support.json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      decided,
+      "comment:pr:observe-reviewing"
+    )
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      family = "pr-review-activation",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      repo = "owner/repo",
+      issue_number = "42",
+      origin = {
+        proposal_id = PROPOSAL_ID,
+        impl_version = fixture.incoming_version,
+      },
+      pr_number = fixture.pr_number,
+      source_ref = production.event.source_ref,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(
+        writes,
+        observation_support.admission_trace_write(ordinal, effect_id, emitted)
+      )
+    end
+  end
+  return decided, writes
+end
+
+local function assert_review_activation_trace_equality()
+  local corpus = json.decode(file.read(REVIEW_ACTIVATION_CORPUS_PATH))
+  local old_fixtures = observation_support.json_array()
+  local new_fixtures = observation_support.json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_observe_pr_admission_case(fixture)
+    local decided, new_writes = new_review_activation_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 PR review activation trace"
+      )
+      or observation_support.json_array()
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      TRACE_EDGE_ID,
+      production.observed.status,
+      production.observed.reason_code,
+      observed_cas_outcome(production.observed),
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      TRACE_EDGE_ID,
+      decided.status,
+      decided.reason_code,
+      decided.cas_outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      new_writes
+    ))
+  end
+
+  local old_trace = review_activation_trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = review_activation_trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 PR review activation OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 PR review activation trace could not create its artifact directory", 0)
+  end
+  file.write(REVIEW_ACTIVATION_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR review activation OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 PR review activation NEW semantic trace")
+end
+
 return {
+  test_pr_review_activation_r9_old_equals_new_trace = function()
+    assert_review_activation_trace_equality()
+  end,
+
   test_observe_pr_source_equal_applies = function()
     assert_observe_pr_admission_case({
       name = "observe-pr-source-equal",

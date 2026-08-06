@@ -6,6 +6,11 @@ local opts = h.opts
 local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
+local entity_list_cache = require("devloop.entity_list_cache")
+local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
+local testing = require("testkit_internal.testing")
+local admission_department = require("departments.admission.main")
+local poll_sequence = 0
 
 local function mock_repo_env()
   h.mock_bot_env()
@@ -19,6 +24,16 @@ local function mock_repo_env()
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+    stdout = "[]",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+    stdout = "[]",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function source_ref()
@@ -27,6 +42,13 @@ end
 
 local function event(updated_at)
   local selected_updated_at = updated_at or "2026-06-03T01:02:03Z"
+  poll_sequence = poll_sequence + 1
+  cache_set(entity_list_cache.poll_epoch_cache_key("owner/repo"), "")
+  local recorded, poll_epoch = entity_list_cache.record_poll_epoch(
+    "owner/repo",
+    "integration-fork-intake-" .. selected_updated_at .. "-" .. tostring(poll_sequence)
+  )
+  t.is_true(recorded)
   return {
     queue = "github-proxy.github_entity_changed",
     payload = {
@@ -39,6 +61,7 @@ local function event(updated_at)
       labels = {},
       updated_at = selected_updated_at,
       dedup_key = "owner/repo#issue#42@" .. selected_updated_at,
+      poll_token = poll_epoch,
       source_ref = source_ref(),
     },
     source_ref = source_ref(),
@@ -47,6 +70,7 @@ end
 
 local function mock_admission_view(fields)
   local f = fields or {}
+  github_proxy_entity_view.invalidate_entity_after_write("owner/repo", "issue", f.number or 42)
   entity_read_mocks.mock_issue_view_selector(t, {
     number = f.number or 42,
     title = "External request",
@@ -71,7 +95,11 @@ local function mock_state_view(fields)
 end
 
 local function run_admission(run_opts, updated_at)
-  return t.run_department("departments/admission/main.lua", event(updated_at), run_opts)
+  author_policy.mock_env(t, run_opts, {
+    configure_trusted_bot_login = h.mock_author_policy_configure,
+    times = 4,
+  })
+  return testing.run_fake_outcome(admission_department.make_department(), event(updated_at))
 end
 
 local function assert_no_fork_or_candidate(result)

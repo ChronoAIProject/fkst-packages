@@ -9,6 +9,7 @@ local review_unresolved = h.review_unresolved
 local run_review_pr = h.run_review_pr
 local run_review_loop = h.run_review_loop
 local run_review_result = h.run_review_result
+local take_consensus_proposal = h.take_consensus_proposal
 local mock_issue_review = h.mock_issue_review
 local mock_issue_result = h.mock_issue_result
 local mock_pr_origin = h.mock_pr_origin
@@ -151,7 +152,7 @@ return {
 
     local result = run_review_pr(event, opts("normal-risk-review-proposal"))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_review_request").payload
     t.eq(proposal.angles, nil)
   end,
 
@@ -167,7 +168,7 @@ return {
 
     local result = run_review_pr(event, opts("high-risk-review-proposal"))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_review_request").payload
     t.eq(table.concat(proposal.angles, ","), "teleology,parsimony,fidelity,high-risk")
   end,
 
@@ -194,8 +195,8 @@ return {
     mock_high_risk_name_only()
 
     local result = run_review_loop(unresolved, opts("high-risk-review-loop-proposal"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
     t.eq(table.concat(proposal.angles, ","), "teleology,parsimony,fidelity,high-risk")
   end,
 

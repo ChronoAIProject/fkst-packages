@@ -1,6 +1,8 @@
 local identity = require("contract.convergence_identity")
+local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
 local t = fkst.test
+local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
 
 local function nonce()
@@ -80,11 +82,39 @@ local function proposal(extra)
   return value
 end
 
+local function library_run_identity(value, angle_lane)
+  local generation = value.generation or 0
+  local round = value.round or 0
+  return {
+    role = "consensus",
+    invocation_id = value.dedup_key,
+    generation = generation,
+    round = round,
+    angle_lane = angle_lane,
+    dedup_key = "convergence:consensus:" .. value.dedup_key
+      .. ":g" .. tostring(generation)
+      .. ":r" .. tostring(round)
+      .. ":" .. tostring(angle_lane),
+  }
+end
+
+local function running_codex_record(run_identity)
+  return {
+    run_id = nonce(),
+    role = run_identity.role,
+    proposal_id = run_identity.invocation_id,
+    dedup_key = run_identity.dedup_key,
+    status = "running",
+    started_at = "2026-06-03T00:30:00Z",
+    started_at_ms = now() * 1000,
+    timeout_seconds = 3600,
+    log_path = "/tmp/fkst-packages-test/codex.log",
+    cmd_line = "codex exec -",
+  }
+end
+
 local function run_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function mock_judgment_runtime()
@@ -129,6 +159,76 @@ local function with_codex_runs(runs, fn)
   end
   local ok, err = pcall(fn)
   fkst.codex_runs = original
+  if not ok then
+    error(err)
+  end
+end
+
+local function dispatch_identity()
+  return {
+    role = "consensus",
+    proposal_id = "proposal-42",
+    dedup_key = "dedup-42",
+  }
+end
+
+local role_timeout_env = {
+  consensus = "FKST_CODEX_TIMEOUT_CONSENSUS",
+  implement = "FKST_CODEX_TIMEOUT_IMPLEMENT",
+  fix = "FKST_CODEX_TIMEOUT_FIX",
+  ["review-meta"] = "FKST_CODEX_TIMEOUT_REVIEW_META",
+  archaudit = "FKST_CODEX_TIMEOUT_ARCHAUDIT",
+  ["release-notes"] = "FKST_CODEX_TIMEOUT_RELEASE_NOTES",
+  judgment = "FKST_CODEX_TIMEOUT_JUDGMENT",
+  decompose = "FKST_CODEX_TIMEOUT_DECOMPOSE",
+  intake = "FKST_CODEX_TIMEOUT_INTAKE",
+  ["workflow-select"] = "FKST_CODEX_TIMEOUT_WORKFLOW_SELECT",
+  ["workflow-materialize"] = "FKST_CODEX_TIMEOUT_WORKFLOW_MATERIALIZE",
+  ["sync-conflict"] = "FKST_CODEX_TIMEOUT_SYNC_CONFLICT",
+}
+
+local function with_timeout_env(env_values, fn)
+  local original_exec_sync = exec_sync
+  if type(env_values) ~= "table" then
+    env_values = { FKST_CODEX_TIMEOUT_CONSENSUS = env_values }
+  end
+  exec_sync = function(cmd)
+    local env_name = tostring(cmd):match('^printf %%s "%$([A-Z0-9_]+)"$')
+    t.is_true(env_name ~= nil, "unexpected env command: " .. tostring(cmd))
+    return {
+      stdout = env_values[env_name] or "",
+      stderr = "",
+      exit_code = 0,
+    }
+  end
+  local ok, err = pcall(fn)
+  exec_sync = original_exec_sync
+  if not ok then
+    error(err)
+  end
+end
+
+local function with_dispatch_fakes(env_value, fn)
+  local original_spawn_codex = spawn_codex
+  local original_spawn_codex_sync = spawn_codex_sync
+  local calls = {}
+  spawn_codex = function(spawn_opts)
+    table.insert(calls, { kind = "async", opts = spawn_opts })
+    return { kind = "async", opts = spawn_opts }
+  end
+  spawn_codex_sync = function(spawn_opts)
+    table.insert(calls, { kind = "sync", opts = spawn_opts })
+    return { kind = "sync", opts = spawn_opts }
+  end
+  local ok, err = pcall(function()
+    with_timeout_env(env_value, function()
+      with_codex_runs({}, function()
+        fn(calls)
+      end)
+    end)
+  end)
+  spawn_codex = original_spawn_codex
+  spawn_codex_sync = original_spawn_codex_sync
   if not ok then
     error(err)
   end
@@ -183,14 +283,231 @@ return {
   end,
 
   test_workflow_dispatch_sets_identity_fields_and_defers_without_spawn = function()
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
+    local run_identity = library_run_identity(proposal(), "teleology")
     with_codex_runs({
-      { role = run_identity.role, proposal_id = run_identity.proposal_id, dedup_key = run_identity.dedup_key, status = "running" },
+      { role = run_identity.role, proposal_id = run_identity.invocation_id, dedup_key = run_identity.dedup_key, status = "running" },
     }, function()
       local result = workflow_codex.dispatch(run_identity, { prompt = "hello", worktree = "/tmp/worktree" })
       t.eq(result.deferred, true)
       t.eq(result.reason, "live-run-active")
       t.eq(#codex_calls(), 0)
+    end)
+  end,
+
+  test_consensus_reach_returns_nil_when_same_identity_is_live = function()
+    local run_identity = library_run_identity(proposal(), "teleology")
+    with_codex_runs({ running_codex_record(run_identity) }, function()
+      t.is_nil(consensus.reach(proposal()))
+      t.eq(#codex_calls(), 0)
+    end)
+  end,
+
+  test_workflow_dispatch_resolves_consensus_default_timeout = function()
+    with_dispatch_fakes(nil, function(calls)
+      local result = workflow_codex.dispatch(dispatch_identity(), { prompt = "hello", worktree = "/tmp/worktree" })
+
+      t.eq(result.kind, "async")
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.timeout, 3600)
+      t.eq(calls[1].opts.role, "consensus")
+      t.eq(calls[1].opts.proposal_id, "proposal-42")
+      t.eq(calls[1].opts.dedup_key, "dedup-42")
+    end)
+  end,
+
+  test_workflow_dispatch_carries_launcher_resolved_repository_locations = function()
+    with_dispatch_fakes({
+      FKST_CODEX_REPOSITORY_ROOTS = "/srv/host-repository\n/srv/platform-repository\n",
+    }, function(calls)
+      workflow_codex.dispatch(dispatch_identity(), { prompt = "original prompt", worktree = "/tmp/worktree" })
+
+      t.eq(#calls, 1)
+      local prompt = calls[1].opts.prompt
+      t.is_true(prompt:find("Repository locations resolved by the launcher:", 1, true) ~= nil)
+      t.is_true(prompt:find("- active worktree: /tmp/worktree", 1, true) ~= nil)
+      t.is_true(prompt:find("- repository root: /srv/host-repository", 1, true) ~= nil)
+      t.is_true(prompt:find("- repository root: /srv/platform-repository", 1, true) ~= nil)
+      t.is_true(prompt:find("Do not run `find`, `fd`, `locate`, or recursive directory walks to discover repository locations.", 1, true) ~= nil)
+      t.is_true(prompt:find("original prompt", 1, true) ~= nil)
+    end)
+  end,
+
+  test_workflow_dispatch_maps_source_agnostic_invocation_identity = function()
+    local run_identity = {
+      role = "consensus",
+      invocation_id = "consensus-call-42",
+      dedup_key = "dedup-42",
+    }
+    with_dispatch_fakes(nil, function(calls)
+      local result = workflow_codex.dispatch(run_identity, { prompt = "hello", worktree = "/tmp/worktree" })
+
+      t.eq(result.kind, "async")
+      t.eq(run_identity.proposal_id, nil)
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.proposal_id, "consensus-call-42")
+      t.eq(calls[1].opts.dedup_key, "dedup-42")
+    end)
+  end,
+
+  test_workflow_dispatch_resolves_production_role_defaults = function()
+    local expected = {
+      implement = 7200,
+      fix = 7200,
+      ["review-meta"] = 3600,
+    }
+    for role, timeout in pairs(expected) do
+      with_dispatch_fakes({}, function(calls)
+        workflow_codex.dispatch({
+          role = role,
+          proposal_id = "proposal-" .. role,
+          dedup_key = "dedup-" .. role,
+        }, { prompt = "hello" })
+
+        t.eq(#calls, 1)
+        t.eq(calls[1].opts.timeout, timeout)
+        t.eq(calls[1].opts.role, role)
+      end)
+    end
+  end,
+
+  test_workflow_raw_resolver_defaults_for_direct_production_roles = function()
+    local expected = {
+      archaudit = 3600,
+      ["release-notes"] = 3600,
+      judgment = 3600,
+      decompose = 3600,
+      intake = 3600,
+      ["workflow-select"] = 3600,
+      ["workflow-materialize"] = 3600,
+      ["sync-conflict"] = 3600,
+    }
+    with_timeout_env({}, function()
+      for role, timeout in pairs(expected) do
+        local opts = workflow_codex.with_resolved_timeout(role, { prompt = "hello" })
+        t.eq(opts.timeout, timeout)
+      end
+    end)
+  end,
+
+  test_workflow_raw_resolver_carries_launcher_resolved_repository_locations = function()
+    with_timeout_env({
+      FKST_CODEX_REPOSITORY_ROOTS = "/srv/host-repository\n/srv/platform-repository\n",
+    }, function()
+      local opts = workflow_codex.with_resolved_timeout("intake", {
+        prompt = "original prompt",
+        worktree = "/tmp/worktree",
+      })
+
+      t.is_true(opts.prompt:find("- active worktree: /tmp/worktree", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("- repository root: /srv/host-repository", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("- repository root: /srv/platform-repository", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("Do not run `find`, `fd`, `locate`, or recursive directory walks to discover repository locations.", 1, true) ~= nil)
+      t.is_true(opts.prompt:find("original prompt", 1, true) ~= nil)
+    end)
+  end,
+
+  test_workflow_raw_resolver_env_overrides_added_roles = function()
+    local overrides = {
+      FKST_CODEX_TIMEOUT_IMPLEMENT = "1234",
+      FKST_CODEX_TIMEOUT_ARCHAUDIT = "2345",
+      FKST_CODEX_TIMEOUT_RELEASE_NOTES = "3456",
+      FKST_CODEX_TIMEOUT_JUDGMENT = "4567",
+    }
+    with_timeout_env(overrides, function()
+      for role, env_name in pairs(role_timeout_env) do
+        if overrides[env_name] ~= nil then
+          local opts = workflow_codex.with_resolved_timeout(role, { prompt = "hello" })
+          t.eq(opts.timeout, tonumber(overrides[env_name]))
+        end
+      end
+    end)
+  end,
+
+  test_workflow_dispatch_uses_consensus_timeout_env_override = function()
+    with_dispatch_fakes("1234", function(calls)
+      local result = workflow_codex.dispatch(dispatch_identity(), { sync = true, prompt = "hello" })
+
+      t.eq(result.kind, "sync")
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.timeout, 1234)
+      t.eq(calls[1].opts.sync, nil)
+    end)
+  end,
+
+  test_workflow_dispatch_invalid_consensus_timeout_env_fails_closed = function()
+    with_dispatch_fakes("12x", function(calls)
+      local ok, err = pcall(function()
+        workflow_codex.dispatch(dispatch_identity(), { prompt = "hello" })
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("invalid FKST_CODEX_TIMEOUT_CONSENSUS", 1, true) ~= nil)
+      t.eq(#calls, 0)
+    end)
+  end,
+
+  test_workflow_dispatch_invalid_non_consensus_timeout_env_fails_closed = function()
+    with_dispatch_fakes({ FKST_CODEX_TIMEOUT_IMPLEMENT = "0" }, function(calls)
+      local ok, err = pcall(function()
+        workflow_codex.dispatch({
+          role = "implement",
+          proposal_id = "proposal-42",
+          dedup_key = "dedup-42",
+        }, { prompt = "hello" })
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("invalid FKST_CODEX_TIMEOUT_IMPLEMENT", 1, true) ~= nil)
+      t.eq(#calls, 0)
+    end)
+  end,
+
+  test_workflow_dispatch_unknown_role_with_explicit_timeout_fails_closed = function()
+    with_dispatch_fakes({}, function(calls)
+      local ok, err = pcall(function()
+        workflow_codex.dispatch({
+          role = "unknown-role",
+          proposal_id = "proposal-42",
+          dedup_key = "dedup-42",
+        }, { prompt = "hello", timeout = 77 })
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("unknown timeout role: unknown-role", 1, true) ~= nil)
+      t.eq(#calls, 0)
+    end)
+  end,
+
+  test_workflow_raw_resolver_unknown_role_with_explicit_timeout_fails_closed = function()
+    with_timeout_env({}, function()
+      local ok, err = pcall(function()
+        workflow_codex.with_resolved_timeout("unknown-role", { prompt = "hello", timeout = 77 })
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("unknown timeout role: unknown-role", 1, true) ~= nil)
+    end)
+  end,
+
+  test_workflow_dispatch_explicit_timeout_wins_over_non_consensus_env_override = function()
+    with_dispatch_fakes({ FKST_CODEX_TIMEOUT_IMPLEMENT = "1234" }, function(calls)
+      workflow_codex.dispatch({
+        role = "implement",
+        proposal_id = "proposal-42",
+        dedup_key = "dedup-42",
+      }, { prompt = "hello", timeout = 77 })
+
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.timeout, 77)
+    end)
+  end,
+
+  test_workflow_dispatch_explicit_timeout_wins_over_consensus_env_override = function()
+    with_dispatch_fakes("1234", function(calls)
+      workflow_codex.dispatch(dispatch_identity(), { prompt = "hello", timeout = 77 })
+
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.timeout, 77)
     end)
   end,
 
@@ -209,51 +526,32 @@ return {
     end)
   end,
 
-  test_consensus_decide_defers_when_same_proposal_run_is_live = function()
+  test_consensus_decide_acknowledges_more_than_retry_budget_while_same_proposal_run_is_live = function()
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
-    seed_codex_run(run_opts, {
-      run_id = nonce(),
-      role = run_identity.role,
-      proposal_id = run_identity.proposal_id,
-      dedup_key = run_identity.dedup_key,
-      status = "running",
-      started_at = "2026-06-03T00:30:00Z",
-      started_at_ms = now() * 1000,
-      timeout_seconds = 3600,
-      log_path = "/tmp/fkst-packages-test/codex.log",
-      cmd_line = "codex exec -",
-    })
+    local run_identity = library_run_identity(proposal(), "teleology")
+    seed_codex_run(run_opts, running_codex_record(run_identity))
 
-    local result = run_decide(proposal(), run_opts)
-    t.is_true(result.exit_code ~= 0)
+    for _ = 1, 13 do
+      local result = run_decide(proposal(), run_opts)
+      t.eq(result.exit_code, 0)
+      t.eq(#result.raises, 0)
+    end
     t.eq(#codex_calls(), 0)
-    t.eq(#result.raises, 0)
   end,
 
-  test_deferred_delivery_retries_when_live_run_disappears = function()
+  test_live_run_drop_preserves_fresh_redrive_after_run_disappears = function()
     mock_judgment_runtime()
     mock_angle("teleology", "approve", "Teleology approves.")
     mock_angle("parsimony", "approve", "Parsimony approves.")
     mock_angle("fidelity", "approve", "Fidelity approves.")
 
     local run_opts = opts("defer-then-redrive")
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
-    seed_codex_run(run_opts, {
-      run_id = nonce(),
-      role = run_identity.role,
-      proposal_id = run_identity.proposal_id,
-      dedup_key = run_identity.dedup_key,
-      status = "running",
-      started_at = "2026-06-03T00:30:00Z",
-      started_at_ms = now() * 1000,
-      timeout_seconds = 3600,
-      log_path = "/tmp/fkst-packages-test/codex.log",
-      cmd_line = "codex exec -",
-    })
+    local run_identity = library_run_identity(proposal(), "teleology")
+    seed_codex_run(run_opts, running_codex_record(run_identity))
     local deferred = run_decide(proposal(), run_opts)
-    t.is_true(deferred.exit_code ~= 0)
+    t.eq(deferred.exit_code, 0)
+    t.eq(#deferred.raises, 0)
     t.eq(#codex_calls(), 0)
 
     local retried = run_decide(proposal(), opts("redrive-after-live-run-missing"))

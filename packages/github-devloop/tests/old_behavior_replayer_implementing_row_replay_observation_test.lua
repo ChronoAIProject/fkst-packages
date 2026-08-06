@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -32,6 +33,7 @@ local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 local BRANCH = "devloop-owner-repo-42-row-replay"
 local HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -49,6 +51,8 @@ local FIXTURES = json_array({
     name = "matching-live-run-defer",
     implementing_fact = true,
     live_run = true,
+    marker_seconds_ago = 60,
+    run_started_seconds_ago = 60,
     expected_status = "deferred",
     expected_reason = "matching-implement-codex-run-live",
     expected_decision = "skip-pending(codex-run-live)",
@@ -59,7 +63,7 @@ local FIXTURES = json_array({
   {
     name = "fresh-progress-budget-noop",
     implementing_fact = true,
-    marker_created_at = "2099-01-01T00:00:00Z",
+    marker_seconds_ago = 60,
     expected_status = "no-op",
     expected_reason = "implementing-progress-within-row-budget",
     expected_decision = "skip-pending(liveness-budget)",
@@ -89,6 +93,10 @@ local function trusted_comment(body, created_at)
   }
 end
 
+local function seconds_ago_timestamp(seconds_ago)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - tonumber(seconds_ago or 0))
+end
+
 local function event_payload()
   return h.issue({
     repo = REPO,
@@ -112,7 +120,9 @@ local function issue_event()
 end
 
 local function comments_for(fixture)
-  local created_at = fixture.marker_created_at or "2000-01-01T00:00:00Z"
+  local created_at = fixture.marker_created_at
+    or (fixture.marker_seconds_ago ~= nil and seconds_ago_timestamp(fixture.marker_seconds_ago))
+    or "2000-01-01T00:00:00Z"
   local comments = json_array({
     trusted_comment(core.state_marker(PROPOSAL_ID, "implementing", VERSION), created_at),
   })
@@ -146,7 +156,8 @@ local function controlled_codex_runs(fixture)
       proposal_id = PROPOSAL_ID,
       dedup_key = VERSION,
       status = "running",
-      started_at = "2099-01-01T00:00:00Z",
+      started_at = fixture.run_started_at
+        or seconds_ago_timestamp(fixture.run_started_seconds_ago or 60),
       timeout_seconds = 3600,
     },
   })
@@ -258,8 +269,11 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "implementing",
-      transition_kind = "versioned_transition_status",
-      run = function() return testing.run_fake(observe_issue_department, event) end,
+      run = function()
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
+      end,
       codex_runs_for_read = controlled_codex_runs(fixture),
       write_mode = "real",
     })

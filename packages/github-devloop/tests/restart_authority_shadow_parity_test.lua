@@ -1,11 +1,12 @@
--- Non-circularity contract: legacy truth comes from the real loop department's
--- transition_status probe and structured CAS log. The shadow decision receives
--- only a separately sealed snapshot and never observes the legacy probe.
+-- Non-circularity contract: production truth comes from the real loop department's
+-- owner-decider inputs and structured CAS log. The test reconstructs the frozen OLD
+-- protected corpus projection without retaining the retired writer.
 
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
 local loop_department = require("departments.loop.main")
@@ -17,6 +18,7 @@ local POLICY_ID = "cas.legacy_loop_plain_v1"
 local EDGE_ID = "github-devloop/thinking/autonomous/consensus-stalled"
 local APPLY_ENTITLEMENT_ID = EDGE_ID .. "/apply"
 local IDEMPOTENT_ENTITLEMENT_ID = EDGE_ID .. "/idempotent"
+local LOOP_COMMENT_EFFECT_ID = "github-proxy.github_issue_comment_request"
 local V_CURRENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CONSENSUS_REACHED_VARIANT = "consensus-reached"
 local CONSENSUS_RESULT_POLICY_ID = "cas.legacy_consensus_result_v1"
@@ -28,6 +30,9 @@ local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-0
 local V_NEWER = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 local V_ORDERING_EQUAL_CURRENT = V_CURRENT .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_CURRENT .. "/loop/1"
+local REVISION_PUBLISHED_VARIANT = "revision_published"
+local REVISION_PUBLISHED_POLICY_ID = "cas.legacy_awaiting_pr_v1"
+local REVISION_PUBLISHED_EDGE_ID = "github-devloop/implementing/autonomous/revision_published"
 
 local state_labels = {
   thinking = "fkst-dev:thinking",
@@ -46,7 +51,7 @@ local fixtures = {
     expected_status = "apply",
     expected_entitlement_id = APPLY_ENTITLEMENT_ID,
     expected_effect_ids = {
-      "consensus.proposal",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
     },
   },
@@ -173,33 +178,24 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local apply_plans = {}
-  local original_transition = devloop_state.transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_log_apply = devloop_logging.log_apply
 
-  devloop_state.transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local outcome = original_transition(
-      current,
-      from_states,
-      to_state,
-      incoming_version,
-      target_version
-    )
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == SEMANTIC_VARIANT then
+      local legacy_current = snapshot.current
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "thinking" },
+        to_state = "blocked",
+        incoming_version = nil,
+        target_version = nil,
+        outcome = decided.status,
+      })
+    end
+    return decided
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -262,7 +258,7 @@ local function observe_department(run)
   local ok, result = pcall(run)
   devloop_logging.log_apply = original_log_apply
   devloop_logging.log_cas_decision = original_log_cas
-  devloop_state.transition_status = original_transition
+  restart_effects.decide_transition = original_decide_transition
   if not ok then
     error(result, 0)
   end
@@ -272,19 +268,25 @@ end
 local function observe_consensus_result_department(run)
   local probes = {}
   local decisions = {}
-  local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      outcome = outcome,
-    })
-    return outcome
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    local target_state = intent.semantic_variant == CONSENSUS_REACHED_VARIANT and "ready"
+      or intent.semantic_variant == CONSENSUS_REACHED_DEPENDENCY_HELD_VARIANT and "dependency_wait"
+      or nil
+    if target_state ~= nil then
+      local current = { state = snapshot.current.state, version = snapshot.current.version }
+      table.insert(probes, {
+        current = current,
+        from_states = { "thinking" },
+        to_state = target_state,
+        incoming_version = intent.incoming_version,
+        outcome = decision.status,
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -317,7 +319,7 @@ local function observe_consensus_result_department(run)
 
   local ok, result = pcall(run)
   devloop_logging.log_cas_decision = original_log_cas
-  devloop_state.versioned_transition_status = original_versioned
+  restart_effects.decide_transition = original_decide_transition
   if not ok then
     error(result, 0)
   end
@@ -325,22 +327,7 @@ local function observe_consensus_result_department(run)
 end
 
 local function run_real_department(payload)
-  local raises = {}
-  local original_raise = raise
-  raise = function(queue, raised_payload)
-    table.insert(raises, { queue = queue, payload = raised_payload })
-  end
-  local ok, failure = pcall(loop_department.pipeline, {
-    queue = "consensus.consensus_converge",
-    payload = payload,
-    ts = "2026-06-03T01:02:03Z",
-  })
-  raise = original_raise
-  return {
-    exit_code = ok and 0 or 1,
-    error = ok and nil or tostring(failure),
-    raises = raises,
-  }
+  return h.run_loop(payload, h.opts("restart-authority-loop-shadow-parity"))
 end
 
 local function fixture_comments(event, fixture)
@@ -348,7 +335,7 @@ local function fixture_comments(event, fixture)
     return {}
   end
   return {
-    core.state_marker(
+    h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
@@ -438,8 +425,8 @@ end
 local function lifecycle_authoritative_projection(apply_plans, context)
   local projection = {}
   local grantless_effect_ids = {
-    ["consensus.proposal"] = true,
-    ["github-proxy.github_issue_comment_request"] = true,
+    ["devloop_consensus_request"] = true,
+    ["devloop_consensus_continue"] = true,
   }
   for _, plan in ipairs(apply_plans) do
     t.eq(plan.dept, "loop", context .. ": apply plan department")
@@ -456,9 +443,9 @@ local function lifecycle_authoritative_projection(apply_plans, context)
     end
     for _, effect_id in ipairs(plan.effect_ids) do
       t.eq(
-        grantless_effect_ids[effect_id],
+        grantless_effect_ids[effect_id] == true or effect_id == LOOP_COMMENT_EFFECT_ID,
         true,
-        context .. ": observed effect is published-seam or non-lifecycle grantless"
+        context .. ": observed effect belongs to the loop-plain admission slice"
       )
       if grantless_effect_ids[effect_id] ~= true then
         table.insert(projection, effect_id)
@@ -514,7 +501,7 @@ local function assert_case(fixture)
   end
   assert_array(
     lifecycle_authoritative_projection(apply_plans, fixture.name),
-    {},
+    fixture.expected_status == "apply" and { LOOP_COMMENT_EFFECT_ID } or {},
     fixture.name .. ": lifecycle-authoritative projection"
   )
 
@@ -548,7 +535,11 @@ local function assert_case(fixture)
   t.eq(shadow.evidence.facts.target, "blocked", fixture.name .. ": evidence target")
   t.eq(shadow.effect_entitlement_id, fixture.expected_entitlement_id, fixture.name .. ": entitlement id")
   if fixture.expected_entitlement_id ~= nil then
-    assert_array(shadow.granted_effect_ids, {}, fixture.name .. ": granted effect ids")
+    assert_array(
+      shadow.granted_effect_ids,
+      fixture.expected_status == "apply" and { LOOP_COMMENT_EFFECT_ID } or {},
+      fixture.name .. ": granted effect ids"
+    )
   else
     t.eq(shadow.granted_effect_ids, nil, fixture.name .. ": no granted effect ids")
   end
@@ -564,7 +555,7 @@ local function assert_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
@@ -633,7 +624,7 @@ local function assert_dependency_wait_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_comment(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
@@ -740,6 +731,54 @@ return {
     end
     for _, fixture in ipairs(dependency_wait_consensus_result_fixtures) do
       assert_dependency_wait_consensus_result_case(fixture)
+    end
+  end,
+
+  test_revision_published_shadow_is_bidirectionally_legacy_exact = function()
+    local cases = {
+      { name = "source-equal-apply", current = { state = "implementing", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "apply", reason_code = "apply", cas_outcome = "applied" } },
+      { name = "target-equal-idempotent", current = { state = "awaiting-pr", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "idempotent", reason_code = "already-at-target", cas_outcome = "skip-idempotent(already at to_state)" } },
+      { name = "source-marker-missing-pending", current = { state = nil, version = nil }, incoming = V_NEWER,
+        expected = { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = "retry-pending(from-state marker not yet visible)" } },
+      { name = "incoming-older-stale", current = { state = "implementing", version = V_CURRENT }, incoming = V_OLDER,
+        expected = { status = "stale", reason_code = "incoming-version-older", cas_outcome = "skip-stale(incoming version < current marker version)" } },
+      { name = "advanced-state-stale", current = { state = "merged", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = "skip-advanced-or-diverged" } },
+    }
+    for _, case in ipairs(cases) do
+      local sealed = restart_authority.seal_snapshot({
+        owner = OWNER,
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        current = case.current,
+      })
+      local shadow = restart_authority.decide_transition(sealed, {
+        semantic_variant = REVISION_PUBLISHED_VARIANT,
+        target = "awaiting-pr",
+        incoming_version = case.incoming,
+      })
+      local legacy = case.expected
+      assert_bidirectional(shadow, legacy, "status", case.name)
+      assert_bidirectional(shadow, legacy, "reason_code", case.name)
+      assert_bidirectional(shadow, legacy, "cas_outcome", case.name)
+      t.eq(shadow.edge_id, REVISION_PUBLISHED_EDGE_ID, case.name .. ": exact owner edge")
+      t.eq(shadow.cas_policy_id, REVISION_PUBLISHED_POLICY_ID, case.name .. ": closed OLD policy")
+      t.eq(shadow.grant, nil, case.name .. ": grant consumption stays disabled")
+      if shadow.status == "apply" then
+        t.eq(shadow.effect_entitlement_id, REVISION_PUBLISHED_EDGE_ID .. "/apply")
+        t.eq(table.concat(shadow.granted_effect_ids, ","), table.concat({
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "git.push:implementation-branch",
+        }, ","))
+      elseif shadow.status == "idempotent" then
+        t.eq(shadow.effect_entitlement_id, REVISION_PUBLISHED_EDGE_ID .. "/idempotent")
+        t.eq(#shadow.granted_effect_ids, 0)
+      else
+        t.eq(shadow.effect_entitlement_id, nil)
+        t.eq(shadow.granted_effect_ids, nil)
+      end
     end
   end,
 

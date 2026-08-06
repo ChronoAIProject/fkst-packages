@@ -163,7 +163,7 @@ return {
     h.mock_pr_origin({ origin_marker(initial_version) }, branch, h2)
     local review = h.run_review_pr(fresh_reviewing.payload, h.opts("stale-head-fresh-review"))
     t.eq(review.exit_code, 0)
-    local proposal = h.find_raise(review.raises, "consensus.proposal").payload
+    local proposal = h.find_raise(review.raises, "devloop_review_request").payload
     local expected_review_id = devloop_base.pr_review_proposal_id(repo, pr_number, fresh_version, h2)
     t.eq(proposal.proposal_id, expected_review_id)
     t.is_true(proposal.body:find("Reviewed PR head: " .. h2, 1, true) ~= nil)

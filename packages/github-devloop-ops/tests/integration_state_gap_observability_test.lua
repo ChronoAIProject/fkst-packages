@@ -5,25 +5,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local m_builders = require("devloop.markers.builders")
 
-local function opts(name)
-  return {
-    env = {
-      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
-      FKST_GITHUB_REPO = "owner/repo",
-      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
-      FKST_GITHUB_WRITE = "",
-      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
-      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration/dev",
-    },
-  }
-end
 
-local function run_observability()
-  return t.run_department("departments/observability/main.lua", {
-    queue = "devloop_observe_tick",
-    payload = { schema = "github-devloop.observe-tick.v1" },
-  }, opts("state-gap-observability"))
-end
 
 local function mock_env()
   for _ = 1, 8 do
@@ -88,6 +70,11 @@ local function mock_all_issue_lists(numbers)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", core._hold_label, 1, true), {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
   for _, state in ipairs(core.state_order()) do
     t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", core.state_label(state), 1, true), {
       stdout = "[]\n",
@@ -125,7 +112,7 @@ local function mock_issue_view(comments, number)
     title = "Observed issue",
     state = "OPEN",
     comments = comments,
-  }, "title,body,comments,state,stateReason,assignees,author")
+  }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
 local function mock_pr_view(comments)
@@ -180,15 +167,6 @@ local function gap_logs(event)
   return logs
 end
 
-local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
-end
 
 return {
   test_logs_state_gap_edges_from_trusted_marker_stream = function()
@@ -197,7 +175,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.projected_state_comment(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_id, "blocked", "v1"), "mallory", "2026-06-03T01:01:00Z"),
       render_comment(core.state_marker(proposal_id, "implementing", "v1"), "fkst-test-bot", "2026-06-03T03:10:00Z"),
     })
@@ -220,7 +198,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.projected_state_comment(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(wait_marker(proposal_id, "v1", { 7 }), "fkst-test-bot", "2026-06-03T01:05:00Z"),
       render_comment(wait_marker(proposal_id, "v1", { 8 }), "mallory", "2026-06-03T01:06:00Z"),
       render_comment(core.state_marker(proposal_id, "implementing", "v1"), "fkst-test-bot", "2026-06-03T01:50:00Z"),
@@ -240,11 +218,11 @@ return {
     mock_all_issue_lists({ 42, 43 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_42, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.projected_state_comment(proposal_42, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_42, "implementing", "v1"), "fkst-test-bot", "2026-06-03T03:10:00Z"),
     }, 42)
     mock_issue_view({
-      render_comment(core.state_marker(proposal_43, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.projected_state_comment(proposal_43, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_43, "implementing", "v1"), "fkst-test-bot", "2026-06-03T01:10:00Z"),
     }, 43)
 

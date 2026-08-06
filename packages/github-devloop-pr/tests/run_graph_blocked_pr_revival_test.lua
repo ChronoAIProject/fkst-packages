@@ -1,8 +1,10 @@
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local entity_lib = require("devloop.entity")
 local graph = require("testkit.graph")
 local h = require("tests.devloop_helpers")
+local consensus_core = require("consensus.core")
 local m_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -104,7 +106,7 @@ local function mock_consensus_approval()
     stderr = "",
     exit_code = 0,
   })
-  for _, angle in ipairs({ "teleology", "parsimony", "fidelity", "natural-ownership", "proportional-containment" }) do
+  for _, angle in ipairs(consensus_core.angles({})) do
     t.mock_command("mkdir -p", {
       stdout = "",
       stderr = "",
@@ -112,6 +114,16 @@ local function mock_consensus_approval()
     })
     t.mock_command("codex exec", {
       stdout = verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_consensus_checkouts()
+  for _ = 1, #consensus_core.angles({}) do
+    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
+      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -178,7 +190,7 @@ return {
     })
     t.eq(graph.find_raise(head_push_trace, "github-proxy.github_pr_comment_request"), nil)
     t.eq(graph.find_raise(head_push_trace, "github-devloop-pr.devloop_reviewing"), nil)
-    t.eq(graph.find_raise(head_push_trace, "consensus.proposal"), nil)
+    t.eq(graph.find_raise(head_push_trace, "devloop_review_request"), nil)
   end,
 
   test_run_graph_reconcile_dropped_blocked_pr_rereview_uses_fresh_head_identity = function()
@@ -187,12 +199,26 @@ return {
     local command_comments = { table.unpack(blocked_comments) }
     table.insert(command_comments, "fkst: rereview")
     local expected_version = operator_commands.operator_rereview_version(blocked_version, pushed_head_sha)
+    local review_id = devloop_base.pr_review_proposal_id(
+      repo,
+      rereview_pr_number,
+      expected_version,
+      pushed_head_sha
+    )
+    local review_dedup_key = base_ids.dedup_key({ review_id, "review" })
     local reviewing_comments = { table.unpack(command_comments) }
     table.insert(reviewing_comments, {
       body = core.state_marker(proposal_id, "reviewing", expected_version),
       author_login = "fkst-test-bot",
       created_at = "2026-06-03T02:01:01Z",
     })
+    local reviewed_comments = { table.unpack(reviewing_comments) }
+    table.insert(reviewed_comments, m_builders.review_result_marker(
+      review_id,
+      proposal_id,
+      "approve",
+      "consensus:" .. review_dedup_key
+    ))
     mock_env(20)
     h.mock_default_issue_claim()
     entity_read_mocks.mock_pr_read_forms(t, {
@@ -204,11 +230,22 @@ return {
       state = "OPEN",
       base_branch = "dev",
       labels = { "fkst-dev:blocked" },
+      times = 1,
     })
     h.mock_pr_origin_for({
       repo = repo,
       number = rereview_pr_number,
       comments = reviewing_comments,
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = pushed_head_sha,
+      state = "OPEN",
+      base_branch = "dev",
+      labels = { "fkst-dev:reviewing" },
+    })
+    h.mock_pr_origin_for({
+      repo = repo,
+      number = rereview_pr_number,
+      comments = reviewed_comments,
       head = "devloop-owner-repo-42-01HY",
       head_sha = pushed_head_sha,
       state = "OPEN",
@@ -225,21 +262,28 @@ return {
     mock_pr_comment_write(rereview_pr_number)
     mock_reviewing_marker_visibility(expected_version)
     mock_pr_label_write()
+    mock_consensus_checkouts()
     h.mock_context_bundle({
-      proposal_id = proposal_id,
+      proposal_id = review_id,
+      dedup_key = review_dedup_key,
       pr_number = rereview_pr_number,
     })
-    t.mock_command("gh pr diff " .. tostring(rereview_pr_number) .. " --repo " .. repo .. " --name-only", {
-      stdout = "file.lua\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    for _ = 1, 2 do
+      t.mock_command("gh pr diff " .. tostring(rereview_pr_number) .. " --repo " .. repo .. " --name-only", {
+        stdout = "file.lua\n",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
     local implementation_worktree = devloop_base.implement_worktree_path(
-      "/tmp/fkst-packages-test/github-devloop/runtime",
+      devloop_base.implementation_worktree_root(durable_root),
       repo,
       issue_number,
       h.reviewing().version
     )
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+    t.mock_command("git worktree list --porcelain", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(core.path_is_directory_cmd(implementation_worktree), {
       stdout = "",
       stderr = "",
@@ -256,7 +300,7 @@ return {
       "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment",
       "github-proxy.github_comment_written -> github-devloop-pr.comment_handoff",
       "github-devloop-pr.devloop_reviewing -> github-devloop-pr.review_pr",
-      "consensus.proposal -> consensus.decide",
+      "github-devloop-pr.devloop_review_request -> github-devloop-pr.review_result",
     })
 
     local comment_request = graph.require_raise(reentry_trace, "github-proxy.github_pr_comment_request")
@@ -267,7 +311,10 @@ return {
     local reviewing = graph.require_raise(reentry_trace, "github-devloop-pr.devloop_reviewing")
     t.eq(reviewing.payload.version, expected_version)
 
-    local proposal = graph.require_raise(reentry_trace, "consensus.proposal").payload
+    local proposal = graph.require_raise(
+      reentry_trace,
+      "github-devloop-pr.devloop_review_request"
+    ).payload
     t.eq(
       proposal.proposal_id,
       devloop_base.pr_review_proposal_id(repo, rereview_pr_number, expected_version, pushed_head_sha)

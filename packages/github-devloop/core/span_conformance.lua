@@ -1,8 +1,10 @@
 local S = {}
 local hidden_state_conformance = require("devloop.hidden_state_conformance")
-local issue_observation_conformance = require("devloop.restart.issue_observation_conformance")
+local issue_observation_conformance = require("core.restart.issue_observation_conformance")
 local m_rrc = require("devloop.restart_responsibility_contract")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local temporal = require("devloop.restart_temporal_obligations")
+local owner_temporal_index = require("core.restart.temporal_obligations.index")
 
 local START_WORDS = {
   start = true,
@@ -14,13 +16,13 @@ local START_WORDS = {
   beginning = true,
 }
 
-local function sorted_keys(map)
-  local keys = {}
-  for key, _ in pairs(map or {}) do
-    table.insert(keys, key)
+local function sorted_source_paths(sources)
+  local paths = {}
+  for path, _ in pairs(sources or {}) do
+    table.insert(paths, path)
   end
-  table.sort(keys)
-  return keys
+  table.sort(paths)
+  return paths
 end
 
 local function line_number(source, index)
@@ -123,7 +125,7 @@ end
 
 local function comment_strings(sources)
   local values = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     if path == "libraries/devloop/strings.lua" or path:sub(-#"core/strings.lua") == "core/strings.lua" then
       for key, value in pairs(key_value_strings(sources[path])) do
         values[key] = value
@@ -226,7 +228,7 @@ end
 local function completion_fact_name_messages(sources)
   local strings = comment_strings(sources)
   local messages = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     if path:sub(-4) == ".lua" then
       for _, block in ipairs(function_blocks(sources[path])) do
         if block.name:find("comment_request", 1, true) ~= nil and has_head_sha_dependency(block) then
@@ -267,7 +269,7 @@ end
 
 local function function_index(sources)
   local index = {}
-  for _, path in ipairs(sorted_keys(sources)) do
+  for _, path in ipairs(sorted_source_paths(sources)) do
     for _, block in ipairs(function_blocks(sources[path])) do
       local short = short_function_name(block.name)
       index[short] = index[short] or {}
@@ -352,20 +354,10 @@ local function function_binds_marker(functions, function_name, durable_start_mar
   return false
 end
 
-local function worker_rows(transition_sources)
-  local rows = {}
-  for _, path in ipairs(sorted_keys(transition_sources)) do
-    local source = transition_sources[path]
-    for start_pos, _quote, state in source:gmatch("()from_state%s*=%s*([\"'])(.-)%2.-state_kind%s*=%s*([\"'])worker%4") do
-      table.insert(rows, { state = state, path = path, line = line_number(source, start_pos), start = start_pos })
-    end
-  end
-  return rows
-end
 
 local function restart_rows(transition_sources)
   local rows = {}
-  for _, path in ipairs(sorted_keys(transition_sources)) do
+  for _, path in ipairs(sorted_source_paths(transition_sources)) do
     local source = transition_sources[path]
     for start_pos, _quote, state in source:gmatch("()from_state%s*=%s*([\"'])(.-)%2") do
       table.insert(rows, { state = state, path = path, line = line_number(source, start_pos), start = start_pos })
@@ -437,10 +429,23 @@ local function contains_codex_dispatch(source)
     or source:find("%f[%w_]dispatch%s*%(") ~= nil
 end
 
-local function function_contains_spawn(source, function_name)
-  for _, block in ipairs(function_blocks(source)) do
-    if short_function_name(block.name) == function_name and contains_codex_dispatch(block.body) then
-      return true
+local function function_reaches_spawn(functions, function_name)
+  local pending = { short_function_name(function_name) }
+  local seen = {}
+  while #pending > 0 do
+    local current = table.remove(pending)
+    if not seen[current] then
+      seen[current] = true
+      for _, block in ipairs(functions[current] or {}) do
+        if contains_codex_dispatch(block.body) then
+          return true
+        end
+        for _, callee in ipairs(call_names(block.body)) do
+          if not seen[callee] and functions[callee] ~= nil then
+            table.insert(pending, callee)
+          end
+        end
+      end
     end
   end
   return false
@@ -506,12 +511,17 @@ local function spawn_start_messages(transition_sources, department_sources, supp
         ))
       else
         local saw_spawn = false
-        for _, source_path in ipairs(sorted_keys(sources)) do
+        local declared_function_reaches_spawn = contract.spawn_function ~= nil
+          and function_reaches_spawn(functions, contract.spawn_function)
+        for _, source_path in ipairs(sorted_source_paths(sources)) do
           local source = sources[source_path]
           if contract.spawn_function ~= nil then
-            if function_contains_spawn(source, contract.spawn_function) then
-              saw_spawn = true
-              for _, call_pos in ipairs(function_call_positions(source, contract.spawn_function)) do
+            if declared_function_reaches_spawn then
+              local call_positions = function_call_positions(source, contract.spawn_function)
+              if #call_positions > 0 then
+                saw_spawn = true
+              end
+              for _, call_pos in ipairs(call_positions) do
                 if predecessor_call_before(source, contract.spawn_predecessor, call_pos) < 0 then
                   table.insert(messages, string.format(
                     "%s:%d %s call must be preceded by span start predecessor %q for durable start marker %q",
@@ -728,10 +738,24 @@ end
 
 local function span_declaration_errors(core)
   local out = {}
-  for _, message in ipairs(issue_observation_conformance.errors(core.restart_transition_table())) do
+  local rows = core.restart_transition_table()
+  for _, message in ipairs(issue_observation_conformance.errors(rows)) do
     table.insert(out, record("gspan.issue-observation-facts", tostring(message)))
   end
-  for _, message in ipairs(m_rrc.strict_restart_responsibility_contract_errors(core, core.restart_transition_table())) do
+  local temporal_ok, temporal_index = pcall(owner_temporal_index.derive, rows)
+  if not temporal_ok then
+    table.insert(out, record("gspan.temporal-obligations", tostring(temporal_index)))
+  else
+    for _, message in ipairs(temporal.index_errors(
+      core.restart_package_name,
+      rows,
+      temporal_index,
+      temporal.provider_capability_matrix()
+    )) do
+      table.insert(out, record("gspan.temporal-obligations", tostring(message)))
+    end
+  end
+  for _, message in ipairs(m_rrc.strict_restart_responsibility_contract_errors(core, rows)) do
     if tostring(message):find("span_contract", 1, true) ~= nil then
       table.insert(out, record("gspan.span-contract", tostring(message)))
     end
@@ -740,7 +764,6 @@ local function span_declaration_errors(core)
     table.insert(out, record("gspan.hidden-state", tostring(message)))
   end
   local owner = core.restart_package_name
-  local rows = core.restart_transition_table()
   local projection = owner_pending_projection.derive(owner, rows, {
     canonicalization = require("core.restart.canonicalization_inventory"),
     entry = require("core.restart.entry_inventory"),

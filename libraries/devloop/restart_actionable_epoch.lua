@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local parsers_misc = require("devloop.parsers.misc")
 local conv_attempts = require("devloop.convergence.attempts")
 local contract_time = require("contract.time")
@@ -121,6 +122,17 @@ local function invalid(reason)
   }
 end
 
+local function row_budget_absolute_due(row, state, now_seconds)
+  local entry_ms = state_entry_ms(state)
+  local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
+  local budget = row and row.budget and tonumber(row.budget.minutes) or nil
+  if now_ms == nil or entry_ms == nil or budget == nil or budget <= 0 or now_ms < entry_ms then
+    return false, nil, budget, entry_ms
+  end
+  local age = math.floor((now_ms - entry_ms) / 60000)
+  return age >= budget, age, budget, entry_ms
+end
+
 local function clear_fact(M, row, state, facts)
   local comments = live_defer_comments(row, facts)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
@@ -203,7 +215,7 @@ local function resolve_live_defer_epoch(M, row, state, facts, now_seconds)
     if type(gate) ~= "table" then
       return invalid("live-defer-never-deferred-proof-missing:" .. tostring(gate_error or "dependency-gate-missing"))
     end
-    if gate.ok == true then
+    if dependency_gate.dependency_gate_is_satisfied(gate) then
       return resolve_state_entry(M, row, state)
     end
     return invalid("live-defer-clear-absent-after-dependency-gate:" .. tostring(gate.reason or gate.kind or "dependency-held"))
@@ -283,6 +295,8 @@ local function durable_hold_eval(M, row, state, facts, now_seconds)
   return invalid("durable liveness hold result is invalid: " .. tostring(hold.reason or hold.status))
 end
 
+local resolve_child_workflow_wait
+
 local function resolve_codex_run(M, row, state, facts, now_seconds)
   local durable_eval = nil
   if row.actionable_epoch.source == "codex_run_with_durable_hold:v1" then
@@ -296,22 +310,28 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
   end
   local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
   if signal.live then
+    local due, age, budget, entry_ms = row_budget_absolute_due(row, state, now_seconds)
+    if due then
+      local eval = actionable(M, row, state, entry_ms, "codex-run:row-budget-absolute-cap", "codex run is still running over row budget")
+      eval.signal = signal
+      eval.row_budget_absolute_cap = true
+      eval.age_minutes = age
+      eval.budget_minutes = budget
+      return eval
+    end
     local eval = deferred("codex run is still running")
     eval.signal = signal
     return eval
   end
   if signal.codex_runs_fallback == true or signal.indeterminate == true then
-    local entry_ms = state_entry_ms(state)
+    local due, age, _, entry_ms = row_budget_absolute_due(row, state, now_seconds)
     if entry_ms == nil then
       return invalid("codex run indeterminate epoch is missing state entry")
     end
-    local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
-    local budget = row and row.budget and tonumber(row.budget.minutes) or nil
-    if now_ms == nil or budget == nil or budget <= 0 or now_ms < entry_ms then
+    if age == nil then
       return invalid("codex run indeterminate row budget is invalid")
     end
-    local age = math.floor((now_ms - entry_ms) / 60000)
-    if age >= budget then
+    if due then
       local eval = actionable(M, row, state, entry_ms, "codex-run:indeterminate", "codex run liveness indeterminate over row budget")
       eval.signal = signal
       eval.codex_runs_fallback = signal.codex_runs_fallback == true
@@ -337,7 +357,7 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
   return eval
 end
 
-local function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
+function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   if type(M.restart_row_liveness_signal) ~= "function" then
     return invalid("child workflow liveness signal resolver is unavailable")
   end
@@ -511,9 +531,10 @@ end
 
 function C.actionable_epoch_child_workflow_decision(row, state, facts, due, age)
   local eval = facts and facts.actionable_epoch_eval
-  if not (row
+  local child_workflow_source = row
     and row.actionable_epoch
     and row.actionable_epoch.source == "child_workflow_wait:v1"
+  if not (child_workflow_source
     and type(eval) == "table"
     and eval.status == "actionable") then
     return nil
@@ -556,10 +577,16 @@ function C.actionable_epoch_heartbeat_decision(M, row, state, facts, due, age, l
     end
     return { action = "wait", age_minutes = age }
   end
+  -- Owner directive (#2725): a live-defer heartbeat past its (long) row budget is a
+  -- liveness/resource cap, not an explicit cannot-proceed, so it must REDRIVE rather
+  -- than escalate to terminal. `limit` is retained in the signature for callers but no
+  -- longer forces termination here (mirrors liveness/timeout.lua timeout_escalation).
+  local attempt = M.liveness_timeout_attempt(row, state, facts)
   return {
-    action = "escalate",
-    attempt = limit,
+    action = "redrive",
+    attempt = attempt + 1,
     age_minutes = age,
+    version = M.next_liveness_timeout_version(row, state, facts),
   }
 end
 

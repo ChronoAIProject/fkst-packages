@@ -88,6 +88,7 @@ def parse_hash(value: Any, context: str) -> str:
     return value
 
 
+# Local variant: validates JSON objects and returns typed CoverageKey entries.
 def load_allowlist(path: Path) -> set[CoverageKey]:
     if not path.exists():
         return set()
@@ -672,7 +673,12 @@ def parse_covered_json_arg(value: str) -> tuple[Path, str | None]:
 
 
 def warn_disabled(message: str) -> None:
-    print(f"warning: Lua coverage ratchet not enabled (no {REQUIRED_FLAG}); {message}", file=sys.stderr)
+    print(
+        f"warning: Lua coverage ratchet is advisory by maintainer direction (#1222): coverage is a "
+        f"reference signal, not a hard CI gate. The absence of {REQUIRED_FLAG} is the intended "
+        f"posture, not pending migration debt; create it only to opt back in. {message}",
+        file=sys.stderr,
+    )
 
 
 def warn_deferred(message: str) -> None:

@@ -79,6 +79,18 @@ local version_shapes = {
 }
 
 local ordering_base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+local function issue_ordering_base(issue_number)
+  return "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/2026-06-04T01-02-03Z"
+end
+
+local function assert_compare_matches_key_order(left, right, stage_rank)
+  local compare = transition_version.compare(left, right)
+  local left_key = transition_version.marker_order_key(left, stage_rank or 700)
+  local right_key = transition_version.marker_order_key(right, stage_rank or 700)
+  t.eq(compare > 0, left_key > right_key, left .. " marker_order_key order")
+  t.eq(compare < 0, left_key < right_key, left .. " marker_order_key reverse order")
+end
+
 local ordering_cases = {
   {
     name = "newer updated_at wins",
@@ -158,6 +170,12 @@ local ordering_cases = {
     right = ordering_base .. "/timeout/reviewing/2",
     expected = 1,
   },
+  {
+    name = "blocked round outranks its awaiting-pr predecessor",
+    left = ordering_base .. "/blocked/child-pr-blocked/1",
+    right = ordering_base,
+    expected = 1,
+  },
 }
 
 return {
@@ -232,12 +250,60 @@ return {
   test_marker_order_key_matches_captured_devloop_stage_rank_goldens = function()
     t.eq(
       transition_version.marker_order_key(ordering_base .. "/loop/2/fix/1", 700),
-      "2026-06-04T01-02-03Z/000000000002/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000700"
+      "2026-06-04T01-02-03Z/000000000002/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000700"
     )
     t.is_true(
       transition_version.marker_order_key(ordering_base, 690)
         < transition_version.marker_order_key(ordering_base, 700)
     )
+  end,
+
+  test_blocked_versions_use_one_monotonic_counter_across_reasons = function()
+    local issue_numbers = { 1, 2, 7, 42, 100, 555, 2441, 4096, 8191, 9999, 12001, 20003 }
+    local suffixes = {
+      "",
+      "/loop/2",
+      "/fix/3",
+      "/loop/2/fix/3/review-loop/4",
+      "/timeout/awaiting-pr/2",
+      "/blocked/child-pr-blocked/1",
+      "/blocked/child-pr-blocked/1/timeout/awaiting-pr/2",
+    }
+    for _, issue_number in ipairs(issue_numbers) do
+      for _, suffix in ipairs(suffixes) do
+        local predecessor = issue_ordering_base(issue_number) .. suffix
+        local blocked = transition_version.next_blocked(predecessor, "child-pr-blocked")
+        t.eq(transition_version.compare(blocked, predecessor), 1, predecessor)
+        t.eq(transition_version.blocked_round(blocked), transition_version.blocked_round(predecessor) + 1, predecessor)
+        t.eq(transition_version.strip_suffixes(blocked), transition_version.strip_suffixes(predecessor), predecessor)
+
+        local replacement = transition_version.next_blocked(blocked, "replacement-budget-exhausted")
+        t.eq(transition_version.compare(replacement, blocked), 1, predecessor .. " cross reason")
+        t.eq(transition_version.blocked_round(replacement), transition_version.blocked_round(blocked) + 1, predecessor)
+      end
+    end
+  end,
+
+  test_blocked_marker_order_key_serializes_the_comparator_dimension = function()
+    local first = transition_version.next_blocked(ordering_base, "child-pr-blocked")
+    local second = transition_version.next_blocked(first, "replacement-budget-exhausted")
+
+    t.eq(first, ordering_base .. "/blocked/child-pr-blocked/1")
+    t.eq(second, ordering_base .. "/blocked/replacement-budget-exhausted/2")
+    assert_compare_matches_key_order(first, ordering_base, 625)
+    assert_compare_matches_key_order(second, first, 800)
+    t.is_true(
+      transition_version.marker_order_key(first, 800) ~= transition_version.marker_order_key(second, 800),
+      "blocked rounds must serialize into distinct marker_order_key values"
+    )
+
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local current = core.current_state({
+      core.state_marker(proposal_id, "awaiting-pr", ordering_base),
+      core.state_marker(proposal_id, "blocked", first),
+    }, proposal_id)
+    t.eq(current.state, "blocked")
+    t.eq(current.version, first)
   end,
 
   test_next_constructors_preserve_recorded_transition_version_shapes = function()
@@ -252,6 +318,7 @@ return {
       transition_version.next_reimplement(base .. "/ready-split/5"),
       transition_version.next_timeout(base .. "/timeout/reviewing/2", "reviewing"),
       transition_version.next_rereview(base .. "/review-loop/3", "feedface"),
+      transition_version.next_blocked(base, "child-pr-blocked"),
     }
 
     t.eq(expected[1], base .. "/loop/1")
@@ -263,6 +330,7 @@ return {
     t.eq(expected[7], base .. "/ready-split/5/reimplement/1")
     t.eq(expected[8], base .. "/timeout/reviewing/3")
     t.eq(expected[9], base .. "/review-loop/3/review-loop/4/rereview/4/feedface")
+    t.eq(expected[10], base .. "/blocked/child-pr-blocked/1")
     for _, value in ipairs(expected) do
       t.eq(transition_version.render(transition_version.parse(value)), value)
     end

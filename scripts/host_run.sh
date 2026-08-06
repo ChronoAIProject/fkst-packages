@@ -36,6 +36,39 @@ host_run_same_path() {
   [ "$left_phys" = "$right_phys" ]
 }
 
+host_run_export_codex_repository_roots() {
+  local root physical existing duplicate
+  local roots=()
+  for root in "$@"; do
+    case "$root" in
+      ""|*$'\n'*|*$'\r'*)
+        echo "error: codex repository roots must be non-empty single-line paths" >&2
+        return 1
+        ;;
+    esac
+    physical="$(cd "$root" 2>/dev/null && pwd -P)" || {
+      echo "error: codex repository root does not exist: $root" >&2
+      return 1
+    }
+    duplicate=0
+    for existing in ${roots[@]+"${roots[@]}"}; do
+      if [ "$existing" = "$physical" ]; then
+        duplicate=1
+        break
+      fi
+    done
+    if [ "$duplicate" -eq 0 ]; then
+      roots+=("$physical")
+    fi
+  done
+  if [ "${#roots[@]}" -eq 0 ]; then
+    echo "error: at least one codex repository root is required" >&2
+    return 1
+  fi
+  printf -v FKST_CODEX_REPOSITORY_ROOTS '%s\n' "${roots[@]}"
+  export FKST_CODEX_REPOSITORY_ROOTS
+}
+
 host_run_resolve_target_platform_roots() {
   local output line
   output="$(python3 - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
@@ -131,18 +164,29 @@ def lock_sources(lock_path: Path) -> list[dict[str, object]]:
     return sources
 
 
-def validate_source(source: dict[str, object]) -> tuple[str, str, str]:
+def validate_source_id(source: dict[str, object], context: str) -> str:
     source_id = source.get("id")
+    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
+        fail(f"{context} has invalid id")
+    return source_id
+
+
+def record_unique_source_id(source_id: str, locations: dict[str, str], location: str) -> None:
+    first_location = locations.get(source_id)
+    if first_location is not None:
+        fail(f"duplicate source id '{source_id}' at {first_location} and {location}")
+    locations[source_id] = location
+
+
+def validate_lock_source(source: dict[str, object], source_id: str) -> tuple[str, str]:
     git_url = source.get("git")
     resolved = source.get("resolved")
     rev = resolved.get("rev") if isinstance(resolved, dict) else None
-    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
-        fail("fkst.lock external_source has invalid id")
     if not isinstance(git_url, str) or not git_url:
         fail(f"fkst.lock external_source(id={source_id}) is missing git")
     if not isinstance(rev, str) or not REV_RE.fullmatch(rev):
         fail(f"fkst.lock external_source(id={source_id}) is missing resolved.rev as a full git SHA")
-    return source_id, git_url, rev.lower()
+    return git_url, rev.lower()
 
 
 def is_scp_like_url(value: str) -> bool:
@@ -222,11 +266,15 @@ for package in list_of_tables(workspace, "package"):
         workspace_packages[name] = "workspace"
 
 external_sources: dict[str, dict[str, object]] = {}
-for source in list_of_tables(workspace, "external_sources"):
-    source_id = source.get("id")
+workspace_source_locations: dict[str, str] = {}
+for entry_number, source in enumerate(list_of_tables(workspace, "external_sources"), start=1):
+    source_id = validate_source_id(source, "fkst.workspace.toml external_sources")
+    record_unique_source_id(
+        source_id,
+        workspace_source_locations,
+        f"fkst.workspace.toml external_sources[{entry_number}]",
+    )
     git_url = source.get("git")
-    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
-        fail("fkst.workspace.toml external_sources has invalid id")
     if not isinstance(git_url, str) or not git_url:
         fail(f"fkst.workspace.toml external_sources(id={source_id}) is missing git")
     packages = string_list(source.get("packages", []), f"external_sources(id={source_id}).packages")
@@ -256,8 +304,15 @@ if needed_external_source_ids:
     lock_path = project_root / "fkst.lock"
     if not lock_path.is_file():
         fail(f"target fkst.lock is required for external platform packages: {lock_path}")
-    for source in lock_sources(lock_path):
-        source_id, git_url, rev = validate_source(source)
+    lock_source_locations: dict[str, str] = {}
+    for entry_number, source in enumerate(lock_sources(lock_path), start=1):
+        source_id = validate_source_id(source, "fkst.lock external_source")
+        record_unique_source_id(
+            source_id,
+            lock_source_locations,
+            f"fkst.lock external_source[{entry_number}]",
+        )
+        git_url, rev = validate_lock_source(source, source_id)
         lock_by_id[source_id] = (git_url, rev)
 
 source_roots: dict[str, Path] = {}
@@ -619,6 +674,12 @@ host_run_supervise_contract() {
   host_run_restart_prior || return $?
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
+  export FKST_PROJECT_ROOT="$HOST_RUN_PROJECT_ROOT"
+  local repository_roots=("$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_ROOT")
+  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
+    repository_roots+=("$BIN_REPOSITORY_ROOT")
+  fi
+  host_run_export_codex_repository_roots "${repository_roots[@]}" || return $?
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")

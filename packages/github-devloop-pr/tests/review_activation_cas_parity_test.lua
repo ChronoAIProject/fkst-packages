@@ -1,10 +1,12 @@
 -- Non-circularity contract: production truth comes from the real review_pr
--- department. The local CAS function is intentionally not inspected. Its
--- current-state input is captured at the adjacent provider, its event-version
--- input is copied directly from the driven event, and its result is inferred
--- only from structured CAS logs plus the first post-admission safe-head guard.
+-- department's owner-decider admission. Frozen OLD truth is the former local
+-- reviewing_transition_status body copied byte-for-byte before the swap, plus
+-- the observed direct-ID handoff result. Production must not mint a grant for
+-- the separately declared consensus.proposal published intent.
 
 local catalog = require("devloop.restart_cas_catalog")
+local restart_authority = require("core.restart_authority")
+local restart_effects = require("core.restart_effects")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -13,6 +15,7 @@ local inventories = {
 }
 local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local m_builders = require("devloop.markers.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
 local pr_safety = require("devloop.pr_safety")
@@ -36,6 +39,32 @@ local V_DIFFERENT = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-
 local V_SAFE_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_SAFE_EQUAL_EVENT = V_EQUAL .. "/loop/1"
 local HANDOFF_COMMENT_ID = "IC_review_activation_handoff"
+local SOURCE_BOUNDARY = "github-devloop-pr.devloop_reviewing"
+local SEMANTIC_VARIANT = "review_receiver"
+
+local function frozen_old_reviewing_transition_status(state, reviewing_version)
+  if state == nil or state.version == nil then
+    return "pending"
+  end
+
+  local state_base = transition_version.strip_suffixes(state.version)
+  local reviewing_base = transition_version.strip_suffixes(reviewing_version)
+  if state.state == "reviewing" then
+    if tostring(state_base) == tostring(reviewing_base) then
+      return "apply"
+    end
+    return "version-mismatch"
+  end
+
+  local canonical_order = devloop_state.compare_state_marker_order({
+    state = state.state,
+    version = state_base,
+  }, "reviewing", reviewing_base)
+  if canonical_order < 0 then
+    return "pending"
+  end
+  return "stale"
+end
 
 local function observe_department(reviewing_version, run)
   local probes = {}
@@ -47,10 +76,13 @@ local function observe_department(reviewing_version, run)
   local original_log_cas = devloop_logging.log_cas_decision
   local original_verified_hand_off_state = payloads_predicates.verified_hand_off_state
   local original_is_safe_head_sha = pr_safety.is_safe_head_sha
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
+  local decider_calls = {}
+  local grant_mints = 0
 
-  -- reviewing_transition_status is a module-local upvalue and debug is absent.
-  -- current_entity_state is its immediately adjacent current-state provider;
-  -- the other argument is reviewing.version from the event driven below.
+  -- current_entity_state is the production snapshot provider; reviewing.version
+  -- is copied directly from the event into the owner-decider intent.
   entity_lib.current_entity_state = function(...)
     local current = original_current_entity_state(...)
     sequence = sequence + 1
@@ -102,8 +134,23 @@ local function observe_department(reviewing_version, run)
     })
     return safe
   end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    table.insert(decider_calls, {
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
+    })
+    return decision
+  end
+  restart_effects.mint_grant = function(...)
+    grant_mints = grant_mints + 1
+    return original_mint_grant(...)
+  end
 
   local ok, result = pcall(run)
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   pr_safety.is_safe_head_sha = original_is_safe_head_sha
   payloads_predicates.verified_hand_off_state = original_verified_hand_off_state
   devloop_logging.log_cas_decision = original_log_cas
@@ -111,7 +158,7 @@ local function observe_department(reviewing_version, run)
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, handoff_checks, boundary_calls
+  return result, probes, decisions, handoff_checks, boundary_calls, decider_calls, grant_mints
 end
 
 local function handoff_evidence(handoff_checks)
@@ -131,6 +178,26 @@ local function evidence_from_observations(probe, handoff_checks)
   }
 end
 
+local function observe_shadow(run)
+  local captured = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, evidence, candidate_projection)
+    captured = evidence
+    return original_resolve(policy_id, evidence, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, captured
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
+end
+
 local function find_decision(decisions, outcome)
   for _, decision in ipairs(decisions) do
     if decision.outcome == outcome then
@@ -140,26 +207,31 @@ local function find_decision(decisions, outcome)
   return nil
 end
 
-local function observed_admission(probe, decisions, boundary_reached)
+local function frozen_old_admission(probe, handoff_checks)
   if probe == nil then
     return { status = "pre-cas", reason_code = "cas-probe-not-reached" }
   end
-  if find_decision(decisions, "apply(verified-own-reviewing-hand-off)") ~= nil then
-    return { status = "apply", reason_code = "verified-own-reviewing-hand-off" }
+  local preliminary = frozen_old_reviewing_transition_status(probe.current, probe.reviewing_version)
+  local handoff = handoff_evidence(handoff_checks)
+  if (preliminary == "pending" or preliminary == "version-mismatch")
+    and handoff
+    and handoff.status == "valid" then
+    return {
+      status = "apply",
+      reason_code = "verified-own-reviewing-hand-off",
+      cas_outcome = "apply(verified-own-reviewing-hand-off)",
+    }
   end
-  if find_decision(decisions, "skip-stale(version-mismatch)") ~= nil then
-    return { status = "stale", reason_code = "version-mismatch" }
+  if preliminary == "version-mismatch" then
+    return { status = "stale", reason_code = "version-mismatch", cas_outcome = "skip-stale(version-mismatch)" }
   end
-  if find_decision(decisions, "retry-pending(reviewing marker not yet visible)") ~= nil then
-    return { status = "pending", reason_code = "reviewing-marker-not-visible" }
+  if preliminary == "pending" then
+    return { status = "pending", reason_code = "reviewing-marker-not-visible", cas_outcome = "retry-pending(reviewing marker not yet visible)" }
   end
-  if find_decision(decisions, "skip-stale/diverged") ~= nil then
-    return { status = "stale", reason_code = "advanced-or-diverged" }
+  if preliminary == "stale" then
+    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = "skip-stale/diverged" }
   end
-  if boundary_reached then
-    return { status = "apply", reason_code = "apply" }
-  end
-  error("review activation CAS outcome could not be inferred from logs or admission boundary")
+  return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
 end
 
 local function post_admission_disposition(result, boundary_reached)
@@ -223,10 +295,10 @@ local function mock_case(fixture, event)
     state = "OPEN",
     base_branch = BASE_BRANCH,
   })
-  t.mock_command("/worktrees/devloop-", {
+  t.mock_command("git worktree list --porcelain", {
     stdout = "",
     stderr = "",
-    exit_code = 1,
+    exit_code = 0,
   })
   if fixture.valid_handoff then
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/" .. HANDOFF_COMMENT_ID .. "'", {
@@ -384,7 +456,7 @@ local FIXTURES = {
 local function assert_case(fixture)
   local event = reviewing_event(fixture.event_version, fixture.valid_handoff or fixture.invalid_handoff)
   mock_case(fixture, event)
-  local result, probes, decisions, handoff_checks, boundary_calls = observe_department(event.version, function()
+  local result, probes, decisions, handoff_checks, boundary_calls, decider_calls, grant_mints = observe_department(event.version, function()
     return run_real_department(event)
   end)
 
@@ -439,7 +511,7 @@ local function assert_case(fixture)
   local expected_handoff_status = fixture.valid_handoff and "valid"
     or (fixture.invalid_handoff and "invalid" or nil)
   t.eq(evidence.handoff and evidence.handoff.status or nil, expected_handoff_status, fixture.name .. ": catalog handoff status")
-  local observed = observed_admission(probe, decisions, boundary_reached)
+  local observed = frozen_old_admission(probe, handoff_checks)
   local resolved = catalog.resolve(POLICY_ID, evidence, projection)
   t.eq(resolved.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(resolved.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
@@ -447,11 +519,84 @@ local function assert_case(fixture)
   t.eq(observed.reason_code, fixture.admission_reason, fixture.name .. ": observed admission reason")
   t.eq(resolved.status, fixture.admission_status, fixture.name .. ": catalog admission status")
   t.eq(resolved.reason_code, fixture.admission_reason, fixture.name .. ": catalog admission reason")
+  t.eq(resolved.cas_outcome, observed.cas_outcome, fixture.name .. ": frozen OLD CAS outcome parity")
+
+  local expected_decider_calls = expected_handoff_count == 1 and 2 or 1
+  t.eq(#decider_calls, expected_decider_calls, fixture.name .. ": production owner-decider call count")
+  for index, call in ipairs(decider_calls) do
+    t.eq(call.intent.semantic_variant, SEMANTIC_VARIANT, fixture.name .. ": decider semantic variant " .. tostring(index))
+    t.eq(call.intent.source_boundary, SOURCE_BOUNDARY, fixture.name .. ": decider source boundary " .. tostring(index))
+    t.eq(call.intent.target, "reviewing", fixture.name .. ": decider target " .. tostring(index))
+    t.eq(call.intent.reviewing_version, event.version, fixture.name .. ": decider reviewing version " .. tostring(index))
+    t.eq(call.snapshot.current.state, probe.current.state, fixture.name .. ": sealed current state " .. tostring(index))
+    t.eq(call.snapshot.current.version, probe.current.version, fixture.name .. ": sealed current version " .. tostring(index))
+  end
+  t.eq(decider_calls[1].intent.handoff, nil, fixture.name .. ": preliminary admission has no handoff overlay")
+  if expected_handoff_count == 1 then
+    t.eq(decider_calls[2].intent.handoff.status, expected_handoff_status,
+      fixture.name .. ": verified handoff evidence reaches production decider")
+  end
+  local production_decision = decider_calls[#decider_calls].decision
+  assert_bidirectional(production_decision, observed, "reason_code", fixture.name .. ": production-vs-frozen-old")
+  assert_bidirectional(production_decision, observed, "status", fixture.name .. ": production-vs-frozen-old")
+  assert_bidirectional(production_decision, observed, "cas_outcome", fixture.name .. ": production-vs-frozen-old")
+  if production_decision.status == "apply" then
+    t.eq(production_decision.effect_entitlement_id,
+      "github-devloop-pr/reviewing/entry/review_receiver/apply",
+      fixture.name .. ": admission-only entitlement identity")
+    t.eq(#production_decision.granted_effect_ids, 0, fixture.name .. ": review activation grants no effects")
+  else
+    t.eq(production_decision.effect_entitlement_id, nil,
+      fixture.name .. ": non-applying admission has no entitlement")
+    t.eq(production_decision.granted_effect_ids, nil,
+      fixture.name .. ": non-applying admission grants no effects")
+  end
+  t.eq(grant_mints, 0, fixture.name .. ": grantless proposal mints no grant")
+
+  local sealed = restart_authority.seal_snapshot({
+    owner = core.restart_package_name,
+    proposal_id = event.proposal_id,
+    current = {
+      state = probe.current.state,
+      version = probe.current.version,
+    },
+  })
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed, {
+      semantic_variant = SEMANTIC_VARIANT,
+      source_boundary = SOURCE_BOUNDARY,
+      target = "reviewing",
+      evidence_refs = { "review-pr-cas-probe", "reviewing-hand-off-verification" },
+      reviewing_version = event.version,
+      handoff = handoff_evidence(handoff_checks),
+    })
+  end)
+  assert_bidirectional(shadow, resolved, "reason_code", fixture.name)
+  assert_bidirectional(shadow, resolved, "status", fixture.name)
+  assert_bidirectional(shadow, resolved, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/reviewing/entry/review_receiver",
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, probe.current.state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, probe.current.version, fixture.name .. ": evidence current version")
+  t.eq(shadow_evidence.reviewing_version, event.version, fixture.name .. ": evidence reviewing version")
+  t.eq(
+    shadow_evidence.handoff and shadow_evidence.handoff.status or nil,
+    expected_handoff_status,
+    fixture.name .. ": evidence handoff status"
+  )
+  t.eq(shadow_evidence.variant, nil, fixture.name .. ": resolve-based evidence has no variant")
+  t.eq(shadow_evidence.incoming_version, nil, fixture.name .. ": resolve-based evidence has no incoming version")
+  t.eq(shadow_evidence.overlay_version, nil, fixture.name .. ": resolve-based evidence has no overlay version")
 
   local expected_effect_count = boundary_reached and 1 or 0
   t.eq(#result.raises, expected_effect_count, fixture.name .. ": captured effect count")
   if expected_effect_count == 1 then
-    t.eq(result.raises[1].queue, "consensus.proposal", fixture.name .. ": captured effect queue")
+    t.eq(result.raises[1].queue, "devloop_review_request", fixture.name .. ": captured effect queue")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1", fixture.name .. ": captured effect schema")
   end
   t.eq(
@@ -463,7 +608,7 @@ end
 
 local function assert_malformed_is_pre_cas_and_catalog_illegal()
   local malformed = h.reviewing({ version = 42 })
-  local result, probes, decisions, handoff_checks, boundary_calls = observe_department(malformed.version, function()
+  local result, probes, decisions, handoff_checks, boundary_calls, decider_calls, grant_mints = observe_department(malformed.version, function()
     return run_real_department(malformed)
   end)
 
@@ -471,6 +616,8 @@ local function assert_malformed_is_pre_cas_and_catalog_illegal()
   t.eq(#probes, 0, "review-activation-malformed: production rejects before CAS")
   t.eq(#handoff_checks, 0, "review-activation-malformed: handoff verification is not reached")
   t.eq(#boundary_calls, 0, "review-activation-malformed: admission boundary is not reached")
+  t.eq(#decider_calls, 0, "review-activation-malformed: owner decider is not reached")
+  t.eq(grant_mints, 0, "review-activation-malformed: no grants")
   t.eq(#result.raises, 0, "review-activation-malformed: no effects")
   t.eq(#decisions, 1, "review-activation-malformed: rejection decision count")
   t.eq(decisions[1].outcome, "skip-foreign(payload)", "review-activation-malformed: rejection outcome")

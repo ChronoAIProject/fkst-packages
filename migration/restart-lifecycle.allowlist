@@ -1,7 +1,0 @@
-writer:github-devloop:implement-enter
-row-replay:github-devloop-pr:observe-pr-local
-row-replay:github-devloop-pr:review-replayer
-intent:github-devloop:observe-issue-decompose
-acceptor:github-devloop-pr:merge
-entry:github-devloop-pr:fix
-entry:github-devloop-pr:reconcile

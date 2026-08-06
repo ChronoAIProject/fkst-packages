@@ -21,14 +21,14 @@ local PREFIX = "entry-loop-"
 local SITE = {
   path = "packages/github-devloop/departments/loop/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_converge",
+  ordinal = "consumes:devloop_consensus_continue",
 }
 local COMMENT = "comment:issue:converge-round"
-local PROPOSAL = "queue:consensus.proposal"
+local CONSENSUS_REQUEST = "queue:github-devloop.devloop_consensus_request"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-event-payload",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 48,
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 52,
     payload = { schema = "unsupported.converge.v1", proposal_id = PROPOSAL_ID, dedup_key = VERSION } },
   { disposition = "skip-non-whitelisted-author", status = "rejected", reason = "non-whitelisted-author",
     cas = "skip-non-whitelisted-author", target = "reject", source_line = 78, author_login = "ordinary-user",
@@ -46,10 +46,13 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "reconcile", source_line = 122, round = 1,
     prior = { { round = 0, findings_record = "open:\nexternal evidence remains", essence_stall = true } },
     effects = ra.json_array({ COMMENT }) },
+  -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer terminal, so this
+  -- lineage REDRIVES the next round (local consensus continuation + converge comment) instead of
+  -- routing to a terminal reconcile/blocked.
   { disposition = "lineage-terminal-continuation-budget", status = "admitted", reason = "lineage-continuation-budget",
-    cas = "applied", target = "reconcile", source_line = 122, round = 2,
+    cas = "applied", target = "proposal", source_line = 265, round = 2,
     prior = { { round = 1, findings_record = "open:\nsecond resolvable finding" } },
-    effects = ra.json_array({ COMMENT }) },
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
   { disposition = "lineage-terminal-no-semantic-progress", status = "admitted", reason = "lineage-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 122, round = 4,
     prior = {
@@ -67,11 +70,13 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "reconcile", source_line = 164, round = 0,
     findings_record = "open:\nno source-verifiable evidence remains", essence_stall = true,
     effects = ra.json_array({ COMMENT }) },
+  -- Owner directive (#2725): continuation ROUND-BUDGET non-terminal -> REDRIVE the next
+  -- round instead of routing to a terminal reconcile/blocked.
   { disposition = "current-terminal-continuation-budget", status = "admitted", reason = "current-continuation-budget",
-    cas = "applied", target = "reconcile", source_line = 164, round = 1,
+    cas = "applied", target = "proposal", source_line = 265, round = 1,
     findings_record = "open:\nsecond resolvable finding",
     prior = { { round = 0, findings_record = "open:\nfirst resolvable finding" } },
-    effects = ra.json_array({ COMMENT }) },
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
   { disposition = "current-terminal-no-semantic-progress", status = "admitted", reason = "current-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 164, round = 4,
     findings_record = "open:\nfourth unchanged finding",
@@ -81,8 +86,8 @@ local FIXTURES = ra.json_array({
       { round = 3, findings_record = "open:\nthird unchanged finding" },
     }, effects = ra.json_array({ COMMENT }) },
   { disposition = "admitted-reraise-narrowed-proposal", status = "admitted", reason = "continue-convergence",
-    cas = "applied", target = "proposal", source_line = 195, round = 0,
-    effects = ra.json_array({ PROPOSAL, COMMENT }) },
+    cas = "applied", target = "proposal", source_line = 265, round = 0,
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
 })
 
 local function event_for(fixture)
@@ -94,7 +99,7 @@ local function event_for(fixture)
     findings_record = fixture.findings_record,
     essence_stall = fixture.essence_stall,
   })
-  return { queue = "consensus.consensus_converge", ts = "2026-06-03T02:03:04Z", payload = payload }
+  return { queue = "devloop_consensus_continue", ts = "2026-06-03T02:03:04Z", payload = payload }
 end
 
 local function round_marker(event, fact)
@@ -111,7 +116,7 @@ local function capture(fixture)
   if fixture.target == "proposal" then h.mock_context_bundle(event.payload) end
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   elseif fixture.payload == nil and fixture.error == nil then
     table.insert(comments, core.state_marker(PROPOSAL_ID, "thinking", VERSION))
   end

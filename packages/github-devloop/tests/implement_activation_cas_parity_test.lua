@@ -1,10 +1,12 @@
 -- Non-circularity contract: production truth comes from the real implement
--- department's named CAS wrapper, the exact inner probe arguments it produces,
--- and the first post-admission WIP guard. Catalog evidence is copied from those
--- observed arguments, never reconstructed from fixture versions. Handoff
--- verification, effects, liveness dedup, and legacy logs remain separate axes.
+-- department's owner decision, the independently replayed legacy CAS probe, and
+-- the first post-admission WIP guard. Catalog evidence is copied from observed
+-- owner intent, never reconstructed from fixture versions. Handoff verification,
+-- effects, liveness dedup, and legacy logs remain separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
+local context_bundle = require("devloop.context_bundle")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -17,13 +19,26 @@ local dispatch_live_run = require("devloop.dispatch_live_run")
 local m_builders = require("devloop.markers.builders")
 local m_mq = require("devloop.merge_queue")
 local payloads_predicates = require("devloop.payloads.predicates")
-local transitions = require("departments.implement.transitions")
+local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+local requests_labels = require("devloop.requests.labels")
+local requests_lifecycle = require("devloop.requests.lifecycle")
+local workflow_codex = require("workflow_internal.codex")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local implement_department = require("departments.implement.main")
 
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local IMPLEMENT_ACTIVATION_CORPUS_PATH = "migration/intent_bounded_replay/corpus/implement-activation.json"
+local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-implement-activation-new-trace.json"
+)
+
+local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
@@ -42,13 +57,13 @@ local variants = {
   ["blocked\0implementing"] = "blocked_to_implementing",
 }
 
-local function source_state_names(expected_states)
-  local names = {}
-  for _, expected in ipairs(expected_states or {}) do
-    table.insert(names, type(expected) == "table" and expected.state or expected)
-  end
-  return names
-end
+local decision_sources = {
+  implementation_kicked_off = { state = "ready", kind = "versioned" },
+  ["retry-implementation"] = { state = "impl-failed", kind = "versioned" },
+  reimplement_blocked_open_pr = { state = "blocked", kind = "cyclic" },
+  reimplement_blocked_implementing_timeout_without_pr = { state = "blocked", kind = "cyclic" },
+}
+
 
 local function probe_variant(from_states, to_state)
   if type(from_states) ~= "table" or #from_states ~= 1 then
@@ -57,74 +72,97 @@ local function probe_variant(from_states, to_state)
   return variants[tostring(from_states[1]) .. "\0" .. tostring(to_state)]
 end
 
-local function observe_department(run)
+local function observe_department(run, opts)
+  opts = opts or {}
   local named_calls = {}
   local probes = {}
   local decisions = {}
   local handoff_checks = {}
   local boundary_calls = {}
+  local serializer_calls = { comment = {}, label = {} }
   local sequence = 0
-  local active_named_call = nil
-  local original_implementation = transitions.implementation_transition_status
-  local original_versioned = devloop_state.versioned_transition_status
-  local original_cyclic = devloop_state.cyclic_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_verified_hand_off_state = payloads_predicates.verified_hand_off_state
   local original_wip_capacity_allows_start = m_mq.wip_capacity_allows_start
   local original_dispatch_live_run_dedup = dispatch_live_run.dispatch_live_run_dedup
+  local original_context_fetch_from_bundle = context_bundle.context_fetch_from_bundle
+  local original_codex_dispatch = workflow_codex.dispatch
+  local original_implementing_comment = requests_lifecycle.build_implementing_state_comment_request
+  local original_implementing_label = requests_labels.build_implementing_label_request
 
   dispatch_live_run.dispatch_live_run_dedup = function()
     return false
   end
-  transitions.implementation_transition_status = function(state, expected_states, marker_version)
-    sequence = sequence + 1
-    local named_call = {
-      sequence = sequence,
-      current = state,
-      expected_states = expected_states,
-      marker_version = marker_version,
-      index = #named_calls + 1,
-    }
-    table.insert(named_calls, named_call)
-    active_named_call = named_call
-    local outcome = original_implementation(state, expected_states, marker_version)
-    named_call.outcome = outcome
-    active_named_call = nil
-    return outcome
+  if opts.stop_after_activation then
+    context_bundle.context_fetch_from_bundle = function()
+      return { kind = "external", ref = "owner/repo#issue/42" }
+    end
+    workflow_codex.dispatch = function()
+      return { deferred = true, reason = "trace-stop-after-implementation-activation" }
+    end
   end
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    sequence = sequence + 1
-    table.insert(probes, {
-      sequence = sequence,
-      named_call = active_named_call,
-      kind = "versioned",
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-      variant = probe_variant(from_states, to_state),
+  requests_lifecycle.build_implementing_state_comment_request = function(
+      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      base_sha, attempt, started_at, exec_ref)
+    table.insert(serializer_calls.comment, {
+      core = builder_core,
+      issue = { repo = repo, number = issue_number },
+      ready = ready,
+      worktree = worktree,
+      branch = branch,
+      base_branch = base_branch,
+      base_sha = base_sha,
+      attempt = attempt,
+      started_at = started_at,
+      exec_ref = exec_ref,
     })
-    return outcome
+    return original_implementing_comment(
+      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      base_sha, attempt, started_at, exec_ref
+    )
   end
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
-    sequence = sequence + 1
-    table.insert(probes, {
-      sequence = sequence,
-      named_call = active_named_call,
-      kind = "cyclic",
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-      variant = probe_variant(from_states, to_state),
+  requests_labels.build_implementing_label_request = function(repo, issue_number, ready)
+    table.insert(serializer_calls.label, {
+      issue = { repo = repo, number = issue_number },
+      ready = ready,
     })
-    return outcome
+    return original_implementing_label(repo, issue_number, ready)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    local source = decision_sources[intent.semantic_variant]
+    if source ~= nil then
+      local from_states = { source.state }
+      local current = { state = snapshot.current.state, version = snapshot.current.version }
+      local outcome = decision.status
+      sequence = sequence + 1
+      local named_call = {
+        sequence = sequence,
+        current = current,
+        expected_states = from_states,
+        marker_version = intent.incoming_version,
+        outcome = outcome,
+        index = #named_calls + 1,
+      }
+      table.insert(named_calls, named_call)
+      sequence = sequence + 1
+      table.insert(probes, {
+        sequence = sequence,
+        named_call = named_call,
+        kind = source.kind,
+        current = current,
+        from_states = from_states,
+        to_state = "implementing",
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        phase = intent.phase,
+        retry = intent.retry,
+        outcome = outcome,
+        variant = probe_variant(from_states, "implementing"),
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     sequence = sequence + 1
@@ -169,17 +207,19 @@ local function observe_department(run)
   end
 
   local ok, result = pcall(run)
+  requests_labels.build_implementing_label_request = original_implementing_label
+  requests_lifecycle.build_implementing_state_comment_request = original_implementing_comment
+  workflow_codex.dispatch = original_codex_dispatch
+  context_bundle.context_fetch_from_bundle = original_context_fetch_from_bundle
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   m_mq.wip_capacity_allows_start = original_wip_capacity_allows_start
   payloads_predicates.verified_hand_off_state = original_verified_hand_off_state
   devloop_logging.log_cas_decision = original_log_cas
-  devloop_state.cyclic_transition_status = original_cyclic
-  devloop_state.versioned_transition_status = original_versioned
-  transitions.implementation_transition_status = original_implementation
+  restart_effects.decide_transition = original_decide_transition
   if not ok then
     error(result, 0)
   end
-  return result, named_calls, probes, decisions, handoff_checks, boundary_calls
+  return result, named_calls, probes, decisions, handoff_checks, boundary_calls, serializer_calls
 end
 
 local function evidence_from_probe(probe, handoff_checks)
@@ -201,10 +241,25 @@ local function evidence_from_probe(probe, handoff_checks)
     variant = probe.variant,
     incoming_version = probe.incoming_version,
     target_version = probe.target_version,
-    phase = probe.named_call and probe.named_call.index == 1 and "initial" or "recheck",
-    retry = probe.variant ~= "ready_to_implementing",
+    phase = probe.phase,
+    retry = probe.retry,
     handoff = handoff,
   }
+end
+
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
 end
 
 local function decision_after_probe(decisions, probe, boundary_calls)
@@ -289,6 +344,21 @@ local function mock_wip_stop()
   })
 end
 
+local function mock_wip_allow()
+  t.mock_command('printf %s "$FKST_DEVLOOP_MAX_INFLIGHT"', {
+    stdout = "1", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = INTEGRATION_BRANCH, stderr = "", exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_list_wip_cmd(REPO), {
+    stdout = "[]\n", stderr = "", exit_code = 0,
+  })
+end
+
 local function make_event(fixture)
   local event = h.ready({ dedup_key = fixture.event_version or V_EQUAL })
   if fixture.impl_retry_attempt ~= nil then
@@ -321,10 +391,11 @@ end
 local function fixture_comments(fixture, event)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
-    table.insert(comments, core.impl_failure_marker(PROPOSAL_ID, event.dedup_key, "codex-failed", 1))
+    table.insert(comments, core.impl_failure_marker(
+      PROPOSAL_ID, event.dedup_key, "codex-failed", 1, "UNKNOWN", true))
   end
   if fixture.blocked_version ~= nil or fixture.current_target_link then
     table.insert(comments, m_builders.pr_link_marker(
@@ -350,9 +421,18 @@ local function mock_case(fixture, event)
     { "fkst-dev:" .. tostring(fixture.current_state or "ready") },
     fixture_comments(fixture, event)
   )
-  mock_wip_stop()
+  if fixture.capture_activation then
+    h.mock_issue_implement_raw(
+      { "fkst-dev:" .. tostring(fixture.current_state or "ready") },
+      fixture_comments(fixture, event)
+    )
+    mock_wip_allow()
+    h.mock_fresh_implement_worktree()
+  elseif not fixture.trace_capture then
+    mock_wip_stop()
+  end
   if fixture.handoff_visible_version ~= nil then
-    local visible_marker = core.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
+    local visible_marker = h.projected_state_comment(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_implement_cas_handoff'", {
       stdout = '{"body":"' .. h.json_string(visible_marker) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",
@@ -377,6 +457,54 @@ local function run_real_department(event)
     error = ok and nil or tostring(failure),
     raises = raises,
   }
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_shadow_case(fixture, probe, evidence, observed, decision)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    proposal_id = PROPOSAL_ID,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, {
+      semantic_variant = fixture.semantic_variant,
+      source_boundary = fixture.source_boundary,
+      target = "implementing",
+      incoming_version = evidence.incoming_version,
+      target_version = evidence.target_version,
+      phase = evidence.phase,
+      retry = evidence.retry,
+      handoff = evidence.handoff,
+    })
+  end)
+  local production = {
+    status = observed.status,
+    reason_code = observed.reason_code,
+    cas_outcome = decision.outcome,
+  }
+
+  assert_bidirectional(shadow, production, "status", fixture.name)
+  assert_bidirectional(shadow, production, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, fixture.edge_id, fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, fixture.current_version, fixture.name .. ": evidence raw current version")
+  t.eq(shadow_evidence.variant, probe.variant, fixture.name .. ": evidence variant")
+  t.eq(shadow_evidence.incoming_version, probe.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(shadow_evidence.target_version, probe.target_version, fixture.name .. ": evidence target version")
+  t.eq(shadow_evidence.phase, evidence.phase, fixture.name .. ": evidence phase")
+  t.eq(shadow_evidence.retry, evidence.retry, fixture.name .. ": evidence retry")
+  t.eq(shadow_evidence.handoff, evidence.handoff, fixture.name .. ": evidence handoff")
 end
 
 local function assert_case(fixture)
@@ -421,6 +549,9 @@ local function assert_case(fixture)
     if fixture.legacy_log_outcome ~= nil then
       t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
     end
+    if fixture.semantic_variant ~= nil then
+      assert_shadow_case(fixture, probe, evidence, observed, decision)
+    end
   else
     t.eq(#boundary_calls, 0, fixture.name .. ": pre-CAS input cannot reach admission boundary")
   end
@@ -456,6 +587,127 @@ local function assert_malformed_fail_closed()
   t.eq(resolved.cas_outcome, "illegal(invalid-evidence)", "catalog malformed fail-closed outcome")
 end
 
+local TRACE_EDGE_ID = OWNER .. "/ready/entry/implementation_kicked_off"
+local TRACE_FIXTURES = {
+  { fixture_id = "newer-source-marker-missing-pending", current_state = nil,
+    current_version = nil, event_version = V_NEWER, expected_exit_code = 1 },
+  { fixture_id = "source-equal-apply", current_state = "ready",
+    current_version = V_EQUAL, event_version = V_EQUAL, boundary_reached = true,
+    capture_activation = true },
+  { fixture_id = "source-older-stale", current_state = "ready",
+    current_version = V_EQUAL, event_version = V_OLDER },
+  { fixture_id = "target-idempotent", current_state = "impl-failed",
+    current_version = V_EQUAL, event_version = V_EQUAL },
+}
+
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
+  return observation_support.admission_trace_artifact(
+    "restart-implement-activation-trace.v1", OWNER, "implement-activation", corpus_hash,
+    fixtures, captured_sink_effects
+  )
+end
+
+local function capture_trace_production(fixture)
+  fixture.trace_capture = true
+  local event = make_event(fixture)
+  mock_case(fixture, event)
+  local result, _, probes, decisions, handoffs, boundaries, serializers = observe_department(
+    function() return run_real_department(event) end,
+    { stop_after_activation = fixture.capture_activation }
+  )
+  local captured
+  if #probes == 0 then
+    local decision = decisions[1]
+    t.eq(decision.outcome, "skip-idempotent(already at to_state)",
+      fixture.fixture_id .. ": OLD pre-CAS idempotent")
+    captured = {
+      current = decision.current, incoming_version = event.dedup_key, phase = "initial", retry = false,
+      status = "idempotent", reason_code = "already-at-target", cas_outcome = decision.outcome,
+    }
+  else
+    local probe = probes[1]
+    local decision = decision_after_probe(decisions, probe, boundaries)
+    t.is_true(decision ~= nil, fixture.fixture_id .. ": OLD CAS decision")
+    local evidence = evidence_from_probe(probe, handoffs)
+    local observed = observed_admission(probe, decision, handoffs, fixture.boundary_reached == true)
+    captured = {
+      current = probe.current, incoming_version = probe.incoming_version,
+      target_version = probe.target_version, phase = evidence.phase, retry = evidence.retry,
+      handoff = evidence.handoff, status = observed.status, reason_code = observed.reason_code,
+      cas_outcome = decision.outcome,
+    }
+  end
+  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.fixture_id .. ": OLD exit code")
+  local write_count = #serializers.comment + #serializers.label
+  t.eq(#result.raises, write_count, fixture.fixture_id .. ": OLD writes use observed serializers")
+  local expected_serializer_calls = captured.status == "apply" and 1 or 0
+  t.eq(#serializers.comment, expected_serializer_calls,
+    fixture.fixture_id .. ": OLD comment serializer calls")
+  t.eq(#serializers.label, expected_serializer_calls,
+    fixture.fixture_id .. ": OLD label serializer calls")
+  captured.result = result
+  captured.serializers = serializers
+  return captured
+end
+
+local function decide_new_trace(fixture, old)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER, entity = { kind = "issue", repo = REPO, number = ISSUE_NUMBER },
+    proposal_id = PROPOSAL_ID, current = old.current,
+    snapshot_fingerprint = "r9-implement-activation:" .. fixture.fixture_id,
+    lock_epoch = "r9-implement-activation:lock", generation = "r9-implement-activation:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "implementation_kicked_off", target = "implementing",
+    incoming_version = old.incoming_version, target_version = old.target_version,
+    phase = old.phase, retry = old.retry, handoff = old.handoff,
+  })
+  local writes = json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:implementation-start")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({ family = "implement-activation",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory") })
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, old.serializers.comment[1])
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return decided, writes
+end
+
+local function assert_implement_activation_trace_equality()
+  local corpus = json.decode(file.read(IMPLEMENT_ACTIVATION_CORPUS_PATH))
+  local old_fixtures, new_fixtures = json_array(), json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local old = capture_trace_production(fixture)
+    local decided, new_writes = decide_new_trace(fixture, old)
+    local old_writes = old.status == "apply"
+      and observation_support.admission_trace_writes(old.result.raises) or json_array()
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(fixture, TRACE_EDGE_ID,
+      old.status, old.reason_code, old.cas_outcome, decided.effect_entitlement_id,
+      decided.granted_effect_ids, old_writes))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(fixture, TRACE_EDGE_ID,
+      decided.status, decided.reason_code, decided.cas_outcome, decided.effect_entitlement_id,
+      decided.granted_effect_ids, new_writes))
+  end
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 implement-activation OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 implement-activation trace could not create its artifact directory", 0)
+  end
+  file.write(IMPLEMENT_ACTIVATION_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
+    "R9 implement-activation OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
+    "R9 implement-activation NEW semantic trace")
+end
+
 return {
   test_ready_source_equal_reaches_admission_boundary = function()
     assert_case({
@@ -467,6 +719,8 @@ return {
       admission_status = "apply",
       legacy_log_outcome = "applied",
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "implementation_kicked_off",
+      edge_id = OWNER .. "/ready/entry/implementation_kicked_off",
     })
   end,
 
@@ -559,6 +813,8 @@ return {
       boundary_reached = true,
       admission_status = "apply",
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "retry-implementation",
+      edge_id = OWNER .. "/impl-failed/entry/retry-implementation",
     })
   end,
 
@@ -575,6 +831,9 @@ return {
       admission_status = "apply",
       probe_incoming_differs_from_event = true,
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "reimplement_blocked_open_pr",
+      source_boundary = "open-pr",
+      edge_id = OWNER .. "/implementing/operator_reentry/reimplement_blocked_open_pr",
     })
   end,
 
@@ -591,5 +850,9 @@ return {
 
   test_malformed_version_fails_closed_before_cas_and_in_catalog = function()
     assert_malformed_fail_closed()
+  end,
+
+  test_r9_implement_activation_old_equals_new_normalized_trace = function()
+    assert_implement_activation_trace_equality()
   end,
 }

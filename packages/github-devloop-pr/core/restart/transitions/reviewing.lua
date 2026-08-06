@@ -10,6 +10,22 @@ return function(M, h)
   local watchdog = h.watchdog
   local responsibility_signature = h.responsibility_signature
   local advancing_fact = h.advancing_fact
+  local function effect_entitlements(semantic_variant)
+    local edge_id = "github-devloop-pr/reviewing/autonomous/" .. semantic_variant
+    return {
+      apply = {
+        id = edge_id .. "/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = edge_id .. "/idempotent",
+        effect_ids = {},
+      },
+    }
+  end
   return {
     from_state = "reviewing",
     generation_entry = {
@@ -50,6 +66,17 @@ return function(M, h)
       },
     },
     output_obligation = obligation({ "review-result:v1", "review-converge-round:v1", "state:v1 blocked" }, { "merge-ready", "fixing", "review-meta", "blocked", "reviewing" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/reviewing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "live_defer_heartbeat:v1",
+          resolver = "live-defer",
+          budget_minutes = 150,
+        },
+      },
+    },
     budget = budget(150, "The long review receiver is supervised by review-converge-round heartbeats; this budget only bounds stale heartbeat redrive."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -65,11 +92,46 @@ return function(M, h)
     receiver_activations = {
       {
         kind = "entry",
+        boundary = "devloop_review_reconcile",
+        target = "blocked",
+        output_variant = "review_reconcile_true_stall",
+        cas_policy_id = "cas.legacy_issue_reconcile_v1",
+        cas_variant = "reviewing_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
         boundary = "devloop_fix_reconcile",
         target = "blocked",
         output_variant = "review_reject_to_blocked",
         cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
         cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },
@@ -89,6 +151,7 @@ return function(M, h)
           output_variant = "approved",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_merge_ready",
+          transition_effect_entitlements = effect_entitlements("approved"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
@@ -100,6 +163,7 @@ return function(M, h)
           output_variant = "changes_requested",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_fixing",
+          transition_effect_entitlements = effect_entitlements("changes_requested"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
@@ -111,6 +175,7 @@ return function(M, h)
           output_variant = "needs_review_meta",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_review_meta",
+          transition_effect_entitlements = effect_entitlements("needs_review_meta"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
@@ -123,6 +188,19 @@ return function(M, h)
           kind = "timeout",
           cas_policy_id = "cas.legacy_timeout_reconcile_v1",
           cas_variant = "reviewing_to_blocked",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = false },
           terminal = true,
           monotonic = true,

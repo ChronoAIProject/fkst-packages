@@ -14,6 +14,7 @@ local review_unresolved = h.review_unresolved
 local review_meta_event = h.review_meta_event
 local run_observe_pr = h.run_observe_pr
 local run_review_loop = h.run_review_loop
+local take_consensus_proposal = h.take_consensus_proposal
 local run_review_meta = h.run_review_meta
 local mock_issue_review = h.mock_issue_review
 local mock_issue_reviewing = h.mock_issue_reviewing
@@ -116,13 +117,15 @@ return {
     mock_review_loop_state(impl_version)
 
     local first = run_review_loop(event, opts("review-v2-mixed-first-pass"))
+    local proposal = take_consensus_proposal()
     t.eq(first.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is non-terminal; with
+    -- distinct review rounds (not a true-stall) review convergence REDRIVES the next round
+    -- (consensus.proposal + converge comment) instead of a terminal review-reconcile handoff.
     t.eq(#first.raises, 2)
-    t.eq(find_raise(first.raises, "consensus.proposal"), nil)
+    t.is_true(proposal ~= nil)
     t.eq(find_raise(first.raises, "devloop_review_meta"), nil)
-    local reconcile = find_raise(first.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.eq(find_raise(first.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_review_loop_abstain_approve_boundary_exhausts_evidence_continuation = function()
@@ -137,13 +140,15 @@ return {
     mock_review_loop_state(reviewing().version)
 
     local result = run_review_loop(event, opts("review-v2-abstain-approve-boundary"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is non-terminal; review
+    -- convergence REDRIVES the next round (consensus.proposal + converge comment) instead of
+    -- a terminal review-reconcile handoff.
     t.eq(#result.raises, 2)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.is_true(proposal ~= nil)
     t.eq(find_raise(result.raises, "devloop_review_meta"), nil)
-    local reconcile = find_raise(result.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.eq(find_raise(result.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_reviewing_liveness_defers_from_real_review_loop_heartbeat = function()

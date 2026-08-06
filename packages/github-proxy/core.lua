@@ -114,7 +114,7 @@ function M.github_proxy_poll_label_prefixes(exec)
   return prefixes
 end
 
-require("forge.github_debug_stamp").install(M)
+require("forge.github_debug_stamp").install(M, M.read_env)
 
 function M.log_line(level, dept, tag, fields)
   local parts = {
@@ -130,7 +130,6 @@ end
 
 local function command_result_stderr(result) return type(result) == "table" and tostring(result.stderr or "") or "" end
 
-local function command_result_exit_code(result) return type(result) == "table" and tonumber(result.exit_code) or nil end
 
 function M.is_gh_rate_limited(result)
   local stderr = command_result_stderr(result)

@@ -1,9 +1,9 @@
 kind = "package"
-name = "consensus"
+name = "consensus-tests"
 persistence_class = "judgment_pipeline"
 
 [code]
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow", "workflow_internal", "testkit_internal"]
+libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "consensus"]

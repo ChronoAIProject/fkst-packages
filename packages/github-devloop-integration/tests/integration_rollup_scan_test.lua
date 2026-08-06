@@ -54,6 +54,15 @@ local function mock_fetches()
   t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
 end
 
+local function mock_missing_integration_fetch()
+  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'integration/dev'", {
+    stdout = "",
+    stderr = "fatal: couldn't find remote ref integration/dev\n",
+    exit_code = 128,
+  })
+end
+
 local function mock_fetches_for(integration)
   t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git fetch 'origin' '" .. tostring(integration) .. "'", { stdout = "", stderr = "", exit_code = 0 })
@@ -245,6 +254,17 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 0)
+  end,
+
+  test_rollup_scan_missing_integration_branch_holds_without_dlq = function()
+    mock_env()
+    mock_missing_integration_fetch()
+    local result = run_scan(opts("rollup-missing-integration"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("git rev-list --count"), 0)
+    t.eq(h.count_calls("gh api --paginate --slurp 'repos/owner/repo/pulls"), 0)
+    t.eq(h.count_calls("git push"), 0)
   end,
 
   test_rollup_scan_ahead_no_open_pr_real_creates_with_head_and_base = function()
@@ -749,7 +769,7 @@ return {
       FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
     }))
 
-    t.is_true(result.exit_code ~= 0)
+    t.eq(result.exit_code, 0)
     t.eq(h.find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
   end,
 

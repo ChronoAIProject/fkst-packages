@@ -8,7 +8,7 @@ end
 local function assert_install_rejects(make_department)
   local ok, err = pcall(ports.install, make_department, test_options())
   assert(ok == false, "install rejects malformed make_department return")
-  assert(tostring(err):find("forge.ports.install: make_department must return a table with spec and pipeline", 1, true) ~= nil,
+  assert(tostring(err):find("forge.ports.install: department-shape-invalid: make_department must return a table with spec and pipeline", 1, true) ~= nil,
     "install reports the department return-shape contract")
 end
 

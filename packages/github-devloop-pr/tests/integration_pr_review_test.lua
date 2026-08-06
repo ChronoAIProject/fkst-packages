@@ -32,6 +32,8 @@ local run_review_pr = h.run_review_pr
 local run_review_result = h.run_review_result
 local run_fix = h.run_fix
 local run_review_loop = h.run_review_loop
+local mock_next_consensus_result = h.mock_next_consensus_result
+local take_consensus_proposal = h.take_consensus_proposal
 local run_review_meta = h.run_review_meta
 local run_merge = h.run_merge
 local json_string = h.json_string
@@ -101,12 +103,19 @@ local function assert_pr_label_guard(payload, expected_state, expected_version)
   t.eq(payload.expected_version, expected_version)
 end
 local function mock_existing_review_worktree(impl_version)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local worktree = devloop_base.implement_worktree_path(
-    "/tmp/fkst-packages-test/github-devloop/runtime",
+    devloop_base.implementation_worktree_root(durable_root),
     "owner/repo",
     42,
     impl_version
   )
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/devloop-owner-repo-42-01HY\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command(core.path_is_directory_cmd(worktree), {
     stdout = "",
     stderr = "",
@@ -318,7 +327,8 @@ return {
       },
     }, opts("observe-pr-merging-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
+    t.is_true(find_raise(result.raises, "restart_transition_anomaly") ~= nil)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
     t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merging")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
@@ -414,7 +424,7 @@ return {
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
     t.eq(#review.raises, 1)
-    local proposal = find_raise(review.raises, "consensus.proposal").payload
+    local proposal = find_raise(review.raises, "devloop_review_request").payload
     t.eq(proposal.proposal_id, devloop_base.pr_review_proposal_id("owner/repo", 7, reviewing_raise.payload.version, "feedface"))
     t.is_nil(proposal.body:find("+fixed by replay", 1, true))
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
@@ -529,7 +539,7 @@ return {
     local result = run_review_pr(event, opts("review-pr-proposal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus.proposal")
+    t.eq(result.raises[1].queue, "devloop_review_request")
     local proposal = result.raises[1].payload
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, devloop_base.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
@@ -567,7 +577,7 @@ return {
 
     local result = run_review_pr(event, opts("review-pr-redrive-delivery-identity"))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    local proposal = find_raise(result.raises, "devloop_review_request").payload
     t.eq(proposal.proposal_id, review_id)
     t.eq(proposal.dedup_key, delivery_dedup_key)
     t.eq(v_validate_proposal.validate_proposal(proposal), true)
@@ -588,7 +598,7 @@ return {
     local review = run_review_pr(event, opts("review-pr-gate-reject-link"))
     t.eq(review.exit_code, 0)
     t.eq(#review.raises, 1)
-    local proposal = find_raise(review.raises, "consensus.proposal").payload
+    local proposal = find_raise(review.raises, "devloop_review_request").payload
     t.eq(proposal.verdict_mode, "gate")
     t.eq(proposal.proposal_id, devloop_base.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
 
@@ -613,7 +623,19 @@ return {
       core.state_marker(event.proposal_id, "reviewing", event.version),
     })
 
-    local result = run_review_result(reached_payload, opts("review-pr-gate-reject-result"))
+    mock_next_consensus_result(function(value)
+      local library_result = { status = "reached" }
+      for key, field in pairs(reached_payload) do
+        if key ~= "proposal_id" then
+          library_result[key] = field
+        end
+      end
+      return library_result
+    end)
+    local result = run_review_result(proposal, opts("review-pr-gate-reject-result"))
+    local called_proposal = take_consensus_proposal()
+    t.is_true(called_proposal ~= nil)
+    t.eq(called_proposal.proposal_id, proposal.proposal_id)
     local fix_version = core.fix_version_from_review_version(event.version)
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
@@ -809,7 +831,7 @@ return {
     local result = run_review_pr(event, opts("review-pr-durable-reviewing-hand-off"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus.proposal")
+    t.eq(result.raises[1].queue, "devloop_review_request")
     t.eq(count_calls("repos/owner/repo/issues/comments/IC_reviewing_1"), 1)
     t.eq(count_calls("gh pr diff"), 2)
   end,

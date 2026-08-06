@@ -1,7 +1,6 @@
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
-local conv_reconcile = require("devloop.convergence.reconcile")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -9,6 +8,7 @@ local unresolved = h.unresolved
 local run_loop = h.run_loop
 local mock_issue_loop = h.mock_issue_loop
 local find_raise = h.find_raise
+local take_consensus_proposal = h.take_consensus_proposal
 
 local function angles(round, verdict)
   return {
@@ -18,23 +18,6 @@ end
 
 local function findings(text)
   return "open:\n" .. tostring(text or "current unresolved finding")
-end
-
-local function run_comment_handoff_from_request(request, comment_id, name)
-  return t.run_department("departments/comment_handoff/main.lua", {
-    queue = "github-proxy.github_comment_written",
-    payload = {
-      schema = "github-proxy.comment-written.v1",
-      repo = request.repo,
-      target = "issue",
-      issue_number = request.issue_number,
-      comment_id = comment_id,
-      request_dedup_key = request.dedup_key,
-      dedup_key = tostring(request.dedup_key) .. "/written/" .. tostring(comment_id),
-      source_ref = request.source_ref,
-      handoff = request.handoff,
-    },
-  }, opts(name))
 end
 
 return {
@@ -54,13 +37,14 @@ return {
     local result = run_loop(event, opts("loop-first-evidence-continuation"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = take_consensus_proposal()
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.round, 1)
-    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
-    t.eq(proposal.payload.convergence_question, event.narrowed_question)
-    t.eq(proposal.payload.findings_record, event.findings_record)
-    t.eq(proposal.payload.prior_round_digests, nil)
+    t.eq(proposal.round, 1)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
+    t.eq(proposal.convergence_question, event.narrowed_question)
+    t.eq(proposal.findings_record, event.findings_record)
+    t.eq(proposal.prior_round_digests, nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
@@ -69,7 +53,7 @@ return {
     t.is_true(comment.payload.body:find('findings_record="open:%0Adependency evidence remains unresolved"', 1, true) ~= nil)
   end,
 
-  test_loop_evidence_continuation_budget_handoffs_reconcile = function()
+  test_loop_evidence_continuation_budget_redrives_next_round = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local event = unresolved({
       dedup_key = base_version .. "/loop/1",
@@ -86,64 +70,60 @@ return {
 
     local result = run_loop(event, opts("loop-evidence-continuation-budget"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    -- Owner directive (#2725): the evidence-continuation ROUND-BUDGET is a raw counter
+    -- that must NEVER hand off a terminal reconcile; with two DISTINCT resolvable rounds
+    -- (not a true-stall) convergence REDRIVES the next round instead of dropping to
+    -- blocked. No terminal reconcile handoff is emitted.
+    t.eq(#result.raises, 2)
+    local proposal = take_consensus_proposal()
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.round, 2)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2")
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.proposal_id, event.proposal_id)
-    t.eq(comment.payload.handoff.round, 1)
-    t.eq(comment.payload.handoff.base_version, base_version)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
-    t.eq(comment.payload.handoff.source_ref.ref, event.source_ref.ref)
-
-    local handoff = run_comment_handoff_from_request(
-      comment.payload,
-      "IC_resolvability_reconcile",
-      "loop-resolvability-comment-handoff-reconcile"
-    )
-    t.eq(handoff.exit_code, 0)
-    local reconcile_raise = find_raise(handoff.raises, "devloop_reconcile")
-    t.is_true(reconcile_raise ~= nil)
-    local expected = conv_reconcile.build_devloop_reconcile_payload(event, 1, base_version, "evidence-continuation-budget-exhausted")
-    t.eq(reconcile_raise.payload.schema, expected.schema)
-    t.eq(reconcile_raise.payload.proposal_id, expected.proposal_id)
-    t.eq(reconcile_raise.payload.dedup_key, expected.dedup_key)
-    t.eq(reconcile_raise.payload.round, expected.round)
-    t.eq(reconcile_raise.payload.base_version, expected.base_version)
+    t.is_nil(comment.payload.handoff)
+    t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
   end,
 
-  test_loop_proposal_lineage_budget_survives_version_and_source_ref_drift = function()
-    local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
-    local drift_version = "consensus:github-devloop/issue/owner/repo/42/intake/drifted"
+  test_loop_prior_thinking_epoch_evidence_does_not_skip_fresh_epoch = function()
+    local current_epoch = "github-devloop/issue/owner/repo/42/intake/current/reimplement/2"
+    local previous_epoch = "github-devloop/issue/owner/repo/42/intake/current/reimplement/1"
+    local current_consensus = "consensus:github-devloop/issue/owner/repo/42/content/current"
     local event = unresolved({
-      dedup_key = base_version .. "/loop/3",
-      round = 3,
-      source_ref = { kind = "external", ref = "owner/repo#issue/42?current=1" },
+      dedup_key = current_consensus,
+      round = 0,
       narrowed_question = "Current boundary question",
       angle_digests = angles(0),
     })
-    local current_digest = convergence_shared.source_ref_digest(event.source_ref)
-    local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
+    local source_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
-      {
-        body = conv_rounds.converge_round_marker(event.proposal_id, base_version, current_digest, 1, base_version .. "/loop/1", "Forged", angles(1), findings("forged finding")),
-        author_login = "ordinary-user",
-      },
-      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 1, drift_version .. "/loop/1", "Other boundary", angles(1), findings("drifted finding")),
+      core.state_marker(event.proposal_id, "thinking", current_epoch),
+      conv_rounds.converge_round_marker(
+        event.proposal_id,
+        previous_epoch,
+        source_digest,
+        3,
+        "consensus:previous-content/loop/3",
+        "Previous terminal boundary",
+        angles(3),
+        findings("previous epoch terminal finding"),
+        true
+      ),
     })
 
-    local result = run_loop(event, opts("loop-drifted-lineage-budget"))
+    local result = run_loop(event, opts("loop-fresh-thinking-epoch"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 2)
+    local proposal = take_consensus_proposal()
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.round, 1)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/content/current/loop/1")
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.round, 1)
-    t.eq(comment.payload.handoff.base_version, drift_version)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.is_nil(comment.payload.handoff)
+    t.is_true(comment.payload.body:find('version="' .. current_epoch .. '"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('round="0"', 1, true) ~= nil)
   end,
 
   test_loop_essence_stall_handoffs_terminal_reconcile_without_continuation = function()
@@ -163,7 +143,7 @@ return {
     local result = run_loop(event, opts("loop-essence-stall"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(take_consensus_proposal(), nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")

@@ -3,6 +3,13 @@ local restart_edges = require("devloop.restart_edges")
 
 local t = h.t
 
+local function empty_entitlements()
+  return {
+    apply = { id = "test/apply", effect_ids = {} },
+    idempotent = { id = "test/idempotent", effect_ids = {} },
+  }
+end
+
 local function inventory_entry()
   return {
     semantic_variant = "ingress",
@@ -11,6 +18,7 @@ local function inventory_entry()
     kind = "entry",
     source = { state = nil, boundary = "owner.ingress" },
     target = "thinking",
+    transition_effect_entitlements = empty_entitlements(),
     provenance = {
       owner = "owner",
       row = "thinking",
@@ -25,6 +33,7 @@ local function activation(output_variant)
     boundary = "owner.receiver",
     target = "blocked",
     output_variant = output_variant,
+    transition_effect_entitlements = empty_entitlements(),
   }
 end
 
@@ -58,6 +67,7 @@ local function operator_reentry_entry()
     kind = "operator_reentry",
     source = { state = "blocked", boundary = nil },
     target = "thinking",
+    transition_effect_entitlements = empty_entitlements(),
     cause_evidence = {
       command = "retry",
       requires_applied_certificate = true,
@@ -79,6 +89,7 @@ local function canonicalization_entry()
     kind = "canonicalization",
     source = { state = "reviewing", boundary = nil },
     target = "reviewing",
+    transition_effect_entitlements = empty_entitlements(),
     cause_evidence = {
       marker = "state:v1",
       resolver = "state_marker",
@@ -92,6 +103,9 @@ local function canonicalization_entry()
 end
 
 local function responsibility_row(successors)
+  for _, successor in ipairs(successors) do
+    successor.transition_effect_entitlements = successor.transition_effect_entitlements or empty_entitlements()
+  end
   return {
     from_state = "from",
     responsibility_signature = { successors = successors },
@@ -99,6 +113,9 @@ local function responsibility_row(successors)
 end
 
 local function guard_boundaries_row(successors)
+  for _, successor in ipairs(successors) do
+    successor.transition_effect_entitlements = successor.transition_effect_entitlements or empty_entitlements()
+  end
   return {
     from_state = "from",
     guard_boundaries = {

@@ -53,6 +53,9 @@ local function issue(number, fields)
   local selected = fields or {}
   return {
     number = number,
+    title = selected.title or "Issue " .. tostring(number),
+    body = selected.body or "",
+    updated_at = selected.updated_at or "2026-07-16T00:00:00Z",
     state = selected.state or "OPEN",
     assignees = copy(selected.assignees or {}),
     labels = copy(selected.labels or {}),
@@ -61,17 +64,9 @@ local function issue(number, fields)
   }
 end
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tonumber(value) == tonumber(expected) then
-      return true
-    end
-  end
-  return false
-end
 
 local function active_issue(current)
-  return capacity.issue_is_active(REPO, current)
+  return capacity.issue_occupies_capacity(REPO, current)
 end
 
 local function new_world(max_inflight)
@@ -176,6 +171,7 @@ local function new_world(max_inflight)
         self.next_sha = self.next_sha + 1
         self.grant = copy(record)
         self.grant.sha = sha
+        t.is_true(#(record.holders or {}) <= self.max_inflight)
         self.successful_cas = self.successful_cas + 1
         table.insert(self.writes, {
           kind = "cas",
@@ -314,7 +310,7 @@ return {
     t.eq(world:release_order()[2], 2)
   end,
 
-  test_terminal_winner_releases_capacity_for_next_issue = function()
+  test_blocked_winner_releases_capacity_for_next_issue = function()
     h.mock_bot_env()
     local world = new_world(1)
     world:add(issue(71))
@@ -323,7 +319,10 @@ return {
 
     t.eq(authorize(first_runtime, world, 71), true)
     world:claim(71)
-    world.issues[71].state = "CLOSED"
+    world.issues[71].comments = {
+      decision_comment(71, "enable"),
+      state_comment(71, "blocked", nil, "2026-07-16T00:00:01Z"),
+    }
 
     local next_runtime = capacity.new(world:ports("/runtime/next"))
     local next_granted = authorize(next_runtime, world, 72)

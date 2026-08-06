@@ -84,6 +84,13 @@ local function setup_stub_siblings(root)
   produces = {},
   published_seam = { "devloop_comment_written" },
   stall_window = "30s",
+  }]])
+
+  write_stub_package(root, "github-devloop-pr")
+  write_stub_department(root, "github-devloop-pr", "observe_pr", [[{
+  consumes = { "observe_pr_tick" },
+  produces = { "restart_transition_anomaly" },
+  stall_window = "30s",
 }]])
 
   write_stub_package(root, "github-proxy")
@@ -109,14 +116,6 @@ local function setup_stub_siblings(root)
   consumes = { "github_issue_label_request" },
   produces = {},
   published_seam = { "github_issue_label_request" },
-  stall_window = "30s",
-}]])
-
-  write_stub_package(root, "consensus")
-  write_stub_department(root, "consensus", "decide", [[{
-  consumes = { "proposal" },
-  produces = { "consensus_reached", "consensus_converge" },
-  published_seam = { "proposal" },
   stall_window = "30s",
 }]])
 
@@ -146,6 +145,7 @@ local function setup_workspace(name, child_test)
     "testkit",
     "testkit_internal",
     "forge",
+    "consensus",
     "devloop",
   }) do
     copy_dir(source .. "/libraries/" .. lib, root .. "/libraries/" .. lib)
@@ -179,9 +179,9 @@ local function run_child(root)
     "--package-root",
     shell_quote(root .. "/packages/github-devloop"),
     "--package-root",
-    shell_quote(root .. "/packages/github-proxy"),
+    shell_quote(root .. "/packages/github-devloop-pr"),
     "--package-root",
-    shell_quote(root .. "/packages/consensus"),
+    shell_quote(root .. "/packages/github-proxy"),
     "--package-root",
     shell_quote(root .. "/packages/github-devloop-decompose"),
   }, " ")
@@ -253,7 +253,8 @@ end
 
 local function mock_observability_empty_reads()
   t.mock_command(observe_issue_list_command(core._enabled_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
-  for _, state in ipairs(core.issue_state_order()) do
+  t.mock_command(observe_issue_list_command(core._hold_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
+  for _, state in ipairs(core.lifecycle_state_order()) do
     t.mock_command(observe_issue_list_command(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command(core.gh_pr_list_observe_cmd("owner/repo", 1, true), { stdout = "[]\n", stderr = "", exit_code = 0 })
@@ -273,7 +274,7 @@ local function mock_observability_empty_reads()
     number = 0,
     title = "unused",
     comments = {},
-  }, "title,body,comments,state,stateReason,assignees,author")
+  }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
 return {

@@ -228,6 +228,8 @@ function M.build_intake_class_folded_label_request(_package_core, repo, issue_nu
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    candidate.proposal_id,
+    candidate.dedup_key,
     base_ids.dedup_key({
       "intake-class",
       "label",

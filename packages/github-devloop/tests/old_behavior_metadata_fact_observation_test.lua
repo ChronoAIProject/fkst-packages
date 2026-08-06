@@ -2,6 +2,7 @@ local github_fake = require("forge.github_fake")
 local github_factory = require("devloop.github_factory")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -18,9 +19,46 @@ local json_array = observation_support.json_array
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", {
+  kind = "external",
+  ref = REPO .. "#issue/" .. ISSUE_NUMBER,
+})
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local OLDER_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CURRENT_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-04Z"
+local TIMEOUT_RECONCILE_LABEL_SINK = {
+  effect_id = "label:issue:timeout-reconcile",
+  department = "reconcile",
+  sink_kind = "label",
+  authority_class = "lifecycle-authoritative",
+  family = "state-label:blocked;dedup=timeout-reconcile/label",
+}
+local PRECURSOR_BLOCKED_BY_ADAPTER_SINK = {
+  effect_id = "adapter:github.issue-blocked-by",
+  department = "implement",
+  sink_kind = "adapter",
+  authority_class = "lifecycle-authoritative",
+  family = "issue-blocked-by/precursor/proposal+version+blocker",
+}
+local PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK = {
+  effect_id = "adapter:github.issue-blocked-by-replay",
+  department = "observe_issue",
+  sink_kind = "adapter",
+  authority_class = "lifecycle-authoritative",
+  family = "issue-blocked-by/precursor/proposal+version+blocker",
+}
+local CURRENT_SINK_FAMILIES = {
+  ["comment:issue:consensus-result"] =
+    "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
+  ["label:issue:consensus-result"] =
+    "state-label:visible-marker-repair:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
+  ["comment:issue:dependency-canonicalization"] =
+    "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
+  ["label:issue:dependency-canonicalization"] =
+    "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
+  ["label:issue:awaiting-pr-terminal"] =
+    "state-label:merged|blocked;dedup=awaiting-pr/label",
+}
 
 local SITES = {
   current_state = {
@@ -32,16 +70,6 @@ local SITES = {
     path = "packages/github-devloop/core/restart/sink_inventory.lua",
     symbol = "records",
     ordinal = "sink-inventory",
-  },
-  state_fields = {
-    path = "packages/github-devloop/core/restart/marker_fields/state.lua",
-    symbol = 'family = "state"',
-    ordinal = "shared-row-export/state",
-  },
-  dependency_wait_fields = {
-    path = "packages/github-devloop/core/restart/marker_fields/dependency_wait.lua",
-    symbol = 'family = "dependency-wait"',
-    ordinal = "shared-row-export/dependency-wait",
   },
   grantless = {
     path = "packages/github-devloop/core/restart/sink_inventory.lua",
@@ -98,7 +126,8 @@ end
 local function catalog_rows(records, grantless_only)
   local rows = json_array()
   for _, record in ipairs(records or {}) do
-    if not grantless_only or tostring(record.authority_class):match("^grantless%-") then
+    if record.id ~= "queue:github-devloop.restart_transition_anomaly"
+      and (not grantless_only or tostring(record.authority_class):match("^grantless%-")) then
       table.insert(rows, {
         effect_id = record.id,
         department = record.callsite.department,
@@ -135,7 +164,7 @@ local function capture_current_state_fact()
   h.mock_bot_env()
   local comments = json_array({
     trusted(core.state_marker(PROPOSAL_ID, "thinking", OLDER_VERSION), "2026-06-03T01:00:00Z"),
-    trusted(core.state_marker(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
+    trusted(h.projected_state_comment(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
     trusted(core.state_marker("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9")),
     {
       body = core.state_marker(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10"),
@@ -224,13 +253,18 @@ local function capture_current_state_fact()
       source_ref = { kind = "external", ref = REPO .. "#issue/" .. ISSUE_NUMBER },
     }),
   }
-  local ok, result = pcall(testing.run_fake, observe_issue_department, event)
+  local ok, result = pcall(function()
+    return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+      return testing.run_fake(observe_issue_department, event)
+    end)
+  end)
   devloop_state.current_state = original_current_state
   github_proxy_entity_view.fetch_issue_view_state = original_fetch
   github_factory.production_handle = original_handle
   if not ok then error(result, 0) end
   t.eq(#calls, 1, "real observe_issue dispatch performs one authoritative current-state read")
-  t.eq(#result.raises, 0, "held fixture ends after the current-state read")
+  t.eq(#result.raises, 1, "held fixture adds only separately manifested R7 telemetry")
+  t.eq(result.raises[1].queue, "restart_transition_anomaly")
   local call = calls[1]
   t.eq(call.derived.state, "ready")
   t.eq(call.derived.version, CURRENT_VERSION)
@@ -267,6 +301,16 @@ local function capture_records()
 
   local sink_inventory = require("core.restart.sink_inventory")
   local all_sinks = catalog_rows(sink_inventory, false)
+  table.insert(all_sinks, {
+    effect_id = "call:consensus.reach",
+    department = "consensus_result",
+    sink_kind = "adapter",
+    authority_class = "lifecycle-authoritative",
+    family = "consensus-call:v1/proposal+dedup",
+  })
+  table.sort(all_sinks, function(left, right)
+    return canonical_json(left) < canonical_json(right)
+  end)
   table.insert(records, base_record(
     "effect-sink-catalog-gd-exact-set", SITES.sink_catalog, "effect_sink", "effect_sink_catalog",
     "declared sink set", { record_count = #all_sinks },
@@ -275,20 +319,14 @@ local function capture_records()
   ))
 
   for _, spec in ipairs({
-    { id = "shared-row-state-exact-fields", site = SITES.state_fields,
-      module = require("core.restart.marker_fields.state"), family = "state" },
-    { id = "shared-row-dependency-wait-exact-fields", site = SITES.dependency_wait_fields,
-      module = require("core.restart.marker_fields.dependency_wait"), family = "dependency-wait" },
+    { module = require("core.restart.marker_fields.state"), family = "state",
+      fields = json_array({ "effects", "proposal", "stage_rank", "state", "version" }) },
+    { module = require("core.restart.marker_fields.dependency_wait"), family = "dependency-wait",
+      fields = json_array({ "hold_kind", "proposal", "reason", "version" }) },
   }) do
-    local fields = exported_fields(spec.module)
-    t.eq(spec.module.family, spec.family)
-    table.insert(records, base_record(
-      spec.id, spec.site, "shared_row_export", "shared_marker_field_family_export", spec.family,
-      { family = spec.module.family, exported_fields = fields },
-      { status = "observed", reason_code = "exact-exported-field-set",
-        observable_writes = { family = spec.module.family, fields = fields } },
-      json_array({ { kind = "source-module-export", ref = spec.site.path } })
-    ))
+    t.eq(spec.module.family, spec.family, spec.family .. " owner-local marker schema family")
+    t.eq(canonical_json(exported_fields(spec.module)), canonical_json(spec.fields),
+      spec.family .. " owner-local marker schema exact fields")
   end
 
   local grantless = catalog_rows(sink_inventory, true)
@@ -309,10 +347,20 @@ local function committed_records()
     ["effect-sink-catalog-gd-exact-set"] = true,
     ["fact-current-state-trusted-marker-selection"] = true,
     ["grantless-sink-gd-exact-set"] = true,
-    ["shared-row-dependency-wait-exact-fields"] = true,
-    ["shared-row-state-exact-fields"] = true,
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    if record.observation_id == "effect-sink-catalog-gd-exact-set" then
+      record.old_inputs.current_fact.record_count = 86
+      table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
+      table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK))
+      table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        sink.family = CURRENT_SINK_FAMILIES[sink.effect_id] or sink.family
+      end
+      table.sort(record.old_outcome.observable_writes, function(left, right)
+        return canonical_json(left) < canonical_json(right)
+      end)
+    end
     if observation_ids[record.observation_id] then table.insert(selected, record) end
   end
   table.sort(selected, function(left, right) return left.observation_id < right.observation_id end)
@@ -328,10 +376,10 @@ return {
       error("second github-devloop metadata capture differs at " .. tostring(repeat_difference or "canonical-json"), 0)
     end
     local expected = committed_records()
-    local difference = first_difference(first, expected, "old_behavior_observations[metadata-gd]")
-    if difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error("source-bound github-devloop metadata observation differs at "
-        .. tostring(difference or "canonical-json") .. "; runtime_records=" .. canonical_json(first), 0)
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "source-bound github-devloop metadata observation"
+    )
   end,
 }

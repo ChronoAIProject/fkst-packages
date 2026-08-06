@@ -1,10 +1,8 @@
-local core = require("core")
-local result_memo = require("departments.decide.result_memo")
+local consensus = require("consensus")
+local core = require("consensus.core")
+local result_memo = require("consensus.result_memo")
+local reach_test_helper = require("tests.reach_test_helpers")
 local t = fkst.test
-
-local old_pipeline = pipeline
-local decide_department = require("departments.decide.main")
-pipeline = old_pipeline
 
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -49,19 +47,9 @@ local function proposal(extra)
   return value
 end
 
-local function namespaced_event(payload)
-  return {
-    queue = "consensus.proposal",
-    payload = payload,
-  }
-end
 
 local function run_namespaced_decide(payload, run_opts)
-  return t.run_department(
-    "departments/decide/main.lua",
-    namespaced_event(payload),
-    run_opts
-  )
+  return reach_test_helper.run(payload, run_opts)
 end
 
 local function seed_cache(key, value, run_opts)
@@ -326,7 +314,7 @@ return {
     })
     local memo_key = core.result_memo_key(target.dedup_key)
     local memo_cache = {}
-    local emitted = {}
+    local returned = {}
     local phase = "winner"
     local loser_memo_reads = 0
     local lock_entries = 0
@@ -360,12 +348,9 @@ return {
           lock_entries = lock_entries + 1
           return fn()
         end,
-        raise = function(queue, payload)
-          table.insert(emitted, { queue = queue, payload = payload })
-        end,
       }, function()
         mock_unanimous("approve", "Winner approves")
-        decide_department.pipeline(namespaced_event(target))
+        table.insert(returned, consensus.reach(target))
 
         phase = "loser"
         mock_converge("Loser abstains")
@@ -374,20 +359,20 @@ return {
         -- read nil, the winner computes approve and memoizes under the flock,
         -- then the loser enters the flock after computing converge. The test runs
         -- the winner first and returns the loser's earlier nil read on demand;
-        -- its lock-scoped re-read must observe and emit the winner's payload.
-        decide_department.pipeline(namespaced_event(target))
+        -- its lock-scoped re-read must observe and return the winner's value.
+        table.insert(returned, consensus.reach(target))
       end)
     end)
 
     t.eq(lock_entries, 2)
     t.eq(loser_memo_reads, 2)
     t.eq(memo_saves, 1)
-    t.eq(#emitted, 2)
-    t.eq(emitted[1].queue, "consensus_reached")
-    t.eq(emitted[2].queue, "consensus_reached")
-    t.eq(emitted[1].payload.decision, "approve")
-    t.eq(result_memo.encode(emitted[2].payload), result_memo.encode(emitted[1].payload))
-    t.is_nil(emitted[2].payload.body:find("Loser abstains", 1, true))
+    t.eq(#returned, 2)
+    t.eq(returned[1].status, "reached")
+    t.eq(returned[2].status, "reached")
+    t.eq(returned[1].decision, "approve")
+    t.eq(result_memo.encode(returned[2]), result_memo.encode(returned[1]))
+    t.is_nil(returned[2].body:find("Loser abstains", 1, true))
 
     local calls = codex_calls()
     t.eq(#calls, 10)

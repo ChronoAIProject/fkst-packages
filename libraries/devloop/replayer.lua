@@ -32,15 +32,27 @@ local function raise_effects(M, dept, proposal_id, apply_state, version, label_c
   return replay_fields.replay_raise_effects(devloop_logging.log_apply, devloop_logging.log_raise, dept, proposal_id, apply_state, version, label_changes, effects)
 end
 
+local function authorize_thinking_true_stall_drop(installed, args)
+  if type(installed.authorize_thinking_true_stall_drop) ~= "function" then
+    error("github-devloop: restart-effect-authority-missing: thinking replay owner authorization is unavailable")
+  end
+  return installed.authorize_thinking_true_stall_drop(args)
+end
+
 local function thinking_caps(installed)
-  return {
+  local caps = {
     latest_complete_converge_round = function(...) return installed.latest_complete_converge_round(...) end,
     context_fetch = function(...) return context_bundle.context_fetch_ref_from_bundle(installed, ...) end,
     build_board_loop = function(...) return payloads_builders.build_board_loop_proposal(installed, ...) end,
     build_board = function(...) return payloads_builders.build_board_proposal(installed, ...) end,
     dispatch_live_run = function(...) return dispatch_live_run.dispatch_live_run_dedup(installed, ...) end,
-    replay_true_stall = function(...) return replay_thinking_convergence.replay_thinking_true_stall_blocked(installed, ...) end,
+    state_label_changes = function(...) return installed.state_label_changes(...) end,
+    authorize_true_stall_drop = function(args) return authorize_thinking_true_stall_drop(installed, args) end,
   }
+  caps.replay_true_stall = function(...)
+    return replay_thinking_convergence.replay_thinking_true_stall_blocked(caps, ...)
+  end
+  return caps
 end
 
 local function fixing_replay_comment_request(M, issue, pr_number, fix_payload, feedback, source_ref)
@@ -97,7 +109,7 @@ local function log_defer(M, ...) return log_decline(M, "deferred", ...) end
 function C.replay_log_decline(M, disposition, ...)
   if disposition == "deferred" then return log_defer(M, ...) end
   if disposition == "stuck" then return log_skip(M, ...) end
-  error("github-devloop: invalid typed replay disposition")
+  error("github-devloop: typed-replay-disposition-invalid: invalid typed replay disposition")
 end
 
 function C.build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
@@ -106,6 +118,10 @@ end
 
 function C.has_thinking_converge_replay(M, current, proposal_id, state, source_ref)
   return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
+end
+
+function C.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+  return replay_thinking_convergence.level_replay_delivery_identity(proposal_id, state, event_ts)
 end
 
 local function replay_thinking(M, dept, issue, state, row, facts)
@@ -136,15 +152,13 @@ local function replay_implementing(M, dept, issue, state, row, facts)
   end
   -- Pass the INNER (unwrapped) version: build_devloop_ready_payload re-applies
   -- the "ready/" wrapper, so re-wrapping the already-wrapped state.version would
-  -- double-wrap it ("ready/ready/..."). Preserve the retry suffix as structured
-  -- attempt metadata so re-drives reproduce frozen "ready/.../reimplement/N"
-  -- markers exactly.
+  -- double-wrap it ("ready/ready/..."). Derive lifecycle retry identity from the
+  -- authoritative state version; implement-attempt.attempt is audit-only.
   local payload = payloads_builders.build_devloop_ready_payload(M, {
     proposal_id = proposal_id,
     dedup_key = M.ready_payload_inner_version(state.version),
     source_ref = issue.source_ref,
-    impl_retry_attempt = tonumber(attempt and attempt.attempt)
-      or M.implementation_retry_attempt(state.version),
+    impl_retry_attempt = M.implementation_retry_attempt(state.version),
     redrive_delivery = facts.redrive_delivery,
   })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "implementing", "applied(codex-run-absent)", "no matching implement codex run is running")
@@ -156,8 +170,11 @@ end
 local function replay_impl_failed(M, dept, issue, state, row, facts)
   local proposal_id = facts.proposal_id
   local failure = facts.impl_failure
-  if not M.impl_failure_retry_allowed(failure) then
+  if failure == nil then
     return log_skip(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-limit)", "implementation failure is not a bounded codex retry candidate")
+  end
+  if not M.impl_failure_retry_allowed(failure) then
+    return log_defer(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-pending(operator-reentry)", "implementation failure is waiting for an explicit operator reready or reimplement command")
   end
   local fields = resolve_payload_fields(M, row, state, {
     issue = issue,
@@ -181,7 +198,7 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
   local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
   if intended_head_sha == nil then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "retry-pending(head-advanced)", "PR head changed and deterministic branch head is not readable")
-    error("github-devloop: PR head changed before fix replay and deterministic branch head is not readable")
+    error("github-devloop: deterministic-branch-head-read-failed: PR head changed before fix replay and deterministic branch head is not readable")
   end
   if tostring(current_pr.head_sha or "") ~= intended_head_sha then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
@@ -287,14 +304,14 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       new_version,
       source_ref
     )
-    local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "reviewing", base_ids.dedup_key({
+    local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "reviewing", proposal_id, new_version, base_ids.dedup_key({
       "observe",
       "fixing",
       "renormalize",
       tostring(proposal_id),
       tostring(new_version),
       tostring(link.pr_number),
-    }), issue.source_ref)
+    }), issue.source_ref, nil, { kind = "pr", number = link.pr_number })
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "applied(replay)", "no feedback fact is visible; re-entering review for current PR head")
     return raise_effects(M, dept, proposal_id, "reviewing", new_version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:fixing" } }, {
       { queue = "github-proxy.github_pr_comment_request", payload = comment_request },
@@ -546,11 +563,11 @@ local function restart_replayers(M)
   local function merge(source)
     if source == nil then return end
     if type(source) ~= "table" then
-      error("github-devloop: invalid restart replayer registry")
+      error("github-devloop: restart-replayer-registry-invalid: invalid restart replayer registry")
     end
     for state_name, replay in pairs(source) do
       if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
-        error("github-devloop: invalid restart replayer registration")
+        error("github-devloop: restart-replayer-registration-invalid: invalid restart replayer registration")
       end
       replayers[state_name] = replay
     end

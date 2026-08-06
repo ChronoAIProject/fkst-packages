@@ -20,9 +20,13 @@ local function origin_marker(event)
   return m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
 end
 
-local function mock_required_check_run(conclusion, id, status)
+local function mock_required_check_run(conclusion, id, status, output_text)
+  local output = ""
+  if output_text ~= nil then
+    output = ',"output":{"title":"baseline admission","summary":"RULE_REJECTED","text":"' .. tostring(output_text) .. '"}'
+  end
   t.mock_command(check_runs_cmd, {
-    stdout = '{"total_count":1,"check_runs":[{"id":' .. tostring(id or 101) .. ',"name":"test","status":"' .. tostring(status or "completed") .. '","conclusion":"' .. tostring(conclusion or "") .. '","head_sha":"def456"}]}\n',
+    stdout = '{"total_count":1,"check_runs":[{"id":' .. tostring(id or 101) .. ',"name":"test","status":"' .. tostring(status or "completed") .. '","conclusion":"' .. tostring(conclusion or "") .. '","head_sha":"def456"' .. output .. '}]}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -36,7 +40,7 @@ local function mock_check_runs_json(json)
   })
 end
 
-local function run_rollup_red_merge(name, check_conclusion, id, status, merge_state)
+local function run_rollup_red_merge(name, check_conclusion, id, status, merge_state, output_text)
   local event = merge_ready()
   local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/shared","name":"shared-integration","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"integration"}]'
   mock_bot_env()
@@ -46,7 +50,7 @@ local function run_rollup_red_merge(name, check_conclusion, id, status, merge_st
   mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE")
   mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE")
   for _ = 1, merge_state == "BLOCKED" and 2 or 1 do
-    mock_required_check_run(check_conclusion, id, status)
+    mock_required_check_run(check_conclusion, id, status, output_text)
   end
   return event, run_merge(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
 end
@@ -78,6 +82,7 @@ return {
     t.eq(comment.payload.handoff.ci_failure_key, fixing.ci_failure_key)
     t.is_true(comment.payload.body:find('ci_failure_key="' .. fixing.ci_failure_key .. '"', 1, true) ~= nil)
     t.eq(fixing.gate_failure_excerpt, "own-ci-red")
+    t.eq(fixing.blocking_gap, nil)
     t.eq(fixing.repair_input, "ci-failure")
     t.is_true(fixing.dedup_key:find(fixing.ci_failure_key, 1, true) == nil)
     t.is_true(fixing.work_unit_key:find(fixing.ci_failure_key, 1, true) == nil)
@@ -85,6 +90,17 @@ return {
     t.is_true(fixing.work_unit_key:find(fixing.reviewed_head_sha, 1, true) == nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(count_calls("gh pr merge"), 0)
+  end,
+
+  test_red_pr_head_required_check_carries_gate_output_to_fixing = function()
+    local _, result = run_rollup_red_merge("merge-own-red-capacity-diagnostic", "failure", 101, nil, nil,
+      "SL-003: StrataLint.Tests/Ledger directory contains 14 files maximum 12")
+    t.eq(result.exit_code, 0)
+    local fixing = find_causal_raise(result, "devloop_fixing").payload
+    t.is_true(fixing.gate_failure_excerpt:find("SL-003", 1, true) ~= nil)
+    t.is_true(fixing.gate_failure_excerpt:find("directory contains 14 files maximum 12", 1, true) ~= nil)
+    t.eq(fixing.blocking_gap, nil)
+    t.eq(fixing.repair_input, "ci-failure")
   end,
 
   test_blocked_red_required_check_raises_fixing = function()

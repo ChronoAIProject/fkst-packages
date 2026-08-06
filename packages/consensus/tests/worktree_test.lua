@@ -1,4 +1,4 @@
-local core = require("core")
+local core = require("consensus.core")
 local t = fkst.test
 
 local function proposal(extra)

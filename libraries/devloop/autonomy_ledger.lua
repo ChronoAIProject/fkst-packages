@@ -6,7 +6,7 @@ local contract_time = require("contract.time")
 local no_revert_reopen = require("devloop.autonomy.no_revert_reopen")
 local autonomy_projection = require("devloop.autonomy.projection")
 local devloop_base = require("devloop.base")
-local devloop_state_handle = nil
+local restart_metadata = require("devloop.restart_metadata")
 
 local task_classes = {
   L0 = true,
@@ -29,13 +29,6 @@ local audit_states = {
   pending = true,
   invalid_self_attested = true,
 }
-
-local function devloop_state()
-  if devloop_state_handle == nil then
-    devloop_state_handle = require("devloop.state")
-  end
-  return devloop_state_handle
-end
 
 local required_gate_names = {
   "human_touch",
@@ -158,7 +151,7 @@ function C.autonomy_valid_autonomous_merge(gates)
 end
 
 function C.autonomy_merge_rounds(version)
-  return devloop_state().version_loop_round(version) + devloop_state().version_fix_round(version)
+  return restart_metadata.version_loop_round(version) + restart_metadata.version_fix_round(version)
 end
 
 function C.autonomy_post_merge_probe_gate(M, pr, opts)
@@ -191,25 +184,25 @@ end
 local function version_max_timeout_round(version)
   local max_n = 0
   for _, state_name in ipairs(timeout_order_states) do
-    max_n = math.max(max_n, devloop_state().version_timeout_round(version, state_name))
+    max_n = math.max(max_n, restart_metadata.version_timeout_round(version, state_name))
   end
   return max_n
 end
 
 local function event_order_key(event)
   local version = tostring(event.version or event.claim_epoch or "")
-  local primary = devloop_state().version_updated_at(version)
+  local primary = restart_metadata.version_updated_at(version)
   if primary == "" then
-    primary = devloop_state().version_order_key(version)
+    primary = restart_metadata.version_order_key(version)
   end
   return {
     primary = primary,
-    loop_n = devloop_state().version_loop_round(version),
-    fix_n = devloop_state().version_fix_round(version),
-    reimplement_n = devloop_state().version_reimplement_round(version),
+    loop_n = restart_metadata.version_loop_round(version),
+    fix_n = restart_metadata.version_fix_round(version),
+    reimplement_n = restart_metadata.version_reimplement_round(version),
     timeout_n = version_max_timeout_round(version),
-    review_loop_n = devloop_state().version_review_loop_round(version),
-    review_meta_action_n = devloop_state().version_review_meta_action_round(version),
+    review_loop_n = restart_metadata.version_review_loop_round(version),
+    review_meta_action_n = restart_metadata.version_review_meta_action_round(version),
     stage_rank = tonumber(event.stage_rank) or 0,
     kind_rank = event.kind == "claim" and 0 or 1,
     created_seconds = event_created_seconds(event),
@@ -323,7 +316,7 @@ local function collect_autonomy_terminal_events(comments, proposal_id, events, s
           outcome = state,
           terminal_state = state,
           version = version,
-          stage_rank = devloop_state().stage_rank(state),
+          stage_rank = restart_metadata.stage_rank(state),
           comment_created_at = parsers_misc._comment_created_at(comment),
           evidence = comment_evidence(comment),
           sequence = sequence,
@@ -355,7 +348,7 @@ local function collect_autonomy_terminal_events(comments, proposal_id, events, s
           head_sha = head_sha,
           autonomy_result = autonomy_result,
           valid_autonomous_merge = autonomy_result and autonomy_result.valid_autonomous_merge or nil,
-          stage_rank = devloop_state().stage_rank("merged"),
+          stage_rank = restart_metadata.stage_rank("merged"),
           comment_created_at = parsers_misc._comment_created_at(comment),
           evidence = comment_evidence(comment),
           sequence = sequence,
@@ -508,7 +501,7 @@ function C.autonomy_result_record(M, repo, issue_number, merge_ready, issue, pos
     human_touch_count = human_touch_count,
     pre_merge_ci = gates.pre_merge_ci,
     rounds = C.autonomy_merge_rounds(merge_ready.version),
-    retry_count = devloop_state().version_fix_round(merge_ready.version),
+    retry_count = restart_metadata.version_fix_round(merge_ready.version),
     codex_calls = nil,
     gates = gates,
     valid_autonomous_merge = C.autonomy_valid_autonomous_merge(gates),
@@ -517,7 +510,7 @@ end
 
 local function autonomy_result_parts(record)
   if type(record) ~= "table" then
-    error("github-devloop: invalid autonomy result record")
+    error("github-devloop: autonomy-result-record-invalid: invalid autonomy result record")
   end
   local proposal_id = tostring(record.proposal_id or "")
   local repo = tostring(record.repo or "")
@@ -533,7 +526,7 @@ local function autonomy_result_parts(record)
   local gates = type(record.gates) == "table" and record.gates or {}
   local valid = C.autonomy_valid_autonomous_merge(gates)
   if valid ~= "true" and valid ~= "false" and valid ~= "pending" then
-    error("github-devloop: invalid autonomy result predicate")
+    error("github-devloop: autonomy-result-predicate-invalid: invalid autonomy result predicate")
   end
   if not strings.is_path_safe_key(proposal_id, devloop_base._max_key_len)
     or not strings.is_path_safe_key(repo, devloop_base._max_key_len)
@@ -544,13 +537,13 @@ local function autonomy_result_parts(record)
     or human_touch_count == nil or human_touch_count < 0 or human_touch_count % 1 ~= 0
     or rounds == nil or rounds < 0 or rounds % 1 ~= 0
     or retry_count == nil or retry_count < 0 or retry_count % 1 ~= 0 then
-    error("github-devloop: invalid autonomy result marker")
+    error("github-devloop: autonomy-result-marker-invalid: invalid autonomy result marker")
   end
   local codex_calls_value = "null"
   if codex_calls ~= nil then
     local parsed = tonumber(codex_calls)
     if parsed == nil or parsed < 0 or parsed % 1 ~= 0 then
-      error("github-devloop: invalid autonomy result codex calls")
+      error("github-devloop: autonomy-result-codex-calls-invalid: invalid autonomy result codex calls")
     end
     codex_calls_value = tostring(parsed)
   end

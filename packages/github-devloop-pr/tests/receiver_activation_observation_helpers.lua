@@ -156,11 +156,13 @@ function M.capture_logging(dept, devloop_logging, restorations)
   local captured = {
     decisions = M.json_array(),
     applies = M.json_array(),
+    gates = M.json_array(),
     effect_sequence = M.json_array(),
   }
   local original_decision = devloop_logging.log_cas_decision
   local original_apply = devloop_logging.log_apply
   local original_raise = devloop_logging.log_raise
+  local original_line = devloop_logging.log_line
   M.replace(devloop_logging, "log_cas_decision", function(actual_dept, proposal_id, current, from_state, to_state, outcome, reason)
     if actual_dept == dept then
       table.insert(captured.decisions, {
@@ -190,6 +192,17 @@ function M.capture_logging(dept, devloop_logging, restorations)
     if actual_dept == dept then table.insert(captured.effect_sequence, { kind = "raise", queue = queue }) end
     return original_raise(actual_dept, proposal_id, queue, payload)
   end, restorations)
+  M.replace(devloop_logging, "log_line", function(level, actual_dept, proposal_id, tag, fields)
+    if actual_dept == dept and tag == "GATE" then
+      local gate = { proposal_id = proposal_id }
+      for _, field in ipairs(fields or {}) do
+        local key, value = tostring(field):match("^([^=]+)=(.*)$")
+        if key ~= nil then gate[key] = value end
+      end
+      table.insert(captured.gates, gate)
+    end
+    return original_line(level, actual_dept, proposal_id, tag, fields)
+  end, restorations)
   return captured
 end
 
@@ -197,6 +210,33 @@ local function effect_ids(effects)
   local ids = M.json_array()
   for _, effect in ipairs(effects or {}) do table.insert(ids, effect.effect_id) end
   return ids
+end
+
+local function contains(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then return true end
+  end
+  return false
+end
+
+function M.capture_shadow_sink_probes(t, opts)
+  local records = M.json_array()
+  for _, probe in ipairs(opts.probes) do
+    local status = probe.expected_status
+    local record = opts.capture(M.copy_value(probe.fixture))
+    record.observation_id = probe.id
+    record.shadow_reaching_status = status
+    record.shadow_sink_entitlements = M.copy_value(probe.entitlements)
+    local observed = {}
+    for _, effect in ipairs(record.old_outcome.emitted_effects or {}) do
+      observed[effect.effect_id] = true
+    end
+    for effect_id in pairs(probe.entitlements) do
+      t.eq(observed[effect_id], true, probe.id .. ": REAL OLD dispatch reaches " .. effect_id)
+    end
+    table.insert(records, record)
+  end
+  return records
 end
 
 function M.record(opts)
@@ -280,6 +320,95 @@ local function assert_same_set(actual, expected, actual_label, expected_label)
   end
 end
 
+local function entitlements_by_id()
+  local core = require("core")
+  local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+  local restart_inventories = {
+    canonicalization = require("core.restart.canonicalization_inventory"),
+    entry = require("core.restart.entry_inventory"),
+    operator_reentry = require("core.restart.operator_reentry_inventory"),
+  }
+  local entitlements = {}
+  for _, row in ipairs(core.restart_transition_table()) do
+    local entitlement = row.receiver_dispatch_effect_entitlement
+    if entitlement ~= nil then entitlements[entitlement.id] = entitlement end
+  end
+  local edges = owner_pending_projection.edges(
+    core.restart_package_name, core.restart_transition_table(), restart_inventories
+  )
+  for _, edge in ipairs(edges) do
+    for _, status in ipairs({ "apply", "idempotent" }) do
+      local entitlement = edge.transition_effect_entitlements
+        and edge.transition_effect_entitlements[status]
+      if entitlement ~= nil then entitlements[entitlement.id] = entitlement end
+    end
+  end
+  return entitlements
+end
+
+local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
+  local corpus = json.decode(file.read(corpus_path))
+  local captures = corpus.captured_sink_effects or {}
+  local captured_ids = {}
+  local captures_by_id = {}
+  local inventory_by_id = {}
+  local runtime_by_id = {}
+  local entitlement_index = entitlements_by_id()
+  local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push", merge = "gh_pr_merge" }
+  for _, record in ipairs(sink_inventory) do inventory_by_id[record.id] = record end
+  for _, record in ipairs(runtime_records) do runtime_by_id[record.observation_id] = record end
+  for _, capture in ipairs(captures) do
+    captured_ids[capture.effect_id] = true
+    captures_by_id[capture.effect_id] = capture
+  end
+
+  for ordinal, capture in ipairs(captures) do
+    t.eq(capture.ordinal, ordinal, corpus_path .. ": stable captured sink order")
+    local inventory = inventory_by_id[capture.effect_id]
+    t.is_true(inventory ~= nil, corpus_path .. ": captured sink has a stable inventory ID")
+    t.eq(inventory.effect_kind, capture.sink_kind, corpus_path .. ": captured sink kind")
+    t.eq(inventory.authority_class, "lifecycle-authoritative",
+      corpus_path .. ": captured sink remains lifecycle-authoritative")
+    for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids or {}) do
+      t.is_true(entitlement_index[entitlement_id] ~= nil, corpus_path .. ": owning entitlement exists")
+    end
+    if capture.sink_kind == "codex" then
+      local entitlement = entitlement_index[capture.owning_effect_entitlement_ids[1]]
+      t.eq(#entitlement.effect_ids, 1, corpus_path .. ": receiver dispatch entitlement is exact")
+      t.eq(entitlement.effect_ids[1], capture.effect_id,
+        corpus_path .. ": receiver dispatch entitlement owns only the codex sink")
+    end
+    local path = tostring(capture.old_callsite):match("^([^:]+):%d+$")
+    t.is_true(path ~= nil, corpus_path .. ": OLD callsite is file:line")
+    t.is_true(file.read(path):find(call_tokens[capture.sink_kind], 1, true) ~= nil,
+      corpus_path .. ": OLD callsite executes the captured sink kind")
+    for _, probe_id in ipairs(capture.old_probe_ids or {}) do
+      local runtime = runtime_by_id[probe_id]
+      t.is_true(runtime ~= nil, corpus_path .. ": OLD probe was executed")
+      local filtered = {}
+      for _, effect in ipairs(runtime.old_outcome.emitted_effects or {}) do
+        if captured_ids[effect.effect_id] then table.insert(filtered, effect) end
+      end
+      t.eq(filtered[ordinal].effect_id, capture.effect_id,
+        corpus_path .. ": OLD runtime sink ID and relative order")
+      t.eq(filtered[ordinal].sink_kind, capture.sink_kind,
+        corpus_path .. ": OLD runtime sink kind")
+    end
+  end
+  for _, runtime in ipairs(runtime_records) do
+    for effect_id, entitlement_ids in pairs(runtime.shadow_sink_entitlements or {}) do
+      local capture = captures_by_id[effect_id]
+      t.is_true(capture ~= nil, runtime.observation_id .. ": shadow sink is present in corpus")
+      t.is_true(contains(capture.old_probe_ids, runtime.observation_id),
+        runtime.observation_id .. ": REAL OLD probe is recorded for " .. effect_id)
+      for _, entitlement_id in ipairs(entitlement_ids) do
+        t.is_true(contains(capture.owning_effect_entitlement_ids, entitlement_id),
+          runtime.observation_id .. ": receiver/state-local entitlement owns " .. effect_id)
+      end
+    end
+  end
+end
+
 function M.assert_site(t, opts)
   local boundary_label = opts.boundary or "receiver_activation"
   local first = M.json_array()
@@ -304,7 +433,9 @@ function M.assert_site(t, opts)
   local committed = M.json_array()
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     local site = record.site or {}
-    if site.path == opts.site.path and site.symbol == opts.site.symbol and site.ordinal == opts.site.ordinal then
+    if site.path == opts.site.path and site.symbol == opts.site.symbol
+      and type(record.observation_id) == "string"
+      and record.observation_id:sub(1, #opts.prefix) == opts.prefix then
       table.insert(committed, record)
     end
   end
@@ -314,13 +445,17 @@ function M.assert_site(t, opts)
   end
   local runtime_set = tuple_set(first, function(record) return tuple_from_record(record, opts.prefix) end, "runtime")
   local fixture_set = tuple_set(opts.fixtures, tuple_from_fixture, "fixture")
-  local inventory_set = tuple_set(committed, function(record) return tuple_from_record(record, opts.prefix) end, "inventory")
   assert_same_set(runtime_set, fixture_set, "runtime", "fixture")
-  assert_same_set(runtime_set, inventory_set, "runtime", "inventory")
-  local inventory_difference = M.first_difference(first, committed, boundary_label .. "[" .. opts.dept .. "]")
-  if inventory_difference or M.canonical_json(first) ~= M.canonical_json(committed) then
-    error("runtime-bound OLD " .. opts.dept .. " differs at "
-      .. tostring(inventory_difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
+  observation_support.assert_old_behavior_records(
+    first,
+    committed,
+    "runtime-bound OLD " .. opts.dept .. " " .. boundary_label
+  )
+  if opts.shadow_corpus_path ~= nil then
+    local shadow_records = M.json_array()
+    for _, record in ipairs(first) do table.insert(shadow_records, record) end
+    for _, record in ipairs(opts.shadow_sink_records or {}) do table.insert(shadow_records, record) end
+    assert_shadow_sink_captures(t, shadow_records, opts.shadow_corpus_path)
   end
   t.eq(#first, #opts.fixtures, opts.dept .. ": complete " .. boundary_label .. " disposition count")
 end

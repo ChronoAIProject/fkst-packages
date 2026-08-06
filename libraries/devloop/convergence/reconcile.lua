@@ -18,7 +18,7 @@ local attr = shared.attr
 
 function C.build_devloop_reconcile_payload(unresolved, round, base_version, terminal_cause)
   if not conv_rounds.is_terminal_cause(terminal_cause) then
-    error("github-devloop: invalid convergence terminal cause")
+    error("github-devloop: convergence-terminal-cause-invalid: invalid convergence terminal cause")
   end
   return {
     schema = "github-devloop.reconcile.v1",
@@ -62,7 +62,7 @@ end
 
 function C.build_devloop_review_reconcile_payload(unresolved, round, issue_proposal_id, issue_version, head_sha, terminal_cause)
   if not conv_rounds.is_terminal_cause(terminal_cause) then
-    error("github-devloop: invalid review convergence terminal cause")
+    error("github-devloop: convergence-terminal-cause-invalid: invalid review convergence terminal cause")
   end
   return {
     schema = "github-devloop.review-reconcile.v1",
@@ -155,7 +155,7 @@ end
 function C.reconcile_terminal_state_version(current_version, round)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid reconcile round")
+    error("github-devloop: reconcile-round-invalid: invalid reconcile round")
   end
   local next_n = devloop_state.version_loop_round(current_version) + 1
   if n > next_n then
@@ -167,7 +167,7 @@ end
 function C.review_reconcile_terminal_state_version(current_version, round)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid review reconcile round")
+    error("github-devloop: review-reconcile-round-invalid: invalid review reconcile round")
   end
   local next_n = devloop_state.version_review_loop_round(current_version) + 1
   if n > next_n then
@@ -250,13 +250,13 @@ end
 function C.reconcile_marker(proposal_id, base_version, round, action, terminal_cause)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid reconcile round")
+    error("github-devloop: reconcile-round-invalid: invalid reconcile round")
   end
   if action ~= "drop" and action ~= "re-design" and action ~= "re-cluster" then
-    error("github-devloop: invalid reconcile action")
+    error("github-devloop: reconcile-action-invalid: invalid reconcile action")
   end
   if not conv_rounds.is_terminal_cause(terminal_cause) then
-    error("github-devloop: invalid convergence terminal cause")
+    error("github-devloop: convergence-terminal-cause-invalid: invalid convergence terminal cause")
   end
   return '<!-- fkst:github-devloop:reconcile:v1 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
     .. '" version="' .. safe_attr(C.reconcile_state_version(base_version, n), devloop_base._max_dedup_len)
@@ -270,13 +270,13 @@ end
 function C.review_reconcile_marker(issue_proposal_id, issue_version, round, action, terminal_cause)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid review reconcile round")
+    error("github-devloop: review-reconcile-round-invalid: invalid review reconcile round")
   end
   if action ~= "drop" and action ~= "re-design" and action ~= "re-cluster" then
-    error("github-devloop: invalid review reconcile action")
+    error("github-devloop: review-reconcile-action-invalid: invalid review reconcile action")
   end
   if not conv_rounds.is_terminal_cause(terminal_cause) then
-    error("github-devloop: invalid review convergence terminal cause")
+    error("github-devloop: convergence-terminal-cause-invalid: invalid review convergence terminal cause")
   end
   return '<!-- fkst:github-devloop:review-reconcile:v1 proposal="' .. safe_attr(issue_proposal_id, devloop_base._max_key_len)
     .. '" version="' .. safe_attr(C.review_reconcile_state_version(issue_version, n), devloop_base._max_dedup_len)
@@ -290,10 +290,10 @@ end
 function C.fix_reconcile_marker(proposal_id, issue_version, action)
   local n = valid_round(devloop_state.version_fix_round(issue_version))
   if n == nil then
-    error("github-devloop: invalid fix reconcile round")
+    error("github-devloop: fix-reconcile-round-invalid: invalid fix reconcile round")
   end
   if action ~= "drop" and action ~= "re-design" and action ~= "re-cluster" then
-    error("github-devloop: invalid fix reconcile action")
+    error("github-devloop: fix-reconcile-action-invalid: invalid fix reconcile action")
   end
   return '<!-- fkst:github-devloop:fix-reconcile:v1 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
     .. '" version="' .. safe_attr(issue_version, devloop_base._max_dedup_len)
@@ -306,10 +306,10 @@ end
 function C.timeout_reconcile_marker(proposal_id, issue_version, state_name, round, action, fields)
   local n = valid_round(round)
   if n == nil then
-    error("github-devloop: invalid timeout reconcile round")
+    error("github-devloop: timeout-reconcile-round-invalid: invalid timeout reconcile round")
   end
   if action ~= "drop" then
-    error("github-devloop: invalid timeout reconcile action")
+    error("github-devloop: timeout-reconcile-action-invalid: invalid timeout reconcile action")
   end
   local why = fields or {}
   local source_ref = type(why.source_ref) == "table" and why.source_ref or {}

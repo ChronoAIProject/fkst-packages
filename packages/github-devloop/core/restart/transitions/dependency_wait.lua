@@ -1,5 +1,19 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant)
+  local id = "github-devloop/dependency_wait/guard_boundary/" .. semantic_variant
+  local effect_ids = { "github-proxy.github_issue_comment_request" }
+  if semantic_variant ~= "blockers_released" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
+  if semantic_variant == "blockers_still_open" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
+  end
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -32,6 +46,17 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
     output_obligation = obligation({ "dependency-wait:v1", "dependency-release:v1", "state:v1 ready" }, { "dependency_wait", "ready", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/dependency_wait/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "live_defer_epoch:v1",
+          resolver = "dependency-hold",
+          budget_minutes = 525600,
+        },
+      },
+    },
     budget = budget(525600, "Dependency wait is blocker-bound; long-lived open blockers are refreshed, release creates a fresh ready entry, and stale resolver facts fail closed."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -60,6 +85,7 @@ return function(M, h)
           state = "dependency_wait",
           output_variant = "blockers_still_open",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("blockers_still_open"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           postcondition_family = "dependency-release-or-blocker-tracking",
           decision_type = "dependency_gate",
@@ -69,6 +95,7 @@ return function(M, h)
           state = "ready",
           output_variant = "blockers_released",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("blockers_released"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           postcondition_family = "dependency-release-or-blocker-tracking",
           decision_type = "dependency_gate",
@@ -78,6 +105,7 @@ return function(M, h)
           state = "blocked",
           output_variant = "dependency_resolver_stale",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("dependency_resolver_stale"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           failure = true,
           terminal = true,

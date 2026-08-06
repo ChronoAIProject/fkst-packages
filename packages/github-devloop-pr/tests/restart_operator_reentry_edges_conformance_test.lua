@@ -27,6 +27,7 @@ local structural_fields = {
   "target",
   "semantic_variant",
   "cause_evidence",
+  "transition_effect_entitlements",
   "provenance",
 }
 local pending_order_goldens = {
@@ -295,6 +296,10 @@ local function valid_operator_reentry()
     kind = "operator_reentry",
     source = { state = "blocked", boundary = nil },
     target = "reviewing",
+    transition_effect_entitlements = {
+      apply = { id = "owner/reviewing/operator_reentry/rereview_blocked/apply", effect_ids = {} },
+      idempotent = { id = "owner/reviewing/operator_reentry/rereview_blocked/idempotent", effect_ids = {} },
+    },
     cause_evidence = {
       command = "rereview",
       requires_applied_certificate = true,

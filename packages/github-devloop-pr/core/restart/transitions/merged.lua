@@ -5,6 +5,7 @@ return function(M, h)
     from_state = "merged",
     terminal = true,
     to_states = {},
+    temporal_obligations = {},
     responsibility_signature = responsibility_signature({
       receiver_kind = "none",
       driving_queue = "none",

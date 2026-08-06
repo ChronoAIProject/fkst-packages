@@ -107,6 +107,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
                 "github-devloop-pr",
                 "github-proxy",
                 "fkst-substrate-ref-maintainer",
+                "github-devloop-worktree-gc",
             ],
         )
 

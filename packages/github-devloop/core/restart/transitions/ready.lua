@@ -21,6 +21,17 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 implementing" }, { "implementing", "dependency_wait", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/ready/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 120,
+        },
+      },
+    },
     budget = budget(120, "Actionable ready governs the implement codex run until the implementing marker is written at completion; 120 bounds a 60-minute codex attempt plus margin (matching fixing)."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
@@ -36,6 +47,19 @@ return function(M, h)
         output_variant = "implementation_kicked_off",
         cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
         cas_variant = "ready_to_implementing",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop/ready/entry/implementation_kicked_off/apply",
+            effect_ids = {
+              "github-proxy.github_issue_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop/ready/entry/implementation_kicked_off/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = true, predecessor_state = "ready" },
       },
     },
@@ -53,6 +77,18 @@ return function(M, h)
           state = "dependency_wait",
           output_variant = "blocker_reappeared",
           kind = "guard_boundary",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/ready/guard_boundary/blocker_reappeared/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/ready/guard_boundary/blocker_reappeared/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = true, predecessor_state = "ready" },
           regression = "blocker_reappeared",
           failure = true,
@@ -64,6 +100,19 @@ return function(M, h)
           kind = "timeout",
           cas_policy_id = "cas.legacy_timeout_reconcile_v1",
           cas_variant = "ready_to_blocked",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/ready/timeout/actionable_kickoff_timeout/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/ready/timeout/actionable_kickoff_timeout/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = true, predecessor_state = "ready" },
           terminal = true,
           monotonic = true,

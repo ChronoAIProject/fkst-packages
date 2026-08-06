@@ -145,17 +145,18 @@ Trusted operator comments (first line `fkst: <cmd>`, authored by the bot login) 
 | `fkst: rereview` | the **PR** | `observe_pr` | PR entity-local state is `blocked`, `review-meta`, or **stalled** `reviewing` |
 | `fkst: reready` | the **issue** | `observe_issue` | issue at `ready` |
 | `fkst: reimplement` | the **issue** | `observe_issue` | issue at `impl-failed` |
-| `fkst: reintake` | the **issue** | intake | **refused if the issue has any active devloop state** (declined/stateless only) |
 
 An issue that is `blocked` via `child-pr-blocked` is a *derived* parent state: drive the **child PR**, and the parent cascades. `rereview` on such an issue is refused — correctly — because `observe_issue` only knows the `thinking` variant.
 
 **Known re-entry GAPS — the old-instance-strand class. File/drive a SYSTEM issue; do NOT force a command past its precondition and do NOT hand-mutate the marker.** A fix prevents FUTURE failures but does not revive instances already frozen before it landed, and some frozen states have NO working operator re-entry at all:
 
 - `pr-open`-frozen with the backing PR gone → no command fits (#271/#606 → #760).
-- `thinking`/convergence-stalled with **version-desync** → `rereview` is applied but its replayed consensus result skip-stales (marker `intake/NNNN` vs proposal `<ts>/loop/N`), `reintake` refused (active state), `reready`/`reimplement` wrong-state (#542/#577).
+- `thinking`/convergence-stalled with **version-desync** → `rereview` is applied but its replayed consensus result skip-stales (marker `intake/NNNN` vs proposal `<ts>/loop/N`), while `reready`/`reimplement` are wrong-state; file a new issue rather than re-adjudicating the same issue (#542/#577).
 - `reviewing`/`fixing` PR that can never obtain CI → merge gate never satisfiable (substrate #84/#83 → #103).
 
-All the SAME class: a non-terminal marker no path advances, producing **zero error facts** (liveness-blind — the safety net sees nothing). The durable fix is framework-level, not another per-state patch: the liveness sweep must **force-terminate** ANY over-budget non-terminal state to `blocked`-with-WHY, mechanically conformance-enforced (carrier **#762**, wave under saga-mandatory **#375**). When you hit a fresh instance, drive that class issue rather than minting a new point-fix.
+All the SAME class: a non-terminal marker no path advances, producing **zero error facts** (liveness-blind — the safety net sees nothing). The durable fix is framework-level, not another per-state patch (carrier **#762**, wave under saga-mandatory **#375**). When you hit a fresh instance, drive that class issue rather than minting a new point-fix.
+
+**The recovery this class gets is a REDRIVE, never a forced terminal** (owner directive **#2725**, 2026-07-23: 超时不应该到 drop，只有明确不能进行下去才能进终态 — a timeout is a transient signal, not evidence of impossibility, and terminalizing on it produced false-terminals that discarded completed work). `libraries/devloop/liveness/timeout.lua` therefore never emits an `escalate` decision: an over-budget non-terminal state redrives indefinitely, bounded not by an attempt counter but by two real gates that run first — `defer` while the receiver is *provably executing* (`liveness_contract.real_execution`, e.g. `fkst.codex_runs`), and `wait` while inside the row budget. Rows keep their `on_escalate` config only so frozen parity corpora stay byte-exact; those terminal edges are not traversed at runtime. Terminals are still reached, but only by an explicit cannot-proceed edge — consensus decline, operator block, or a convergence true-stall `reconcile action: drop`.
 
 ## Anti-patterns
 

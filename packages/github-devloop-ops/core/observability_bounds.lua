@@ -1,4 +1,5 @@
 local S = {}
+local observe_commands = require("devloop.commands.observe_lists")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local sweep_bounds = require("devloop.sweep_bounds")
@@ -56,19 +57,24 @@ local function log_segment(value)
 end
 
 function M.observability_result_timeout(result)
+  -- Ground truth for a call timeout is the engine's `timed_out` field on the exec
+  -- result (per the exec_argv contract {stdout, stderr, exit_code, timed_out?}). When
+  -- the engine reports it, trust it EXCLUSIVELY: a genuine failure with timed_out=false
+  -- must still fail-closed even if it happens to exit 124 (and a free-text stderr match
+  -- is never used). We fall back to exit-code 124 only when the field is absent, which
+  -- in production it is not -- it is the `fkst.test` command mock that does not yet
+  -- carry timed_out (substrate follow-up: propagate timed_out through the mock, then
+  -- drop this fallback so exit_code is never consulted).
   if type(result) ~= "table" then
     return false
   end
-  if tonumber(result.exit_code) == 124 then
-    return true
+  if result.timed_out ~= nil then
+    return result.timed_out == true
   end
-  local stderr = tostring(result.stderr or ""):lower()
-  return stderr:find("timed out", 1, true) ~= nil
-    or stderr:find("timeout", 1, true) ~= nil
-    or stderr:find("operation timed out", 1, true) ~= nil
+  return tonumber(result.exit_code) == 124
 end
 
-local function merge_deferred_reason(current, incoming)
+function M.observability_merge_deferred_reason(current, incoming)
   local next_reason = incoming
   if type(incoming) == "table" then
     next_reason = incoming.reason
@@ -294,9 +300,9 @@ function M.observability_list_issue_candidates(repo, labels, limits, deadline, s
   local deferred_reason = nil
   for _, label in ipairs(labels or {}) do
     local listed, deferred, reason = list_rotating_pages(
-      M.gh_issue_list_observe_opts(repo, label, 1, true),
+      observe_commands.gh_issue_list_observe_opts(repo, label, 1, true),
       function(page)
-        return M.gh_issue_list_observe_opts(repo, label, page)
+        return observe_commands.gh_issue_list_observe_opts(repo, label, page)
       end,
       function(stdout)
         return parsers_issue.parse_issue_list_observe(stdout)
@@ -308,7 +314,7 @@ function M.observability_list_issue_candidates(repo, labels, limits, deadline, s
       exec
     )
     deferred_pages = deferred_pages + deferred
-    deferred_reason = merge_deferred_reason(deferred_reason, reason)
+    deferred_reason = M.observability_merge_deferred_reason(deferred_reason, reason)
     for _, issue in ipairs(listed) do
       table.insert(items, issue)
     end
@@ -318,9 +324,9 @@ end
 
 function M.observability_list_pr_candidates(repo, limits, deadline, seed, exec)
   return list_rotating_pages(
-    M.gh_pr_list_observe_opts(repo, 1, true),
+    observe_commands.gh_pr_list_observe_opts(repo, 1, true),
     function(page)
-      return M.gh_pr_list_observe_opts(repo, page)
+      return observe_commands.gh_pr_list_observe_opts(repo, page)
     end,
     function(stdout)
       return parsers_pr.parse_pr_list_observe(stdout)

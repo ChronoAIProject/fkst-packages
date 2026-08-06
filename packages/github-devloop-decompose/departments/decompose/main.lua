@@ -46,10 +46,10 @@ end
 
 local function decompose_plan(decompose, current_issue, content_fetch)
   local prompt = core.build_decompose_prompt(decompose, current_issue, content_fetch)
-  local result = spawn_codex_sync(workflow_codex.judgment_codex_opts(
+  local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("decompose", workflow_codex.judgment_codex_opts(
     prompt,
     devloop_base.judgment_worktree_with_exec(exec_sync, "decompose", decompose.dedup_key)
-  ))
+  )))
   if type(result) == "table" and result.exit_code ~= nil and result.exit_code ~= 0 then
     error("github-devloop: decompose-codex-failed: decompose codex failed: " .. tostring(result.stderr or ""))
   end

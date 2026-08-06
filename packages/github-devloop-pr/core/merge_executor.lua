@@ -14,7 +14,7 @@ local high_risk_merge_gate = require("core.high_risk_merge_gate")
 local fix_rounds = require("core.fix_rounds")
 local ci_verdict = require("core.ci_verdict")
 local check_runs = require("forge.github.check_runs")
-local merge_batch = require("devloop.merge_batch")
+local merge_batch = require("core.merge_batch")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local payloads_builders = require("devloop.payloads.builders")
 local v_merge_ready = require("devloop.validators.merge_ready")
@@ -27,7 +27,17 @@ local config = require("devloop.config")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local merge_queue_tick_factory = require("core.merge_queue_tick")
+local restart_sink_grants = require("restart_sink_grants")
 local with_current_classification = ci_verdict.with_current_classification
+
+-- merge_executor is loaded while core is still assembling, so owner capabilities
+-- are resolved only after the department pipeline is running.
+local function restart_capabilities()
+  return {
+    restart_effects = require("core.restart_effects"),
+    restart_package_name = assert(rawget(core, "restart_package_name")),
+  }
+end
 local function log_gate(merge_ready, outcome, reason)
   local pass = merge_ready and merge_ready._merge_pass
   local fields = {
@@ -64,8 +74,8 @@ local function gate_baseline_sha_from_pr(pr)
   end
   return baseline_sha
 end
-local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason)
-  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason)
+local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason, proposal_id)
+  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason, proposal_id)
 end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position, classification)
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
@@ -79,6 +89,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
   reason = admission.reason or reason
   local fix_version = admission.version
   local ci_failure_key = admission.ci_failure_key
+  local gate_failure_excerpt = admission.gate_failure_excerpt or reason
   local gate_baseline_sha = gate_baseline_sha_from_pr(current_pr)
   local predecessor_set = nil
   if queue_position ~= nil then
@@ -96,12 +107,17 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
   end
   local comment_request = requests_review.build_merge_gate_fix_comment_request(core, repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set, {
     ci_failure_key = ci_failure_key,
+    gate_failure_excerpt = gate_failure_excerpt,
   })
   local label_request = issue_number ~= nil and requests_labels.build_state_label_request(repo,
     issue_number,
     "fixing",
+    merge_ready.proposal_id,
+    fix_version,
     merge_ready.dedup_key .. "/label/fixing",
-    entity_lib.issue_source_ref(repo, issue_number)
+    entity_lib.issue_source_ref(repo, issue_number),
+    nil,
+    { kind = "pr", number = merge_ready.pr_number }
   ) or nil
   local add_labels, remove_labels = devloop_state.state_label_changes("fixing")
   devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "fixing", "applied", reason)
@@ -275,7 +291,7 @@ end
 local function build_merging_body(merge_ready)
   return requests_bodies.build_merging_comment_body(core, merge_ready)
 end
-local function write_merging_marker(repo, merge_ready, comments)
+local function write_merging_marker(repo, merge_ready, comments, grant, snapshot, restart_effects)
   if m_facts.merging_fact(comments, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha) ~= nil then
     return
   end
@@ -287,6 +303,9 @@ local function write_merging_marker(repo, merge_ready, comments)
     context = merge_ready.reviewed_head_sha,
   })
   file.write(path, body)
+  if not restart_effects.verify_grant(grant, "github-proxy.github_pr_comment_request", snapshot) then
+    error("github-devloop: restart-effect-grant-invalid: merging marker comment grant was rejected")
+  end
   local result = core.gh_pr_comment(repo, merge_ready.pr_number, path, 30)
   if result.exit_code ~= 0 then
     error("github-devloop: pr-merging-marker-comment-failed: PR merging marker comment failed: " .. tostring(result.stderr))
@@ -346,33 +365,45 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merged", "skip-idempotent(already at to_state)", "merged marker already visible")
     return
   end
-  local transition = devloop_state.cyclic_transition_status(state, { "merge-ready", "merging" }, "merging", merge_ready.version)
+  local restart_caps = restart_capabilities()
+  local lock_key = entity_lib.merge_lane_lock_key(repo)
+  local snapshot = restart_caps.restart_effects.seal_snapshot({
+    owner = restart_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = merge_ready.pr_number },
+    proposal_id = merge_ready.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "pr-merge", merge_ready.proposal_id, state.state or "missing",
+      state.version or "missing", merge_ready.pr_number, merge_ready.reviewed_head_sha,
+    }, "|"),
+    lock_epoch = tostring(lock_key or "") .. "@" .. tostring(state.version or "missing"),
+    generation = state.version or "missing",
+  })
+  local decision = restart_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = "handoff_to_merge_gate",
+    target = "merging",
+    incoming_version = merge_ready.version,
+    overlay_version = merge_ready.version,
+  })
+  restart_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: merge admission rejected"
+  )
+  local transition = decision.status
   if state.state ~= "merge-ready" and state.state ~= "merging" and state.state ~= "merged" then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(from-state-mismatch)", "issue is not currently merge-ready or merging")
     return
   end
   if transition == "pending" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "merge-ready state marker not yet visible")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "merge-ready state marker not yet visible")
     error("github-devloop: merge-ready-marker-missing: merge-ready state marker not yet visible for merge; retrying")
   end
   if transition == "stale" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready")
-    return
-  end
-  if transition == "idempotent" and state.state ~= "merging" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready or merging")
-    return
-  end
-  if transition == "apply" and state.state ~= "merge-ready" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(from-state-mismatch)", "issue is not currently merge-ready")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready")
     return
   end
   if transition ~= "apply" and transition ~= "idempotent" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready or merging")
-    return
-  end
-  if tostring(state.version or "") ~= tostring(merge_ready.version) then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(version-mismatch)", "merge-ready event version does not match canonical issue marker")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready or merging")
     return
   end
   local fact = m_facts.merge_ready_fact(current_pr.comments, merge_ready.proposal_id, merge_ready.version, merge_ready.pr_number, merge_ready.reviewed_head_sha)
@@ -470,10 +501,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       end
       local mergeable, mergeable_reason = check_runs.pr_mergeable(current_pr)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+          current_pr, branches, mergeable_reason, merge_ready.proposal_id)
         if stale_mergeability then
           log_gate(merge_ready, "dry-run", stale_reason)
-          error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+          error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
         end
         if not write_enabled then
           log_gate(merge_ready, "dry-run", "speculative fix requires FKST_GITHUB_WRITE=1")
@@ -538,16 +570,17 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       log_gate(merge_ready, "dry-run", mergeable_reason)
       error("github-devloop: merge-gate-wait: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
     end
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      current_pr, branches, mergeable_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+      error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
     end
     log_gate(merge_ready, "fixing", mergeable_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason, queue_position)
     return
   end
-  local rollup_green, rollup_reason, check_runs = core.evaluate_ci_status_gate(current_pr, {
+  local rollup_green, rollup_reason, ci_check_runs = core.evaluate_ci_status_gate(current_pr, {
     repo = repo,
     dept = "merge",
     proposal_id = merge_ready.proposal_id,
@@ -571,7 +604,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
           current_pr,
           merge_ready.proposal_id,
           nil,
-          check_runs
+          ci_check_runs
         )
         if healed then
           log_gate(merge_ready, "dry-run", "ci-selfheal-triggered; waiting for checks")
@@ -645,7 +678,30 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       return true, "pr-origin-ok"
     end,
     before_merge = function()
-      write_merging_marker(repo, merge_ready, rechecked_pr_for_gate.comments)
+      local grant = restart_caps.restart_effects.mint_grant(
+        snapshot, decision, "comment:pr:merging-state"
+      )
+      if grant == nil then
+        error("github-devloop: restart-effect-grant-mint-failed: merging marker comment grant was not minted")
+      end
+      write_merging_marker(
+        repo, merge_ready, rechecked_pr_for_gate.comments,
+        grant, snapshot, restart_caps.restart_effects
+      )
+    end,
+    authorize_verified_merge = function(rechecked_pr)
+      return restart_sink_grants.verified_merge(restart_caps, {
+        repo = repo,
+        merge_ready = merge_ready,
+        rechecked_pr = rechecked_pr,
+        state = rechecked_state,
+        lock_key = lock_key,
+      })
+    end,
+    consume_verified_merge = function(authorization)
+      restart_sink_grants.consume(restart_caps, authorization,
+        "github.merge:verified-pr", "github-devloop: verified merge sink grant")
+      return true
     end,
   })
   if not merge_ok and merge_reason == "merge-confirmation-pending" then
@@ -680,10 +736,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and check_runs.is_not_mergeable_reason(merge_reason) then
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(merge_rechecked_pr, branches, merge_reason)
+    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
+      merge_rechecked_pr, branches, merge_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: write-time-mergeability-stale: merge wait on write-time stale " .. tostring(merge_reason) .. "; retrying")
+      error("github-devloop: write-time-mergeability-stale: merge wait on write-time " .. tostring(stale_reason) .. "; retrying")
     end
     log_gate(merge_ready, "fixing", merge_reason)
     raise_fixing(repo, issue_number, merge_ready, rechecked_state, merge_rechecked_pr, merge_reason, queue_position)

@@ -1,0 +1,536 @@
+local h = require("tests.devloop_helpers")
+local t = h.t
+local core = h.core
+local opts = h.opts
+local ready = h.ready
+local run_implement = h.run_implement
+local mock_issue_implement = h.mock_issue_implement
+local deterministic_branch_for = h.deterministic_branch_for
+local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
+local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
+local mock_implement_codex = h.mock_implement_codex
+local mock_git_status = h.mock_git_status
+local mock_branch_diff_paths = h.mock_branch_diff_paths
+local mock_git_commit = h.mock_git_commit
+local count_calls = h.count_calls
+local find_raise = h.find_raise
+local m_builders = require("devloop.markers.builders")
+local m_facts = require("devloop.markers.facts")
+local devloop_base = require("devloop.base")
+local requests_lifecycle = require("devloop.requests.lifecycle")
+
+local function stale_started_at()
+  return tostring(now() - 7201)
+end
+
+local function mock_real_write_mode()
+  for _ = 1, 6 do
+    h.mock_write_env("1")
+  end
+end
+
+local function mock_remote_branch(branch, head_sha)
+  t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+    stdout = tostring(head_sha) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_missing_remote_branch(branch)
+  t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+    stdout = "",
+    stderr = "missing remote branch",
+    exit_code = 1,
+  })
+end
+
+local function mock_harvest_worktree(event, branch)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+  local stable_root = devloop_base.implementation_worktree_root(durable_root)
+  local worktree = devloop_base.implement_worktree_path(stable_root, "owner/repo", 42, event.dedup_key)
+  for _ = 1, 2 do
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
+  t.mock_command("git fetch 'origin' 'dev'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+    stdout = "abc123\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("show-ref --verify --quiet", {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("show-ref --verify --quiet", {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
+  h.mock_force_clean("remote-checkpoint-worktree")
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_remote_branch(branch, checkpoint_head)
+  t.mock_command("git worktree add --force -B", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("reset --hard", {
+    stdout = "HEAD is now at 1111111 checkpoint\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("clean -fd", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("merge --no-edit 'abc123'", {
+    stdout = "Already up to date.\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git show abc123:.fkst/substrate-ref", {
+    stdout = "2222222222222222222222222222222222222222\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git show", {
+    stdout = "1111111111111111111111111111111111111111\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("add -A", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("commit -m 'chore: refresh fkst-substrate pin'", {
+    stdout = "[devloop-owner-repo-42-01HY 9999999] chore: refresh fkst-substrate pin\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_harvest_worktree(event, branch)
+end
+
+local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, checkpoint_head)
+  local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+  local stable_root = devloop_base.implementation_worktree_root(durable_root)
+  local worktree = devloop_base.implement_worktree_path(stable_root, "owner/repo", 42, event.dedup_key)
+  t.mock_command("git fetch 'origin' 'dev'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+    stdout = "abc123\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("show-ref --verify --quiet", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+    stdout = durable_root,
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree
+      .. "\nHEAD 0000000000000000000000000000000000000000\nbranch refs/heads/"
+      .. tostring(branch) .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  h.mock_force_clean(worktree)
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_remote_branch(branch, checkpoint_head)
+  t.mock_command("git worktree add --force -B", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("reset --hard", {
+    stdout = "HEAD is now at 1111111 checkpoint\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("clean -fd", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("merge --no-edit 'abc123'", {
+    stdout = "Already up to date.\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git show abc123:.fkst/substrate-ref", {
+    stdout = "2222222222222222222222222222222222222222\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git show", {
+    stdout = "1111111111111111111111111111111111111111\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("add -A", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("commit -m 'chore: refresh fkst-substrate pin'", {
+    stdout = "[devloop-owner-repo-42-01HY 9999999] chore: refresh fkst-substrate pin\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_harvest_worktree(event, branch)
+end
+
+local function checkpoint_comment(result)
+  return find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find("fkst:github-devloop:implement-checkpoint:v1", 1, true) ~= nil
+  end)
+end
+
+local function last_command_call_index(needle)
+  local found = nil
+  for index, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
+      found = index
+    end
+  end
+  return found
+end
+
+return {
+  test_checkpoint_request_identity_separates_divergent_reason_replays = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local function checkpoint_request(reason)
+      return requests_lifecycle.build_implement_checkpoint_comment_request(
+        core,
+        "owner/repo",
+        42,
+        event,
+        "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/checkpoint-identity",
+        branch,
+        "1111111111111111111111111111111111111111",
+        "dev",
+        "abc123",
+        1,
+        "123",
+        "implement/exec/checkpoint-identity",
+        "checkpoint detail",
+        reason
+      )
+    end
+
+    local failed = checkpoint_request("codex-failed")
+    local failed_replay = checkpoint_request("codex-failed")
+    local verification_indeterminate = checkpoint_request("verification-indeterminate")
+
+    t.eq(failed.dedup_key, failed_replay.dedup_key)
+    t.is_true(failed.dedup_key ~= verification_indeterminate.dedup_key)
+  end,
+
+  test_dirty_timeout_progress_is_committed_before_verification_and_pushed_as_wip_checkpoint = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    mock_issue_implement({ "fkst-dev:ready" })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(124, "partial progress remains dirty", "codex timed out")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("rev-list --count", {
+      stdout = "0\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
+      stdout = "",
+      stderr = "local verification failed",
+      exit_code = 1,
+    })
+    mock_git_commit(checkpoint_head, branch)
+    mock_real_write_mode()
+    t.mock_command("push origin HEAD:refs/heads/" .. branch, {
+      stdout = "pushed " .. branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local first = run_implement(event, opts("implement-dirty-timeout-checkpoint", { FKST_GITHUB_WRITE = "1" }))
+
+    t.eq(first.exit_code, 0, "dirty timeout checkpoint pass exits successfully")
+    t.eq(count_calls("impl-failed"), 0, "dirty timeout checkpoint pass does not terminalize")
+    local checkpoint = checkpoint_comment(first)
+    t.is_true(checkpoint ~= nil)
+    local checkpoint_fact = m_facts.implement_checkpoint_fact(
+      { checkpoint.payload.body },
+      event.proposal_id,
+      event.dedup_key
+    )
+    t.eq(checkpoint_fact.head_sha, checkpoint_head)
+    t.eq(count_calls("push origin HEAD:refs/heads/"), 1)
+    local verification_call = last_command_call_index("scripts/run.sh test-affected")
+    local add_call = last_command_call_index("add -A")
+    local commit_call = last_command_call_index("commit -m")
+    t.is_true(verification_call ~= nil)
+    t.is_true(add_call ~= nil and add_call < commit_call)
+    t.is_true(commit_call ~= nil and commit_call < verification_call)
+  end,
+
+  test_timeout_self_committed_progress_is_pushed_as_wip_checkpoint = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready" })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(124, "partial progress committed", "codex timed out")
+    mock_git_status("")
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    t.mock_command("rev-list --count", {
+      stdout = "1\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "1111111111111111111111111111111111111111\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
+      stdout = "",
+      stderr = "local verification failed",
+      exit_code = 1,
+    })
+    mock_real_write_mode()
+    t.mock_command("push origin HEAD:refs/heads/" .. branch, {
+      stdout = "pushed " .. branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-timeout-checkpoint", { FKST_GITHUB_WRITE = "1" }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("push origin HEAD:refs/heads/"), 1)
+    t.eq(count_calls("impl-failed"), 0)
+    local checkpoint = checkpoint_comment(result)
+    t.is_true(checkpoint ~= nil)
+    local fact = m_facts.implement_checkpoint_fact({ checkpoint.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.branch, branch)
+    t.eq(fact.head_sha, "1111111111111111111111111111111111111111")
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end), nil)
+  end,
+
+  test_retry_continues_from_wip_checkpoint_without_opening_pr_from_checkpoint_head = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
+    })
+    mock_remote_branch(branch, checkpoint_head)
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
+    mock_implement_codex(0, "finished from checkpoint")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-timeout-checkpoint-retry"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 1)
+    t.eq(count_calls("git worktree add -b"), 0)
+    local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+
+  test_unmarked_remote_progress_is_retried_not_handed_off = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+    mock_remote_branch(branch, checkpoint_head)
+    mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
+    mock_implement_codex(0, "finished from unmarked checkpoint")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-timeout-unmarked-remote-progress"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 1)
+    local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+
+  test_exhausted_redrive_reuses_unmarked_local_progress_through_verification_and_publication = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
+    })
+    mock_missing_remote_branch(branch)
+    mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git show " .. branch .. ":.fkst/substrate-ref", {
+      stdout = "1111111111111111111111111111111111111111\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "1111111111111111111111111111111111111111\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_implement_codex(0, "finished from local progress")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-timeout-unmarked-local-progress"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 0)
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('state="impl-failed"', 1, true) ~= nil
+    end), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
+    end), nil)
+    local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find("fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil)
+    t.is_true(tostring(final.payload.body or ""):find('attempt="3"', 1, true) ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+
+  test_retry_prefers_wip_checkpoint_over_stale_local_branch = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
+    })
+    mock_remote_branch(branch, checkpoint_head)
+    mock_stale_local_branch_remote_checkpoint_reuse(event, branch, checkpoint_head)
+    mock_implement_codex(0, "finished from checkpoint")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-timeout-checkpoint-stale-local"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 1)
+    t.eq(count_calls("git worktree add '"), 0)
+    local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+}

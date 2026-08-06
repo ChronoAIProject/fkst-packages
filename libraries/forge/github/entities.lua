@@ -169,8 +169,31 @@ local function pr_close_argv(repo, pr_number)
   return { "gh", "pr", "close", tostring(pr_number), "--repo", tostring(repo) }
 end
 
-local function issue_close_argv(repo, issue_number)
-  return { "gh", "issue", "close", tostring(issue_number), "--repo", tostring(repo) }
+local function issue_close_argv(repo, issue_number, disposition)
+  if type(disposition) ~= "table" then
+    error("forge.github: issue-close-disposition-required: explicit issue close disposition is required", 0)
+  end
+  local argv = { "gh", "issue", "close", tostring(issue_number), "--repo", tostring(repo) }
+  if disposition.kind == "completed" then
+    table.insert(argv, "--reason")
+    table.insert(argv, "completed")
+    return argv
+  end
+  if disposition.kind == "not_planned" then
+    table.insert(argv, "--reason")
+    table.insert(argv, "not planned")
+    return argv
+  end
+  if disposition.kind == "duplicate" then
+    local duplicate_of = tonumber(disposition.duplicate_of)
+    if duplicate_of == nil or duplicate_of < 1 or duplicate_of ~= math.floor(duplicate_of) then
+      error("forge.github: issue-close-duplicate-number-invalid: duplicate issue close disposition requires a positive duplicate_of issue number", 0)
+    end
+    table.insert(argv, "--duplicate-of")
+    table.insert(argv, tostring(duplicate_of))
+    return argv
+  end
+  error("forge.github: issue-close-disposition-unsupported: unsupported issue close disposition: " .. tostring(disposition.kind), 0)
 end
 
 local function pr_merge_argv(repo, pr_number, head_sha)
@@ -392,7 +415,7 @@ function M.install(handle)
   function handle.issue_list_recent_closed(repo, limit, timeout)
     local bounded_limit = tonumber(limit or 30)
     if bounded_limit == nil or bounded_limit < 1 or bounded_limit > 100 then
-      error("forge.github.entities: invalid closed issue list limit")
+      error("forge.github.entities: closed-issue-list-limit-invalid: invalid closed issue list limit")
     end
     return handle.issue_list_cli(repo, "closed", math.floor(bounded_limit), "number,title,closedAt,labels,author", timeout)
   end
@@ -492,7 +515,7 @@ function M.install(handle)
     end
     local ok, parsed = pcall(json.decode, command_result.stdout or "{}")
     if not ok or type(parsed) ~= "table" then
-      error("forge.github: gh pr view returned invalid JSON")
+      error("forge.github: gh-pr-view-json-invalid: gh pr view returned invalid JSON")
     end
     return parsed
   end
@@ -521,8 +544,8 @@ function M.install(handle)
     return handle._exec(pr_close_argv(repo, pr_number), timeout, "gh pr close", stdout_policy.write_response())
   end
 
-  function handle.issue_close(repo, issue_number, timeout)
-    return handle._exec(issue_close_argv(repo, issue_number), timeout, "gh issue close", stdout_policy.write_response())
+  function handle.issue_close(repo, issue_number, disposition, timeout)
+    return handle._exec(issue_close_argv(repo, issue_number, disposition), timeout, "gh issue close", stdout_policy.write_response())
   end
 
   function handle.pr_merge(repo, pr_number, head_sha, timeout)
@@ -531,7 +554,7 @@ function M.install(handle)
 
   function handle.gh_pr_merge(repo, pr_number, head_sha, timeout)
     if tostring(head_sha or "") == "" then
-      error("github-devloop: invalid merge head sha")
+      error("github-devloop: merge-head-sha-missing: invalid merge head sha")
     end
     return gh_result(function()
       return handle.pr_merge(repo, pr_number, head_sha, timeout)
@@ -576,7 +599,7 @@ function M.install(handle)
   function handle.gh_check_run_rerequest(repo, check_run_id, timeout)
     local id = tostring(check_run_id or "")
     if id == "" or id:find("[^0-9]") ~= nil then
-      error("github-devloop: invalid check-run id")
+      error("github-devloop: check-run-id-invalid: invalid check-run id")
     end
     return gh_result(function()
       return handle.api_method("POST", "repos/" .. tostring(repo) .. "/check-runs/" .. id .. "/rerequest", nil, nil, nil, timeout)

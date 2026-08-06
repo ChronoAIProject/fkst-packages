@@ -41,6 +41,15 @@ local function mock_fetch_and_heads(upstream_sha, integration_sha)
   t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = integration_sha .. "\n", stderr = "", exit_code = 0 })
 end
 
+local function mock_missing_integration_fetch()
+  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'integration/dev'", {
+    stdout = "",
+    stderr = "fatal: couldn't find remote ref integration/dev\n",
+    exit_code = 128,
+  })
+end
+
 local function mock_worktree_merge(exit_code, unmerged_stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-rt", stderr = "", exit_code = 0 })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
@@ -94,6 +103,18 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("git worktree add"), 0)
+  end,
+
+  test_sync_scan_missing_integration_branch_holds_without_dlq = function()
+    mock_env()
+    mock_missing_integration_fetch()
+
+    local result = run_scan(opts("sync-missing-integration"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("refs/remotes/'origin'/'integration/dev'^{commit}"), 0)
+    t.eq(count_calls("git worktree add"), 0)
+    t.eq(count_calls("push origin"), 0)
   end,
 
   test_sync_scan_clean_merge_real_mode_pushes_after_unchanged_head_recheck = function()

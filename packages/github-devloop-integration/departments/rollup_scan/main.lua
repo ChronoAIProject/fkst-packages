@@ -9,6 +9,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local rollup_health = require("core" .. ".rollup_health")
 local devloop_base = require("devloop.base")
+local topology = require("topology")
 
 local spec = {
   consumes = { "devloop_branch_tick" },
@@ -116,7 +117,17 @@ local function act(event)
   end
 
   with_lock(core.rollup_lock_key(repo, branches.upstream, branches.integration), function()
-    git_mechanics.fetch_branches(core.git, repo, { branches.upstream, branches.integration }, "rollup fetch")
+    if not topology.integration_topology_available({
+      git = core.git,
+      repo = repo,
+      branches = branches,
+      department = "rollup_scan",
+      domain = "rollup",
+      error_class = "rollup fetch",
+      fetch_upstream = true,
+    }) then
+      return
+    end
     local ahead = ahead_count(branches.upstream, branches.integration)
     if ahead == 0 then
       devloop_logging.log_cas_decision("rollup_scan", "rollup", { state = "not-ahead", version = branches.integration }, "tick", "rollup", "skip-idempotent(not-ahead)", "integration is not ahead of upstream")

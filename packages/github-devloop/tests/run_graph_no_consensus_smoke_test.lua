@@ -3,6 +3,7 @@ local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
+local conv_reconcile = require("devloop.convergence.reconcile")
 
 local t = h.t
 local core = h.core
@@ -23,18 +24,24 @@ local function state_marker()
   )
 end
 
-local function first_resolvable_marker()
+-- Owner directive (#2725): the continuation ROUND-BUDGET is no longer terminal, so a
+-- budget-exhausted lineage now REDRIVES instead of routing to blocked. This graph smoke
+-- test therefore exercises the GENUINE no-progress terminal that REMAINS terminal under
+-- #2725: three identical convergence rounds (same angle=verdict) are a true-stall
+-- (no-semantic-progress), which still routes reconcile -> blocked. The blocked delivery
+-- chain (loop -> comment -> handoff -> reconcile -> blocked comment + label) is unchanged.
+local function true_stall_round_marker(round)
   return conv_rounds.converge_round_marker(
     "github-devloop/issue/owner/repo/42",
     base_version,
     convergence_shared.source_ref_digest(source_ref()),
-    0,
-    base_version,
-    "First resolvable question",
+    round,
+    base_version .. "/loop/" .. tostring(round),
+    "Unchanged question round " .. tostring(round),
     {
-      { angle = "minimal", verdict = "abstain", digest = "first-blocked" },
+      { angle = "minimal", verdict = "abstain", digest = "same-stall-" .. tostring(round) },
     },
-    "open:\nfirst resolvable finding"
+    "open:\nunchanged finding round " .. tostring(round)
   )
 end
 
@@ -74,10 +81,23 @@ local function mock_runtime_and_context()
   end
 end
 
-local function mock_github_proxy_writes()
-  for _ = 1, 2 do
-    t.mock_command("gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100", {
-      stdout = "[[]]\n",
+local function mock_github_proxy_writes(blocked_version)
+  local blocked_comments = '[[{"id":123457,"body":"'
+    .. h.json_string(core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version))
+    .. '","user":{"login":"fkst-test-bot"}}]]\n'
+  for _, command in ipairs({
+    "gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100",
+    "gh api --paginate --slurp 'repos/owner/repo/issues/42/comments?per_page=100'",
+  }) do
+    for _ = 1, 2 do
+      t.mock_command(command, {
+        stdout = "[[]]\n",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    t.mock_command(command, {
+      stdout = blocked_comments,
       stderr = "",
       exit_code = 0,
     })
@@ -104,7 +124,8 @@ end
 local function mock_issue_reads()
   local comments = {
     trusted_comment(state_marker()),
-    trusted_comment(first_resolvable_marker()),
+    trusted_comment(true_stall_round_marker(1)),
+    trusted_comment(true_stall_round_marker(2)),
   }
   entity_read_mocks.mock_issue_read_with_defaults(
     t,
@@ -143,23 +164,26 @@ local function mock_issue_reads()
 end
 
 local function evidence_continuation_unresolved()
+  -- Round 3 with the two identical prior rounds visible: three consecutive rounds with the
+  -- same angle=verdict is a true-stall (no-semantic-progress), the genuine no-progress
+  -- terminal that stays terminal under #2725 and routes to blocked.
   return {
     schema = "consensus.consensus_converge.v1",
     proposal_id = "github-devloop/issue/owner/repo/42",
-    dedup_key = base_version .. "/loop/1",
+    dedup_key = base_version .. "/loop/3",
     source_ref = source_ref(),
-    round = 1,
-    narrowed_question = "Second resolvable question",
+    round = 3,
+    narrowed_question = "Unchanged question round 3",
     angle_digests = {
-      { angle = "minimal", verdict = "abstain", digest = "still-blocked" },
+      { angle = "minimal", verdict = "abstain", digest = "same-stall-3" },
     },
-    findings_record = "open:\nsecond resolvable finding",
+    findings_record = "open:\nunchanged finding round 3",
   }
 end
 
 local function initial_event()
   return {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
     payload = evidence_continuation_unresolved(),
     source_ref = {
       kind = "external",
@@ -171,19 +195,19 @@ end
 return {
   test_run_graph_no_consensus_handoffs_reconcile_to_blocked = function()
     mock_runtime_and_context()
+    mock_github_proxy_writes(conv_reconcile.reconcile_terminal_state_version(base_version, 3))
     mock_issue_reads()
-    mock_github_proxy_writes()
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {
-      "consensus.consensus_converge -> github-devloop.loop",
+      "github-devloop.devloop_consensus_continue -> github-devloop.loop",
       "github-proxy.github_issue_comment_request -> github-proxy.github_comment",
       "github-proxy.github_comment_written -> github-devloop.comment_handoff",
       "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
     })
 
     local loop_step, loop_index = graph.require_delivery(trace, {
-      queue = "consensus.consensus_converge",
+      queue = "github-devloop.devloop_consensus_continue",
       consumer = "github-devloop.loop",
     })
     t.eq(loop_step.exit_code, 0)
@@ -208,7 +232,7 @@ return {
       "github-proxy.github_issue_comment_request",
       function(raised)
         return graph.payload_contains(raised, "github-devloop reconcile action: drop")
-          and graph.payload_contains(raised, "evidence-continuation-budget-exhausted-after-")
+          and graph.payload_contains(raised, "no-semantic-progress-after-")
           and graph.payload_contains(raised, 'state="blocked"')
       end
     )

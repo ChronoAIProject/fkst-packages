@@ -30,10 +30,21 @@ return function(M, h)
     },
     terminal = false,
     to_states = { "ready", "dependency_wait", "declined", "blocked" },
-    driving_queue = "consensus.proposal",
+    driving_queue = "devloop_consensus_request",
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
-    output_obligation = obligation({ "consensus.consensus_reached", "consensus.consensus_converge" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
+    output_obligation = obligation({ "call:consensus.reach", "devloop_consensus_continue" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/thinking/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 150,
+        },
+      },
+    },
     budget = budget(150, "A live consensus receiver defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
     liveness_contract = liveness({
       mode = "live-defer",
@@ -49,7 +60,7 @@ return function(M, h)
         indeterminate_timeout = "row-budget",
       },
     }),
-    on_timeout = timeout("consensus.proposal"),
+    on_timeout = timeout("devloop_consensus_request"),
     receiver_activations = {
       {
         kind = "entry",
@@ -58,12 +69,25 @@ return function(M, h)
         output_variant = "issue_reconcile_true_stall",
         cas_policy_id = "cas.legacy_issue_reconcile_v1",
         cas_variant = "thinking_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop/thinking/entry/issue_reconcile_true_stall/apply",
+            effect_ids = {
+              "github-proxy.github_issue_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop/thinking/entry/issue_reconcile_true_stall/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },
     responsibility_signature = responsibility_signature({
       receiver_kind = "consensus-worker",
-      driving_queue = "consensus.proposal",
+      driving_queue = "devloop_consensus_request",
       state_kind = "worker",
       liveness_class = "thinking.active",
       input_fact_family = "issue-proposal",
@@ -76,6 +100,21 @@ return function(M, h)
           output_variant = "consensus-reached",
           cas_policy_id = "cas.legacy_consensus_result_v1",
           cas_variant = "thinking_to_ready",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/consensus-reached/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/consensus-reached/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "thinking" },
           postcondition_family = "issue-consensus",
@@ -90,6 +129,21 @@ return function(M, h)
           output_variant = "consensus-reached-dependency-held",
           cas_policy_id = "cas.legacy_consensus_result_v1",
           cas_variant = "thinking_to_dependency_wait",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/consensus-reached-dependency-held/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/consensus-reached-dependency-held/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "thinking" },
           postcondition_family = "issue-consensus",
@@ -98,6 +152,23 @@ return function(M, h)
         {
           state = "declined",
           output_variant = "premise-refuted",
+          cas_policy_id = "cas.legacy_consensus_result_v1",
+          cas_variant = "thinking_to_declined",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/premise-refuted/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/premise-refuted/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = false },
           postcondition_family = "issue-consensus",
@@ -109,11 +180,10 @@ return function(M, h)
           output_variant = "consensus-stalled",
           cas_policy_id = "cas.legacy_loop_plain_v1",
           cas_variant = "thinking_to_blocked",
-          -- SPEC sections 69/71 and A4.3 row-replay classify both emission plans as grantless.
           transition_effect_entitlements = {
             apply = {
               id = "github-devloop/thinking/autonomous/consensus-stalled/apply",
-              effect_ids = {},
+              effect_ids = { "github-proxy.github_issue_comment_request" },
             },
             idempotent = {
               id = "github-devloop/thinking/autonomous/consensus-stalled/idempotent",
@@ -140,15 +210,15 @@ return function(M, h)
       source_ref = "source_ref:issue",
     },
     version_identity = "strip_transition_version_suffixes(state.version)",
-    effects = effect({ "consensus.proposal" }, "consensus proposal dedup is derived from state.version or next complete converge-round"),
+    effects = effect({ "devloop_consensus_request" }, "consensus proposal dedup is derived from state.version or next complete converge-round"),
     marker_facts = "active run uses state:v1 thinking plus fkst.codex_runs real execution; converge-round:v1 remains an audit/progress fact, not a heartbeat",
-    kickoff = "consensus.proposal",
+    kickoff = "devloop_consensus_request",
     replay = "Initial thinking reuses the state version as proposal dedup; convergence replays the next /loop/N from the latest complete converge-round marker.",
     span_contract = span_contract({
       department = "external:consensus",
       durable_start_marker = "state:v1 thinking",
-      spawn_predecessor = "consensus.proposal",
-      spawn_function = "consensus.decide",
+      spawn_predecessor = "devloop_consensus_request",
+      spawn_function = "consensus_call.reach",
     }),
   }
 end

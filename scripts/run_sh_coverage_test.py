@@ -149,11 +149,15 @@ class RunShComposedConformanceHarness:
         for name in (
             "run.sh",
             "bin_bootstrap.sh",
+            "local_iteration_result.sh",
+            "run_bin.sh",
             "host_run.sh",
             "host_entry.sh",
             "composed_manifest.sh",
             "test_affected.sh",
             "test_parallel.sh",
+            "test_deadline.sh",
+            "run_department.sh",
         ):
             shutil.copy2(REPO_ROOT / "scripts" / name, self.scripts / name)
         for package, kind in (("composed", "package.composed"), ("dep", "package")):
@@ -183,6 +187,8 @@ class RunShComposedConformanceHarness:
                     "FKST_DEVLOOP_MANAGED_BOT_LOGINS",
                     "FKST_DEVLOOP_TEST_COMMAND",
                     "FKST_DEVLOOP_LOCAL_TEST_COMMAND",
+                    "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND",
+                    "FKST_PROJECT_ROOT",
                     "FKST_OUTPUT_LANG",
                 ]
                 if sys.argv[1:4] == ["manifest", "composed-deps", "--manifest"]:
@@ -223,6 +229,8 @@ class RunShComposedConformanceHarness:
                 "FKST_DEVLOOP_MANAGED_BOT_LOGINS": "live-bot,peer-bot",
                 "FKST_DEVLOOP_TEST_COMMAND": "live-test-command",
                 "FKST_DEVLOOP_LOCAL_TEST_COMMAND": "live-local-test-command",
+                "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND": "live-cache-preparation-command",
+                "FKST_PROJECT_ROOT": "/untrusted/ambient-project-root",
                 "FKST_OUTPUT_LANG": "zh",
             }
         )

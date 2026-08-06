@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local transition_version = require("contract.transition_version")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
@@ -23,7 +24,16 @@ local rollup_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
 local integration_branch = "integration-elonsg"
 local upstream_branch = "dev"
 local child_branch = "devloop-rollup-owner-rollup-repo-4242-01HY"
-local blocked_version = version .. "/blocked/child-pr-blocked"
+local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
+
+local function git_fetch_pr_head_oid_cmd(remote, number)
+  return "git fetch --no-write-fetch-head " .. tostring(remote)
+    .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
+end
+
+local function git_rev_parse_pr_head_oid_cmd(number)
+  return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
+end
 
 local function issue_comments_api_cmd()
   return "gh api --paginate --slurp repos/" .. repo .. "/issues/" .. tostring(issue_number) .. "/comments?per_page=100"
@@ -267,12 +277,12 @@ local function mock_rollup_landing(exit_code)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number), {
+  t.mock_command(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number), {
     stdout = "",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.git_fetch_head_commit_cmd(), {
+  t.mock_command(git_rev_parse_pr_head_oid_cmd(rollup_pr_number), {
     stdout = rollup_head_sha .. "\n",
     stderr = "",
     exit_code = 0,
@@ -319,7 +329,7 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
   if effective_child_state == "merged" then
     mock_rollup_landing(landed == false and 1 or 0)
   end
-  t.mock_command("gh issue close " .. tostring(issue_number) .. " --repo " .. repo, {
+  t.mock_command("gh issue close " .. tostring(issue_number) .. " --repo " .. repo .. " --reason completed", {
     stdout = "closed\n",
     stderr = "",
     exit_code = 0,
@@ -478,7 +488,8 @@ return {
     t.eq(merged_label, nil)
     t.eq(h.count_calls("git merge-base --is-ancestor " .. child_merge_commit_sha .. " " .. rollup_head_sha), 1)
     t.eq(h.count_calls("git merge-base --is-ancestor " .. child_head_sha .. " " .. rollup_head_sha), 0)
-    t.eq(h.count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 1)
+    t.eq(h.count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(h.count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
     t.eq(h.count_calls("gh issue close " .. tostring(issue_number) .. " --repo " .. repo), 0)
   end,
 

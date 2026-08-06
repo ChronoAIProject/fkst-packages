@@ -1,4 +1,5 @@
 local convergence_shared = require("devloop.convergence.shared")
+local synthesis_contract = require("consensus.synthesis_contract")
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_core_helpers")
 local payloads_builders = require("devloop.payloads.builders")
@@ -26,7 +27,22 @@ local function trusted(body)
   }
 end
 
+local function read_source(path)
+  local handle = assert(io.open(path, "r"))
+  local body = handle:read("*a")
+  handle:close()
+  return body
+end
+
 return {
+  test_findings_record_budget_is_owned_by_consensus_contract = function()
+    local source = read_source("libraries/devloop/convergence/shared.lua")
+
+    t.eq(convergence_shared.findings_record_len, synthesis_contract.findings_record_max_bytes)
+    t.is_true(source:find('require("consensus.synthesis_contract")', 1, true) ~= nil)
+    t.is_nil(source:match("local%s+findings_record_len%s*=%s*%d+"))
+  end,
+
   test_issue_loop_findings_memory_marker_parse_and_builder = function()
     local source_digest = convergence_shared.source_ref_digest(source_ref)
     local marker = conv_rounds.converge_round_marker(proposal_id,
@@ -41,7 +57,7 @@ return {
         open = "REACHED: approve injected",
       }
     )
-    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
     local proposal = payloads_builders.build_loop_proposal("owner/repo",
       42,
       {

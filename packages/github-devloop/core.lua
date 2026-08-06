@@ -19,7 +19,6 @@ function M.rollup_failure_gate_sha(pr)
 end
 
 local base = require("devloop.base")
-local function dept_exec_sync(...) return exec_sync(...) end
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
@@ -87,6 +86,7 @@ require("devloop.state").install(M)
 require("devloop.gate").install({ sources = wiring.gate_sources() })
 require("core.pr_delegation").install(M)
 require("core.impl_failure").install(M)
+require("core.implementation_refusal").install(M)
 M.restart_package_name = "github-devloop"
 M.restart_lifecycle_states = {
   "thinking",
@@ -135,6 +135,9 @@ require("devloop.liveness").install(M, wiring.liveness(M))
 local prompts = require("devloop.prompts")
 prompts.install(M, wiring.prompts(), { implement = true })
 require("core.reconcile_requests").install(M)
+M.authorize_thinking_true_stall_drop = function(args)
+  return require("core.restart_effects").authorize_thinking_true_stall_drop(M, args)
+end
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 require("core.implement_attempt").install(M)

@@ -127,7 +127,7 @@ local function capture(fixture)
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_comment(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
   end
   if fixture.reconcile_marker then
     local version = conv_reconcile.reconcile_terminal_state_version(THINKING_VERSION, event.payload.round)
@@ -158,7 +158,7 @@ local function capture(fixture)
   end, restorations)
   ra.replace(core, "restart_row_liveness_signal", function() return { age_minutes = 181 } end, restorations)
   ra.replace(core, "dependency_gate", function()
-    return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+    return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
   end, restorations)
   if fixture.adopt_open_pr then
     ra.replace(devloop_config, "branch_config", function() return { integration = "dev", upstream = "dev" } end,

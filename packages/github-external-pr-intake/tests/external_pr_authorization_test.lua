@@ -14,11 +14,20 @@ local function pr_json(model)
   model.read_count = model.read_count + 1
   local author = model.authors[math.min(model.read_count, #model.authors)]
   local assignees = model.claimed and '[{"login":"fkst-test-bot"}]' or "[]"
+  local provenance = ""
+  if not model.omit_provenance then
+    local is_cross_repository = model.is_cross_repository
+    if is_cross_repository == nil then
+      is_cross_repository = true
+    end
+    provenance = ',"isCrossRepository":' .. tostring(is_cross_repository)
+  end
   return table.concat({
     '{"number":7,"title":',
     strings.json_string(model.title),
     ',"headRefName":"feature/contrib","baseRefName":"dev","state":"OPEN"',
     ',"createdAt":"2026-06-03T01:02:03Z","updatedAt":"2026-06-19T01:02:03Z"',
+    provenance,
     ',"author":{"login":',
     strings.json_string(author),
     '},"comments":[],"assignees":',
@@ -35,6 +44,8 @@ local function fake_github(opts)
     claimed = false,
     read_count = 0,
     title = options.title or "Contributor patch",
+    is_cross_repository = options.is_cross_repository ~= false,
+    omit_provenance = options.omit_provenance == true,
     writes = {},
   }
   local handle = { _model = model }
@@ -106,11 +117,12 @@ local function fake_github(opts)
     return { stdout = "", stderr = "", exit_code = 0 }
   end
 
-  function handle.issue_close(repo, issue_number, timeout)
+  function handle.issue_close(repo, issue_number, disposition, timeout)
     table.insert(model.writes, {
       kind = "issue_close",
       repo = repo,
       issue_number = issue_number,
+      disposition = disposition,
       timeout = timeout,
     })
     return { stdout = "", stderr = "", exit_code = 0 }
@@ -135,7 +147,7 @@ local function candidate_event()
   }
 end
 
-local function run_event(github, event)
+local function run_event(github, event, options)
   local files = {}
   local logs = {}
   local raises = {}
@@ -193,10 +205,10 @@ local function run_event(github, event)
   raise = old_raise
   core.read_env = old_read_env
   with_lock = old_with_lock
-  if not ok then
+  if not ok and not (options and options.capture_failure) then
     error(err, 0)
   end
-  return logs, raises
+  return logs, raises, ok, err
 end
 
 local function run_candidate(github)
@@ -258,7 +270,7 @@ return {
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS"', "trusted-contributor")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
     t.mock_command("gh api --paginate --slurp", {
-      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"trusted-contributor"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
+      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"trusted-contributor"},"head":{"ref":"feature/contrib","repo":{"full_name":"trusted/repo"}},"base":{"ref":"dev"}}]\n',
       stderr = "",
       exit_code = 0,
     })
@@ -299,7 +311,7 @@ return {
     mock_command_times('printf %s "$FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS"', "1")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
-      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"write-collab"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
+      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"write-collab"},"head":{"ref":"feature/contrib","repo":{"full_name":"collaborator/repo"}},"base":{"ref":"dev"}}]\n',
       stderr = "",
       exit_code = 0,
     })
@@ -344,7 +356,7 @@ return {
     mock_command_times('printf %s "$FKST_GITHUB_AUTHORIZE_ORG_MEMBERS"', "1")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
-      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"org-member"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
+      stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"org-member"},"head":{"ref":"feature/contrib","repo":{"full_name":"member/repo"}},"base":{"ref":"dev"}}]\n',
       stderr = "",
       exit_code = 0,
     })
@@ -388,6 +400,39 @@ return {
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
     t.is_true(logs_contain(logs, "action=skip-non-authorized-author"))
+  end,
+
+  test_same_repository_operator_pr_is_rejected_before_bridge_writes = function()
+    local github = fake_github({
+      allowed = { "unknown-operator" },
+      authors = { "unknown-operator" },
+      is_cross_repository = false,
+    })
+    local logs = run_candidate(github)
+
+    t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
+    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_create"), 0)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 0)
+    t.is_true(logs_contain(logs, "action=skip-not-external"))
+  end,
+
+  test_missing_provenance_fails_loud_before_bridge_writes = function()
+    local github = fake_github({
+      allowed = { "trusted-contributor" },
+      authors = { "trusted-contributor" },
+      omit_provenance = true,
+    })
+    local logs, raises, ok, err = run_event(github, candidate_event(), { capture_failure = true })
+
+    t.eq(ok, false)
+    t.eq(#raises, 0)
+    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_create"), 0)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 0)
+    t.is_true(tostring(err):find("pr-provenance-unavailable", 1, true) ~= nil)
+    t.is_true(logs_contain(logs, "tag=FAILURE"))
+    t.is_true(logs_contain(logs, "error_class=pr-provenance-unavailable"))
   end,
 
   test_scan_does_not_admit_non_authorized_author = function()

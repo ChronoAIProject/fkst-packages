@@ -2,39 +2,90 @@ local M = {}
 
 local gh_argv = require("testkit_internal.gh_argv_mock")
 
-local default_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
+local default_durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
 local default_repo = "owner/repo"
 local default_issue_number = 42
 local default_ready_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
 function M.new(deps)
   deps = deps or {}
-  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_worktree_fixtures: deps.devloop_base is required")
-  local base_ids = deps.base_ids or error("testkit_internal.devloop_worktree_fixtures: deps.base_ids is required")
-  local base = deps.base or error("testkit_internal.devloop_worktree_fixtures: deps.base is required")
+  local devloop_base = deps.devloop_base or error("testkit_internal.devloop_worktree_fixtures: fixture-dependency-missing: deps.devloop_base is required")
+  local base_ids = deps.base_ids or error("testkit_internal.devloop_worktree_fixtures: fixture-dependency-missing: deps.base_ids is required")
+  local base = deps.base or error("testkit_internal.devloop_worktree_fixtures: fixture-dependency-missing: deps.base is required")
   local t = base.t
   local enable_substrate_pin_refresh = deps.enable_substrate_pin_refresh == true
   local include_head_ref_push = deps.include_head_ref_push == true
   local include_branch_diff_paths = deps.include_branch_diff_paths == true
+  local implementation_lineage = deps.implementation_lineage
 
   gh_argv.install(t, base.core)
 
   local function worktree_options(path)
     if type(path) == "table" then
       local opts = path
-      local runtime = opts.runtime or opts.path or default_runtime_root
-      return runtime, opts
+      local durable = opts.durable_root or opts.path or default_durable_root
+      return durable, opts
     end
-    return path or default_runtime_root, {}
+    return path or default_durable_root, {}
   end
 
-  local function implement_worktree_for(runtime, opts)
+  local function implement_worktree_for(durable, opts)
+    local stable_root = devloop_base.implementation_worktree_root(durable)
+    local worktree_version = opts.impl_version or default_ready_version
+    if implementation_lineage ~= nil then
+      worktree_version = implementation_lineage.implementation_branch_version(
+        worktree_version,
+        opts.impl_retry_attempt
+      )
+    end
     return devloop_base.implement_worktree_path(
-      runtime,
+      stable_root,
       opts.repo or default_repo,
       opts.issue_number or opts.issue or default_issue_number,
-      opts.impl_version or default_ready_version
+      worktree_version
     )
+  end
+
+  local function implement_branch_for(opts)
+    if opts.branch ~= nil then
+      return opts.branch
+    end
+    local branch_version = opts.impl_version or default_ready_version
+    if implementation_lineage ~= nil then
+      branch_version = implementation_lineage.implementation_branch_version(
+        branch_version,
+        opts.impl_retry_attempt
+      )
+    end
+    return devloop_base.implement_branch(
+      opts.repo or default_repo,
+      opts.issue_number or opts.issue or default_issue_number,
+      branch_version
+    )
+  end
+
+  local function mock_durable_root(root)
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = root, stderr = "", exit_code = 0 })
+  end
+
+  local function worktree_registration(path, branch)
+    return "worktree " .. tostring(path)
+      .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+  end
+
+  local function mock_harvest_worktree(worktree, branch, additional_registrations, checks)
+    local registrations = ""
+    for _, registered in ipairs(additional_registrations or {}) do
+      registrations = registrations .. worktree_registration(registered.path, registered.branch)
+    end
+    for _ = 1, checks or 2 do
+      t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
+      t.mock_command("git worktree list --porcelain", {
+        stdout = registrations .. worktree_registration(worktree, branch),
+        stderr = "",
+        exit_code = 0,
+      })
+    end
   end
 
   local function mock_setup_worktree(path)
@@ -82,6 +133,38 @@ function M.new(deps)
     })
   end
 
+  local function command_result(exit_code, stderr, stdout)
+    return {
+      stdout = stdout or "",
+      stderr = stderr or "",
+      exit_code = exit_code,
+    }
+  end
+
+  local function mock_force_clean(worktree, options)
+    local opts = options or {}
+    local remove_result = opts.remove_result or command_result(0)
+    local directory_result = opts.directory_result or command_result(0)
+    local prune_result = opts.prune_result or command_result(0)
+    local path_result = opts.path_result or command_result(1)
+    local list_result = opts.list_result or command_result(0)
+
+    t.mock_command("git worktree remove --force", remove_result)
+    t.mock_command("rm -rf --", directory_result)
+    t.mock_command("git worktree prune", prune_result)
+    if directory_result.exit_code ~= 0 then
+      return
+    end
+    if prune_result.exit_code ~= 0 then
+      return
+    end
+    t.mock_command("[ -e ", path_result)
+    if path_result.exit_code ~= 1 then
+      return
+    end
+    t.mock_command("git worktree list --porcelain", list_result)
+  end
+
   local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
   end
@@ -89,7 +172,7 @@ function M.new(deps)
   local function ensure_dir(path)
     local ok = os.execute("mkdir -p " .. shell_quote(path))
     if ok ~= true and ok ~= 0 then
-      error("github-devloop test: mkdir failed for " .. tostring(path))
+      error("github-devloop-test: directory-setup-failed: mkdir failed for " .. tostring(path))
     end
   end
 
@@ -128,8 +211,8 @@ function M.new(deps)
   end
 
   local function mock_fresh_implement_worktree(path, base_pin, branch_pin)
-    local runtime, opts = worktree_options(path)
-    local worktree = implement_worktree_for(runtime, opts)
+    local durable, opts = worktree_options(path)
+    local worktree = implement_worktree_for(durable, opts)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
     t.mock_command("git fetch 'origin' 'dev'", {
@@ -147,21 +230,13 @@ function M.new(deps)
       stderr = "",
       exit_code = 1,
     })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree remove --force", {
+    mock_durable_root(durable)
+    t.mock_command("git worktree list --porcelain", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add -b", {
       stdout = "",
@@ -175,12 +250,20 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
+    if opts.harvest ~= false then
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
+    end
     return worktree
   end
 
   local function mock_fresh_external_pr_implement_worktree(path, provision)
-    local runtime, opts = worktree_options(path)
-    local worktree = implement_worktree_for(runtime, opts)
+    local durable, opts = worktree_options(path)
+    local worktree = implement_worktree_for(durable, opts)
     local external = provision or {}
     local pr_number = external.pr_number or 7
     local head_sha = external.head_sha or "1234567890abcdef1234567890abcdef12345678"
@@ -194,26 +277,13 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_durable_root(durable)
     t.mock_command("git worktree list --porcelain", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add -B", {
       stdout = "",
@@ -250,12 +320,20 @@ function M.new(deps)
       end
     end
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin)
+    if opts.harvest ~= false then
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
+    end
     return worktree
   end
 
   local function mock_existing_empty_implement_worktree(path, base_pin, branch_pin)
-    local runtime, opts = worktree_options(path)
-    local worktree = implement_worktree_for(runtime, opts)
+    local durable, opts = worktree_options(path)
+    local worktree = implement_worktree_for(durable, opts)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
     t.mock_command("git fetch 'origin' 'dev'", {
@@ -278,26 +356,13 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_durable_root(durable)
     t.mock_command("git worktree list --porcelain", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add", {
       stdout = "",
@@ -311,12 +376,21 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
+    if opts.harvest ~= false then
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
+    end
   end
 
   local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
-    local runtime = path or default_runtime_root
-    local worktree = enable_substrate_pin_refresh and implement_worktree_for(runtime, {})
-      or (runtime .. "/worktrees/devloop-owner-repo-42-01HY")
+    local durable = path or default_durable_root
+    local stable_root = devloop_base.implementation_worktree_root(durable)
+    local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, {})
+      or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY")
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -337,11 +411,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_durable_root(durable)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
       stderr = "",
@@ -354,6 +424,7 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_substrate_pin_refresh(worktree)
+    mock_harvest_worktree(worktree, branch)
     return worktree
   end
 
@@ -361,9 +432,9 @@ function M.new(deps)
     return mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
   end
 
-  local function mock_outside_runtime_implement_worktree_rebuild(runtime_root, branch)
-    local runtime = runtime_root or default_runtime_root
-    local stale = "/tmp/fkst-packages-test/github-devloop/old-runtime/worktrees/devloop-owner-repo-42-01HY"
+  local function mock_noncanonical_implement_worktree_conflict(durable_root, branch)
+    local durable = durable_root or default_durable_root
+    local stale = "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/devloop-owner-repo-42-01HY"
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -384,123 +455,13 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_durable_root(durable)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. stale .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("[ -d '" .. stale .. "' ]", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_substrate_pin_refresh(runtime .. "/worktrees/devloop-owner-repo-42-01HY")
-    return runtime .. "/worktrees/devloop-owner-repo-42-01HY"
-  end
-
-  local function mock_multiple_outside_runtime_implement_worktrees_rebuild(runtime_root, branch)
-    local runtime = runtime_root or default_runtime_root
-    local stale_one = "/tmp/fkst-packages-test/github-devloop/old-runtime-a/worktrees/devloop-owner-repo-42-01HY"
-    local stale_two = "/tmp/fkst-packages-test/github-devloop/old-runtime-b/worktrees/devloop-owner-repo-42-01HY"
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = runtime,
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. stale_one .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
-        .. "worktree " .. stale_two .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    for _ = 1, 2 do
-      t.mock_command("[ -d ", {
-        stdout = "",
-        stderr = "",
-        exit_code = 0,
-      })
-      t.mock_command("git worktree remove --force", {
-        stdout = "",
-        stderr = "",
-        exit_code = 0,
-      })
-    end
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_substrate_pin_refresh(runtime .. "/worktrees/devloop-owner-repo-42-01HY")
-    return runtime .. "/worktrees/devloop-owner-repo-42-01HY"
+    return stale
   end
 
   local function mock_existing_implement_branch(head)
@@ -581,11 +542,19 @@ function M.new(deps)
   end
 
   local function mock_implement_codex(exit_code, stdout, stderr)
+    local resolved_exit_code = exit_code or 0
     t.mock_command("codex exec", {
       stdout = stdout or "implemented",
       stderr = stderr or "",
-      exit_code = exit_code or 0,
+      exit_code = resolved_exit_code,
     })
+    if resolved_exit_code == 0 then
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
+        stdout = "",
+        stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
+        exit_code = 0,
+      })
+    end
   end
 
   local function mock_git_status(stdout, exit_code, stderr)
@@ -621,7 +590,14 @@ function M.new(deps)
   end
 
   local function mock_existing_fix_worktree(branch, head, path, merge)
-    local worktree = path or "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/fix-worktree"
+    local stable_root = devloop_base.implementation_worktree_root(default_durable_root)
+    local worktree = path or devloop_base.implement_worktree_path(
+      stable_root,
+      default_repo,
+      default_issue_number,
+      default_ready_version
+    )
+    mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
         .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
@@ -669,7 +645,8 @@ function M.new(deps)
   end
 
   local function mock_missing_fix_worktree(branch, head, path)
-    local worktree = path or "/tmp/fkst-packages-test/github-devloop/old-runtime/worktrees/fix-worktree"
+    local worktree = path or "/tmp/fkst-packages-test/github-devloop/missing/worktrees/fix-worktree"
+    mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
         .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
@@ -717,8 +694,9 @@ function M.new(deps)
     return worktree
   end
 
-  local function mock_outside_runtime_fix_worktree(branch, head, path)
-    local worktree = path or "/tmp/fkst-packages-test/github-devloop/old-runtime/worktrees/fix-worktree"
+  local function mock_outside_stable_root_fix_worktree(branch, head, path)
+    local worktree = path or "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/fix-worktree"
+    mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
         .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
@@ -848,14 +826,14 @@ function M.new(deps)
 
   local fixtures = {
     mock_setup_worktree = mock_setup_worktree,
+    mock_force_clean = mock_force_clean,
     deterministic_branch_for = deterministic_branch_for,
     mock_fresh_implement_worktree = mock_fresh_implement_worktree,
     mock_fresh_external_pr_implement_worktree = mock_fresh_external_pr_implement_worktree,
     mock_existing_empty_implement_worktree = mock_existing_empty_implement_worktree,
     mock_existing_empty_implement_worktree_reuse = mock_existing_empty_implement_worktree_reuse,
     mock_existing_dirty_implement_worktree_reuse = mock_existing_dirty_implement_worktree_reuse,
-    mock_outside_runtime_implement_worktree_rebuild = mock_outside_runtime_implement_worktree_rebuild,
-    mock_multiple_outside_runtime_implement_worktrees_rebuild = mock_multiple_outside_runtime_implement_worktrees_rebuild,
+    mock_noncanonical_implement_worktree_conflict = mock_noncanonical_implement_worktree_conflict,
     mock_existing_implement_branch = mock_existing_implement_branch,
     mock_git_commit = mock_git_commit,
     mock_git_push = mock_git_push,
@@ -864,7 +842,7 @@ function M.new(deps)
     mock_git_status = mock_git_status,
     mock_existing_fix_worktree = mock_existing_fix_worktree,
     mock_missing_fix_worktree = mock_missing_fix_worktree,
-    mock_outside_runtime_fix_worktree = mock_outside_runtime_fix_worktree,
+    mock_outside_stable_root_fix_worktree = mock_outside_stable_root_fix_worktree,
     mock_write_env = mock_write_env,
     mock_bot_env = mock_bot_env,
     mock_issue_view_failure = mock_issue_view_failure,
