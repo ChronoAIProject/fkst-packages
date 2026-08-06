@@ -122,6 +122,7 @@
 {"path":"packages/github-devloop-ops/departments/doctor/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/ensure_repo/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/observability/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
+{"path":"packages/github-devloop-pr/core/ci_failure_sets.lua","owner":"pr","reason":"github-devloop-pr owns provenance-bound failure-set comparison for PR-local own-CI repair admission."}
 {"path":"packages/github-devloop-pr/core/ci_repair_attempts.lua","owner":"pr","reason":"github-devloop-pr owns durable completed-round facts for PR-local own-CI repair."}
 {"path":"packages/github-devloop-pr/core/ci_verdict.lua","owner":"pr","reason":"github-devloop-pr owns the sealed, head-bound authority for PR-local own-CI actions."}
 {"path":"packages/github-devloop-pr/core/ci_repair_retry.lua","owner":"pr","reason":"github-devloop-pr owns PR-local own-CI repair replay admission and fresh CI re-observation."}

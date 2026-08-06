@@ -1,5 +1,6 @@
 local forge_validators = require("devloop.forge_validators")
 local parsers_pr = require("devloop.parsers.pr")
+local ci_failure_sets = require("core.ci_failure_sets")
 
 local C = {}
 local production_handle = require("devloop.github_factory").production_handle
@@ -51,6 +52,10 @@ function C.with_current_classification(repo, pr_number, expected_head, effect, c
   if classified.kind == C.OWN_CI_RED and tostring(classified.ci_failure_key or "") == "" then
     error("github-devloop: ci-classification-own-ci-key-missing: own-CI red requires a failure key")
   end
+  local failure_set_comparison = nil
+  if classified.kind == C.OWN_CI_RED then
+    failure_set_comparison = ci_failure_sets.compare_current(repo, current_pr, classified.check_runs)
+  end
 
   return effect({
     repo = tostring(repo),
@@ -60,6 +65,7 @@ function C.with_current_classification(repo, pr_number, expected_head, effect, c
     reason = classified.reason,
     ci_failure_key = classified.ci_failure_key,
     gate_failure_excerpt = classified.gate_failure_excerpt,
+    failure_set_comparison = failure_set_comparison,
     current_pr = current_pr,
   })
 end

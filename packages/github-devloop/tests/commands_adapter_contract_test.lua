@@ -223,6 +223,9 @@ return {
       core.gh_issue_view("owner/repo", 45, "state", 36)
       github("commands_adapter_contract_test").gh_pr_merge("owner/repo", 7, "def456", 32)
       github("commands_adapter_contract_test").gh_check_run_rerequest("owner/repo", 123, 33)
+      github("commands_adapter_contract_test").gh_run_download_artifact(
+        "owner/repo", 456, "test-failure-manifest", "/tmp/manifests/run-456", 37
+      )
     end)
 
     assert_argv_equal(calls[1].argv, {
@@ -283,6 +286,18 @@ return {
       "POST",
       "repos/owner/repo/check-runs/123/rerequest",
     })
+    assert_argv_equal(calls[7].argv, {
+      "gh",
+      "run",
+      "download",
+      "456",
+      "--repo",
+      "owner/repo",
+      "--name",
+      "test-failure-manifest",
+      "--dir",
+      "/tmp/manifests/run-456",
+    })
     for index, call in ipairs(calls) do
       t.eq(call.argv[1], "gh")
       t.is_nil(call.cmd)
@@ -294,6 +309,7 @@ return {
     t.eq(calls[4].timeout, 36)
     t.eq(calls[5].timeout, 32)
     t.eq(calls[6].timeout, 33)
+    t.eq(calls[7].timeout, 37)
   end,
 
   test_commands_helpers_execute_git_via_argv_adapter = function()
