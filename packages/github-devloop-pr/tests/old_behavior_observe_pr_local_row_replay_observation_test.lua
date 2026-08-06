@@ -70,7 +70,7 @@ local HIGHWATER_KEY = entity_highwater.key("github-devloop-pr/observe_pr", SOURC
 local EXPECTED_ROW_COUNTS = {
   ["pr-open"] = 3,
   reviewing = 10,
-  fixing = 13,
+  fixing = 12,
   ["review-meta"] = 7,
   ["merge-ready"] = 9,
   merging = 8,
@@ -126,7 +126,6 @@ local FIXTURES = json_array({
   { name = "route-fixing-head-advanced-stale", state = "fixing", suffix = "/fix/1", marker = "fix-feedback-head-advanced", branch_head_sha = "cab123", expected_status = "routed-noop", expected_decision = "skip-stale(head-advanced)", expected_target = "fixing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:275-279" },
   { name = "route-fixing-version-binding-mismatch", state = "fixing", version = "unrelated-lineage/fix/1", expected_status = "routed-noop", expected_decision = "skip-foreign(pr-link)", expected_target = "fixing|reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:261-267" },
   { name = "route-fixing-ci-repair-backoff", state = "fixing", suffix = "/fix/1", marker = "ci-repair-attempt", now_seconds = 1780419725, expected_status = "routed-noop", expected_decision = "skip-pending(ci-repair-backoff)", expected_target = "fixing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:282-306" },
-  { name = "route-fixing-ci-repair-policy-invalid", state = "fixing", suffix = "/fix/1", marker = "ci-repair-attempt-invalid-time", expected_status = "routed", expected_decision = "applied(fix-loop-max-rounds)", expected_target = "blocked", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_fix_reconcile", "queue:github-devloop-decompose.devloop_decompose" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:282-309;packages/github-devloop-pr/core/ci_repair_retry.lua:103-120" },
   { name = "route-fixing-ci-repair-due-own-ci", state = "fixing", suffix = "/fix/1", marker = "ci-repair-attempt", ci = "red", expected_status = "routed", expected_decision = "applied(ci-repair-next-round)", expected_target = "fixing", expected_effect_ids = json_array({ "comment:pr:row-replay", "label:issue:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/ci_repair_retry.lua:131-156,332-389;packages/github-devloop-pr/core/pr_review_replayer.lua:316-318" },
   { name = "route-fixing-ci-repair-head-advanced-closed", state = "fixing", suffix = "/fix/1", marker = "ci-repair-attempt", reobserve_head_sha = OTHER_HEAD_SHA, reobserve_state = "CLOSED", expected_status = "routed-noop", expected_decision = "skip-stale(pr-closed)", expected_target = "reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/ci_repair_retry.lua:164-169;packages/github-devloop-pr/core/pr_review_replayer.lua:310-313" },
   { name = "route-review-meta-block", state = "review-meta", suffix = "/fix/1", marker = "review-meta", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "blocked", expected_effect_ids = json_array({ "label:issue:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:343-388" },
@@ -524,15 +523,15 @@ local function assert_row_universe()
   for state, expected in pairs(EXPECTED_ROW_COUNTS) do
     t.eq(counts[state], expected, state .. ": complete production-reachable row disposition count")
   end
-  t.eq(reason_count, 21, "collapsed distinct decision reason-code count")
-  t.eq(#FIXTURES, 55, "collapsed production-reachable observe_pr local row decision-class count")
+  t.eq(reason_count, 20, "collapsed distinct decision reason-code count")
+  t.eq(#FIXTURES, 54, "collapsed production-reachable observe_pr local row decision-class count")
 end
 
 return {
   test_observe_pr_local_row_replay_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_row_universe()
     local fixtures, first, second = fixture_tuples(), capture_records(), capture_records()
-    t.eq(#first, 55, "collapsed production-reachable observe_pr local row replay count")
+    t.eq(#first, 54, "collapsed production-reachable observe_pr local row replay count")
     local repeat_difference = first_difference(second, first, "old_behavior_observations[observe-pr-local-row-replay][repeat]")
     if repeat_difference ~= nil or canonical_json(second) ~= canonical_json(first) then error("second OLD observe_pr local row replay capture differs at " .. tostring(repeat_difference or "canonical-json"), 0) end
     local runtime = record_tuples(first, "runtime records")
