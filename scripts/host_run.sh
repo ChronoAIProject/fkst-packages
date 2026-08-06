@@ -73,6 +73,7 @@ host_run_resolve_target_platform_roots() {
   local output line
   output="$(python3 - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -100,9 +101,13 @@ def git_output(args: list[str], *, cwd: Path) -> str:
             check=True,
         )
     except FileNotFoundError:
-        fail("git is required to resolve host external sources")
+        fail(f"{shlex.join(['git', *args])} could not start (cwd={cwd}): git executable not found")
     except subprocess.CalledProcessError as exc:
-        fail(f"git {' '.join(args)} failed with exit {exc.returncode}")
+        message = f"{shlex.join(['git', *args])} failed with exit {exc.returncode} (cwd={cwd})"
+        stderr = exc.stderr.strip()
+        if stderr:
+            message = f"{message}: {stderr}"
+        fail(message)
     return result.stdout.strip()
 
 
@@ -433,6 +438,19 @@ host_run_parse_supervise_args() {
 
 host_run_validate_shape() {
   [ -d "$HOST_RUN_PROJECT_ROOT" ] || { echo "error: project root does not exist: $HOST_RUN_PROJECT_ROOT" >&2; return 1; }
+  local work_tree_result core_bare
+  if ! work_tree_result="$(git -C "$HOST_RUN_PLATFORM_ROOT" rev-parse --is-inside-work-tree 2>&1)" || [ "$work_tree_result" != "true" ]; then
+    core_bare="$(git -C "$HOST_RUN_PLATFORM_ROOT" config --bool core.bare 2>/dev/null || true)"
+    printf 'error: --platform-root failed predicate git rev-parse --is-inside-work-tree=true: %s' "$HOST_RUN_PLATFORM_ROOT" >&2
+    if [ "$core_bare" = "true" ]; then
+      printf ' (core.bare=true)' >&2
+    fi
+    if [ -n "$work_tree_result" ]; then
+      printf ': %s' "$work_tree_result" >&2
+    fi
+    printf '\n' >&2
+    return 1
+  fi
   mkdir -p "$HOST_RUN_DURABLE_ROOT"
   if [ "$HOST_RUN_RUNTIME_IS_EXPLICIT" -eq 1 ]; then
     mkdir -p "$HOST_RUN_RUNTIME_BASE"
