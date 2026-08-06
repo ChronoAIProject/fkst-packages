@@ -11,7 +11,7 @@ M.names = {
   trusted_bot_login = "trusted_bot_login",
 }
 
-M.types = {
+local types = {
   actionable_epoch_resolve = "function",
   dependency_release_marker = "function",
   is_state = "function",
@@ -54,7 +54,7 @@ local function required_names(group_name, names)
   return group
 end
 
-function M.require_ports(resolved, owner, names)
+local function require_ports(resolved, owner, names)
   local group_owner = owner or "workflow"
   if type(resolved) ~= "table" then
     error("workflow_internal.ports: resolved-ports-missing: missing resolved for " .. tostring(group_owner))
@@ -67,7 +67,7 @@ function M.require_ports(resolved, owner, names)
   local ports = {}
   for _, name in ipairs(required_names(group_owner, names)) do
     local value = source[name]
-    local expected_type = M.types[name]
+    local expected_type = types[name]
     if expected_type == nil then
       error("workflow_internal.ports: workflow-port-unknown: unknown port " .. tostring(name) .. " for " .. tostring(group_owner))
     end
@@ -84,7 +84,7 @@ function M.require_ports(resolved, owner, names)
 end
 
 function M.restart_liveness_contract(resolved)
-  return M.require_ports(resolved, "restart_liveness_contract")
+  return require_ports(resolved, "restart_liveness_contract")
 end
 
 return M

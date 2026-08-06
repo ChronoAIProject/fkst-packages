@@ -66,7 +66,7 @@ end
 -- being proven through the real router). scripts/check_repo_integration_coverage.py
 -- reads the static `covers` declarations, trusting them because this assertion
 -- would fail the test otherwise.
-function M.parse_coverage_edge(edge)
+local function parse_coverage_edge(edge)
   local queue, consumer = tostring(edge):match("^%s*(.-)%s*%->%s*(.-)%s*$")
   if not queue or queue == "" or not consumer or consumer == "" then
     error("testkit.graph: coverage-edge-id-invalid: invalid coverage edge id (want '<queue> -> <pkg.dept>'): " .. tostring(edge), 3)
@@ -76,7 +76,7 @@ end
 
 function M.assert_covers(trace, edges)
   for _, edge in ipairs(edges or {}) do
-    local queue, consumer = M.parse_coverage_edge(edge)
+    local queue, consumer = parse_coverage_edge(edge)
     if M.find_delivery(trace, { queue = queue, consumer = consumer }) == nil then
       error("testkit.graph: coverage-edge-unobserved: coverage edge declared in `covers` but not observed as a delivery in the trace: " .. tostring(edge), 2)
     end
