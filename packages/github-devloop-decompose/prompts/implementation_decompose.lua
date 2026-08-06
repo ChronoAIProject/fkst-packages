@@ -4,7 +4,7 @@ return {
 {{execution_boundary}}
 
 Task:
-- Plan 1 to 3 new GitHub child issues after two adjacent implementation workers exhausted their wall-clock budgets and the resumed checkpoint head was proven stationary.
+- Plan 1 to {{max_children}} new GitHub child issues after two adjacent implementation workers exhausted their wall-clock budgets and the resumed checkpoint head was proven stationary.
 - Each child must be smaller and independently completable.
 - Do not propose another identical implementation attempt.
 - Do not change the parent issue to a terminal state.
@@ -27,6 +27,6 @@ Instructions:
 - Read the complete local issue and board files before deciding how to split the work.
 - Output strict JSON only. No markdown or prose outside JSON.
 - JSON shape: {"issues":[{"title":"...","body":"..."}]}
-- The array length must be between 1 and 3.
+- The array length must be between 1 and {{max_children}}.
 - Keep titles concise and bodies independently actionable.]],
 }

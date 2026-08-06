@@ -3,6 +3,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local core = h.core
 local t = h.t
 local decompose_lib = require("devloop.decompose")
+local implementation_escalation = require("devloop.implementation_escalation")
 
 local function assert_language_preamble(prompt)
   t.is_true(prompt:find("Write all output in English; quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
@@ -53,6 +54,25 @@ return {
     t.is_nil(prompt:find("gh api", 1, true))
     t.is_true(prompt:find("read-only checkout", 1, true) ~= nil)
     t.is_true(prompt:find("Read GitHub context only from the local files named below", 1, true) ~= nil)
+    t.is_nil(prompt:find("{{", 1, true))
+  end,
+
+  test_implementation_decompose_prompt_uses_typed_policy_child_limit = function()
+    local prompt = core.build_implementation_decompose_prompt({
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      head_sha = "1111111111111111111111111111111111111111",
+      previous_attempt = 1,
+      attempt = 2,
+      evidence_policy = "adjacent-wall-clock-exhaustion-stationary-head-v1",
+    }, {
+      title = "Split stationary implementation work",
+    }, "Read these local files for your complete context.\nIssue JSON: /tmp/ctx/issue.json")
+
+    t.is_true(prompt:find(
+      "Plan 1 to " .. tostring(implementation_escalation.max_children()) .. " new GitHub child issues",
+      1,
+      true
+    ) ~= nil)
     t.is_nil(prompt:find("{{", 1, true))
   end,
 

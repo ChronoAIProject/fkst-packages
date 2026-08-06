@@ -10,6 +10,10 @@ local E = {}
 local POLICY_ID = "adjacent-wall-clock-exhaustion-stationary-head-v1"
 local MAX_CHILDREN = 3
 
+function E.max_children()
+  return MAX_CHILDREN
+end
+
 local function marker_attr(marker, name)
   return marker:match("%s" .. name .. '="([^"]*)"')
 end

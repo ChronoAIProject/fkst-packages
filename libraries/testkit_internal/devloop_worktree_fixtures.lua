@@ -556,16 +556,16 @@ function M.new(deps)
     })
   end
 
-  local function mock_implement_codex(exit_code, stdout, stderr, result_fields)
+  local function mock_implement_codex(exit_code, stdout, stderr, ...)
+    if select("#", ...) > 0 then
+      error("testkit_internal: mock-implement-codex-result-fields-unsupported: typed result fields are not supported by fkst.test.mock_command")
+    end
     local resolved_exit_code = exit_code or 0
     local result = {
       stdout = stdout or "implemented",
       stderr = stderr or "",
       exit_code = resolved_exit_code,
     }
-    for key, value in pairs(result_fields or {}) do
-      result[key] = value
-    end
     t.mock_command("codex exec", result)
     if resolved_exit_code == 0 then
       t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {

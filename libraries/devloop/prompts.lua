@@ -2,6 +2,7 @@ local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
+local implementation_escalation = require("devloop.implementation_escalation")
 local S = {}
 local config = require("devloop.config")
 
@@ -346,6 +347,7 @@ function M.build_implementation_decompose_prompt(escalation, current_issue, cont
     previous_attempt = devloop_base.neutralize_untrusted_prompt_text(escalation.previous_attempt),
     attempt = devloop_base.neutralize_untrusted_prompt_text(escalation.attempt),
     evidence_policy = devloop_base.neutralize_untrusted_prompt_text(escalation.evidence_policy),
+    max_children = tostring(implementation_escalation.max_children()),
     title = M.quote_untrusted_prompt_text(current_issue.title),
     content_fetch_block = local_context_block(M, content_manifest),
     execution_boundary = M.execution_boundary_clause("Read GitHub context only from the local files named below."),

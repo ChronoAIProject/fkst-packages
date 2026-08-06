@@ -256,6 +256,15 @@ local function last_command_call_index(needle)
 end
 
 return {
+  test_codex_command_fixture_rejects_unrepresentable_typed_result_fields = function()
+    local ok, err = pcall(mock_implement_codex, 124, "", "codex timed out", {
+      error_kind = "timeout",
+    })
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("typed result fields are not supported", 1, true) ~= nil)
+  end,
+
   test_fresh_runtime_redelivery_harvests_completed_result_without_second_codex = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
