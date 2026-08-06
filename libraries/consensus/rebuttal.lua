@@ -16,7 +16,7 @@ local function unanimous_verdict(results)
   return first
 end
 
-function M.parse_stance(stdout, stance_label)
+local function parse_stance(stdout, stance_label)
   local text = tostring(stdout or "")
   local parsed = nil
   local count = 0
@@ -52,7 +52,7 @@ function M.parse_stance(stdout, stance_label)
 end
 
 function M.parse_output(stdout, verdict_mode, caps)
-  local stance = M.parse_stance(stdout, caps and caps.stance_label)
+  local stance = parse_stance(stdout, caps and caps.stance_label)
   if stance == nil then
     return nil
   end

@@ -11,7 +11,7 @@ local function prompt_loader(resolved)
   return function(role)
     local prompt = prompts[role]
     if prompt == nil then
-      error("devloop_prompts: missing resolved prompt role " .. tostring(role))
+      error("devloop_prompts: resolved-prompt-role-missing: missing resolved prompt role " .. tostring(role))
     end
     return prompt
   end
@@ -169,7 +169,7 @@ local function proof_phase_block(context)
     }, "\n")
   end
   if context.phase ~= "strong-repair" or type(context.prior_receipt) ~= "table" then
-    error("devloop_prompts: lean-proof strong repair requires a prior receipt")
+    error("devloop_prompts: lean-proof-prior-receipt-missing: lean-proof strong repair requires a prior receipt")
   end
   local prior = context.prior_receipt
   return table.concat({
@@ -198,7 +198,7 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
   if not strings.is_bounded_string(context.implementation_version, M._max_dedup_len)
     or attempt == nil or attempt < 1 or attempt ~= math.floor(attempt)
     or attempt > M._max_impl_retry_attempts then
-    error("devloop_prompts: invalid implementation result context")
+    error("devloop_prompts: implementation-result-context-invalid: invalid implementation result context")
   end
   local rendered = M.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
@@ -209,7 +209,7 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
   }, nil, { role = "actor", entity_history = true })
   local profile_template = type(prompt.profiles) == "table" and prompt.profiles[selected] or nil
   if type(profile_template) ~= "string" then
-    error("devloop_prompts: unsupported implement profile " .. tostring(selected))
+    error("devloop_prompts: implement-profile-unsupported: unsupported implement profile " .. tostring(selected))
   end
   if selected == "generic" then
     return rendered .. "\n\n" .. devloop_base.render_template(profile_template, {
@@ -224,7 +224,7 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
     or timeout_seconds == nil or timeout_seconds <= 0 or timeout_seconds ~= math.floor(timeout_seconds)
     or attempt == nil or attempt < 1 or attempt ~= math.floor(attempt)
     or (context.phase ~= "construction" and context.phase ~= "strong-repair") then
-    error("devloop_prompts: invalid lean-proof profile context")
+    error("devloop_prompts: lean-proof-profile-context-invalid: invalid lean-proof profile context")
   end
   local checker_command = "lake env lean -E hasSorry " .. context.target
   return rendered .. "\n\n" .. devloop_base.render_template(profile_template, {
@@ -488,17 +488,17 @@ local role_order = {
 
 function S.install(M, resolved, roles)
   if type(roles) ~= "table" then
-    error("devloop_prompts: missing role install options")
+    error("devloop_prompts: role-install-options-missing: missing role install options")
   end
 
   install_shared(M)
   for role, enabled in pairs(roles) do
     local installer = role_installers[role]
     if installer == nil then
-      error("devloop_prompts: unknown install role " .. tostring(role))
+      error("devloop_prompts: install-role-unknown: unknown install role " .. tostring(role))
     end
     if enabled ~= true and enabled ~= false then
-      error("devloop_prompts: install role " .. tostring(role) .. " must be boolean")
+      error("devloop_prompts: install-role-flag-invalid: install role " .. tostring(role) .. " must be boolean")
     end
   end
   for _, role in ipairs(role_order) do

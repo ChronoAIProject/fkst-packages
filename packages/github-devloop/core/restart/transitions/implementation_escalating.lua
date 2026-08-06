@@ -130,11 +130,12 @@ return function(_, h)
       fact("implementation-escalation", "marker-read"),
       fact("implementation-decomposition", "marker-read"),
       fact("implementation-child-linkage", "marker-read"),
+      fact("implementation-supervision-result", "marker-read"),
     },
     advancing_facts = {
-      advancing_fact("implementation-decomposition", "implementation-escalating",
+      advancing_fact("implementation-supervision-result", "dependency_wait",
         { issue = true, liveness_scan = true }, "source_ref:issue"),
-      advancing_fact("dependency-gate", "dependency_wait",
+      advancing_fact("implementation-supervision-result", "ready",
         { issue = true, liveness_scan = true }, "source_ref:issue"),
     },
     payload_fields = {

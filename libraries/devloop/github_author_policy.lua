@@ -43,7 +43,7 @@ function M.from_logins(logins)
   return content_filter.author_policy_from_logins(logins or {})
 end
 
-function M.from_env(exec, github_handle)
+local function from_env(exec, github_handle)
   local resolved_handle = resolve_github_handle(github_handle)
   local bot_login = nil
   if type(devloop_base.configured_trusted_bot_login) == "function" then
@@ -55,7 +55,7 @@ function M.from_env(exec, github_handle)
     bot_login = ok_bot and strings.trim(bot_login or "") or ""
   end
   if bot_login == "" then
-    error("devloop.github_author_policy: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
+    error("devloop.github_author_policy: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
   end
   return content_filter.author_policy_from_options({
     owner = "devloop.github_author_policy",
@@ -77,15 +77,15 @@ function M.from_handle_policy(github_handle)
   if type(resolved_handle) == "table" and type(resolved_handle._trusted_author_policy) == "function" then
     return resolved_handle._trusted_author_policy()
   end
-  return M.from_env(nil, resolved_handle)
+  return from_env(nil, resolved_handle)
 end
 
 function M.is_authorized(policy, login)
   return content_filter.is_authorized(login, content_filter.policy_whitelist(policy))
 end
 
-function M.for_exec(exec, github_handle)
-  return M.from_env(exec, github_handle)
+local function for_exec(exec, github_handle)
+  return from_env(exec, github_handle)
 end
 
 function M.github_options(exec)
@@ -93,7 +93,7 @@ function M.github_options(exec)
   return {
     trusted_author_policy = function(github_handle)
       if policy == nil then
-        policy = M.for_exec(exec, github_handle)
+        policy = for_exec(exec, github_handle)
       end
       return policy
     end,

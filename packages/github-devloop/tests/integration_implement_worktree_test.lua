@@ -70,12 +70,10 @@ local mock_fresh_implement_worktree = fixture.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree = fixture.mock_existing_empty_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = fixture.mock_existing_empty_implement_worktree_reuse
 local mock_existing_dirty_implement_worktree_reuse = fixture.mock_existing_dirty_implement_worktree_reuse
-local mock_outside_runtime_implement_worktree_rebuild = fixture.mock_outside_runtime_implement_worktree_rebuild
-local mock_multiple_outside_runtime_implement_worktrees_rebuild = fixture.mock_multiple_outside_runtime_implement_worktrees_rebuild
 local mock_existing_implement_branch = fixture.mock_existing_implement_branch
 local mock_git_commit = fixture.mock_git_commit
+local mock_result_checkpoint = fixture.mock_result_checkpoint
 local mock_git_push = fixture.mock_git_push
-local mock_existing_devloop_worktree = fixture.mock_existing_devloop_worktree
 local mock_implement_codex = fixture.mock_implement_codex
 local mock_git_status = fixture.mock_git_status
 local mock_branch_diff_paths = fixture.mock_branch_diff_paths
@@ -108,6 +106,7 @@ return {
     mock_implement_codex()
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -148,10 +147,15 @@ return {
     })
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", default_marker_version),
+      h.projected_state_comment(event.proposal_id, "ready", default_marker_version),
     }, { number = 4 })
-    mock_existing_devloop_worktree("owner-repo-42")
-    mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
+    mock_fresh_implement_worktree({
+      issue_number = 4,
+      impl_version = event.dedup_key,
+      additional_registrations = {
+        { path = "/tmp/devloop-owner-repo-42-01HY", branch = "devloop-owner-repo-42-01HY" },
+      },
+    })
     mock_implement_codex()
     mock_git_status(" M packages/github-devloop/departments/implement/main.lua\n")
     mock_git_commit("def456", branch)
@@ -161,7 +165,7 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree list"), 1)
+    t.eq(count_calls("git worktree list"), 4)
     t.eq(count_calls("codex exec"), 1)
   end,
 
@@ -195,6 +199,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -251,6 +256,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -273,7 +279,7 @@ return {
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
     t.is_true(comment:find(worktree, 1, true) ~= nil)
-    t.eq(count_calls("git worktree list --porcelain"), 1)
+    t.eq(count_calls("git worktree list --porcelain"), 3)
     t.eq(count_calls("git worktree add"), 0)
     t.eq(count_calls("codex exec"), 1)
   end,
@@ -286,6 +292,7 @@ return {
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_result_checkpoint("def456", branch)
     t.mock_command("rev-list --count", {
       stdout = "1\n",
       stderr = "",
@@ -316,79 +323,5 @@ return {
       end
     end
     t.eq(reset_before_merge, true)
-  end,
-
-  test_implement_ignores_existing_worktree_outside_current_runtime_root = function()
-    local event = ready()
-    local branch = deterministic_branch_for(event)
-    local runtime = "/tmp/fkst-packages-test/github-devloop/runtime"
-    mock_issue_implement({ "fkst-dev:ready" })
-    mock_outside_runtime_implement_worktree_rebuild(runtime, branch)
-    mock_implement_codex(0, "Committed implementation directly.")
-    mock_git_status("")
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse --verify refs/heads/", {
-      stdout = "def456\n",
-      stderr = "",
-      exit_code = 0,
-    })
-
-    local result = run_implement(event, opts("implement-ignore-outside-runtime-worktree"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
-    assert_implement_attempt(result.raises, event)
-    assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree add"), 1)
-    -- 2 = removing the one non-current-runtime stale worktree, plus the idempotent
-    -- force-clean of the target path before `git worktree add` (#677).
-    t.eq(count_calls("git worktree remove --force"), 2)
-    t.eq(count_calls("reset --hard"), 1)
-    t.eq(count_calls("clean -fd"), 1)
-
-    local codex_used_current_runtime = false
-    for _, call in ipairs(t.command_calls()) do
-      if call.rendered:find("codex exec", 1, true) ~= nil
-        and call.rendered:find(runtime .. "/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
-        codex_used_current_runtime = true
-      end
-    end
-    t.eq(codex_used_current_runtime, true)
-  end,
-
-  test_implement_removes_all_existing_worktrees_outside_current_runtime_root = function()
-    local event = ready()
-    local branch = deterministic_branch_for(event)
-    mock_issue_implement({ "fkst-dev:ready" })
-    mock_multiple_outside_runtime_implement_worktrees_rebuild("/tmp/fkst-packages-test/github-devloop/runtime", branch)
-    mock_implement_codex(0, "Committed implementation directly.")
-    mock_git_status("")
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse --verify refs/heads/", {
-      stdout = "def456\n",
-      stderr = "",
-      exit_code = 0,
-    })
-
-    local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
-    t.eq(result.exit_code, 0, tostring(result.error))
-    t.eq(#result.raises, 4)
-    assert_implement_attempt(result.raises, event)
-    assert_worktree_ready_state(result.raises, event)
-    -- 3 = removing the two non-current-runtime stale worktrees, plus the idempotent
-    -- force-clean of the target path before `git worktree add` (#677).
-    t.eq(count_calls("git worktree remove --force"), 3)
-    t.eq(count_calls("git worktree add"), 1)
-    t.eq(count_calls("reset --hard"), 1)
-    t.eq(count_calls("clean -fd"), 1)
   end,
 }

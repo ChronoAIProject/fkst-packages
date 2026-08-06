@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local escalation = require("devloop.implementation_escalation")
+local graph = require("testkit.graph")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local transition_version = require("contract.transition_version")
@@ -133,7 +134,7 @@ return {
     local event = payload()
     local comments = current_comments(event, {
       escalation.decomposition_marker(event, 2),
-      core.state_marker(proposal_id, "ready", transition_version.next_ready_split(version)),
+      h.projected_state_comment(proposal_id, "ready", transition_version.next_ready_split(version)),
     })
     local plan = [[{"issues":[{"title":"Extract parser","body":"Implement the parser as an independent change."},{"title":"Adopt parser","body":"Wire the parser after the first child lands."}]}]]
 
@@ -159,5 +160,38 @@ return {
 
     t.eq(result.exit_code, 0, tostring(result.error))
     t.eq(#result.raises, 2)
+  end,
+
+  test_run_graph_routes_published_implementation_escalation_to_pre_pr_supervisor = function()
+    local event = payload()
+    local comments = current_comments(event)
+    local plan = [[{"issues":[{"title":"Extract parser","body":"Implement the parser as an independent change."}]}]]
+
+    h.mock_bot_env()
+    h.mock_default_issue_claim("owner/repo", 42)
+    for _ = 1, 4 do
+      t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
+    end
+    h.mock_issue_decompose({ "fkst-dev:implementing" }, comments, {
+      title = "Large implementation",
+      body = "The full issue remains available through source_ref.",
+    })
+    h.mock_issue_state({ "fkst-dev:implementing" }, "OPEN", comments)
+    mock_supervisor_codex(plan)
+
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-decompose.devloop_implementation_decompose",
+      payload = event,
+      source_ref = { kind = event.source_ref.kind, reference = event.source_ref.ref },
+      ts = 1,
+    }, { max_steps = 1 }))
+    graph.assert_covers(trace, {
+      "github-devloop-decompose.devloop_implementation_decompose -> github-devloop-decompose.implementation_decompose",
+    })
+    local delivered = graph.require_delivery(trace, {
+      queue = "github-devloop-decompose.devloop_implementation_decompose",
+      consumer = "github-devloop-decompose.implementation_decompose",
+    })
+    t.eq(delivered.exit_code, 0, tostring(delivered.error))
   end,
 }

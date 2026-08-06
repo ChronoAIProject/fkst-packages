@@ -102,7 +102,7 @@ return {
       end
     end
     local actual = restart_edges.extract_autonomous_edges(owner, rows)
-    t.eq(#actual, 7)
+    t.eq(#actual, 10)
     assert_edges(actual, expected, empty_rows)
     assert_same_value(rows, snapshot)
 

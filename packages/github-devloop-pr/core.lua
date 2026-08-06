@@ -26,8 +26,6 @@ local base = require("devloop.base")
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
-M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(...) end
-M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(...) end
 M.judgment_worktree_path = base.judgment_worktree_path
 M.max_body_len = function(...) return base.max_body_len(...) end
 M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(...) end
@@ -85,6 +83,15 @@ local function dept_exec_argv(...) return exec_argv(...) end
 M.git = require("forge.git").new(dept_exec_argv)
 require("forge.merge").install(M, {
   github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
+  log_info = function(dept, proposal_id, tag, fields)
+    return require("devloop.logging").log_line("info", dept, proposal_id, tag, fields)
+  end,
+  invalidate_pr_after_write = function(repo, pr_number)
+    return github_proxy_entity_view.invalidate_entity_after_write(repo, "pr", pr_number)
+  end,
+  pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
 require("core.review_carry_over").install(M)
 require("devloop.logging").install(M)
@@ -108,6 +115,8 @@ M.restart_consumer_sources = {
   "packages/github-devloop-pr/departments/merge_queue/main.lua",
 }
 require("devloop.restart").install(M, wiring.restart(M))
+local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
+M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 local restart_liveness_resolved = require("devloop.liveness").with_restart_policy({
   runtime_provenance = {
     proposal_id = "github-devloop/issue/provenance/repo/1",
@@ -121,8 +130,6 @@ require("workflow_internal.restart_liveness_contract").install(M, restart_livene
 local restart_responsibility_contract = require("devloop.restart_responsibility_contract")
 M.restart_responsibility_inventory_errors = function(...) return restart_responsibility_contract.restart_responsibility_inventory_errors(M, ...) end
 M.strict_restart_responsibility_contract_errors = function(...) return restart_responsibility_contract.strict_restart_responsibility_contract_errors(M, ...) end
-local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
-M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 require("core.review_redrive").install(M)
 local review_replayers = require("core.pr_review_replayer").install(M)
 M.replayer_review_registry = review_replayers

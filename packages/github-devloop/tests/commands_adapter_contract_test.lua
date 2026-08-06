@@ -72,7 +72,65 @@ return {
     end)
 
     t.eq(ok, false)
-    t.is_true(tostring(err):find("forge.merge: github_handle is required", 1, true) ~= nil)
+    t.is_true(tostring(err):find("forge.merge: github-handle-required: github_handle is required", 1, true) ~= nil)
+  end,
+
+  test_forge_merge_requires_injected_runtime_root_command = function()
+    local ok, err = pcall(function()
+      require("forge.merge").install({}, {
+        github_handle = function() end,
+      })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find(
+      "forge.merge: runtime-root-command-required: read_runtime_root_cmd is required", 1, true
+    ) ~= nil)
+  end,
+
+  test_forge_merge_requires_injected_mkdir_command = function()
+    local ok, err = pcall(function()
+      require("forge.merge").install({}, {
+        github_handle = function() end,
+        read_runtime_root_cmd = function() return "runtime-root" end,
+      })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find(
+      "forge.merge: mkdir-command-required: mkdir_p_cmd is required", 1, true
+    ) ~= nil)
+  end,
+
+  test_forge_merge_requires_injected_log_info = function()
+    local ok, err = pcall(function()
+      require("forge.merge").install({}, {
+        github_handle = function() end,
+        read_runtime_root_cmd = function() return "runtime-root" end,
+        mkdir_p_cmd = function() return "mkdir" end,
+      })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find(
+      "forge.merge: log-info-required: log_info is required", 1, true
+    ) ~= nil)
+  end,
+
+  test_forge_merge_requires_injected_pr_invalidation = function()
+    local ok, err = pcall(function()
+      require("forge.merge").install({}, {
+        github_handle = function() end,
+        read_runtime_root_cmd = function() return "runtime-root" end,
+        mkdir_p_cmd = function() return "mkdir" end,
+        log_info = function() end,
+      })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find(
+      "forge.merge: invalidate-pr-after-write-required: invalidate_pr_after_write is required", 1, true
+    ) ~= nil)
   end,
 
   test_sweep_exec_accepts_typed_run_command = function()

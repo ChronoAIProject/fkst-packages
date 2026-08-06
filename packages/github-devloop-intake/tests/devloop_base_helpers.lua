@@ -7,4 +7,5 @@ return require("testkit_internal.devloop_fixtures").new({
   m_builders = require("devloop.markers.builders"),
   pr_safety = require("devloop.pr_safety"),
   consensus_call = require("devloop.consensus_call"),
+  projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
 })

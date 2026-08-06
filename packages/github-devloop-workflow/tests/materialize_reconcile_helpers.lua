@@ -212,6 +212,7 @@ local function run_with(fakes)
         }
       end,
       spawn_codex = fake.spawn_codex,
+      spawn_codex_sync = fake.spawn_codex_sync,
       content_fetch = fake.content_fetch,
       release_done_claim = fake.release_done_claim or function()
         return true

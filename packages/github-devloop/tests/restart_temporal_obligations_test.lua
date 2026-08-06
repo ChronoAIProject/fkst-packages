@@ -11,6 +11,7 @@ local expected_keys = {
   ["github-devloop/issue/dependency_wait/response-with-deadline"] = true,
   ["github-devloop/issue/impl-failed/response-with-deadline"] = true,
   ["github-devloop/issue/implementing/response-with-deadline"] = true,
+  ["github-devloop/issue/implementation-escalating/response-with-deadline"] = true,
   ["github-devloop/issue/ready/response-with-deadline"] = true,
   ["github-devloop/issue/thinking/response-with-deadline"] = true,
 }
@@ -78,7 +79,7 @@ return {
       t.eq(entry.verification.provider_kind, "r8-liveness-watchdog")
       t.eq(entry.verification.status, "monitored")
     end
-    t.eq(count, 7)
+    t.eq(count, 8)
 
     for _, row in ipairs(rows) do
       t.eq(type(row.temporal_obligations), "table")

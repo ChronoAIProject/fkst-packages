@@ -12,8 +12,10 @@
 {"path":"libraries/devloop/context_bundle.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/decompose.lua","owner":"shared","reason":"decompose marker grammar and child-completion facts are shared by the issue decompose saga and PR-side replay/observe."}
 {"path":"libraries/devloop/dependency_gate.lua","owner":"shared","reason":"native blockedBy graph evaluation is shared by issue activation and workflow-origin materialization gating."}
+{"path":"libraries/devloop/dependency_graphql.lua","owner":"shared","reason":"blockedBy GraphQL rendering and response parsing are shared by dependency-gate consumers."}
 {"path":"libraries/devloop/dispatch_live_run.lua","owner":"shared","reason":"live codex dispatch deduplication is shared by issue implement and PR fix workers."}
 {"path":"libraries/devloop/entity.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
+{"path":"libraries/devloop/entity_highwater.lua","owner":"shared","reason":"consumer-local entity reconciliation high-water is shared by intake, issue, and PR packages."}
 {"path":"libraries/devloop/entity_list_cache.lua","owner":"shared","reason":"entity-list polling cache is shared by issue intake/liveness and PR liveness scan."}
 {"path":"libraries/devloop/execution_start.lua","owner":"shared","reason":"public issue execution-start seam helpers are shared by intake routing and the issue lifecycle package."}
 {"path":"libraries/devloop/forge_validators.lua","owner":"shared","reason":"sanctioned pure forge-validator facade shared by typed devloop modules."}
@@ -106,7 +108,6 @@
 {"path":"packages/github-devloop-integration/departments/rollup_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_conflict/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/sync_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
-{"path":"packages/github-devloop-integration/departments/test_cache_seed/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/core/conflict_telemetry.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-ops/core/dashboard_commands.lua","owner":"cross-cutting","reason":"package-local dashboard GitHub command adapter is shared by ensure-repo and observability dashboard."}
 {"path":"packages/github-devloop-ops/core/dependency_wait.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
@@ -128,6 +129,7 @@
 {"path":"packages/github-devloop-pr/core/devloop_wiring.lua","owner":"pr","reason":"github-devloop-pr resolves PR package-private restart and prompt modules."}
 {"path":"packages/github-devloop-pr/core/fix_rounds.lua","owner":"pr","reason":"github-devloop-pr owns the stable fix-round admission budget and terminal handoff."}
 {"path":"packages/github-devloop-pr/core/high_risk_merge_gate.lua","owner":"pr","reason":"github-devloop-pr owns PR high-risk merge authorization checks after extraction."}
+{"path":"packages/github-devloop-pr/core/linked_pr_terminal.lua","owner":"pr","reason":"github-devloop-pr owns linked PR terminal state projection."}
 {"path":"packages/github-devloop-pr/core/merge_ci_wait.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-gate wait effects after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_batch.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-batch execution."}
 {"path":"packages/github-devloop-pr/core/merge_executor.lua","owner":"pr","reason":"github-devloop-pr owns shared PR merge execution after extraction."}
@@ -205,6 +207,7 @@
 {"path":"packages/github-devloop/core/github_graphql.lua","owner":"shared","reason":"core module is shared or authority-neutral after extraction."}
 {"path":"packages/github-devloop/core/hidden_state_conformance.lua","owner":"cross-cutting","reason":"package-owned conformance for restart-table advancing-fact declarations."}
 {"path":"packages/github-devloop/core/impl_failure.lua","owner":"issue","reason":"core module belongs to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/implementation_escalation_replayer.lua","owner":"issue","reason":"implementation escalation replay belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/implementation_refusal.lua","owner":"issue","reason":"typed implementation refusal facts belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/implement_attempt.lua","owner":"issue","reason":"core module belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/liveness_bounds.lua","owner":"issue","reason":"issue lifecycle liveness fallback and operator rereview thresholds remain in the parent issue saga."}

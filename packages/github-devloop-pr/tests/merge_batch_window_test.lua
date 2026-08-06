@@ -54,9 +54,10 @@ local mock_queue_list = fixture.mock_queue_list
 local predecessor_set_for = fixture.predecessor_set_for
 
 return {
-  test_merge_conflicting_but_current_base_contained_waits_without_fixing = function()
+  test_non_head_dirty_merge_state_with_current_base_contained_holds_without_fixing = function()
     local current_head = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     local base_event = merge_ready()
+    local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aaa111")
     local current_review = devloop_base.pr_review_proposal_id("owner/repo", base_event.pr_number, base_event.version, current_head)
     local current = merge_ready({
       review_proposal_id = current_review,
@@ -70,6 +71,8 @@ return {
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(current))
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", current.reviewed_head_sha, "OPEN", "owner/repo", false, "MERGEABLE", "DIRTY")
+    mock_queue_list({ 9 })
+    mock_queue_pr(older, "2026-06-03T00:00:00Z")
     mock_current_base_head(base_head)
     t.mock_command("git merge-base --is-ancestor " .. base_head .. " " .. current.reviewed_head_sha, {
       stdout = "",
@@ -78,10 +81,13 @@ return {
     })
 
     local result = run_merge(current, opts("merge-conflicting-base-contained", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    local wait_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="merge-state-dirty"', 1, true) ~= nil)
   end,
 
   test_merge_batch_window_merges_disjoint_pair_in_one_pass = function()
@@ -191,7 +197,7 @@ return {
     t.eq(find_raise(result.raises, "devloop_merge_queue_tick"), nil)
   end,
 
-  test_merge_queue_chained_unknown_mergeability_retries_to_completion = function()
+  test_merge_queue_head_pending_ci_holds_then_completes = function()
     local next = event_for_pr(8, 43, "2026-06-03T00-01-00Z", "fed789")
     mock_bot_env()
     mock_write_env_many(64)
@@ -199,15 +205,21 @@ return {
     mock_queue_list({ 8 })
     mock_queue_pr(next, "2026-06-03T01:01:00Z")
     mock_claimed_issue_for_event(next)
-    mock_merge_pr_view(next, "OPEN", "UNKNOWN", "CLEAN")
+    mock_diff_name_only(8, { "packages/b.lua" })
+    mock_merge_pr_view(next, "OPEN", "MERGEABLE", "CLEAN", "PENDING", "")
 
-    local retry = run_merge_queue_tick(opts("merge-queue-self-requeue-unknown", {
+    local retry = run_merge_queue_tick(opts("merge-queue-head-pending-ci", {
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_REPO = "owner/repo",
     }))
-    t.eq(retry.exit_code, 1)
+    t.eq(retry.exit_code, 0, tostring(retry.error or retry.stderr))
+    t.eq(#retry.raises, 1)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(retry.raises, "devloop_fixing"), nil)
+    t.eq(find_raise(retry.raises, "devloop_merge_queue_tick"), nil)
+    local wait_comment = find_raise(retry.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="rollup-pending"', 1, true) ~= nil)
 
     mock_bot_env()
     mock_write_env_many(64)
@@ -225,7 +237,7 @@ return {
     mock_current_base_head("abc124")
     mock_queue_list({})
 
-    local completed = run_merge_queue_tick(opts("merge-queue-self-requeue-unknown-retry", {
+    local completed = run_merge_queue_tick(opts("merge-queue-head-pending-ci-retry", {
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_REPO = "owner/repo",
     }))

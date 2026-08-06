@@ -9,20 +9,24 @@ end
 function C.parse_pr_list_freshness(stdout)
   local decoded = json.decode(stdout or "[]")
   local prs = {}
+  local versions = { pr = {} }
   shared.each_paginated_item(decoded, function(pr)
     if type(pr) == "table" and tonumber(pr.number) ~= nil then
+      local number = tonumber(pr.number)
+      local updated_at = pr.updated_at or pr.updatedAt
+      versions.pr[number] = updated_at
       table.insert(prs, {
-        number = tonumber(pr.number),
+        number = number,
         state = pr.state,
-        updated_at = pr.updated_at or pr.updatedAt,
+        updated_at = updated_at,
         head_sha = pr.headRefOid or pr.head_ref_oid,
         head_ref_name = pr.headRefName or pr.head_ref_name,
         base_ref_name = pr.baseRefName or pr.base_ref_name,
-        is_draft = pr.isDraft or pr.is_draft,
+        is_draft = pr.isDraft or pr.is_draft or pr.draft,
       })
     end
   end)
-  return prs
+  return prs, versions
 end
 
 function C.parse_pr_list_merge_queue(stdout)
@@ -150,29 +154,19 @@ function C.parse_pr_view_fix(stdout)
   return C.parse_pr_view_origin(stdout)
 end
 
-local function status_rollup_entries(value)
-  if type(value) ~= "table" then
-    return {}
-  end
-  if type(value.nodes) == "table" then
-    return value.nodes
-  end
-  return value
-end
-
 function C.parse_pr_view_merge(value)
-  local decoded = decode_pr_view(value)
-  local result = C.parse_pr_view_origin(decoded)
-  result.is_draft = decoded.isDraft
-  if result.is_draft == nil then
-    result.is_draft = decoded.is_draft
-  end
-  result.mergeable = decoded.mergeable
-  result.merge_state_status = decoded.mergeStateStatus or decoded.merge_state_status
-  result.status_check_rollup_present = decoded.statusCheckRollup ~= nil or decoded.status_check_rollup ~= nil
-  result.status_check_rollup = status_rollup_entries(decoded.statusCheckRollup or decoded.status_check_rollup)
-  result.merged_at = decoded.mergedAt or decoded.merged_at
+  local result, decoded = shared.github_view.parse_pr_view_merge(value)
+  result.title = decoded.title ~= nil and tostring(decoded.title) or ""
+  result.body = decoded.body ~= nil and tostring(decoded.body) or ""
+  result.base_ref_oid = decoded.baseRefOid or decoded.base_ref_oid
+  result.updated_at = decoded.updatedAt or decoded.updated_at
+  result.merge_commit_sha = type(decoded.mergeCommit or decoded.merge_commit) == "table"
+    and (decoded.mergeCommit or decoded.merge_commit).oid
+    or decoded.mergeCommitOid
+    or decoded.merge_commit_oid
+    or decoded.merge_commit_sha
   result.labels = shared.label_names(decoded.labels)
+  result.status_check_rollup_present = decoded.statusCheckRollup ~= nil or decoded.status_check_rollup ~= nil
   return result
 end
 

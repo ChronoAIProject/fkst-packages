@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local entity_highwater = require("devloop.entity_highwater")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -31,6 +32,7 @@ local ISSUE_NUMBER = 42
 local PROPOSAL_ID = base_ids.proposal_id(REPO, ISSUE_NUMBER)
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local HIGHWATER_KEY = entity_highwater.key("github-devloop/observe_issue", SOURCE_REF)
 local CONSENSUS_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local IMPLEMENTING_VERSION = "ready/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
@@ -41,6 +43,7 @@ local FIXTURES = json_array({
   { name = "route-implementing", state = "implementing", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-pending(no-implementing-fact)", expected_target = "devloop_ready", expected_effect_ids = json_array(), expected_dispatched = true },
   { name = "route-awaiting-pr", state = "awaiting-pr", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-foreign(pr-delegation-missing)", expected_target = "awaiting-pr", expected_effect_ids = json_array(), expected_dispatched = true },
   { name = "route-impl-failed", state = "impl-failed", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-idempotent(retry-limit)", expected_target = "implementing", expected_effect_ids = json_array(), expected_dispatched = true },
+  { name = "route-implementation-escalating", state = "implementation-escalating", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-pending(escalation-evidence)", expected_target = "implementation-escalating", expected_effect_ids = json_array(), expected_dispatched = true },
   { name = "route-blocked", state = "blocked", version = IMPLEMENTING_VERSION .. "/blocked", expected_status = "routed-noop", expected_decision = "skip-foreign(pr-link)", expected_target = "decomposed", expected_effect_ids = json_array(), expected_dispatched = true },
   { name = "skip-declined-terminal", state = "declined", version = CONSENSUS_VERSION .. "/declined", expected_status = "skip-terminal", expected_decision = "skip-terminal-row", expected_target = "declined", expected_effect_ids = json_array(), expected_dispatched = false },
   { name = "skip-merged-terminal", state = "merged", version = IMPLEMENTING_VERSION .. "/merged", expected_status = "skip-terminal", expected_decision = "skip-terminal-row", expected_target = "merged", expected_effect_ids = json_array(), expected_dispatched = false },
@@ -77,7 +80,7 @@ local function comments_for(fixture)
   local version = state_version(fixture)
   local effects = fixture.ready_handoff and "result-marker,ready-label,devloop-ready" or nil
   local comments = json_array({
-    trusted_comment("IC_state_" .. fixture.state, core.state_marker(PROPOSAL_ID, fixture.state, version, effects)),
+    trusted_comment("IC_state_" .. fixture.state, h.state_comment(PROPOSAL_ID, fixture.state, version, effects)),
   })
   if fixture.dependency_wait then
     table.insert(comments, trusted_comment(
@@ -91,6 +94,7 @@ end
 
 local function labels_for(state)
   if state == "dependency_wait" then return { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" } end
+  if state == "implementation-escalating" then return { "fkst-dev:enabled", "fkst-dev:implementing" } end
   return { "fkst-dev:enabled", "fkst-dev:" .. state }
 end
 
@@ -111,7 +115,8 @@ local function prepare_fixture(fixture)
     times = 1,
   })
   if fixture.state == "thinking" then h.mock_context_bundle(event_payload()) end
-  if fixture.state == "dependency_wait" or fixture.state == "ready" then
+  if fixture.state == "dependency_wait" or fixture.state == "ready"
+    or fixture.state == "implementation-escalating" then
     t.mock_command(core.gh_blocked_by_cmd(REPO, ISSUE_NUMBER), {
       stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}\n',
       stderr = "",
@@ -200,7 +205,11 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = fixture.state,
-      run = function() return testing.run_fake(observe_issue_department, event) end,
+      run = function()
+        return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
+          return testing.run_fake(observe_issue_department, event)
+        end)
+      end,
       codex_runs_for_read = json_array(),
       write_mode = "real",
     })
@@ -366,7 +375,7 @@ return {
     local fixtures = fixture_tuple_set()
     local first = capture_records()
     local second = capture_records()
-    t.eq(#first, 9, "complete production-reachable observe_issue replay router disposition count")
+    t.eq(#first, 10, "complete production-reachable observe_issue replay router disposition count")
     local repeat_difference = first_difference(second, first, "old_behavior_observations[observe-issue-row-replay][repeat]")
     if repeat_difference ~= nil or canonical_json(second) ~= canonical_json(first) then error("second OLD observe_issue row replay capture differs at " .. tostring(repeat_difference or "canonical-json"), 0) end
     local runtime_tuples = record_tuple_set(first, "runtime records")

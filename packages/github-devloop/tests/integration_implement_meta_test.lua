@@ -110,7 +110,7 @@ return {
     })
     local newer = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(old.proposal_id, "ready", newer),
+      h.projected_state_comment(old.proposal_id, "ready", newer),
     })
 
     local result = run_implement(old, opts("implement-old-ready-after-new-ready"))
@@ -123,7 +123,7 @@ return {
   test_implement_fork_ready_rechecks_closed_origin_before_work = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
       forks.fork_origin_marker("owner/repo", 618, "human", entity_lib.issue_source_ref("owner/repo", 618)),
     })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 618), {
@@ -143,7 +143,7 @@ return {
   test_implement_closed_current_issue_skips_before_work = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     }, { state = "CLOSED" })
 
     local result = run_implement(event, opts("implement-current-closed"))
@@ -158,12 +158,9 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", default_marker_version),
+      h.projected_state_comment(event.proposal_id, "ready", default_marker_version),
     })
-    mock_fresh_implement_worktree({
-      issue_number = 4,
-      impl_version = event.dedup_key,
-    })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(7, "", "forced implementation failure")
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -193,9 +190,9 @@ return {
       "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z"
     )
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
-    mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(9, "", "failure detail\n" .. forged)
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -216,7 +213,8 @@ return {
   test_implement_impl_failure_replay_skips_before_ready_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:impl-failed" }, {
-      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-replay"))
@@ -230,7 +228,8 @@ return {
   test_implement_impl_failure_marker_skips_before_label_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:thinking" }, {
-      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-marker-replay"))
@@ -296,7 +295,7 @@ return {
     local branch = deterministic_branch_for(event)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
     mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
     mock_implement_codex(0, "duplicate implementation should not spawn")
@@ -329,12 +328,11 @@ return {
 
     mock_issue_implement({ "fkst-dev:ready" })
     local branch = deterministic_branch_for(ready())
-    mock_fresh_implement_worktree("/tmp/fkst-packages-test/github-devloop/runtime")
+    mock_fresh_implement_worktree({ impl_version = ready().dedup_key })
     mock_implement_codex(0, "implemented")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
     mock_issue_implement({ "fkst-dev:ready" })
-
     local visible = run_implement(ready(), opts("implement-ready-visible"))
     t.eq(visible.exit_code, 0)
     t.eq(#visible.raises, 4)
@@ -378,7 +376,7 @@ return {
     }
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_stale'", {
-      stdout = '{"body":"' .. json_string(core.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"body":"' .. json_string(h.projected_state_comment(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -448,7 +446,7 @@ return {
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     for _ = 1, 2 do
       t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_1'", {
-        stdout = '{"body":"' .. json_string(core.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
+        stdout = '{"body":"' .. json_string(h.projected_state_comment(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
         stderr = "",
         exit_code = 0,
       })
@@ -485,7 +483,7 @@ return {
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     for _ = 1, 2 do
       t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_alternate_effects'", {
-        stdout = '{"body":"' .. json_string(core.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "alternate-ready-producer")) .. '","user":{"login":"fkst-test-bot"}}\n',
+        stdout = '{"body":"' .. json_string(h.projected_state_comment(event.proposal_id, "ready", event.ready_hand_off.marker_version, "alternate-ready-producer")) .. '","user":{"login":"fkst-test-bot"}}\n',
         stderr = "",
         exit_code = 0,
       })
@@ -543,7 +541,7 @@ return {
       ready_comment_id = "IC_ready_original",
     })
     local branch = deterministic_branch_for(redrive)
-    local marker = core.state_marker(redrive.proposal_id, "ready", original_version, "result-marker,ready-label,devloop-ready")
+    local marker = h.projected_state_comment(redrive.proposal_id, "ready", original_version, "result-marker,ready-label,devloop-ready")
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_original'", {
       stdout = '{"body":"' .. json_string(marker) .. '","user":{"login":"fkst-test-bot"}}\n',

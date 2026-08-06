@@ -15,6 +15,7 @@ local conflict_telemetry = require("devloop.conflict_telemetry")
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local merge_mechanics = require("departments.fix.merge_mechanics").make(core)
+local worktree_precondition = require("departments.fix.worktree_precondition").make()
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
@@ -209,7 +210,19 @@ local function authorize_fix_receiver(repo, fix, pr, state, phase)
 end
 
 local function run_fix_attempt(plan)
-  local worktree = branch_worktree(plan.repo, plan.issue_number, plan.fix.version, plan.branch)
+  local worktree = branch_worktree(
+    plan.repo, plan.issue_number, plan.impl_version, plan.branch)
+  local established, owner = worktree_precondition.establish(
+    worktree, plan.branch, plan.fix.proposal_id)
+  if not established then
+    devloop_logging.log_line("info", "fix", plan.fix.proposal_id, "WORKTREE_PRECONDITION", {
+      "outcome=deferred-live-owner",
+      "owner_role=" .. tostring(owner.role or ""),
+      "owner_run_id=" .. tostring(owner.run_id or ""),
+      "owner_dedup_key=" .. tostring(owner.dedup_key or ""),
+    })
+    return nil
+  end
   local merge_context, speculative_reason, speculative_current_set
   if plan.speculative_predecessors ~= nil then
     merge_context, speculative_reason = merge_predecessor_entries_for_fix(
@@ -831,6 +844,7 @@ local function act_fix(event)
       fix = fix,
       branches = branches,
       branch = branch,
+      impl_version = origin.impl_version,
       current_pr = current_pr,
       current_issue = current_issue,
       feedback_reason = feedback_reason,

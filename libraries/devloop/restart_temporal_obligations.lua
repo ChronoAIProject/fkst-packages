@@ -18,7 +18,7 @@ local CAPABILITY_MATRIX = {
 }
 
 local function fail(message)
-  error("devloop.restart_temporal_obligations: " .. message, 0)
+  error("devloop.restart_temporal_obligations: temporal-obligation-contract-invalid: " .. message, 0)
 end
 
 local function is_nonempty_string(value)
@@ -143,7 +143,7 @@ function M.provider_capability_matrix()
   return copy_value(CAPABILITY_MATRIX)
 end
 
-function M.validate_obligation(owner, row, obligation)
+local function validate_obligation(owner, row, obligation)
   local context = "row " .. tostring(row and row.from_state) .. " temporal obligation"
   if not is_nonempty_string(owner) then
     fail("owner must be a non-empty string")
@@ -197,7 +197,7 @@ function M.derive_temporal_index(owner, rows, provider_capabilities)
     end
 
     for _, obligation in ipairs(row.temporal_obligations) do
-      M.validate_obligation(owner, row, obligation)
+      validate_obligation(owner, row, obligation)
       if index[obligation.obligation_id] ~= nil then
         fail("duplicate obligation_id " .. obligation.obligation_id)
       end

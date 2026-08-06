@@ -175,7 +175,7 @@ function C.assert_trusted_bot_configured()
   end
 
   if C.read_env("FKST_GITHUB_WRITE") == "1" and trusted_bot_login_current == nil then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
   end
   return trusted_bot_login_current
 end
@@ -223,17 +223,17 @@ end
 
 function C.safe_head_segment(head_sha)
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop: invalid head sha")
+    error("github-devloop: git-sha-invalid: invalid head sha")
   end
   return tostring(head_sha)
 end
 
 function C.pr_review_proposal_id(repo, pr_number, version, head_sha)
   if not forge_validators.is_positive_pr_number(pr_number) then
-    error("github-devloop: invalid pr number")
+    error("github-devloop: invalid-pr-number: invalid pr number")
   end
   if head_sha == nil then
-    error("github-devloop: missing reviewed head sha")
+    error("github-devloop: reviewed-head-missing: missing reviewed head sha")
   end
   return "github-devloop/pr-review/"
     .. C.safe_pr_review_repo_segment(repo)
@@ -281,7 +281,7 @@ end
 
 function C.pr_review_proposal_dedup_key(review_proposal_id)
   if C.parse_pr_review_proposal_id(review_proposal_id) == nil then
-    error("github-devloop: invalid PR review proposal id")
+    error("github-devloop: review-proposal-id-invalid: invalid PR review proposal id")
   end
   return dedup_key({
     tostring(review_proposal_id),
@@ -318,20 +318,20 @@ end
 function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_key, attempt)
   local review_repo = C.parse_pr_review_proposal_id(review_proposal_id)
   if review_repo == nil then
-    error("github-devloop: invalid PR review proposal id")
+    error("github-devloop: review-proposal-id-invalid: invalid PR review proposal id")
   end
   local heartbeat_code, epoch_ms = pr_review_redrive_generation_parts(review_repo, generation_key)
   if heartbeat_code == nil then
-    error("github-devloop: invalid PR review redrive generation: " .. tostring(generation_key))
+    error("github-devloop: review-redrive-generation-invalid: invalid PR review redrive generation: " .. tostring(generation_key))
   end
   local round = tonumber(attempt)
   if round == nil or round < 1 or round ~= math.floor(round) then
-    error("github-devloop: invalid PR review redrive attempt")
+    error("github-devloop: review-redrive-attempt-invalid: invalid PR review redrive attempt")
   end
   local key = tostring(review_proposal_id) .. "/r/" .. heartbeat_code .. "/" .. epoch_ms
     .. "/attempt/" .. tostring(round)
   if not is_path_safe_key(key, max_key_len) then
-    error("github-devloop: PR review redrive delivery dedup exceeds the consensus key bound")
+    error("github-devloop: review-redrive-dedup-key-too-long: PR review redrive delivery dedup exceeds the consensus key bound")
   end
   return key
 end
@@ -341,13 +341,6 @@ local function parse_pr_review_proposal_dedup_key(dedup_key)
     return nil
   end
   local without_loop = transition_version.strip_trailing_loop(dedup_key)
-  local review_loop_round = transition_version.review_loop_round(without_loop)
-  if review_loop_round > 0 then
-    local without_review_loop = transition_version.strip_suffixes(without_loop)
-    if transition_version.review_loop_at(without_review_loop, review_loop_round) == without_loop then
-      without_loop = without_review_loop
-    end
-  end
   local review_proposal = without_loop:match("^(.+)/review$")
   if review_proposal ~= nil and C.parse_pr_review_proposal_id(review_proposal) ~= nil then
     return review_proposal, C.pr_review_proposal_dedup_key(review_proposal), "canonical"
@@ -552,28 +545,6 @@ function C.intake_decision_dedup_key(proposal_id, current)
   })
 end
 
-function C.ci_selfheal_once_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-selfheal",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
-  })
-end
-
-function C.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-missing-status-observed",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
-  })
-end
-
 function C.observe_lock_key(repo, issue_number)
   return "github-devloop/transition/" .. base_ids.safe_repo(repo) .. "/issue/" .. base_ids.safe_issue(issue_number)
 end
@@ -645,26 +616,38 @@ function C.implement_branch(repo, issue_number, impl_version)
 
   local branch = prefix .. safe_version .. suffix
   if not forge_validators.is_git_ref_safe(branch) or #branch > max_branch_len then
-    error("github-devloop: invalid deterministic implementation branch")
+    error("github-devloop: implementation-branch-invalid: invalid deterministic implementation branch")
   end
   return branch
 end
 
-function C.implement_worktree_path(runtime_root, repo, issue_number, impl_version)
-  local root = trim(runtime_root)
+function C.implementation_worktree_root(durable_root)
+  local raw = tostring(durable_root or "")
+  if raw == "" or raw:find("[\r\n]") ~= nil then
+    error("github-devloop: durable-root-invalid: invalid FKST_DURABLE_ROOT")
+  end
+  local root = trim(raw)
+  if root == "" then
+    error("github-devloop: durable-root-invalid: invalid FKST_DURABLE_ROOT")
+  end
+  return root:gsub("/+$", "") .. "-worktrees"
+end
+
+function C.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
+  local root = trim(implementation_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: implementation-worktree-root-invalid: invalid implementation worktree root")
   end
   local slug = C.safe_issue_slug(repo, issue_number)
   local suffix = decimal_checksum(tostring(repo) .. "#" .. tostring(issue_number) .. "#" .. tostring(impl_version))
   return root:gsub("/+$", "") .. "/worktrees/devloop-" .. slug .. "-" .. suffix
 end
 
-function C.path_under_runtime_root(runtime_root, path)
-  local root = trim(runtime_root)
+function C.path_under_root(root_path, path)
+  local root = trim(root_path)
   local target = trim(path)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: root-path-invalid: invalid root path")
   end
   if target == "" or target:find("[\r\n]") ~= nil then
     return false
@@ -678,10 +661,14 @@ function C.read_runtime_root_cmd()
   return 'printf %s "$FKST_RUNTIME_ROOT"'
 end
 
+function C.read_durable_root_cmd()
+  return 'printf %s "$FKST_DURABLE_ROOT"'
+end
+
 function C.mkdir_p_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid directory path")
+    error("github-devloop: directory-path-invalid: invalid directory path")
   end
   return "mkdir -p " .. shell_single_quote(value)
 end
@@ -689,7 +676,7 @@ end
 function C.judgment_worktree_path(runtime_root, role, identity)
   local root = trim(runtime_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end
   local slug = strings.sanitize_key(tostring(role or "") .. "-" .. tostring(identity or ""), false):gsub("/", "-")
   slug = slug:gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
@@ -725,16 +712,16 @@ end
 
 function C.render_template(template, vars)
   if type(template) ~= "string" then
-    error("github-devloop: template must be a string")
+    error("github-devloop: template-invalid: template must be a string")
   end
   if type(vars) ~= "table" then
-    error("github-devloop: template vars must be a table")
+    error("github-devloop: template-invalid: template vars must be a table")
   end
 
   return (template:gsub("{{([%w_]+)}}", function(name)
     local value = vars[name]
     if value == nil then
-      error("github-devloop: missing template var " .. name)
+      error("github-devloop: template-var-missing: missing template var " .. name)
     end
     return tostring(value)
   end))
@@ -847,7 +834,7 @@ function C.trusted_bot_login()
     return login
   end
   if C.read_env("FKST_GITHUB_WRITE") == "1" then
-    error("github-devloop: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
   end
   return test_bot_login
 end

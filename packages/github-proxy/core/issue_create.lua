@@ -115,11 +115,21 @@ local function authorize_fork_issue_create(payload)
   return false
 end
 
-function M.issue_create_marker(dedup_key)
+-- The written marker keeps its HTML comment delimiters so it stays invisible in
+-- rendered markdown. The dedup search must send the payload alone: GitHub search
+-- reads a leading "-" as a NOT operator, so searching the delimited comment is
+-- unsatisfiable and answers "no such issue" for every key while exiting zero.
+-- Precision is unaffected -- the caller still matches the full marker against
+-- the returned issue body.
+function M.issue_create_search_query(dedup_key)
   if not is_bounded_marker_value(dedup_key, max_dedup_len) then
     error("github-proxy: issue-create-dedup-key-invalid: invalid issue-create dedup_key")
   end
-  return "<!-- fkst:github-proxy:issue-create:" .. tostring(dedup_key) .. " -->"
+  return "fkst:github-proxy:issue-create:" .. tostring(dedup_key)
+end
+
+function M.issue_create_marker(dedup_key)
+  return "<!-- " .. M.issue_create_search_query(dedup_key) .. " -->"
 end
 
 function M.issue_created_marker(dedup_key, issue_number)
@@ -169,7 +179,7 @@ end
 function M.github_issue_create_search(repo, dedup_key, timeout)
   return M.github().issue_search(
     repo,
-    M.issue_create_marker(dedup_key),
+    M.issue_create_search_query(dedup_key),
     "number,title,state,author,body,url",
     timeout or 30
   )

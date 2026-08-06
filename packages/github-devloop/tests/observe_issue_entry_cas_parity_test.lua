@@ -39,7 +39,9 @@ local ISSUE_V_EQUAL = "owner/repo#issue#42@2026-06-03T01:02:03Z"
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 local OBSERVE_ISSUE_ENTRY_CORPUS_PATH = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
-local OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH = ".fkst/run/r9-observe-issue-entry-new-trace.json"
+local OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-observe-issue-entry-new-trace.json"
+)
 local OLD_OBSERVATION_INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local INTAKE_DECISION_REASONS = {
   ["unsupported event payload"] = true,
@@ -227,7 +229,7 @@ end
 
 local function state_comment(proposal_id, state, version)
   return {
-    body = core.state_marker(proposal_id, state, version),
+    body = h.state_comment(proposal_id, state, version),
     author_login = "fkst-test-bot",
     created_at = "2099-01-01T00:00:00Z",
   }

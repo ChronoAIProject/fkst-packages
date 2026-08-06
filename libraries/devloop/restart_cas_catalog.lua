@@ -4,10 +4,6 @@ local restart_metadata = require("devloop.restart_metadata")
 
 local M = {}
 
-M.assumptions = {
-  versions_equivalent = "ASSUMED-UNVERIFIED",
-}
-
 local function result(status, reason_code, cas_outcome)
   return {
     status = status,
@@ -77,7 +73,7 @@ end
 
 local function plain_status(current, source_states, target_state, projection)
   if projection == nil then
-    error("restart_cas_catalog: pending projection required for reachability")
+    error("restart_cas_catalog: cas-pending-projection-missing: pending projection required for reachability")
   end
   local current_state = current_fields(current)
   if current_state == target_state then

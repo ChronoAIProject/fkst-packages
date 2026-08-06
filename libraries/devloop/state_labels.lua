@@ -30,7 +30,7 @@ L.state_graph = {
   thinking = { "dependency_wait", "ready", "declined", "blocked" },
   dependency_wait = { "dependency_wait", "ready", "blocked" },
   ready = { "dependency_wait", "implementing", "blocked" },
-  implementing = { "implementation-escalating", "awaiting-pr", "blocked", "impl-failed" },
+  implementing = { "implementation-escalating", "awaiting-pr", "dependency_wait", "blocked", "impl-failed" },
   ["implementation-escalating"] = { "dependency_wait", "ready" },
   ["awaiting-pr"] = { "merged", "ready", "blocked" },
   ["pr-open"] = { "reviewing", "blocked" },
@@ -128,7 +128,7 @@ end
 function L.state_label_changes(to_state)
   local add_label = L.state_label(to_state)
   if add_label == nil then
-    error("github-devloop: state-label-invalid: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
 
   local remove_labels = {}
@@ -146,7 +146,7 @@ end
 function L.state_label_reconcile_changes(labels, to_state)
   local expected_label = L.state_label(to_state)
   if expected_label == nil then
-    error("github-devloop: state-label-invalid: invalid state")
+    error("github-devloop: state-invalid: invalid state")
   end
 
   local add_labels = {}

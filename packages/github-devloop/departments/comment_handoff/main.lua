@@ -5,6 +5,7 @@ local saga = require("workflow.saga")
 local source_refs = require("contract.source_ref")
 local valid_round = require("devloop.rounds").valid_round
 local handoff_helpers = require("devloop.comment_handoff")
+local requests_labels = require("devloop.requests.labels")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -28,7 +29,7 @@ local function same_value(left, right)
   return tostring(left or "") == tostring(right or "")
 end
 
-local function ready_split_label_request(payload, handoff, expected_state)
+local function projected_state_label_request(payload, handoff, expected_state)
   local request = handoff.label_request
   local guard = type(request) == "table" and request.marker_guard or nil
   local guard_expected = type(guard) == "table" and guard.expected or nil
@@ -46,6 +47,7 @@ local function ready_split_label_request(payload, handoff, expected_state)
     or not same_value(request.expected_proposal_id, handoff.proposal_id)
     or not same_value(request.expected_state, expected_state)
     or not same_value(request.expected_version, handoff.marker_version)
+    or not requests_labels.is_canonical_state_marker_guard(guard)
     or type(guard_expected) ~= "table"
     or type(guard_match) ~= "table"
     or type(guard_target) ~= "table"
@@ -74,8 +76,7 @@ local function supported_handoff(payload)
     and (handoff.framing == nil
       or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
-    if handoff.label_request == nil
-      or ready_split_label_request(payload, handoff, "ready") ~= nil then
+    if projected_state_label_request(payload, handoff, "ready") ~= nil then
       return handoff
     end
     return nil
@@ -85,7 +86,15 @@ local function supported_handoff(payload)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
     and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
-    and ready_split_label_request(payload, handoff, "dependency_wait") ~= nil then
+    and projected_state_label_request(payload, handoff, "dependency_wait") ~= nil then
+    return handoff
+  end
+  if handoff.kind == "github-devloop.declined-label"
+    and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.version)
+    and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
+    and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
+    and projected_state_label_request(payload, handoff, "declined") ~= nil then
     return handoff
   end
   if handoff.kind == "github-devloop.reconcile"
@@ -121,10 +130,8 @@ local function act_handoff(event)
 
   devloop_logging.log_entry("comment_handoff", event, handoff.proposal_id, payload.dedup_key)
   if handoff.kind == "github-devloop.ready" then
-    if handoff.label_request ~= nil then
-      devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
-        "github-proxy.github_issue_label_request", handoff.label_request)
-    end
+    devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
+      "github-proxy.github_issue_label_request", handoff.label_request)
     local ready = payloads_builders.build_devloop_ready_payload(core, {
       proposal_id = handoff.proposal_id,
       dedup_key = handoff.marker_version,
@@ -143,6 +150,16 @@ local function act_handoff(event)
       { state = "dependency_wait", version = handoff.marker_version },
       "comment-written", "github-proxy.github_issue_label_request",
       "applied(own-write-comment-id)", "ready split marker comment write was acknowledged")
+    devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
+      "github-proxy.github_issue_label_request", handoff.label_request)
+    return
+  end
+
+  if handoff.kind == "github-devloop.declined-label" then
+    devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id,
+      { state = "declined", version = handoff.marker_version },
+      "comment-written", "github-proxy.github_issue_label_request",
+      "applied(own-write-comment-id)", "declined marker comment write was acknowledged")
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
       "github-proxy.github_issue_label_request", handoff.label_request)
     return

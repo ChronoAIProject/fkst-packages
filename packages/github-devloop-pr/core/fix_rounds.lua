@@ -16,11 +16,9 @@ local C = {}
 C.OWN_CI_SCHEMA = "github-devloop.own-ci-reconcile.v1"
 C.MERGE_GATE_SCHEMA = "github-devloop.merge-gate-reconcile.v1"
 C.FIX_LOOP_MAX_ROUNDS = "fix-loop-max-rounds"
-C.CI_REPAIR_RETRY_POLICY_INVALID = "ci-repair-retry-policy-invalid"
 
 local own_ci_reasons = {
   [C.FIX_LOOP_MAX_ROUNDS] = true,
-  [C.CI_REPAIR_RETRY_POLICY_INVALID] = true,
 }
 
 local merge_gate_reasons = {
@@ -176,15 +174,6 @@ function C.admit_own_ci_continuation(state, classification, ctx)
   decision.gate_failure_excerpt = classification.gate_failure_excerpt or classification.reason
   decision.bound_head_sha = bound_head_sha
   return decision
-end
-
-function C.terminate_own_ci_policy_invalid(state, ctx)
-  if type(state) ~= "table" or type(ctx) ~= "table" then
-    error("github-devloop: own-ci-policy-terminal-invalid: state and context are required")
-  end
-  local round = devloop_state.version_fix_round(state.version)
-  local intent = build_own_ci_terminal(ctx, state.version, C.CI_REPAIR_RETRY_POLICY_INVALID)
-  return terminate(state, ctx, round, intent)
 end
 
 -- Non-own-CI merge-gate continuations retain their existing capped behavior. They do not

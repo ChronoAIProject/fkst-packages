@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
 local devloop_claims = require("devloop.claims")
+local dependency_gate = require("devloop.dependency_gate")
 local devloop_entity = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local digest = require("core.digest")
@@ -224,14 +225,6 @@ local function generator_deps(core, deps)
   }
 end
 
-local function run_generator(core, deps, ctx, slot, predecessor_ref)
-  local generated, reason = generator.run_slot_generator(generator_deps(core, deps), ctx, slot, predecessor_ref)
-  if generated == nil then
-    return nil, reason or "generator-failed"
-  end
-  return generated, nil
-end
-
 local function make_worktree(identity)
   if type(exec_sync) ~= "function" then
     return nil
@@ -307,16 +300,42 @@ local function perform_materialize(core, deps, repo, issue_number, origin, bluep
     return true
   end
 
-  local generated_spec, gen_reason = run_generator(core, deps, {
+  local generator_result = generator.run_slot_generator(generator_deps(core, deps), {
     origin_proposal_id = origin,
     workflow_id = record.blueprint.id,
     predecessor_ref_digest = predecessor_ref_digest,
     event_ts = event and event.ts,
     worktree = generator_worktree(deps, slot, planned_child_dedup),
   }, slot, predecessor)
-  if generated_spec == nil then
-    return terminal(core, deps, repo, issue_number, origin, "error", gen_reason, unit)
+  if type(generator_result) ~= "table" then
+    error("github-devloop-workflow: generator-result-invalid: slot generator returned a non-table result")
   end
+  if generator_result.disposition == "retry" then
+    local reason_code = generator_result.reason_code or "generator-codex-failed"
+    devloop_logging.log_error_fact(
+      "warn",
+      M.DEPT,
+      origin,
+      "GENERATOR_ATTEMPT_RETRY",
+      reason_code,
+      event and event.queue,
+      "workflow generator attempt did not produce a usable child spec",
+      {
+        source_ref = discovery.safe_source_ref(repo, issue_number),
+        attempt = event and event.attempt,
+        terminal = false,
+      }
+    )
+    unit.log_decision(origin, "materialization", "generator", "retry(generator-attempt)", reason_code)
+    return "wait"
+  end
+  if generator_result.disposition == "cannot_proceed" then
+    return terminal(core, deps, repo, issue_number, origin, "error", generator_result.reason_code, unit)
+  end
+  if generator_result.disposition ~= "ready" or type(generator_result.spec) ~= "table" then
+    error("github-devloop-workflow: generator-result-invalid: slot generator returned an invalid disposition")
+  end
+  local generated_spec = generator_result.spec
 
   local latch = materialization.latch_generated(facts, key, generated_spec)
   devloop_logging.log_line("info", M.DEPT, origin, "LATCH", {
@@ -444,17 +463,21 @@ local function process_origin(core, deps, repo, issue_number, event, catalog, un
       if type(resolve_dependencies) ~= "function" then
         error("github-devloop-workflow: dependency-gate-unavailable: workflow materialization requires the shared dependency gate")
       end
+      local dependency_is_satisfied = deps.dependency_gate_is_satisfied or dependency_gate.dependency_gate_is_satisfied
+      if type(dependency_is_satisfied) ~= "function" then
+        error("github-devloop-workflow: dependency-gate-predicate-unavailable: workflow materialization requires the shared dependency predicate")
+      end
       local dependency = resolve_dependencies(repo, issue_number)
       if type(dependency) ~= "table" then
         error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
       end
-      if dependency.ok ~= true then
+      if not dependency_is_satisfied(dependency) then
         reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
         unit.log_decision(
           origin,
           "frontier",
           "dependency-gate",
-          "skip-wait(" .. tostring(dependency.kind or "unresolvable") .. ")",
+          "skip-wait(" .. tostring(dependency.kind or "unavailable") .. ")",
           dependency.reason or "dependency-unresolved"
         )
         return "wait"

@@ -29,7 +29,9 @@ local reconcile_department = require("departments.reconcile.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local TIMEOUT_RECONCILE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
-local TIMEOUT_RECONCILE_NEW_TRACE_PATH = ".fkst/run/r9-timeout-reconcile-new-trace.json"
+local TIMEOUT_RECONCILE_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-timeout-reconcile-new-trace.json"
+)
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_timeout_reconcile_v1"
@@ -240,7 +242,7 @@ end
 local function fixture_comments(event, fixture)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, trusted_comment(core.state_marker(
+    table.insert(comments, trusted_comment(h.state_comment(
       PROPOSAL_ID,
       fixture.current_state,
       fixture.current_version

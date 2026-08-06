@@ -136,7 +136,7 @@ end
 
 local function state_comment(state_name, state_version, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment(proposal_id, state_name, state_version),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -406,11 +406,13 @@ return {
     t.eq(#second.raises, 0)
   end,
 
-  test_impl_failed_retry_limit_replay_decline_climbs_to_timeout_reconcile_without_seeded_timeout_markers = function()
+  test_impl_failed_retry_disallowed_defers_without_timeout_effects_across_repeated_sweeps = function()
     local event = h.ready()
     local comments = {
       state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
-      issue_comment(core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed", core._max_impl_auto_retry_attempts)),
+      issue_comment(core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed",
+        1, "UNKNOWN", false)),
     }
 
     for sweep = 1, 3 do
@@ -419,25 +421,53 @@ return {
       mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:0" .. tostring(sweep) .. "Z")
       mock_empty_pr_list()
 
-      local result = run_liveness_scan("liveness-impl-failed-retry-limit-stuck-sweep-" .. tostring(sweep))
+      local result = run_liveness_scan("liveness-impl-failed-operator-reentry-deferred-sweep-" .. tostring(sweep))
       t.eq(result.exit_code, 0)
       t.eq(find_raise(result, "devloop_ready"), nil)
-      if sweep < 3 then
-        t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-        local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42))))
-      else
-        -- Owner directive (#2725): the impl-failed retry/attempt counter must NEVER climb
-        -- to a terminal reconcile; past the former limit it REDRIVES, emitting the next
-        -- timeout-attempt marker (round 3) rather than dropping to blocked.
-        t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-        local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-      end
+      t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+      t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+      t.eq(#result.raises, 0)
     end
+  end,
+
+  test_impl_failed_retry_allowed_still_issues_from_over_budget_liveness_sweep = function()
+    local event = h.ready()
+    local comments = {
+      state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
+      issue_comment(core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", 1, "UNKNOWN", true)),
+    }
+    mock_repo()
+    mock_issue_list("2026-06-03T01:02:03Z")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:03Z")
+    mock_empty_pr_list()
+
+    local result = run_liveness_scan("liveness-impl-failed-retry-allowed-still-issues")
+    t.eq(result.exit_code, 0)
+    t.is_true(find_raise(result, "devloop_ready") ~= nil)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
+    t.is_true(attempt ~= nil)
+    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+  end,
+
+  test_impl_failed_without_failure_fact_remains_stuck = function()
+    local event = h.ready()
+    local comments = {
+      state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
+    }
+    mock_repo()
+    mock_issue_list("2026-06-03T01:02:03Z")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:03Z")
+    mock_empty_pr_list()
+
+    local result = run_liveness_scan("liveness-impl-failed-missing-fact-still-stuck")
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_ready"), nil)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
+    t.is_true(attempt ~= nil)
+    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
   end,
 
   test_blocked_missing_decomposed_replay_decline_climbs_to_decompose_exhausted_without_seeded_timeout_markers = function()

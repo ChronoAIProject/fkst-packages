@@ -1,7 +1,7 @@
 local F = {
   schema = "restart-owner-observation-facts.v1",
   owner = "github-devloop",
-  source_rows_fingerprint = "7c084b64",
+  source_rows_fingerprint = "5de45319",
   states = {
     ["awaiting-pr"] = {
       from_state = "awaiting-pr",
@@ -32,6 +32,12 @@ local F = {
       terminal = false,
       driving_queue = "devloop_ready",
       budget_minutes = 1440,
+    },
+    ["implementation-escalating"] = {
+      from_state = "implementation-escalating",
+      terminal = false,
+      driving_queue = "github-devloop-decompose.devloop_implementation_decompose",
+      budget_minutes = 60,
     },
     implementing = {
       from_state = "implementing",

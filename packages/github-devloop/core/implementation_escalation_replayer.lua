@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local devloop_logging = require("devloop.logging")
 local implementation_escalation = require("devloop.implementation_escalation")
 local replay_fields = require("devloop.replay_fields")
@@ -38,9 +39,17 @@ function R.install(M)
       return false
     end
 
-    local decomposition = facts["implementation-decomposition"]
-    local linkage = facts["implementation-child-linkage"]
-    if decomposition == nil or linkage == nil then
+    local supervision = facts["implementation-supervision-result"]
+    if supervision == nil then
+      local decomposition = facts["implementation-decomposition"]
+      local linkage = facts["implementation-child-linkage"]
+      if decomposition ~= nil and linkage ~= nil then
+        devloop_logging.log_cas_decision(dept, proposal_id, state,
+          "implementation-escalating", "implementation-escalating",
+          "skip-pending(implementation-supervision-result)",
+          "complete decomposition, child linkage, and dependency gate are not jointly visible")
+        return false
+      end
       devloop_logging.log_cas_decision(dept, proposal_id, state,
         "implementation-escalating", "implementation-escalating",
         "applied(replay)",
@@ -61,15 +70,18 @@ function R.install(M)
         })
     end
 
-    local gate = facts.dependency_gate
-    if type(gate) ~= "table" then
+    local gate = supervision.dependency_gate
+    local to_state = supervision.successor
+    if type(gate) ~= "table"
+      or (to_state ~= "dependency_wait" and to_state ~= "ready")
+      or to_state ~= (dependency_gate.dependency_gate_is_satisfied(gate)
+        and "ready" or "dependency_wait") then
       devloop_logging.log_cas_decision(dept, proposal_id, state,
         "implementation-escalating", "implementation-escalating",
-        "skip-pending(dependency-gate)",
-        "declared dependency gate fact is not visible")
+        "skip-pending(implementation-supervision-result)",
+        "typed implementation supervision result is invalid")
       return false
     end
-    local to_state = gate.ok and "ready" or "dependency_wait"
     local to_version = M.ready_split_version(state.version)
     local label_dedup_key = base_ids.dedup_key({
       "implementation-escalation",

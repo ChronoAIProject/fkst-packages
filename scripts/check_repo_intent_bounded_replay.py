@@ -283,6 +283,7 @@ def _trace_pair_messages(
     schema: str,
     family: str,
     owner: str = "github-devloop",
+    trace_root: Path | None = None,
 ) -> list[str]:
     old_path = root / old_relative
     if not old_path.is_file():
@@ -297,7 +298,9 @@ def _trace_pair_messages(
         _admission_trace_shape_messages(old, old_relative, schema, family, owner)
     )
 
-    new_path = root / new_relative
+    if trace_root is None:
+        return messages
+    new_path = trace_root / new_relative
     if not new_path.is_file():
         return messages
     new, load_messages = _load_json_object(new_path)
@@ -322,146 +325,27 @@ def _trace_pair_messages(
     return messages
 
 
-def _admission_trace_messages(root: Path) -> list[str]:
-    messages = _trace_pair_messages(
-        root,
-        trace_catalog.THINKING_OLD_CORPUS,
-        trace_catalog.THINKING_NEW_TRACE,
-        "restart-thinking-trace.v1",
-        "thinking",
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.ISSUE_RECONCILE_OLD_CORPUS,
-            trace_catalog.ISSUE_RECONCILE_NEW_TRACE,
-            "restart-issue-reconcile-trace.v1",
-            "issue-reconcile",
+def _admission_trace_messages(
+    root: Path, trace_root: Path | None = None,
+) -> list[str]:
+    messages: list[str] = []
+    for old_relative, new_relative, schema, family, owner in trace_catalog.ADMISSION_TRACE_SPECS:
+        messages.extend(
+            _trace_pair_messages(
+                root, old_relative, new_relative, schema, family, owner, trace_root
+            )
         )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.LOOP_PLAIN_OLD_CORPUS,
-            trace_catalog.LOOP_PLAIN_NEW_TRACE,
-            "restart-loop-plain-trace.v1",
-            "loop-plain",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.IMPLEMENT_ACTIVATION_OLD_CORPUS,
-            trace_catalog.IMPLEMENT_ACTIVATION_NEW_TRACE,
-            "restart-implement-activation-trace.v1",
-            "implement-activation",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.AWAITING_PR_OLD_CORPUS,
-            trace_catalog.AWAITING_PR_NEW_TRACE,
-            "restart-awaiting-pr-trace.v1",
-            "awaiting-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.TIMEOUT_RECONCILE_OLD_CORPUS,
-            trace_catalog.TIMEOUT_RECONCILE_NEW_TRACE,
-            "restart-timeout-reconcile-trace.v1",
-            "timeout-reconcile",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.OBSERVE_ISSUE_ENTRY_OLD_CORPUS,
-            trace_catalog.OBSERVE_ISSUE_ENTRY_NEW_TRACE,
-            "restart-observe-issue-entry-trace.v1",
-            "observe-issue-entry",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_REVIEW_RESULT_OLD_CORPUS,
-            trace_catalog.PR_REVIEW_RESULT_NEW_TRACE,
-            "restart-pr-review-result-trace.v1",
-            "pr-review-result",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_REVIEW_META_OLD_CORPUS,
-            trace_catalog.PR_REVIEW_META_NEW_TRACE,
-            "restart-pr-review-meta-trace.v1",
-            "pr-review-meta",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_FIX_OLD_CORPUS,
-            trace_catalog.PR_FIX_NEW_TRACE,
-            "restart-pr-fix-trace.v1",
-            "pr-fix",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_REVIEW_ACTIVATION_OLD_CORPUS,
-            trace_catalog.PR_REVIEW_ACTIVATION_NEW_TRACE,
-            "restart-pr-review-activation-trace.v1",
-            "pr-review-activation",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root, trace_catalog.OBSERVE_PR_FIX_OLD_CORPUS, trace_catalog.OBSERVE_PR_FIX_NEW_TRACE,
-            "restart-observe-pr-fix-trace.v1", "observe-pr-fix",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_REVIEW_LOOP_OLD_CORPUS,
-            trace_catalog.PR_REVIEW_LOOP_NEW_TRACE,
-            "restart-pr-review-loop-trace.v1",
-            "pr-review-loop",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_FIX_RECONCILE_OLD_CORPUS,
-            trace_catalog.PR_FIX_RECONCILE_NEW_TRACE,
-            "restart-pr-fix-reconcile-trace.v1",
-            "pr-fix-reconcile",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            trace_catalog.PR_MERGE_OLD_CORPUS,
-            trace_catalog.PR_MERGE_NEW_TRACE,
-            "restart-pr-merge-trace.v1",
-            "pr-merge",
-            owner="github-devloop-pr",
-        )
-    )
+    if trace_root is not None and not any(
+        (trace_root / new_relative).is_file()
+        for _, new_relative, _, _, _ in trace_catalog.ADMISSION_TRACE_SPECS
+    ):
+        messages.append(f"explicit R9 trace root contains no emitted traces: {trace_root}")
     return messages
+
+
+def trace_root_from_environment() -> Path | None:
+    value = os.environ.get("FKST_R9_TRACE_ROOT", "")
+    return Path(value) if value else None
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -621,6 +505,40 @@ def _bound_manifest_messages(
     return messages
 
 
+def _manifest_is_spent(
+    root: Path, artifact: dict[str, Any], relative: str, protected_base: str
+) -> bool:
+    pr_number = int(artifact["pr_number"])
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--full-history",
+            "--diff-filter=A",
+            "--format=%H%x09%s",
+            protected_base,
+            "--",
+            relative,
+        ],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    squash_suffix = f" (#{pr_number})"
+    merge_prefix = f"Merge pull request #{pr_number} from "
+    for line in result.stdout.splitlines():
+        _commit, separator, subject = line.partition("\t")
+        if separator and (
+            subject.endswith(squash_suffix) or subject.startswith(merge_prefix)
+        ):
+            return True
+    return False
+
+
 def _parse_allowlist(source: str, lines: list[str]) -> tuple[set[str], list[str]]:
     entries: set[str] = set()
     messages: list[str] = []
@@ -748,11 +666,15 @@ def _attestation_messages(
     return messages
 
 
-def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
+def repository_messages(
+    root: Path,
+    enforce_base: bool = False,
+    trace_root: Path | None = None,
+) -> list[str]:
     from check_repo_restart_preflight import _step8_complete  # Lazy to avoid the checker import cycle.
 
     root = Path(root)
-    messages = _admission_trace_messages(root)
+    messages = _admission_trace_messages(root, trace_root)
     messages.extend(
         f"missing protected input: {relative}"
         for relative in PROTECTED_MODULES
@@ -817,6 +739,12 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
 
     for entry in sorted(growth):
         artifact = manifests.get(entry)
+        if (
+            artifact is not None
+            and protected_base is not None
+            and _manifest_is_spent(root, artifact, entry, protected_base)
+        ):
+            continue
         bound_messages = (
             [f"{entry} has no structurally valid manifest"]
             if artifact is None
@@ -835,10 +763,13 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
 
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
-    violations = repository_messages(project_root, enforce_base=True)
+    explicit_trace_root = trace_root_from_environment()
+    violations = repository_messages(
+        project_root, enforce_base=True, trace_root=explicit_trace_root
+    )
     if violations:
         for violation in violations:
             print(f"R9-INTENT-BOUNDED-REPLAY: {violation}")
         raise SystemExit(1)
     print("OK: R9 intent-bounded-replay refactor-phase checks passed; "
-          + trace_catalog.admission_trace_status(project_root))
+          + trace_catalog.admission_trace_status(explicit_trace_root))

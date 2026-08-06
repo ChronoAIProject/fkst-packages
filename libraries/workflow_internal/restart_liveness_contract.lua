@@ -12,7 +12,7 @@ end
 function S.restart_liveness_inventory_errors(M, rows, inventory)
   local fn = installed_function(M, "restart_liveness_inventory_errors")
   if type(fn) ~= "function" then
-    error("workflow_internal.restart_liveness_contract: restart_liveness_inventory_errors not installed")
+    error("workflow_internal.restart_liveness_contract: inventory-validator-not-installed: restart_liveness_inventory_errors not installed")
   end
   return fn(rows, inventory)
 end
@@ -105,6 +105,7 @@ local provenance = resolved.runtime_provenance or {}
 local codex_run_policy = resolved.codex_run or {}
 local child_workflow_wait_policy = resolved.child_workflow_wait or {}
 local durable_hold_resolver = resolved.durable_hold_resolver
+local actionable_epoch_resolve = deps.ports.actionable_epoch_resolve
 local default_provenance_proposal_id = "workflow/restart-liveness/provenance/1"
 local default_provenance_version = "restart-liveness-provenance"
 local default_provenance_marker_created_at = "2026-06-03T00:00:00Z"
@@ -570,7 +571,7 @@ local function validate_runtime_provenance(row, errors)
   if epoch_sources[row.actionable_epoch.source] == nil then
     return
   end
-  if type(M.actionable_epoch_resolve) ~= "function" then
+  if type(actionable_epoch_resolve) ~= "function" then
     return
   end
   local state = state_name(row)
@@ -597,7 +598,7 @@ local function validate_runtime_provenance(row, errors)
   elseif row.actionable_epoch.source == "child_workflow_wait:v1" then
     now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T00:00:01Z")
   end
-  local ok, eval = pcall(M.actionable_epoch_resolve, row, {
+  local ok, eval = pcall(actionable_epoch_resolve, row, {
     state = row.from_state,
     version = provenance.version or default_provenance_version,
     proposal_id = provenance.proposal_id or default_provenance_proposal_id,

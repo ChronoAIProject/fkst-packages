@@ -1,6 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local convergence_shared = require("devloop.convergence.shared")
 local C = {}
 local transition_version = require("contract.transition_version")
 local devloop_logging = require("devloop.logging")
@@ -8,8 +9,19 @@ local payloads_shared = require("devloop.payloads.shared")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 
 local function latest_converge_round(caps, comments, proposal_id, state_version, source_ref)
-  local base_version = transition_version.strip_suffixes(state_version)
-  return caps.latest_complete_converge_round(comments, proposal_id, base_version, source_ref)
+  return caps.latest_complete_converge_round(comments, proposal_id, state_version, source_ref)
+end
+
+local function converge_round_facts_for_epoch(comments, proposal_id, epoch_version, source_ref)
+  if epoch_version == nil or source_ref == nil then
+    return {}
+  end
+  return conv_rounds.converge_round_facts_for_epoch(
+    comments,
+    proposal_id,
+    epoch_version,
+    convergence_shared.source_ref_digest(source_ref)
+  )
 end
 
 function C.level_replay_delivery_identity(proposal_id, state, event_ts)
@@ -82,9 +94,9 @@ function C.has_converge_replay(caps, current, proposal_id, state, source_ref)
   if state.state ~= "thinking" then
     return false
   end
-  local facts = conv_rounds.converge_round_facts_for_proposal(current.comments, proposal_id)
+  local facts = converge_round_facts_for_epoch(current.comments, proposal_id, state.version, source_ref)
   local round = conv_rounds.max_converge_round(facts)
-  return caps.latest_complete_converge_round(current.comments, proposal_id, nil, source_ref) ~= nil
+  return caps.latest_complete_converge_round(current.comments, proposal_id, state.version, source_ref) ~= nil
     or conv_rounds.terminal_cause(facts, round) ~= nil
 end
 
@@ -95,8 +107,13 @@ local function visible_true_stall(M, issue, state, facts)
     if current == nil or type(state) ~= "table" or state.state ~= "thinking" or proposal_id == nil then
       return nil
     end
-    local base_version = transition_version.strip_suffixes(state.version)
-    local converge_facts = conv_rounds.converge_round_facts_for_proposal(current.comments, proposal_id)
+    local epoch_version = state.version
+    local converge_facts = converge_round_facts_for_epoch(
+      current.comments,
+      proposal_id,
+      epoch_version,
+      source_ref
+    )
     local round = conv_rounds.max_converge_round(converge_facts)
     local terminal_cause = conv_rounds.terminal_cause(converge_facts, round)
     if #converge_facts == 0 or terminal_cause == nil then
@@ -105,7 +122,7 @@ local function visible_true_stall(M, issue, state, facts)
     return conv_reconcile.build_devloop_reconcile_payload({
       proposal_id = proposal_id,
       source_ref = base_ids.normalize_source_ref(source_ref),
-    }, round, base_version, terminal_cause)
+    }, round, epoch_version, terminal_cause)
 end
 
 function C.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, log_skip, raise_effects)

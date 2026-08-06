@@ -292,6 +292,9 @@ local function capture(fixture)
     ra.record_write(ports.git_model, "merge_tree", {
       approved_head_sha = approved_head_sha, base_head_sha = base_head_sha, timeout = timeout,
     })
+    if fixture.not_mergeable then
+      return { stdout = "", stderr = "CONFLICT (content): merge conflict", exit_code = 1 }
+    end
     return { stdout = string.rep("b", 40) .. "\n", stderr = "", exit_code = 0 }
   end
   function ports.git.trees_equal_quiet(sha_a, sha_b, timeout)

@@ -160,7 +160,6 @@ return {
     comments = with_comment(comments, markers.created .. "\n" .. markers.linked)
 
     local result = run_replay(comments, {
-      ok = false,
       kind = "waiting",
       reason = "waiting-on-dependency",
       unmet = { 101 },
@@ -179,7 +178,6 @@ return {
     comments = with_comment(comments, markers.created .. "\n" .. markers.linked)
 
     local result = run_replay(comments, {
-      ok = true,
       kind = "satisfied",
       reason = "dependencies-satisfied",
       unmet = {},
