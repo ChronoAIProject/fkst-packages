@@ -121,6 +121,75 @@ return {
     t.eq(h.count_calls("git worktree add"), 0)
   end,
 
+  test_checkpoint_reuses_worktree_registered_by_branch_owner = function()
+    local durable_root = "/tmp/fkst-packages-test/github-devloop/owner-checkpoint-durable"
+    local event = h.ready()
+    local branch = h.deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
+    local owner_worktree = devloop_base.implement_worktree_path(
+      implementation_root,
+      "owner/repo",
+      42,
+      event.dedup_key
+    )
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+      stdout = durable_root,
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. owner_worktree
+        .. "\nHEAD " .. checkpoint_head .. "\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git fetch 'origin' '" .. branch .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", {
+      stdout = checkpoint_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-parse --verify", {
+      stdout = checkpoint_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("reset --hard", {
+      stdout = "HEAD is now at " .. checkpoint_head .. " implementation branch\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("clean -fd", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local worktree = worktree_lifecycle.prepare_worktree(
+      "owner/repo",
+      99,
+      event,
+      branch,
+      "2222222222222222222222222222222222222222",
+      { branch = branch, head_sha = checkpoint_head }
+    )
+
+    t.eq(worktree, owner_worktree)
+    t.eq(h.count_calls("rev-parse --verify"), 2)
+    t.eq(h.count_calls("git worktree remove --force"), 0)
+    t.eq(h.count_calls("git worktree add"), 0)
+  end,
+
   test_prepare_fails_closed_when_canonical_path_belongs_to_another_branch = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/path-conflict-durable"
     local event = h.ready()

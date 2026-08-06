@@ -89,7 +89,7 @@ local function checkpoint_head_for_branch(checkpoint, branch)
   return head_sha
 end
 
-local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
+local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head, registered)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branch, 60)
   if fetch_result.exit_code ~= 0 then
     error("github-devloop: checkpoint-branch-fetch-failed: git checkpoint branch fetch failed: " .. tostring(fetch_result.stderr))
@@ -101,6 +101,21 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   local remote_head = tostring(remote_head_result.stdout or ""):gsub("%s+$", "")
   if remote_head ~= checkpoint_head then
     error("github-devloop: checkpoint-head-mismatch: remote checkpoint head does not match marker fact")
+  end
+  if registered then
+    local local_head_result = devloop_commands.git_rev_parse_branch(worktree, branch, 30)
+    if local_head_result.exit_code ~= 0 then
+      error("github-devloop: checkpoint-head-read-failed: registered checkpoint branch head failed: "
+        .. tostring(local_head_result.stderr))
+    end
+    local local_head = tostring(local_head_result.stdout or ""):gsub("%s+$", "")
+    if local_head == checkpoint_head then
+      return
+    end
+  end
+  local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
+  if clean_result.exit_code ~= 0 then
+    error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
   end
   local worktree_result = devloop_commands.git_worktree_add_remote_branch(worktree, "origin", branch, true, 60)
   if worktree_result.exit_code ~= 0 then
@@ -127,13 +142,20 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
   end
+  local registered_checkpoint_worktree = checkpoint_head ~= nil
+    and devloop_commands.find_worktree_for_branch(list_result.stdout, branch)
+    or nil
+  if registered_checkpoint_worktree ~= nil then
+    worktree = registered_checkpoint_worktree
+  end
   assert_canonical_registration(list_result.stdout, branch, worktree)
   if checkpoint_head ~= nil then
-    local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
-    if clean_result.exit_code ~= 0 then
-      error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
-    end
-    restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
+    restore_remote_checkpoint_worktree(
+      worktree,
+      branch,
+      checkpoint_head,
+      registered_checkpoint_worktree ~= nil
+    )
   elseif branch_exists then
     local existing_worktree = devloop_commands.worktree_registered_for_branch(
       list_result.stdout,

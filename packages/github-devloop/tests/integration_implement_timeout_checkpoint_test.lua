@@ -180,6 +180,11 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command("rev-parse --verify refs/heads/", {
+    stdout = "0000000000000000000000000000000000000000\n",
+    stderr = "",
+    exit_code = 0,
+  })
   h.mock_force_clean(worktree)
   t.mock_command("mkdir -p", {
     stdout = "",

@@ -12,7 +12,9 @@ local core = h.core
 local REPO = "ChronoAIProject/fkst-packages"
 local BOT = "fkst-test-bot"
 local ESCALATION_ISSUE = 3282
-local OWNER_BRANCH = "devloop/issue/ChronoAIProject/fkst-packages/3204/ready-github-devloop-issue-ChronoAIProject-fkst-packages-3204-intake-0768218242-3305069031"
+local OWNER_ISSUE = 3204
+local OWNER_VERSION = "ready/github-devloop/issue/ChronoAIProject/fkst-packages/3204/intake/0768218242"
+local OWNER_BRANCH = devloop_base.implement_branch(REPO, OWNER_ISSUE, OWNER_VERSION)
 local UPSTREAM_BRANCH = "integration"
 local UPSTREAM_HEAD = "b57a021c15fdfd65aef8959f375903ff1a30b8f1"
 local OWNER_HEAD = "c0e40e4e0a11ac5b845aaa8f8063994ee4bb5eac"
@@ -159,16 +161,16 @@ local function ensure_directory(path)
   end
 end
 
-local function mock_exact_owner_worktree(ready)
+local function mock_exact_owner_worktree()
   local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local stable_root = devloop_base.implementation_worktree_root(durable_root)
-  local worktree = devloop_base.implement_worktree_path(
+  local owner_worktree = devloop_base.implement_worktree_path(
     stable_root,
     REPO,
-    ESCALATION_ISSUE,
-    ready.dedup_key
+    OWNER_ISSUE,
+    OWNER_VERSION
   )
-  ensure_directory(worktree .. "/.fkst")
+  ensure_directory(owner_worktree .. "/.fkst")
 
   t.mock_command("git fetch 'origin' '" .. UPSTREAM_BRANCH .. "'", {
     stdout = "", stderr = "", exit_code = 0,
@@ -176,17 +178,22 @@ local function mock_exact_owner_worktree(ready)
   t.mock_command("refs/remotes/'origin'/'" .. UPSTREAM_BRANCH .. "'^{commit}", {
     stdout = UPSTREAM_HEAD .. "\n", stderr = "", exit_code = 0,
   })
-  t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
-  t.mock_command("git worktree list --porcelain", { stdout = "", stderr = "", exit_code = 0 })
-  h.mock_force_clean(worktree)
-  t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. owner_worktree .. "\nHEAD " .. OWNER_HEAD
+      .. "\nbranch refs/heads/" .. OWNER_BRANCH .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command("git fetch 'origin' '" .. OWNER_BRANCH .. "'", {
     stdout = "", stderr = "", exit_code = 0,
   })
   t.mock_command("refs/remotes/'origin'/'" .. OWNER_BRANCH .. "'^{commit}", {
     stdout = OWNER_HEAD .. "\n", stderr = "", exit_code = 0,
   })
-  t.mock_command("git worktree add --force -B", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("rev-parse --verify", {
+    stdout = OWNER_HEAD .. "\n", stderr = "", exit_code = 0,
+  })
   t.mock_command("reset --hard", { stdout = "HEAD is now at " .. OWNER_HEAD .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("clean -fd", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("merge --no-edit '" .. UPSTREAM_HEAD .. "'", {
@@ -200,15 +207,15 @@ local function mock_exact_owner_worktree(ready)
     stdout = "3333333333333333333333333333333333333333\n", stderr = "", exit_code = 0,
   })
   for _ = 1, 2 do
-    t.mock_command("[ -d '" .. worktree .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("[ -d '" .. owner_worktree .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD " .. RESOLVED_HEAD
+      stdout = "worktree " .. owner_worktree .. "\nHEAD " .. RESOLVED_HEAD
         .. "\nbranch refs/heads/" .. OWNER_BRANCH .. "\n\n",
       stderr = "",
       exit_code = 0,
     })
   end
-  return worktree
+  return owner_worktree
 end
 
 local function mock_comment_writes(number, count)
@@ -310,7 +317,7 @@ return {
       source_ref = entity_lib.issue_source_ref(REPO, ESCALATION_ISSUE),
     })
     mock_escalation_issue(ready, create.payload.body)
-    mock_exact_owner_worktree(ready)
+    local owner_worktree = mock_exact_owner_worktree()
     h.mock_implement_codex(0, "implemented", "")
     h.mock_git_status(" M packages/github-devloop/core.lua\n")
     h.mock_git_commit(RESOLVED_HEAD, OWNER_BRANCH)
@@ -334,10 +341,16 @@ return {
     t.eq(step.exit_code, 0)
 
     local escalation_branch = devloop_base.implement_branch(REPO, ESCALATION_ISSUE, ready.dedup_key)
-    local add = rendered_call_containing("git worktree add --force -B")
-    t.is_true(add ~= nil)
-    t.is_true(add.rendered:find(OWNER_BRANCH, 1, true) ~= nil)
+    local escalation_worktree = devloop_base.implement_worktree_path(
+      devloop_base.implementation_worktree_root("/tmp/fkst-packages-test/github-devloop/durable"),
+      REPO,
+      ESCALATION_ISSUE,
+      ready.dedup_key
+    )
+    t.is_true(rendered_call_containing(owner_worktree) ~= nil)
+    t.is_nil(rendered_call_containing("git worktree add --force -B"))
     t.is_true(rendered_call_containing("push origin HEAD:refs/heads/" .. OWNER_BRANCH) ~= nil)
     t.is_nil(rendered_call_containing(escalation_branch))
+    t.is_nil(rendered_call_containing(escalation_worktree))
   end,
 }
