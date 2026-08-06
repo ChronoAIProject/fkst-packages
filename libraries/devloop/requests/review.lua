@@ -444,6 +444,9 @@ function C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_h
     tostring(fix.review_dedup_key),
     tostring(new_head_sha),
   }), fix.source_ref)
+  if fix.redrive_delivery ~= nil then
+    request.dedup_key = fix.dedup_key
+  end
   return C.attach_reviewing_handoff(request, fix.proposal_id, fix.pr_number, new_version or fix.version, fix.source_ref)
 end
 
