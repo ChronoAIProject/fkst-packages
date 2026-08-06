@@ -383,13 +383,33 @@ return {
     t.eq(decision.claim_state, "other")
   end,
 
+  test_assignee_mode_pr_review_rederives_when_labels_projection_is_missing = function()
+    mock_env("fkst-test-bot", "", "")
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({ "fkst-test-bot" }, "human", { peer_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local decision = m_claims.pr_review_issue_claim_decision(
+      "claim_mode",
+      "owner/repo",
+      42,
+      { assignees = { "fkst-test-bot" }, author_login = "human" },
+      "github-devloop/issue/owner/repo/42"
+    )
+
+    t.eq(decision.owned, false)
+    t.eq(decision.claim_state, "other")
+  end,
+
   -- (c) Both postures share one foreign-wins conflict domain while retaining
   -- mode-specific self carriers.
   test_assignee_mode_claim_carrier_matrix_is_foreign_wins = function()
     mock_env("fkst-test-bot", "", "", 5)
-    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot"), "unassigned")
-    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
-    t.eq(m_claims.issue_claim_state({ { login = "human" } }, "fkst-test-bot"), "other")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot", {}), "self")
+    t.eq(m_claims.issue_claim_state({ { login = "human" } }, "fkst-test-bot", {}), "other")
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { bare_claimed_label }), "other")
     t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot", {
       peer_claimed_label,
@@ -412,10 +432,22 @@ return {
     }), "self")
   end,
 
+  test_label_mode_attaches_complete_write_claim = function()
+    mock_env("fkst-test-bot", "label", "", 12, "", "peer-bot")
+    local payload = m_claims.attach_issue_claim({}, {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    })
+
+    t.eq(payload.claim.owner, "fkst-test-bot")
+    t.eq(payload.claim.label, derived_claimed_label)
+    t.eq(payload.claim.source_ref.ref, "owner/repo#issue/42")
+  end,
+
   test_unknown_mode_falls_back_to_assignee = function()
     mock_env("fkst-test-bot", "bogus-mode", "")
     t.eq(config.claim_mode(), "assignee")
-    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot", {}), "self")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({ "fkst-test-bot" }, "fkst-test-bot"),
       stderr = "",
@@ -442,7 +474,7 @@ return {
       "claim_mode",
       "owner/repo",
       42,
-      { assignees = {}, author_login = "fkst-test-bot", comments = {} },
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot", comments = {} },
       "github-devloop/issue/owner/repo/42"
     )
 

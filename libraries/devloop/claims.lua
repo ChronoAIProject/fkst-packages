@@ -471,14 +471,12 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local owner = C.claim_owner()
   local ownership = nil
-  local current_usable
-  if config.claim_mode() == "label" then
-    current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
-      and current_issue.assignees ~= nil
-  else
-    current_usable = type(current_issue) == "table"
-      and current_issue.assignees ~= nil
-      and C.issue_author_login(current_issue) ~= nil
+  local mode = config.claim_mode()
+  local current_usable = type(current_issue) == "table"
+    and type(current_issue.assignees) == "table"
+    and type(current_issue.labels) == "table"
+  if mode ~= "label" then
+    current_usable = current_usable and C.issue_author_login(current_issue) ~= nil
   end
   if current_usable then
     ownership = current_issue
@@ -832,7 +830,8 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
   local claim_is_self = active_label ~= nil
     and restart_metadata.has_label(ownership and ownership.labels, active_label)
-    or active_label == nil and C.issue_claim_state(ownership and ownership.assignees, owner) == "self"
+    or active_label == nil
+      and claim_carriers.classify_assignees(C.assignee_logins(ownership and ownership.assignees), owner) == "self"
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
@@ -859,24 +858,18 @@ function C.claim_required_payload(source_ref)
   if repo == nil or issue_number == nil then
     return nil
   end
-  return {
+  local claim = {
     owner = C.claim_owner(),
     source_ref = normalized,
   }
+  if config.claim_mode() == "label" then
+    claim.label = C.claimed_label()
+  end
+  return claim
 end
 
 function C.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
-    return payload
-  end
-  -- github-proxy's pre-write guard verifies the attached claim against the
-  -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
-  -- active claim label but is never an assignee, so an attached assignee
-  -- claim would always read as "lost" and block every write. Ownership in
-  -- label-mode is instead verified at claim time (claim_issue_for_management),
-  -- so skip attaching the assignee claim and let github-proxy's no-claim path
-  -- proceed. Assignee-mode is unchanged.
-  if config.claim_mode() == "label" then
     return payload
   end
   payload.claim = C.claim_required_payload(source_ref or payload.source_ref)

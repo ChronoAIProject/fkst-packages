@@ -33,8 +33,11 @@ function C.is_claim_family(name)
 end
 
 function C.classify_labels(labels, active)
+  if type(labels) ~= "table" then
+    return "other"
+  end
   local active_present = false
-  for _, name in ipairs(type(labels) == "table" and labels or {}) do
+  for _, name in ipairs(labels) do
     if C.is_claim_family(name) then
       if name ~= active then
         return "other"
@@ -48,7 +51,33 @@ function C.classify_labels(labels, active)
   return "unassigned"
 end
 
+function C.classify_assignees(assignees, owner)
+  if type(assignees) ~= "table" then
+    return "other"
+  end
+  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
+  if #assignees == 0 then
+    return "unassigned"
+  end
+  if #assignees == 1 and devloop_base.strip_bot_login_suffix(assignees[1]) == normalized_owner then
+    return "self"
+  end
+  return "other"
+end
+
+local function is_managed_login(managed, login)
+  for candidate, allowed in pairs(type(managed) == "table" and managed or {}) do
+    if allowed == true and devloop_base.strip_bot_login_suffix(candidate) == login then
+      return true
+    end
+  end
+  return false
+end
+
 function C.classify(mode, assignees, owner, labels, active_label, managed)
+  if type(assignees) ~= "table" or type(labels) ~= "table" then
+    return "other"
+  end
   local label_state = C.classify_labels(labels, mode == "label" and active_label or nil)
   if label_state == "other" then
     return "other"
@@ -56,23 +85,16 @@ function C.classify(mode, assignees, owner, labels, active_label, managed)
 
   local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
   if mode == "label" then
-    for _, login in ipairs(type(assignees) == "table" and assignees or {}) do
+    for _, login in ipairs(assignees) do
       local normalized = devloop_base.strip_bot_login_suffix(login)
-      if type(managed) == "table" and managed[normalized] == true and normalized ~= normalized_owner then
+      if is_managed_login(managed, normalized) and normalized ~= normalized_owner then
         return "other"
       end
     end
     return label_state
   end
 
-  local logins = type(assignees) == "table" and assignees or {}
-  if #logins == 0 then
-    return "unassigned"
-  end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == normalized_owner then
-    return "self"
-  end
-  return "other"
+  return C.classify_assignees(assignees, normalized_owner)
 end
 
 return C

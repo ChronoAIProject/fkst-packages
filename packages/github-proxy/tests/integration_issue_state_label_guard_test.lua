@@ -13,9 +13,9 @@ local proposal_id = "github-devloop/issue/owner/x/42"
 local stale_version = "ready/consensus-github-devloop/issue/owner/x/42/2026-07-19T00-00-00Z"
 local fresh_version = "ready/consensus-github-devloop/issue/owner/x/42/2026-07-19T00-05-00Z"
 
-local function issue_claim(number)
+local function issue_claim(number, ownership)
   t.mock_command("gh api repos/owner/x/issues/" .. tostring(number or 42), {
-    stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+    stdout = ownership or '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -133,10 +133,10 @@ local function has_arg_pair(rendered, flag, value)
     or text:find(tostring(flag) .. " " .. tostring(value), 1, true) ~= nil
 end
 
-local function run_label(event, name, issue_number)
+local function run_label(event, name, issue_number, ownership)
   mock_write_env("1")
   mock_bot_env()
-  issue_claim(issue_number)
+  issue_claim(issue_number, ownership)
   return t.run_department("departments/github_issue_label/main.lua", event, opts(name, {
     FKST_GITHUB_WRITE = "1",
   }))
@@ -278,5 +278,23 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 0)
     t.eq(count_calls("gh issue edit"), 1)
+  end,
+
+  test_issue_label_rejects_label_claim_after_managed_assignee_appears = function()
+    mock_label_apply()
+    local label = "fkst-dev:claimed:fkst-test-bot"
+    local event = label_event({ "manual-label" }, {}, {
+      claim = {
+        owner = "fkst-test-bot",
+        label = label,
+        source_ref = { kind = "external", ref = "owner/x#issue/42" },
+      },
+    })
+
+    local result = run_label(event, "issue-label-managed-peer-claim", 42,
+      '{"assignees":[{"login":"ElonSG"}],"labels":[{"name":"' .. label .. '"}]}\n')
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue edit"), 0)
   end,
 }
