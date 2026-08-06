@@ -3,27 +3,19 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from script_test_support import load_module
 
-def load_module():
-    path = Path(__file__).with_name("check_repo_saga_split.py")
-    spec = importlib.util.spec_from_file_location("check_repo_saga_split", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("could not load check_repo_saga_split.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-saga_split = load_module()
+saga_split = load_module(
+    "check_repo_saga_split",
+    Path(__file__).with_name("check_repo_saga_split.py"),
+    error_path="check_repo_saga_split.py",
+)
 
 
 class SagaSplitRatchetTest(unittest.TestCase):
