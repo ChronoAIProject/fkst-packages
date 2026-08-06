@@ -16,6 +16,7 @@ local expected_successor_kinds = {
   ["pr-open/not_mergeable_repair"] = "autonomous",
   ["pr-open/pr_base_unmanaged"] = "guard_boundary",
   ["review-meta/fix"] = "autonomous",
+  ["review-meta/no-actionable-gap"] = "autonomous",
   ["review-meta/block"] = "autonomous",
   ["reviewing/approved"] = "autonomous",
   ["reviewing/changes_requested"] = "autonomous",
@@ -73,6 +74,10 @@ local expected_real_cas_by_id = {
     cas_variant = "fixing_to_reviewing",
   },
   ["github-devloop-pr/review-meta/autonomous/fix"] = {
+    cas_policy_id = "cas.legacy_review_meta_v1",
+    cas_variant = "predecision_eligibility",
+  },
+  ["github-devloop-pr/review-meta/autonomous/no-actionable-gap"] = {
     cas_policy_id = "cas.legacy_review_meta_v1",
     cas_variant = "predecision_eligibility",
   },
