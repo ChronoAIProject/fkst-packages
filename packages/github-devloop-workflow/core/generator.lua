@@ -15,6 +15,27 @@ local function bounded_nonempty(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
 end
 
+local function ready(spec)
+  return {
+    disposition = "ready",
+    spec = spec,
+  }
+end
+
+local function retry(reason_code)
+  return {
+    disposition = "retry",
+    reason_code = reason_code,
+  }
+end
+
+local function cannot_proceed(reason_code)
+  return {
+    disposition = "cannot_proceed",
+    reason_code = reason_code,
+  }
+end
+
 local function validate_spec(spec)
   if type(spec) ~= "table" then
     return nil, "invalid-generator-output"
@@ -96,19 +117,27 @@ local function parse_generator_stdout(stdout)
   return nil, "invalid-generator-output"
 end
 
-local function spawn_generated(deps, prompt, ctx)
+local function generated_runner(deps)
   if type(deps.spawn_codex) == "function" then
-    return deps.spawn_codex(prompt, ctx)
+    return function(prompt, ctx)
+      return deps.spawn_codex(prompt, ctx)
+    end
   end
   if type(deps.spawn_codex_sync) == "function" then
-    return deps.spawn_codex_sync(workflow_codex.with_resolved_timeout("workflow-materialize", workflow_codex.unrestricted_codex_opts(prompt, ctx and ctx.worktree)))
+    return function(prompt, ctx)
+      return deps.spawn_codex_sync(workflow_codex.with_resolved_timeout("workflow-materialize", workflow_codex.unrestricted_codex_opts(prompt, ctx and ctx.worktree)))
+    end
   end
-  return nil, "missing-generator-runner"
+  return nil
 end
 
 local function generated_spec(deps, ctx, slot, predecessor_result_ref)
   if predecessor_result_ref == nil then
-    return nil, "missing-predecessor-result"
+    return cannot_proceed("missing-predecessor-result")
+  end
+  local runner = generated_runner(deps)
+  if runner == nil then
+    return cannot_proceed("missing-generator-runner")
   end
   -- The pre-fetch is a best-effort OPTIMIZATION: it hands the codex a local
   -- snapshot of the predecessor result. It is NOT the dependency — the codex
@@ -124,25 +153,33 @@ local function generated_spec(deps, ctx, slot, predecessor_result_ref)
   end
 
   local prompt = build_generated_prompt(ctx or {}, slot, predecessor_result_ref, content_fetch_ref)
-  local ok, result, spawn_reason = pcall(spawn_generated, deps, prompt, ctx or {})
+  local ok, result, spawn_reason = pcall(runner, prompt, ctx or {})
   if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
-    return nil, spawn_reason or "generator-codex-failed"
+    return retry(spawn_reason or "generator-codex-failed")
   end
-  return parse_generator_stdout(result.stdout)
+  local spec, reason = parse_generator_stdout(result.stdout)
+  if spec == nil then
+    return retry(reason)
+  end
+  return ready(spec)
 end
 
 function M.run_slot_generator(deps, ctx, slot, predecessor_result_ref)
   if type(slot) ~= "table" or type(slot.content) ~= "table" then
-    return nil, "invalid-slot"
+    return cannot_proceed("invalid-slot")
   end
   local kind = slot.content.kind
   if kind == "static" then
-    return static_spec(slot)
+    local spec, reason = static_spec(slot)
+    if spec == nil then
+      return cannot_proceed(reason)
+    end
+    return ready(spec)
   end
   if kind == "generated" then
     return generated_spec(deps or {}, ctx or {}, slot, predecessor_result_ref)
   end
-  return nil, "unsupported-content-kind"
+  return cannot_proceed("unsupported-content-kind")
 end
 
 M.build_generated_prompt = build_generated_prompt
