@@ -505,6 +505,40 @@ def _bound_manifest_messages(
     return messages
 
 
+def _manifest_is_spent(
+    root: Path, artifact: dict[str, Any], relative: str, protected_base: str
+) -> bool:
+    pr_number = int(artifact["pr_number"])
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--full-history",
+            "--diff-filter=A",
+            "--format=%H%x09%s",
+            protected_base,
+            "--",
+            relative,
+        ],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    squash_suffix = f" (#{pr_number})"
+    merge_prefix = f"Merge pull request #{pr_number} from "
+    for line in result.stdout.splitlines():
+        _commit, separator, subject = line.partition("\t")
+        if separator and (
+            subject.endswith(squash_suffix) or subject.startswith(merge_prefix)
+        ):
+            return True
+    return False
+
+
 def _parse_allowlist(source: str, lines: list[str]) -> tuple[set[str], list[str]]:
     entries: set[str] = set()
     messages: list[str] = []
@@ -705,6 +739,12 @@ def repository_messages(
 
     for entry in sorted(growth):
         artifact = manifests.get(entry)
+        if (
+            artifact is not None
+            and protected_base is not None
+            and _manifest_is_spent(root, artifact, entry, protected_base)
+        ):
+            continue
         bound_messages = (
             [f"{entry} has no structurally valid manifest"]
             if artifact is None

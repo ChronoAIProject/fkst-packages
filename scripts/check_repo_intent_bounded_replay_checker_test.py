@@ -13,6 +13,7 @@ from unittest import mock
 
 import check_repo_intent_bounded_replay as checker
 import check_repo_intent_bounded_replay_trace_catalog as trace_catalog
+from check_repo_intent_bounded_replay_spent_cases import IntentBoundedReplaySpentTest
 from intent_bounded_replay.normalize import canonical_artifact_hash_v1, canonical_json
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
 

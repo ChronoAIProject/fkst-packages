@@ -243,6 +243,7 @@ return {
     t.eq(m_claims.is_self_owned_issue({ assignees = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
     t.eq(m_claims.is_self_owned_issue({ assignees = {}, author_login = "human" }, "fkst-test-bot"), false)
     t.eq(m_claims.is_self_owned_issue({ assignees = { "human" }, author_login = "fkst-test-bot" }, "fkst-test-bot"), false)
+    t.eq(select("#", m_claims.is_self_owned_issue(nil, "fkst-test-bot")), 1)
   end,
 
   test_dry_run_claim_proceeds_without_assigning = function()
@@ -790,22 +791,24 @@ return {
 
   test_verify_pr_review_issue_claim_predicate_contract = function()
     mock_bot("fkst-test-bot", "")
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
-      assignees = { "fkst-test-bot" },
-      author_login = "human",
-    }, "github-devloop/issue/owner/repo/42"), true)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+    local function verify(assignees, author_login)
+      return m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+        assignees = assignees,
+        author_login = author_login,
+      }, "github-devloop/issue/owner/repo/42")
+    end
+    t.eq(verify({ "fkst-test-bot" }, "human"), true)
+    t.eq(verify({ "human" }, "fkst-test-bot"), false)
+    t.eq(verify({}, "fkst-test-bot"), true)
+    t.eq(verify({}, "human"), false)
+    t.eq(select("#", verify({ "fkst-test-bot" }, "human")), 1)
+
+    local decision = m_claims.pr_review_issue_claim_decision("claim_contract", "owner/repo", 42, {
       assignees = { "human" },
       author_login = "fkst-test-bot",
-    }, "github-devloop/issue/owner/repo/42"), false)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
-      assignees = {},
-      author_login = "fkst-test-bot",
-    }, "github-devloop/issue/owner/repo/42"), true)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
-      assignees = {},
-      author_login = "human",
-    }, "github-devloop/issue/owner/repo/42"), false)
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(decision.owned, false)
+    t.eq(decision.claim_state, "other")
     t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", nil, nil, "github-devloop/pr/owner/repo/7"), false)
   end,
 
