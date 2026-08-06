@@ -8,6 +8,7 @@ local local_iteration_result = require("departments.implement.local_iteration_re
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
 local devloop_logging = require("devloop.logging")
 local durable_impl_failure = require("devloop.impl_failure")
+local workflow_codex = require("workflow_internal.codex")
 
 local exec_sync = exec_sync
 
@@ -155,7 +156,7 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
   }
 end
 
-local function execute_local_iteration_check(worktree, base_head, observe_worktree)
+local function execute_local_iteration_check(worktree, base_head, observe_worktree, exec)
   local quoted_worktree = devloop_base._shell_single_quote(worktree)
   local command = "cd " .. quoted_worktree
   if observe_worktree then
@@ -172,14 +173,18 @@ local function execute_local_iteration_check(worktree, base_head, observe_worktr
     command = command .. "export BASE=" .. devloop_base._shell_single_quote(base_head) .. " && "
   end
   command = command .. config.local_iteration_test_command()
-  return exec_sync({ cmd = command, timeout = 7200 })
+  -- The gate verifies the attempt, so it must live inside the attempt's own budget rather than
+  -- restate it: a hardcoded gate timeout drifts the moment a deployment raises
+  -- FKST_CODEX_TIMEOUT_IMPLEMENT, and then times out on work still within budget, losing the
+  -- attempt's real outcome to UNKNOWN (#2887).
+  return (exec or exec_sync)({ cmd = command, timeout = workflow_codex.role_timeout_seconds("implement") })
 end
 
-function M.local_iteration_check(worktree, base_head)
+function M.local_iteration_check(worktree, base_head, deps)
   if base_head == nil or tostring(base_head) == "" then
     error("github-devloop: local-iteration-base-missing: candidate base head is required")
   end
-  return execute_local_iteration_check(worktree, base_head, true)
+  return execute_local_iteration_check(worktree, base_head, true, deps and deps.exec or nil)
 end
 
 local function worktree_unavailability_from_command(result)
