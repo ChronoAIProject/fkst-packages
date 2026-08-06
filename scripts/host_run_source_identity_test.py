@@ -3,9 +3,17 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest import mock
 
-from host_run_fixture import HostRunHarness, commit_git_file, create_git_source, run_argv
+from host_run_fixture import (
+    HostRunHarness,
+    commit_git_file,
+    create_git_source,
+    run_argv,
+    shell_quote,
+)
 
 
 SOURCE_ID = "fkst-packages-platform"
@@ -98,6 +106,35 @@ class HostRunSourceIdentityTest(unittest.TestCase):
             self.assertIn(str(h.platform), result.stderr)
             self.assertIn("git rev-parse --is-inside-work-tree=true", result.stderr)
             self.assertIn("core.bare=true", result.stderr)
+        finally:
+            h.close()
+
+    def test_platform_work_tree_validation_ignores_git_stderr(self) -> None:
+        h = HostRunHarness()
+        try:
+            args = [
+                "--project-root",
+                str(h.website_host),
+                "--platform-root",
+                str(h.platform),
+                "--platform-packages",
+                "github-proxy",
+                "--durable-root",
+                str(h.durable),
+                "--runtime-root",
+                str(h.runtime),
+            ]
+            quoted = " ".join(shell_quote(arg) for arg in args)
+            with mock.patch.dict(os.environ, {"GIT_TRACE": "1"}):
+                result = h.run_helper(
+                    "set -euo pipefail\n"
+                    "source scripts/host_run.sh\n"
+                    f"host_run_parse_supervise_args {quoted}\n"
+                    "host_run_validate_shape\n"
+                )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("trace:", result.stderr)
         finally:
             h.close()
 

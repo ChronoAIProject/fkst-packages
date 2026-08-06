@@ -439,7 +439,7 @@ host_run_parse_supervise_args() {
 host_run_validate_shape() {
   [ -d "$HOST_RUN_PROJECT_ROOT" ] || { echo "error: project root does not exist: $HOST_RUN_PROJECT_ROOT" >&2; return 1; }
   local work_tree_result core_bare
-  if ! work_tree_result="$(git -C "$HOST_RUN_PLATFORM_ROOT" rev-parse --is-inside-work-tree 2>&1)" || [ "$work_tree_result" != "true" ]; then
+  if ! work_tree_result="$(git -C "$HOST_RUN_PLATFORM_ROOT" rev-parse --is-inside-work-tree)" || [ "$work_tree_result" != "true" ]; then
     core_bare="$(git -C "$HOST_RUN_PLATFORM_ROOT" config --bool core.bare 2>/dev/null || true)"
     printf 'error: --platform-root failed predicate git rev-parse --is-inside-work-tree=true: %s' "$HOST_RUN_PLATFORM_ROOT" >&2
     if [ "$core_bare" = "true" ]; then
