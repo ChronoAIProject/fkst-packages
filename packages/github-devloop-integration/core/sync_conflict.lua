@@ -4,6 +4,7 @@ local S = {}
 local strings = require("contract.strings")
 local decimal_checksum = strings.decimal_checksum
 local conflict_telemetry = require("devloop.conflict_telemetry")
+local sync_conflict_owner = require("devloop.sync_conflict_owner")
 
 function S.install(M)
 local max_sync_conflict_attempts = 3
@@ -191,7 +192,7 @@ function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt
     table.insert(path_lines, "- no safe path list available")
   end
 
-  local body = table.concat({
+  local body_lines = {
     "The autonomous branch sync conflict resolver exhausted its bounded retry budget.",
     "",
     "Reason: " .. devloop_base.neutralize_untrusted_comment_text(reason or "unresolved sync conflict"),
@@ -209,7 +210,27 @@ function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt
     table.concat(path_lines, "\n"),
     "",
     "Resolve the branch sync conflict manually or split the conflicting work so the rollup can make progress.",
-  }, "\n")
+  }
+  local branch_sync_ref = M.branch_sync_source_ref(
+    conflict.repo,
+    conflict.upstream_branch,
+    conflict.integration_branch
+  )
+  local owner_issue_number = sync_conflict_owner.owner_issue_number(
+    conflict.repo,
+    conflict.integration_branch
+  )
+  if tostring(conflict.source_ref and conflict.source_ref.kind or "") == tostring(branch_sync_ref.kind)
+    and tostring(conflict.source_ref and conflict.source_ref.ref or "") == tostring(branch_sync_ref.ref)
+    and owner_issue_number ~= nil then
+    table.insert(body_lines, 1, "")
+    table.insert(body_lines, 1, sync_conflict_owner.marker(
+      conflict.repo,
+      conflict.integration_branch,
+      conflict.integration_sha
+    ))
+  end
+  local body = table.concat(body_lines, "\n")
   if #body > M._max_body_len then
     body = base_ids.truncate_utf8(body, M._max_body_len)
   end

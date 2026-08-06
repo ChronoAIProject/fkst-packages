@@ -38,7 +38,7 @@ C.assignee_logins = parsers_shared.assignee_logins
 C.claim_owner = github_author_policy.claim_owner
 C.managed_bot_logins = github_author_policy.managed_bot_logins
 C.is_managed_bot_login = github_author_policy.is_managed_bot_login
-
+C.is_trusted_issue_author_login = github_author_policy.is_trusted_issue_author_login
 local claimed_label = "fkst-dev:claimed"
 local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
 local marker_attr = marker_shared.marker_attr

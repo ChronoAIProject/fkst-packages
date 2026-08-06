@@ -86,6 +86,7 @@
 {"path":"libraries/devloop/state_labels.lua","owner":"shared","reason":"lifecycle state-label definitions are shared by issue state builders and the GitHub proxy write guard."}
 {"path":"libraries/devloop/strings.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/sweep_bounds.lua","owner":"shared","reason":"sweep budget helpers are shared by issue and PR liveness scans after extraction."}
+{"path":"libraries/devloop/sync_conflict_owner.lua","owner":"shared","reason":"exact sync-conflict owner branch facts are written by integration escalation and consumed by issue implementation routing."}
 {"path":"packages/github-devloop-intake-default/departments/intake_judge/main.lua","owner":"intake","reason":"owns default intake route enable and decline policy."}
 {"path":"packages/github-devloop-intake/core/admission.lua","owner":"intake","reason":"core module owns event-driven unmanaged issue admission."}
 {"path":"packages/github-devloop-intake/core/admission_shared.lua","owner":"intake","reason":"core module shares intake admission context and capacity reconciliation across isolated fresh and replay lanes."}

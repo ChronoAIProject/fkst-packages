@@ -26,6 +26,7 @@ local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
 local m_mq = require("devloop.merge_queue")
 local external_pr_bridge = require("departments.implement.external_pr_bridge")
+local sync_conflict_owner = require("departments.implement.sync_conflict_owner")
 local implement_caps = require("implement_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
 
@@ -566,6 +567,7 @@ local function process_ready_event(event)
     current.repo = repo
     current.number = issue_number
     local managed = m_claims.managed_bot_logins()
+    local owner_route = sync_conflict_owner.detect(current, repo, managed)
     devloop_logging.log_forged_markers("implement", ready.proposal_id, current.comments)
     if tostring(current.state or ""):upper() ~= "OPEN" then
       devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "current issue is not open")
@@ -630,7 +632,8 @@ local function process_ready_event(event)
       return
     end
     local marker_ready = ready_for_implementation_version(ready, implementation_version)
-    local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
+    local branch = owner_route ~= nil and owner_route.branch
+      or devloop_base.implement_branch(repo, issue_number, branch_version)
 
     if state.state == "implementing" then
       if tostring(state.version or "") ~= tostring(marker_ready.dedup_key or "") then
@@ -658,10 +661,10 @@ local function process_ready_event(event)
       end
       local progress = nil
       local checkpoint = fact == nil and m_facts.implement_checkpoint_fact(current.comments, ready.proposal_id, marker_ready.dedup_key) or nil
-      local resume_checkpoint = checkpoint
+      local resume_checkpoint = checkpoint or (owner_route and owner_route.checkpoint)
       if fact ~= nil then
         progress = branch_progress.remote_branch_fact(core.git, fact.branch, fact.base_branch, fact)
-      else
+      elseif owner_route == nil then
         progress = branch_progress.remote_branch_fact(core.git, branch, branches.integration, {
           proposal_id = ready.proposal_id,
           dedup_key = marker_ready.dedup_key,
@@ -802,6 +805,7 @@ local function process_ready_event(event)
       expected_from_states = expected_states,
       accepted_ready_hand_off = accepted_ready_hand_off,
       bridge_marker = external_pr_bridge.detect(current, repo, managed),
+      checkpoint = owner_route and owner_route.checkpoint,
     }
   end)
   if attempt_plan == nil then

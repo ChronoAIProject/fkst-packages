@@ -1,5 +1,4 @@
 local bridge = require("contract.external_pr_bridge")
-local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local git_adapter = require("forge.git")
@@ -23,23 +22,12 @@ local function trim(value)
   return tostring(value or ""):gsub("%s+$", "")
 end
 
-local function trusted_issue_author(current, managed)
-  local author = current and current.author_login
-  if m_claims.is_managed_bot_login(author, managed) then
-    return true
-  end
-  local trusted = devloop_base.trusted_bot_login()
-  return trusted ~= nil
-    and trusted ~= ""
-    and devloop_base.strip_bot_login_suffix(author) == tostring(trusted)
-end
-
 function M.detect(current, repo, managed)
   local body = current and current.body
   if not bridge.has_marker(body) then
     return nil
   end
-  if not trusted_issue_author(current, managed) then
+  if not m_claims.is_trusted_issue_author_login(m_claims.issue_author_login(current), managed) then
     error("github-devloop: external-pr-bridge-untrusted: bridge issue body marker was not authored by a trusted bot")
   end
   local marker = bridge.find_marker(body)
