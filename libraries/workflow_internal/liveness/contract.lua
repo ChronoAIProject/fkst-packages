@@ -1,8 +1,10 @@
 local S = {}
 local restart_liveness_contract = require("workflow_internal.restart_liveness_contract")
+local Ports = require("workflow_internal.ports")
 
 function S.install(M, shared, resolved)
 resolved = resolved or {}
+local deps = Ports.restart_liveness_contract(resolved)
 local has_required_table = shared.has_required_table
 local valid_budget = shared.valid_budget
 local reachable_lifecycle_states = shared.reachable_lifecycle_states
@@ -216,7 +218,7 @@ end
 
 	local function liveness_contract_errors(rows)
 	  local errors = {}
-	  local table_rows = rows or M.restart_transition_table()
+	  local table_rows = rows or deps.ports.restart_transition_table()
   validate_restart_totality(M, table_rows, errors)
   for _, row in ipairs(table_rows) do
     if type(row.from_state) ~= "string" or row.from_state == "" then
@@ -308,7 +310,7 @@ end
 	
 	local function liveness_terminal_states(rows)
 	  local terminals = {}
-	  for _, row in ipairs(rows or M.restart_transition_table()) do
+	  for _, row in ipairs(rows or deps.ports.restart_transition_table()) do
     if row.terminal == true then
       table.insert(terminals, row.from_state)
     end
@@ -319,7 +321,7 @@ end
 	
 	local function issue_marker_liveness_sweep_states(rows)
 	  local states = {}
-	  for _, row in ipairs(rows or M.restart_transition_table()) do
+	  for _, row in ipairs(rows or deps.ports.restart_transition_table()) do
     if row.terminal == false then
       states[row.from_state] = true
     end
@@ -331,7 +333,7 @@ end
 	local function issue_marker_liveness_sweep_contract_errors(rows, sweep_states)
 	  local errors = {}
 	  local declared_states = sweep_states or issue_marker_liveness_sweep_states(rows)
-	  for _, row in ipairs(rows or M.restart_transition_table()) do
+	  for _, row in ipairs(rows or deps.ports.restart_transition_table()) do
     if row.terminal == false and declared_states[row.from_state] ~= true then
       table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal issue-marker state is not reachable by liveness sweep")
     end
