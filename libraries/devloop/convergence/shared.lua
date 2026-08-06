@@ -1,3 +1,4 @@
+local synthesis_contract = require("consensus.synthesis_contract")
 local source_refs = require("contract.source_ref")
 local strings = require("contract.strings")
 local decimal_checksum = strings.decimal_checksum
@@ -7,7 +8,7 @@ local max_digest_len = 64
 local max_attr_len = 240
 local max_question_len = 2000
 local findings_component_len = 700
-local findings_record_len = 1500
+local findings_record_len = synthesis_contract.findings_record_max_bytes
 
 local function normalize_text(value)
   return tostring(value or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
