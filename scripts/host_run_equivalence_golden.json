@@ -33,6 +33,8 @@
       "$ROOT/dogfood/pkgs-dogfood/packages/idle-detector",
       "--package-root",
       "$ROOT/dogfood/pkgs-dogfood/packages/git-branch-detector",
+      "--package-root",
+      "$ROOT/dogfood/pkgs-dogfood/packages/github-devloop-worktree-gc",
       "--framework-bin",
       "$ROOT/fake-fkst-framework"
     ],
@@ -87,6 +89,8 @@
       "$ROOT/dogfood/substrate-dogfood/pkgs/packages/idle-detector",
       "--package-root",
       "$ROOT/dogfood/substrate-dogfood/pkgs/packages/git-branch-detector",
+      "--package-root",
+      "$ROOT/dogfood/substrate-dogfood/pkgs/packages/github-devloop-worktree-gc",
       "--framework-bin",
       "$ROOT/fake-fkst-framework"
     ],
