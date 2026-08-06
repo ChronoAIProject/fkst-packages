@@ -465,7 +465,7 @@ return {
     handle.entity_updated_at("owner/repo", "pr", 7, 19)
     handle.issue_search(
       "owner/repo",
-      "<!-- fkst:github-proxy:issue-create:dedup/1 -->",
+      "fkst:github-proxy:issue-create:dedup/1",
       "number,title,state,author,body,url",
       20
     )
@@ -522,7 +522,7 @@ return {
     )
     assert_argv_equal(
       calls[10].argv,
-      { "gh", "issue", "list", "--repo", "owner/repo", "--state", "all", "--limit", "100", "--search", "<!-- fkst:github-proxy:issue-create:dedup/1 -->", "--json", "number,title,state,author,body,url" },
+      { "gh", "issue", "list", "--repo", "owner/repo", "--state", "all", "--limit", "100", "--search", "fkst:github-proxy:issue-create:dedup/1", "--json", "number,title,state,author,body,url" },
       "issue_search"
     )
     assert_argv_equal(
