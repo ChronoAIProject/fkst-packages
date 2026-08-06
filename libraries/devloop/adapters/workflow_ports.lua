@@ -36,6 +36,12 @@ function M.from_devloop(devloop)
       return require_devloop_function(devloop, "restart_durable_marker_fields")(...)
     end
   end
+  if devloop.restart_responsibility_inventory_errors ~= nil then
+    require_devloop_function(devloop, "restart_responsibility_inventory_errors")
+    ports.restart_responsibility_inventory_errors = function(...)
+      return require_devloop_function(devloop, "restart_responsibility_inventory_errors")(...)
+    end
+  end
   return ports
 end
 

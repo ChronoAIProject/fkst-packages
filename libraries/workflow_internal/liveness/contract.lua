@@ -299,7 +299,7 @@ end
 	  if #errors == 0 then
 	    for _, inventory_errors in ipairs({
 	      restart_liveness_contract.restart_liveness_inventory_errors(M, table_rows),
-	      M.restart_responsibility_inventory_errors(table_rows),
+	      deps.ports.restart_responsibility_inventory_errors(table_rows),
 	    }) do
 	      for _, err in ipairs(inventory_errors) do table.insert(errors, err) end
 	    end

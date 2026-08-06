@@ -4,6 +4,7 @@ M.names = {
   actionable_epoch_resolve = "actionable_epoch_resolve",
   dependency_release_marker = "dependency_release_marker",
   restart_durable_marker_fields = "restart_durable_marker_fields",
+  restart_responsibility_inventory_errors = "restart_responsibility_inventory_errors",
   restart_transition_table = "restart_transition_table",
   trusted_bot_login = "trusted_bot_login",
 }
@@ -12,6 +13,7 @@ M.types = {
   actionable_epoch_resolve = "function",
   dependency_release_marker = "function",
   restart_durable_marker_fields = "function",
+  restart_responsibility_inventory_errors = "function",
   restart_transition_table = "function",
   trusted_bot_login = "function",
 }
@@ -19,6 +21,7 @@ M.types = {
 M.optional = {
   [M.names.actionable_epoch_resolve] = true,
   [M.names.restart_durable_marker_fields] = true,
+  [M.names.restart_responsibility_inventory_errors] = true,
 }
 
 local groups = {
@@ -26,6 +29,7 @@ local groups = {
     M.names.actionable_epoch_resolve,
     M.names.dependency_release_marker,
     M.names.restart_durable_marker_fields,
+    M.names.restart_responsibility_inventory_errors,
     M.names.restart_transition_table,
     M.names.trusted_bot_login,
   },

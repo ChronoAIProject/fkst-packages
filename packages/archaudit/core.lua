@@ -256,6 +256,9 @@ local function liveness_model(rows)
       restart_durable_marker_fields = function(...)
         return model.restart_durable_marker_fields(...)
       end,
+      restart_responsibility_inventory_errors = function(...)
+        return model.restart_responsibility_inventory_errors(...)
+      end,
       restart_transition_table = function(...)
         return model.restart_transition_table(...)
       end,
