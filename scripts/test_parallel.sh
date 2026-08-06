@@ -96,6 +96,29 @@ raise SystemExit(0 if semantic_failures > 0 and semantic_failures == expected_fa
 PY
 }
 
+publish_test_failure_manifest() {
+  local report_dir="$1" observed_failure_units="$2"; shift 2
+  [ -n "${FKST_TESTED_COMMIT_SHA:-}" ] || return 0
+  local -a args=()
+  local spec marker
+  for spec in "$@"; do
+    args+=(--expected-report "$spec")
+  done
+  for marker in "$report_dir"/*.complete; do
+    [ -f "$marker" ] || continue
+    args+=(--completed-unit "$(basename "$marker" .complete)")
+  done
+  python3 -B "$ROOT/scripts/test_failure_manifest.py" \
+    --report-dir "$report_dir" \
+    --output "$report_dir/failure-manifest.json" \
+    --observed-failure-units "$observed_failure_units" \
+    --tested-commit "$FKST_TESTED_COMMIT_SHA" \
+    --base-commit "${FKST_TEST_BASE_COMMIT_SHA:-}" \
+    --head-commit "${FKST_TEST_HEAD_COMMIT_SHA:-}" \
+    --event-name "${GITHUB_EVENT_NAME:-}" \
+    "${args[@]}"
+}
+
 # Run one package's conformance + test(s) with its OWN ephemeral runtime/durable roots,
 # so packages running in parallel never share engine runtime/durable state (the tests'
 # real filesystem IO is FKST_RUNTIME_ROOT-relative). The collection dirs (report_dir,
@@ -114,7 +137,7 @@ PY
 run_one_package() {
   local name="$1" pkg="$2" is_pkg_composed="$3"
   local report_dir="$4" coverage_report_dir="$5" roots_parent="$6" test_failure_filter="$7"
-  local rt dur report_file coverage_dir test_project_root result=0
+  local rt dur report_file graph_report_file coverage_dir test_project_root result=0 nonsemantic_failure=0 test_rc
   local -a test_pkg_args
   # Fail CLOSED on root-setup failure: an unchecked mktemp under `set +e` would export
   # an EMPTY FKST_RUNTIME_ROOT/FKST_DURABLE_ROOT, silently defeating per-package isolation
@@ -134,6 +157,7 @@ run_one_package() {
     echo "skip single-package conformance for composed package: $name"
   elif ! run_quiet_pass "$BIN" conformance --project-root "$pkg" --package-root "$pkg"; then
     result=1
+    nonsemantic_failure=1
   fi
   if [ "$result" -eq 0 ]; then
     report_file="$report_dir/$name.json"
@@ -148,21 +172,35 @@ run_one_package() {
     test_project_root="$pkg"; test_pkg_args=(--package-root "$pkg")
     if [ "$is_pkg_composed" -eq 1 ] && ! load_composed_test_roots normal "$name"; then
       result=1
-    elif ! run_quiet_keep "$test_failure_filter" \
-        "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$report_file" --coverage "$coverage_dir"; then
-      result=1
+      nonsemantic_failure=1
     else
+      run_quiet_keep "$test_failure_filter" \
+        "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$report_file" --coverage "$coverage_dir"
+      test_rc=$?
+      [ "$test_rc" -eq 0 ] || result=1
+      if [ "$test_rc" -gt 1 ] || [ ! -f "$report_file" ]; then nonsemantic_failure=1; fi
       if [ "$is_pkg_composed" -eq 1 ] && compgen -G "$pkg/tests/run_graph*_test.lua" >/dev/null; then
-        if ! load_composed_test_roots graph "$name" || ! run_quiet_keep "$test_failure_filter" \
-            "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$report_dir/$name.graph.json" --coverage "$coverage_dir.graph"; then
+        graph_report_file="$report_dir/$name.graph.json"
+        if ! load_composed_test_roots graph "$name"; then
           result=1
+          nonsemantic_failure=1
+        else
+          run_quiet_keep "$test_failure_filter" \
+            "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$graph_report_file" --coverage "$coverage_dir.graph"
+          test_rc=$?
+          [ "$test_rc" -eq 0 ] || result=1
+          if [ "$test_rc" -gt 1 ] || [ ! -f "$graph_report_file" ]; then nonsemantic_failure=1; fi
         fi
       fi
-      if [ "$result" -eq 0 ] && [ ! -f "$coverage_dir/coverage.json" ]; then
+      if [ ! -f "$coverage_dir/coverage.json" ]; then
         echo "error: fkst-framework test --coverage did not write coverage.json for $name in $coverage_dir" >&2
         result=1
+        nonsemantic_failure=1
       fi
     fi
+  fi
+  if [ "$nonsemantic_failure" -eq 0 ] && [ -f "$report_file" ]; then
+    touch "$report_dir/$name.complete" || { rm -rf "$rt" "$dur"; return 1; }
   fi
   rm -rf "$rt" "$dur"
   return "$result"

@@ -98,6 +98,11 @@ jobs:
           FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
           test -x "$BIN"
+          export FKST_TESTED_COMMIT_SHA="$(git rev-parse HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            export FKST_TEST_BASE_COMMIT_SHA="$(git rev-parse HEAD^1)"
+            export FKST_TEST_HEAD_COMMIT_SHA="$(git rev-parse HEAD^2)"
+          fi
           scripts/run.sh test
 
       # Per-test outcomes exist in every run as `--report-json` files and were discarded with
@@ -110,6 +115,14 @@ jobs:
         with:
           name: test-reports
           path: .fkst/run/test-reports
+          if-no-files-found: warn
+
+      - name: Upload test failure manifest artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-failure-manifest
+          path: .fkst/run/test-reports/failure-manifest.json
           if-no-files-found: warn
 
       - name: Upload Lua coverage artifact

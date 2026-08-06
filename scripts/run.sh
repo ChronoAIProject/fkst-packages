@@ -165,6 +165,7 @@ cmd_check() {
   local -a units=(
     'python3 -B "$ROOT/scripts/check_repo.py"'
     'python3 -B "$ROOT/scripts/ci_workflow_test.py"'
+    'python3 -B "$ROOT/scripts/test_failure_manifest_test.py"'
     'python3 -B "$ROOT/scripts/ratchet_base_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fkst_layout.py"'
     'python3 -B "$ROOT/scripts/check_repo_dedup_test.py"'
@@ -490,7 +491,7 @@ cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a pkg_units=() ran_names=()
+  local -a pkg_units=() ran_names=() expected_test_reports=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
@@ -545,8 +546,17 @@ cmd_test() {
     ran=$((ran + 1))
     rc=0; is_composed "$pkg" || rc=$?
     case "$rc" in
-      0) pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 1 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")"); ran_names+=("$name") ;;
-      1) pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 0 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")"); ran_names+=("$name") ;;
+      0)
+        pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 1 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")")
+        ran_names+=("$name"); expected_test_reports+=("$name=$name.json")
+        if compgen -G "$pkg/tests/run_graph*_test.lua" >/dev/null; then
+          expected_test_reports+=("$name=$name.graph.json")
+        fi
+        ;;
+      1)
+        pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 0 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")")
+        ran_names+=("$name"); expected_test_reports+=("$name=$name.json")
+        ;;
       *) echo "error: failed to read package composition for $pkg" >&2; fail=$((fail + 1)) ;;
     esac
   done
@@ -590,9 +600,13 @@ cmd_test() {
     else
       [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
     fi
+    publish_test_failure_manifest "$report_dir" "$fail" "${expected_test_reports[@]}" \
+      || echo "warning: could not publish the test failure manifest" >&2
     finish_test_reports "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
+  publish_test_failure_manifest "$report_dir" "$fail" "${expected_test_reports[@]}" \
+    || echo "warning: could not publish the test failure manifest" >&2
   finish_test_reports "$report_dir"
   echo "OK: $ran package(s)"
   local_iteration_result_pass

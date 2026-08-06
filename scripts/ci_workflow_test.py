@@ -89,6 +89,15 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_test_failure_manifest_is_bound_to_the_checked_out_commits(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertIn('FKST_TESTED_COMMIT_SHA="$(git rev-parse HEAD)"', workflow)
+        self.assertIn('FKST_TEST_BASE_COMMIT_SHA="$(git rev-parse HEAD^1)"', workflow)
+        self.assertIn('FKST_TEST_HEAD_COMMIT_SHA="$(git rev-parse HEAD^2)"', workflow)
+        self.assertIn("name: test-failure-manifest", workflow)
+        self.assertIn("path: .fkst/run/test-reports/failure-manifest.json", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
