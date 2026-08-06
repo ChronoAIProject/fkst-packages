@@ -225,14 +225,6 @@ local function generator_deps(core, deps)
   }
 end
 
-local function run_generator(core, deps, ctx, slot, predecessor_ref)
-  local generated, reason = generator.run_slot_generator(generator_deps(core, deps), ctx, slot, predecessor_ref)
-  if generated == nil then
-    return nil, reason or "generator-failed"
-  end
-  return generated, nil
-end
-
 local function make_worktree(identity)
   if type(exec_sync) ~= "function" then
     return nil
@@ -308,16 +300,42 @@ local function perform_materialize(core, deps, repo, issue_number, origin, bluep
     return true
   end
 
-  local generated_spec, gen_reason = run_generator(core, deps, {
+  local generator_result = generator.run_slot_generator(generator_deps(core, deps), {
     origin_proposal_id = origin,
     workflow_id = record.blueprint.id,
     predecessor_ref_digest = predecessor_ref_digest,
     event_ts = event and event.ts,
     worktree = generator_worktree(deps, slot, planned_child_dedup),
   }, slot, predecessor)
-  if generated_spec == nil then
-    return terminal(core, deps, repo, issue_number, origin, "error", gen_reason, unit)
+  if type(generator_result) ~= "table" then
+    error("github-devloop-workflow: generator-result-invalid: slot generator returned a non-table result")
   end
+  if generator_result.disposition == "retry" then
+    local reason_code = generator_result.reason_code or "generator-codex-failed"
+    devloop_logging.log_error_fact(
+      "warn",
+      M.DEPT,
+      origin,
+      "GENERATOR_ATTEMPT_RETRY",
+      reason_code,
+      event and event.queue,
+      "workflow generator attempt did not produce a usable child spec",
+      {
+        source_ref = discovery.safe_source_ref(repo, issue_number),
+        attempt = event and event.attempt,
+        terminal = false,
+      }
+    )
+    unit.log_decision(origin, "materialization", "generator", "retry(generator-attempt)", reason_code)
+    return "wait"
+  end
+  if generator_result.disposition == "cannot_proceed" then
+    return terminal(core, deps, repo, issue_number, origin, "error", generator_result.reason_code, unit)
+  end
+  if generator_result.disposition ~= "ready" or type(generator_result.spec) ~= "table" then
+    error("github-devloop-workflow: generator-result-invalid: slot generator returned an invalid disposition")
+  end
+  local generated_spec = generator_result.spec
 
   local latch = materialization.latch_generated(facts, key, generated_spec)
   devloop_logging.log_line("info", M.DEPT, origin, "LATCH", {
