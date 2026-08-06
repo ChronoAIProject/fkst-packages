@@ -304,8 +304,15 @@ local function find_step_raise(step, queue, predicate)
   return nil
 end
 
+local function next_redrive_payload(fixing, redrive_delivery)
+  return payloads_builders.build_replayed_fixing_payload({
+    proposal_id = fixing.proposal_id,
+    impl_version = fixing.version,
+  }, pr_number, fixing, entity_lib.pr_source_ref(repo, pr_number), redrive_delivery)
+end
+
 return {
-  test_rejected_review_handoff_timeout_arrives_at_and_is_accepted_by_fix = function()
+  test_successive_fixing_redrives_deliver_distinct_marker_writes_to_github_proxy = function()
     h.reset_pr_helper_state()
     local fixing, feedback_body = drive_pr_to_fixing()
     mock_env(repo)
@@ -319,6 +326,7 @@ return {
       graph.assert_covers(trace, {
         "github-devloop-pr.devloop_liveness_tick -> github-devloop-pr.liveness_scan",
         "github-devloop-pr.devloop_fixing -> github-devloop-pr.fix",
+        "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment",
       })
 
       local redrive, scan_step = graph.require_raise(
@@ -329,9 +337,15 @@ return {
         queue = "github-devloop-pr.devloop_fixing",
         consumer = "github-devloop-pr.fix",
       })
+      local first_proxy_step = graph.require_delivery(trace, {
+        queue = "github-proxy.github_pr_comment_request",
+        consumer = "github-proxy.github_pr_comment",
+      })
       t.eq(scan_step.consumer, "github-devloop-pr.liveness_scan")
       t.eq(fix_step.status, "accepted")
       t.eq(fix_step.exit_code, 0)
+      t.eq(first_proxy_step.status, "accepted")
+      t.eq(first_proxy_step.exit_code, 0)
       t.eq(v_fixing.is_supported_fixing(redrive.payload), true)
       t.eq(redrive.payload.version, fixing.version)
       t.eq(redrive.payload.work_unit_key, fixing.work_unit_key)
@@ -367,6 +381,52 @@ return {
         end
       )
       t.is_true(reviewing ~= nil)
+
+      local second_payload = next_redrive_payload(fixing, {
+        generation_key = redrive.payload.redrive_delivery.generation_key,
+        attempt = 2,
+      })
+      t.eq(v_fixing.is_supported_fixing(second_payload), true)
+      mock_frozen_pr(fixing, feedback_body, {
+        updated_at = "2026-06-03T00:00:01Z",
+      })
+      local second_trace = graph.require_quiescent(graph.run({
+        queue = "github-devloop-pr.devloop_fixing",
+        payload = second_payload,
+        source_ref = {
+          kind = second_payload.source_ref.kind,
+          reference = second_payload.source_ref.ref,
+        },
+      }, { max_steps = 8 }))
+      graph.assert_covers(second_trace, {
+        "github-devloop-pr.devloop_fixing -> github-devloop-pr.fix",
+        "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment",
+      })
+      local second_fix_step = graph.require_delivery(second_trace, {
+        queue = "github-devloop-pr.devloop_fixing",
+        consumer = "github-devloop-pr.fix",
+      })
+      local second_proxy_step = graph.require_delivery(second_trace, {
+        queue = "github-proxy.github_pr_comment_request",
+        consumer = "github-proxy.github_pr_comment",
+      })
+      local second_reviewing = find_step_raise(
+        second_fix_step,
+        "github-proxy.github_pr_comment_request",
+        function(raised)
+          return raised.payload
+            and raised.payload.handoff
+            and raised.payload.handoff.kind == "github-devloop.reviewing"
+        end
+      )
+      t.is_true(second_reviewing ~= nil)
+      t.eq(second_fix_step.status, "accepted")
+      t.eq(second_fix_step.exit_code, 0)
+      t.eq(second_proxy_step.status, "accepted")
+      t.eq(second_proxy_step.exit_code, 0)
+      t.eq(reviewing.payload.dedup_key, redrive.payload.dedup_key)
+      t.eq(second_reviewing.payload.dedup_key, second_payload.dedup_key)
+      t.is_true(reviewing.payload.dedup_key ~= second_reviewing.payload.dedup_key)
       t.eq(h.count_calls("codex exec"), 0)
     end)
   end,
