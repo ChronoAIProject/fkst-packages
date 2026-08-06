@@ -490,7 +490,21 @@ function M.new(deps)
     })
   end
 
-  local function mock_git_commit(new_head, branch, cached_diff_result)
+  local function mock_result_checkpoint(head_sha, branch)
+    t.mock_command("commit --allow-empty -m", {
+      stdout = "[" .. tostring(branch or "devloop-owner-repo-42-01HY")
+        .. " 7654321] implementation result receipt\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-parse HEAD", {
+      stdout = (head_sha or "def456") .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
+  local function mock_git_commit(new_head, branch, cached_diff_result, receipt_head)
     t.mock_command("git -C", {
       stdout = "",
       stderr = "",
@@ -514,6 +528,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_result_checkpoint(receipt_head or new_head, branch)
   end
 
   local function mock_git_push(branch)
@@ -565,9 +580,15 @@ function M.new(deps)
     })
   end
 
-  local function mock_branch_diff_paths(stdout)
+  local function mock_branch_diff_paths(stdout, receipt_subject)
     t.mock_command("diff --name-only", {
       stdout = stdout or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("cat-file -p", {
+      stdout = "tree aaaaaaa\nparent bbbbbbb\n\n"
+        .. tostring(receipt_subject or "ordinary implementation progress") .. "\n",
       stderr = "",
       exit_code = 0,
     })
@@ -586,6 +607,19 @@ function M.new(deps)
       stdout = merge and merge.candidate_diff_stdout or "",
       stderr = merge and merge.candidate_diff_stderr or "",
       exit_code = merge and merge.candidate_diff_exit_code or 0,
+    })
+  end
+
+  local function mock_fix_worktree_precondition(branch)
+    t.mock_command("reset --hard refs/heads/" .. tostring(branch), {
+      stdout = "HEAD is now at def456 reviewed head\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("clean -fd", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
     })
   end
 
@@ -609,6 +643,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -674,6 +709,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -724,6 +760,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    mock_fix_worktree_precondition(branch)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -836,6 +873,7 @@ function M.new(deps)
     mock_noncanonical_implement_worktree_conflict = mock_noncanonical_implement_worktree_conflict,
     mock_existing_implement_branch = mock_existing_implement_branch,
     mock_git_commit = mock_git_commit,
+    mock_result_checkpoint = mock_result_checkpoint,
     mock_git_push = mock_git_push,
     mock_existing_devloop_worktree = mock_existing_devloop_worktree,
     mock_implement_codex = mock_implement_codex,

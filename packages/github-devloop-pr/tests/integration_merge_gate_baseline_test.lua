@@ -572,10 +572,12 @@ return {
     })
 
     local result = run_merge(event, opts("merge-ci-red-synthetic-rollup-sha", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     local comment_body = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
     t.is_true(comment_body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(comment_body:find('reason="integration-ci-red"', 1, true) ~= nil)
     t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
   end,
 
@@ -596,8 +598,12 @@ return {
     })
 
     local result = run_merge(event, opts("merge-ci-red-sha-mismatch", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    local comment_body = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
+    t.is_true(comment_body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(comment_body:find('reason="integration-ci-red"', 1, true) ~= nil)
     t.eq(count_calls("gh pr merge"), 0)
   end,
 }

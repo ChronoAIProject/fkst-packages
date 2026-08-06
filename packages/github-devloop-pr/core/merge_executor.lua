@@ -505,7 +505,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
           current_pr, branches, mergeable_reason, merge_ready.proposal_id)
         if stale_mergeability then
           log_gate(merge_ready, "dry-run", stale_reason)
-          error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
+          return ci_wait.hold(core, merge_ready, repo, current_pr, {
+            kind = "MERGEABILITY_WAIT",
+            reason = mergeable_reason,
+          })
         end
         if not write_enabled then
           log_gate(merge_ready, "dry-run", "speculative fix requires FKST_GITHUB_WRITE=1")
@@ -557,24 +560,36 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       proposal_id = merge_ready.proposal_id,
     })
     if parsers_misc.is_ci_red_reason(gate_reason) then
-      log_gate(merge_ready, "fixing", gate_reason)
-      local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
+      local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
         current_pr.head_sha, queue_position, "gh-pr-merge-ci-classification-failed")
       if mismatch == "head-mismatch" then
         log_gate(merge_ready, "reviewing", "head-sha-mismatch")
         raise_reviewing_for_current_head(repo, issue_number, merge_ready, state, observed_pr, "head-sha-mismatch")
       end
+      if outcome ~= nil and outcome.status == "hold" then
+        return outcome
+      end
       return
     end
+    if ci_wait.is_mergeability_wait(current_pr, mergeable_reason) then
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = mergeable_reason,
+      })
+    end
     if not check_runs.is_not_mergeable_reason(mergeable_reason) then
-      log_gate(merge_ready, "dry-run", mergeable_reason)
-      error("github-devloop: merge-gate-wait: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
+      devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state,
+        "merge-ready", "merging", "fail-closed(mergeability-facts)", mergeable_reason)
+      error("github-devloop: pr-fact-incomplete: " .. tostring(mergeable_reason))
     end
     local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
       current_pr, branches, mergeable_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: mergeability-stale: merge wait on " .. tostring(stale_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = mergeable_reason,
+      })
     end
     log_gate(merge_ready, "fixing", mergeable_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason, queue_position)
@@ -587,12 +602,14 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
   })
   if not rollup_green then
     if rollup_reason == "rollup-red" then
-      log_gate(merge_ready, "fixing", rollup_reason)
-      local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
+      local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
         current_pr.head_sha, queue_position, "gh-pr-merge-ci-classification-failed")
       if mismatch == "head-mismatch" then
         log_gate(merge_ready, "reviewing", "head-sha-mismatch")
         raise_reviewing_for_current_head(repo, issue_number, merge_ready, state, observed_pr, "head-sha-mismatch")
+      end
+      if outcome ~= nil and outcome.status == "hold" then
+        return outcome
       end
       return
     end
@@ -614,7 +631,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       else
         log_gate(merge_ready, "dry-run", rollup_reason)
       end
-      error("github-devloop: merge-ci-wait: merge wait on " .. tostring(rollup_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "CI_WAIT",
+        reason = rollup_reason,
+      })
     end
     log_gate(merge_ready, "fixing", rollup_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, rollup_reason, queue_position)
@@ -718,37 +738,47 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and parsers_misc.is_ci_red_reason(merge_reason) then
-    log_gate(merge_ready, "fixing", merge_reason)
-    local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, rechecked_state,
+    local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, rechecked_state,
       merge_rechecked_pr.head_sha, queue_position, "write-time own-CI classification failed")
     if mismatch == "head-mismatch" then
       log_gate(merge_ready, "reviewing", "head-sha-mismatch")
       raise_reviewing_for_current_head(repo, issue_number, merge_ready, rechecked_state, observed_pr, "head-sha-mismatch")
     end
+    if outcome ~= nil and outcome.status == "hold" then
+      return outcome
+    end
     return
   end
-  if not merge_ok and parsers_misc.is_ci_wait_reason(merge_reason) then
+  if not merge_ok and (parsers_misc.is_ci_wait_reason(merge_reason)
+    or merge_reason == "missing-status-rollup") then
     log_gate(merge_ready, "hold", merge_reason)
-    ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
+    return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
       reason = merge_reason,
     })
-    return
   end
   if not merge_ok and check_runs.is_not_mergeable_reason(merge_reason) then
     local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
       merge_rechecked_pr, branches, merge_reason, merge_ready.proposal_id)
     if stale_mergeability then
       log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: write-time-mergeability-stale: merge wait on write-time " .. tostring(stale_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = merge_reason,
+      })
     end
     log_gate(merge_ready, "fixing", merge_reason)
     raise_fixing(repo, issue_number, merge_ready, rechecked_state, merge_rechecked_pr, merge_reason, queue_position)
     return
   end
-  if not merge_ok and (merge_reason == "rollup-pending" or merge_reason == "mergeable-unknown") then
-    log_gate(merge_ready, "dry-run", merge_reason)
-    error("github-devloop: write-time-merge-wait: merge wait on write-time " .. tostring(merge_reason) .. "; retrying")
+  if not merge_ok and ci_wait.is_mergeability_wait(
+    merge_rechecked_pr or rechecked_pr_for_gate,
+    merge_reason
+  ) then
+    return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
+      kind = "MERGEABILITY_WAIT",
+      reason = merge_reason,
+    })
   end
   if not merge_ok and tostring(merge_reason or ""):find("retry%-pending%(high%-risk%-review%-evidence", 1) ~= nil then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, rechecked_state, "merge-ready", "merging", merge_reason, "trusted high-risk review evidence marker is not visible")

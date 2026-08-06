@@ -21,6 +21,7 @@ local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
 local attempt_runner = require("departments.implement.attempt")
 local branch_progress = require("departments.implement.branch_progress")
+local result_checkpoint = require("departments.implement.result_checkpoint")
 local dispatch_live_run = require("devloop.dispatch_live_run")
 local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
@@ -257,17 +258,17 @@ local function merge_integration_for_implementation(worktree, integration_branch
   return false
 end
 
-local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, receiver_state, snapshot, decision, lock_key)
-  local worktree = bridge_marker ~= nil
+local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key)
+  local worktree = bridge_marker ~= nil and completed_result == nil
     and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
     or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
+  local codex_started_at, exec_ref = now(), core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
+  if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil end
   local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
   cache_preparation.run(worktree)
 
-  local codex_started_at = now()
-  local exec_ref = core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
   raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration,
     base_head, attempt, codex_started_at, exec_ref, snapshot, decision)
   local receiver_authorization = restart_sink_grants.implement_receiver(implement_caps, {
@@ -278,8 +279,8 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
 end
 
 local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree,
-    codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue)
-  return attempt_runner.run({
+    codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue, completed_result)
+  local args = {
     repo = repo,
     issue_number = issue_number,
     ready = ready,
@@ -300,7 +301,10 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
     codex_identity = convergence_identity.from_parts("implement", ready.proposal_id, ready.dedup_key, {
       angle_lane = "worker",
     }),
-  })
+  }
+  if completed_result ~= nil then args.head_sha = completed_result.head_sha end
+  if completed_result ~= nil then return attempt_runner.resume(args) end
+  return attempt_runner.run(args)
 end
 
 local function raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
@@ -656,7 +660,7 @@ local function process_ready_event(event)
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation attempt heartbeat is still live")
         return
       end
-      local progress = nil
+      local progress, completed_result = nil, nil
       local checkpoint = fact == nil and m_facts.implement_checkpoint_fact(current.comments, ready.proposal_id, marker_ready.dedup_key) or nil
       local resume_checkpoint = checkpoint
       if fact ~= nil then
@@ -673,6 +677,10 @@ local function process_ready_event(event)
           progress.dedup_key = marker_ready.dedup_key
           pr_child_handoff.raise_awaiting_pr_from_fact("implement", repo, issue_number, marker_ready, current, progress, "implementing remote branch progress is visible")
           return
+        elseif result_checkpoint.rehydrate(core.git, progress, marker_ready.dedup_key) ~= nil then
+          completed_result = progress
+          resume_checkpoint = progress
+          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "resume-completed-result(remote-progress)", "version-bound implementation result is durable; resuming harvest")
         elseif checkpoint_matches_progress(checkpoint, progress) then
           resume_checkpoint = checkpoint
           devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-wip-checkpoint(remote-progress)", "remote branch progress is a WIP checkpoint; retrying implementation attempt")
@@ -691,7 +699,10 @@ local function process_ready_event(event)
             pr_child_handoff.raise_awaiting_pr_from_fact("implement", repo, issue_number, marker_ready, current, local_progress, "local implementation branch progress is visible")
             return
           end
-          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-unmarked-progress(local-progress)", "local branch progress has no durable implementing fact; retrying implementation attempt")
+          completed_result = result_checkpoint.rehydrate(core.git, local_progress, marker_ready.dedup_key)
+          local decision = completed_result ~= nil and "resume-completed-result(local-progress)" or "skip-unmarked-progress(local-progress)"
+          local reason = completed_result ~= nil and "version-bound implementation result is durable; resuming harvest" or "local branch progress has no durable implementing fact; retrying implementation attempt"
+          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", decision, reason)
         end
       end
       local has_recoverable_progress = progress ~= nil or local_progress ~= nil
@@ -713,10 +724,11 @@ local function process_ready_event(event)
         branches = branches,
         branch = branch,
         base_head = base_head,
-        attempt = attempts + 1,
+        attempt = completed_result ~= nil and math.max(attempts, 1) or attempts + 1,
         expected_from_states = { "implementing" },
         bridge_marker = external_pr_bridge.detect(current, repo, managed),
         checkpoint = resume_checkpoint,
+        completed_result = completed_result,
       }
       return
     end
@@ -842,7 +854,7 @@ local function process_ready_event(event)
       worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
-        attempt_plan.bridge_marker, attempt_plan.checkpoint, pre_spawn_state,
+        attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
     end
   end)
@@ -853,7 +865,8 @@ local function process_ready_event(event)
   local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
     attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
     attempt_plan.base_head, worktree, codex_started_at, exec_ref,
-    receiver_authorization, attempt_plan.attempt, event.ts, event.queue)
+    receiver_authorization, attempt_plan.attempt, event.ts, event.queue,
+    attempt_plan.completed_result)
   if outcome == nil then return end
   with_lock(lock_key, function()
     local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,

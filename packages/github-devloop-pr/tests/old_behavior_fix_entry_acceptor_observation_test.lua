@@ -169,6 +169,19 @@ local function sink_probe_fixture(disposition, feedback)
   }
 end
 
+local function live_implement_owner_fixture()
+  return {
+    disposition = "live-implement-worktree-owner",
+    status = "rejected",
+    reason = "live-implement-owner",
+    cas = "deferred-live-owner",
+    target = "defer",
+    source_line = 219,
+    worktree_owner_role = "implement",
+    effects = ra.json_array(),
+  }
+end
+
 local SINK_PROBES = ra.json_array({
   {
     id = "r9-shadow-fix-reviewing-changes-requested-idempotent",
@@ -366,6 +379,10 @@ local function capture(fixture)
     "worktree " .. WORKTREE .. "\nbranch refs/heads/" .. BRANCH .. "\n\n") end
   function ports.git.fetch_branch(_, branch) return git_result("fetch_branch", { branch = branch }) end
   function ports.git.remote_branch_head() return git_result("remote_branch_head", nil, "abc123\n") end
+  function ports.git.reset_hard_branch(_, branch)
+    return git_result("reset_hard_branch", { branch = branch })
+  end
+  function ports.git.clean_fd() return git_result("clean_fd") end
   function ports.git.merge_no_edit() return git_result("merge_no_edit") end
   function ports.git.unmerged_paths() return git_result("unmerged_paths") end
   function ports.git.status_porcelain()
@@ -401,6 +418,22 @@ local function capture(fixture)
     return { kind = "context-bundle", ref = "entry-fix" }
   end, restorations)
   ra.replace(dispatch_live_run, "dispatch_live_run_dedup", function() return fixture.live_run == true end, restorations)
+  local codex_run_reads = 0
+  ra.replace(fkst, "codex_runs", function()
+    codex_run_reads = codex_run_reads + 1
+    local running = ra.json_array()
+    if fixture.worktree_owner_role ~= nil then
+      table.insert(running, {
+        run_id = "live-worktree-owner",
+        role = fixture.worktree_owner_role,
+        proposal_id = fix.proposal_id,
+        dedup_key = "ready/implementation-still-running",
+        status = "running",
+        lease_expires_at_ms = now() * 1000,
+      })
+    end
+    return { running = running, recent = ra.json_array() }
+  end, restorations)
   if fixture.speculative_refix then
     ra.replace(merge_queue, "merge_queue_predecessors", function()
       return {{
@@ -427,10 +460,23 @@ local function capture(fixture)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)
   ra.restore_all(restorations)
+  if fixture.worktree_owner_role ~= nil then
+    local destructive_calls = 0
+    for _, write in ipairs(ports.git_model.writes) do
+      if write.kind == "reset_hard_branch" or write.kind == "clean_fd"
+        or write.kind == "merge_no_edit" then
+        destructive_calls = destructive_calls + 1
+      end
+    end
+    t.eq(codex_run_reads, 1, "role-agnostic worktree owner query count")
+    t.eq(destructive_calls, 0, "live implement owner prevents worktree mutation")
+    t.eq(#captured.effect_sequence, 0, "live implement owner prevents codex and publish effects")
+  end
   if fixture.error then
     t.is_true(tostring(result.failure.error):find(fixture.error, 1, true) ~= nil,
       fixture.disposition .. ": exact fail-closed error")
-  elseif fixture.dry_run or fixture.codex == "deferred" or fixture.codex == "failed" or fixture.codex == "no-fix" or fixture.codex == "no-new-head"
+  elseif fixture.dry_run or fixture.worktree_owner_role ~= nil
+      or fixture.codex == "deferred" or fixture.codex == "failed" or fixture.codex == "no-fix" or fixture.codex == "no-new-head"
       or fixture.codex == "changed" or fixture.codex == "existing-head" then
     -- These dispositions are defined by the dispatch/apply branch; their exact effects make the route observable.
   else
@@ -458,6 +504,12 @@ local function capture(fixture)
 end
 
 return {
+  test_live_implement_owner_with_same_proposal_defers_without_touching_worktree = function()
+    local record = capture(live_implement_owner_fixture())
+    t.eq(record.old_outcome.reason_code, "live-implement-owner")
+    t.eq(#record.old_outcome.emitted_effects, 0)
+  end,
+
   test_fix_codex_and_publish_sinks_consume_exact_grants = function()
     local original = restart_effects.verify_grant
     local verified = {}

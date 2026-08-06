@@ -164,11 +164,14 @@ return {
 
   test_label_mode_is_self_owned_uses_label_presence = function()
     mock_env("fkst-test-bot", "label", "")
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = { claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = { claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
     -- Unassigned + self author still self-owned (fork-and-block isolation).
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
     -- Unclaimed + other author => not self-owned.
-    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
+    t.eq(m_claims.is_self_owned_issue(
+      { assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
   end,
 
   test_label_mode_claim_adds_label_then_verifies_winner = function()
