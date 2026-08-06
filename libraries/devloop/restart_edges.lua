@@ -4,6 +4,22 @@ local function is_nonempty_string(value)
   return type(value) == "string" and value ~= ""
 end
 
+local function reserve_unique_edge_id(seen_ids, id)
+  if seen_ids[id] then
+    error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
+  end
+  seen_ids[id] = true
+end
+
+local function new_unique_edge(seen_ids, id, owner, row_id)
+  reserve_unique_edge_id(seen_ids, id)
+  return {
+    id = id,
+    owner = owner,
+    row_id = row_id,
+  }
+end
+
 local function build_inventory_edge_id(owner, row_id, kind, semantic_variant)
   return owner .. "/" .. row_id .. "/" .. kind .. "/" .. semantic_variant
 end
@@ -236,10 +252,7 @@ function M.extract_entry_edges(owner, inventory, rows)
       authored.kind,
       authored.semantic_variant
     )
-    if seen_ids[id] then
-      error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-    end
-    seen_ids[id] = true
+    reserve_unique_edge_id(seen_ids, id)
 
     local edge = {
       id = id,
@@ -269,23 +282,15 @@ function M.extract_entry_edges(owner, inventory, rows)
     for _, activation in ipairs(receiver_activations(row)) do
       validate_receiver_activation(activation)
       local id = owner .. "/" .. current_row_id .. "/entry/" .. activation.output_variant
-      if seen_ids[id] then
-        error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-      end
-      seen_ids[id] = true
-      local edge = {
-        id = id,
+      local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+      edge.kind = "entry"
+      edge.source = { state = current_row_id, boundary = activation.boundary }
+      edge.target = activation.target
+      edge.semantic_variant = activation.output_variant
+      edge.provenance = {
         owner = owner,
-        row_id = current_row_id,
-        kind = "entry",
-        source = { state = current_row_id, boundary = activation.boundary },
-        target = activation.target,
-        semantic_variant = activation.output_variant,
-        provenance = {
-          owner = owner,
-          row = current_row_id,
-          field = "receiver_activations",
-        },
+        row = current_row_id,
+        field = "receiver_activations",
       }
       attach_cas_metadata(edge, activation, "entry receiver activation")
       attach_effect_entitlements(edge, activation, "entry receiver activation")
@@ -372,10 +377,7 @@ function M.extract_operator_reentry_edges(owner, inventory)
       authored.kind,
       authored.semantic_variant
     )
-    if seen_ids[id] then
-      error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-    end
-    seen_ids[id] = true
+    reserve_unique_edge_id(seen_ids, id)
 
     local edge = {
       id = id,
@@ -481,10 +483,7 @@ function M.extract_canonicalization_edges(owner, inventory)
       authored.kind,
       authored.semantic_variant
     )
-    if seen_ids[id] then
-      error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-    end
-    seen_ids[id] = true
+    reserve_unique_edge_id(seen_ids, id)
 
     local edge = {
       id = id,
@@ -533,23 +532,15 @@ function M.extract_autonomous_edges(owner, rows)
       validate_responsibility_successor(successor)
       if successor.kind == "autonomous" then
         local id = owner .. "/" .. current_row_id .. "/autonomous/" .. successor.output_variant
-        if seen_ids[id] then
-          error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-        end
-        seen_ids[id] = true
-        local edge = {
-          id = id,
+        local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+        edge.kind = "autonomous"
+        edge.source = { state = current_row_id, boundary = nil }
+        edge.target = successor.state
+        edge.semantic_variant = successor.output_variant
+        edge.provenance = {
           owner = owner,
-          row_id = current_row_id,
-          kind = "autonomous",
-          source = { state = current_row_id, boundary = nil },
-          target = successor.state,
-          semantic_variant = successor.output_variant,
-          provenance = {
-            owner = owner,
-            row = current_row_id,
-            field = "responsibility_signature.successors",
-          },
+          row = current_row_id,
+          field = "responsibility_signature.successors",
         }
         attach_cas_metadata(edge, successor, "autonomous successor")
         attach_effect_entitlements(edge, successor, "autonomous successor")
@@ -577,23 +568,15 @@ function M.extract_guard_boundary_edges(owner, rows)
       validate_responsibility_successor(successor)
       if successor.kind == "guard_boundary" then
         local id = owner .. "/" .. current_row_id .. "/guard_boundary/" .. successor.output_variant
-        if seen_ids[id] then
-          error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-        end
-        seen_ids[id] = true
-        local edge = {
-          id = id,
+        local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+        edge.kind = "guard_boundary"
+        edge.source = { state = current_row_id, boundary = nil }
+        edge.target = successor.state
+        edge.semantic_variant = successor.output_variant
+        edge.provenance = {
           owner = owner,
-          row_id = current_row_id,
-          kind = "guard_boundary",
-          source = { state = current_row_id, boundary = nil },
-          target = successor.state,
-          semantic_variant = successor.output_variant,
-          provenance = {
-            owner = owner,
-            row = current_row_id,
-            field = "responsibility_signature.successors",
-          },
+          row = current_row_id,
+          field = "responsibility_signature.successors",
         }
         attach_cas_metadata(edge, successor, "guard_boundary edge")
         attach_effect_entitlements(edge, successor, "guard_boundary edge")
@@ -630,23 +613,15 @@ function M.extract_guard_boundary_edges(owner, rows)
           end
           if successor.kind ~= "timeout" then
             local id = owner .. "/" .. current_row_id .. "/guard_boundary/" .. guard_boundary.name .. "/" .. successor.output_variant
-            if seen_ids[id] then
-              error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-            end
-            seen_ids[id] = true
-            local edge = {
-              id = id,
+            local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+            edge.kind = "guard_boundary"
+            edge.source = { state = current_row_id, boundary = guard_boundary.name }
+            edge.target = successor.state
+            edge.semantic_variant = successor.output_variant
+            edge.provenance = {
               owner = owner,
-              row_id = current_row_id,
-              kind = "guard_boundary",
-              source = { state = current_row_id, boundary = guard_boundary.name },
-              target = successor.state,
-              semantic_variant = successor.output_variant,
-              provenance = {
-                owner = owner,
-                row = current_row_id,
-                field = "guard_boundaries",
-              },
+              row = current_row_id,
+              field = "guard_boundaries",
             }
             attach_cas_metadata(edge, successor, "guard_boundary edge")
             attach_effect_entitlements(edge, successor, "guard_boundary edge")
@@ -680,24 +655,16 @@ function M.extract_timeout_edges(owner, rows)
       end
       table.insert(id_segments, successor.output_variant)
       local id = table.concat(id_segments, "/")
-      if seen_ids[id] then
-        error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
-      end
-      seen_ids[id] = true
-      local edge = {
-        id = id,
+      local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+      edge.kind = "timeout"
+      edge.source = { state = current_row_id, boundary = boundary }
+      edge.target = successor.state
+      edge.semantic_variant = successor.output_variant
+      edge.timeout_evidence_policy_id = policy_id
+      edge.provenance = {
         owner = owner,
-        row_id = current_row_id,
-        kind = "timeout",
-        source = { state = current_row_id, boundary = boundary },
-        target = successor.state,
-        semantic_variant = successor.output_variant,
-        timeout_evidence_policy_id = policy_id,
-        provenance = {
-          owner = owner,
-          row = current_row_id,
-          field = provenance_field,
-        },
+        row = current_row_id,
+        field = provenance_field,
       }
       attach_cas_metadata(edge, successor, "timeout edge")
       attach_effect_entitlements(edge, successor, "timeout edge")

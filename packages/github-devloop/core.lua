@@ -22,8 +22,6 @@ local base = require("devloop.base")
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
-M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(...) end
-M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(...) end
 M.judgment_worktree_path = base.judgment_worktree_path
 M.max_body_len = function(...) return base.max_body_len(...) end
 M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(...) end
@@ -77,7 +75,18 @@ local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
-require("forge.merge").install(M, { github_handle = require("devloop.github_factory").production_handle })
+require("forge.merge").install(M, {
+  github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
+  log_info = function(dept, proposal_id, tag, fields)
+    return require("devloop.logging").log_line("info", dept, proposal_id, tag, fields)
+  end,
+  invalidate_pr_after_write = function(repo, pr_number)
+    return github_proxy_entity_view.invalidate_entity_after_write(repo, "pr", pr_number)
+  end,
+  pr_view_projection = parsers_pr.parse_pr_view_merge,
+})
 local git_mechanics = require("devloop.git_mechanics")
 local function dept_exec_argv(...) return exec_argv(...) end
 M.git = require("forge.git").new(dept_exec_argv)
@@ -109,6 +118,8 @@ M.restart_consumer_sources = {
 }
 require("devloop.restart").install(M, wiring.restart(M))
 require("devloop.restart.issue.pr_partition_contract").install(M)
+local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
+M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 local restart_liveness_resolved = require("devloop.liveness").with_restart_policy({
   runtime_provenance = {
     proposal_id = "github-devloop/issue/provenance/repo/1",
@@ -121,8 +132,6 @@ require("workflow_internal.restart_liveness_contract").install(M, restart_livene
 local restart_responsibility_contract = require("devloop.restart_responsibility_contract")
 M.restart_responsibility_inventory_errors = function(...) return restart_responsibility_contract.restart_responsibility_inventory_errors(M, ...) end
 M.strict_restart_responsibility_contract_errors = function(...) return restart_responsibility_contract.strict_restart_responsibility_contract_errors(M, ...) end
-local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
-M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 local ready_split_replayers = require("core.ready_split").install(M)
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
 M.replayer_registry = {

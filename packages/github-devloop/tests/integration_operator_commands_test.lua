@@ -5,6 +5,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_builders = require("devloop.markers.builders")
+local operator_reentry_inventory = require("core.restart.operator_reentry_inventory")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -94,6 +95,56 @@ local function find_issue_comment_raise(raises, needle)
     end
   end
   return nil
+end
+
+local function mock_blocked_by(issue_number, nodes)
+  local rendered = {}
+  for _, node in ipairs(nodes or {}) do
+    table.insert(rendered, string.format(
+      '{"number":%s,"state":"OPEN","stateReason":"","repository":{"nameWithOwner":"%s"}}',
+      tostring(node.number),
+      tostring(node.repo or "owner/repo")
+    ))
+  end
+  t.mock_command(core.gh_blocked_by_cmd("owner/repo", issue_number), {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":'
+      .. tostring(#rendered)
+      .. ',"pageInfo":{"hasNextPage":false},"nodes":['
+      .. table.concat(rendered, ",")
+      .. ']}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_open_blocker(issue_number)
+  t.mock_command(core.gh_issue_view_observe_cmd("owner/repo", issue_number), {
+    stdout = '{"state":"OPEN","comments":[],"author":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function blocked_dependency_reready_comments(event, state_version, marker_version, command_id)
+  local proposal_id = base_ids.proposal_id(event.repo, event.number)
+  return {
+    core.state_marker(proposal_id, "blocked", state_version),
+    "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
+      .. core.dependency_unresolvable_marker(proposal_id, marker_version, { 43 }),
+    trusted_issue_command("reready", command_id),
+  }
+end
+
+local function find_projected_state_raise(raises, proposal_id, expected_state)
+  return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    local projected = core.current_state({ payload.body }, proposal_id)
+    return projected.state == expected_state
+  end)
+end
+
+local function run_blocked_dependency_reready(event, comments, name)
+  mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", comments)
+  return run_observe(event, opts(name))
 end
 
 return {
@@ -213,6 +264,119 @@ return {
     t.is_true(ready_comment ~= nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.is_true(type(ready_comment.payload.handoff.label_request) == "table")
+  end,
+
+  test_issue_reready_command_reenters_dependency_blocked_to_ready_when_fresh_gate_is_satisfied = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "dependency-blocked/satisfied"
+    local comments = blocked_dependency_reready_comments(
+      event, blocked_version, blocked_version, "IC_issue_reready_dependency_satisfied")
+    mock_blocked_by(42, {})
+
+    local result = run_blocked_dependency_reready(
+      event, comments, "operator-issue-reready-dependency-satisfied")
+
+    t.eq(result.exit_code, 0)
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: reready")
+    t.is_true(response ~= nil)
+    t.is_true(response.payload.body:find('outcome="applied"', 1, true) ~= nil)
+    t.is_true(find_projected_state_raise(result.raises, proposal_id, "ready") ~= nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "dependency_wait"), nil)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+  end,
+
+  test_issue_reready_command_reenters_dependency_blocked_to_waiting_when_fresh_gate_is_waiting = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "dependency-blocked/waiting"
+    local comments = blocked_dependency_reready_comments(
+      event, blocked_version, blocked_version, "IC_issue_reready_dependency_waiting")
+    mock_blocked_by(42, { { number = 43 } })
+    mock_blocked_by(43, {})
+    mock_open_blocker(43)
+
+    local result = run_blocked_dependency_reready(
+      event, comments, "operator-issue-reready-dependency-waiting")
+
+    t.eq(result.exit_code, 0)
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: reready")
+    t.is_true(response ~= nil)
+    t.is_true(response.payload.body:find('outcome="applied"', 1, true) ~= nil)
+    t.is_true(find_projected_state_raise(result.raises, proposal_id, "dependency_wait") ~= nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "ready"), nil)
+  end,
+
+  test_issue_reready_command_keeps_dependency_blocked_when_fresh_gate_still_has_terminal_proof = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "dependency-blocked/verified"
+    local comments = blocked_dependency_reready_comments(
+      event, blocked_version, blocked_version, "IC_issue_reready_dependency_verified")
+    mock_blocked_by(42, { { number = 43 } })
+    mock_blocked_by(43, { { number = 42 } })
+
+    local result = run_blocked_dependency_reready(
+      event, comments, "operator-issue-reready-dependency-verified")
+
+    t.eq(result.exit_code, 0)
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: reready")
+    t.is_true(response ~= nil)
+    t.is_true(response.payload.body:find('outcome="applied"', 1, true) ~= nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "ready"), nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "dependency_wait"), nil)
+
+  end,
+
+  test_issue_reready_command_keeps_dependency_blocked_when_fresh_gate_is_unavailable = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "dependency-blocked/unavailable"
+    local comments = blocked_dependency_reready_comments(
+      event, blocked_version, blocked_version, "IC_issue_reready_dependency_unavailable")
+    t.mock_command(core.gh_blocked_by_cmd("owner/repo", 42), {
+      stdout = "",
+      stderr = "graphql failed",
+      exit_code = 1,
+    })
+
+    local result = run_blocked_dependency_reready(
+      event, comments, "operator-issue-reready-dependency-unavailable")
+
+    t.eq(result.exit_code, 0)
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: reready")
+    t.is_true(response ~= nil)
+    t.is_true(response.payload.body:find('outcome="applied"', 1, true) ~= nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "ready"), nil)
+    t.eq(find_projected_state_raise(result.raises, proposal_id, "dependency_wait"), nil)
+
+  end,
+
+  test_issue_reready_dependency_blocked_origin_must_match_current_version = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "dependency-blocked/current"
+    local mismatched = blocked_dependency_reready_comments(
+      event, blocked_version, "dependency-blocked/stale", "IC_issue_reready_dependency_stale")
+    mock_blocked_by(42, {})
+
+    local refused = run_blocked_dependency_reready(
+      event, mismatched, "operator-issue-reready-dependency-stale")
+    t.eq(refused.exit_code, 0)
+    local refusal = find_issue_comment_raise(refused.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.eq(find_projected_state_raise(refused.raises, proposal_id, "ready"), nil)
+
+    local reready_declared = false
+    for _, edge in ipairs(operator_reentry_inventory) do
+      local source = edge.source or {}
+      local cause = edge.cause_evidence or {}
+      reready_declared = reready_declared
+        or source.state == "blocked"
+          and source.boundary == "dependency-hold"
+          and cause.command == "reready"
+    end
+    t.eq(reready_declared, true)
   end,
 
   test_issue_reready_command_invalid_state_refuses = function()

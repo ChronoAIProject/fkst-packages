@@ -142,4 +142,36 @@ return {
       field = "operator_reentry_inventory.reimplement_blocked_implementation_refusal",
     },
   },
+  {
+    semantic_variant = "reready_blocked_dependency_hold",
+    owner = "github-devloop",
+    row_id = "dependency_wait",
+    kind = "operator_reentry",
+    source = {
+      state = "blocked",
+      boundary = "dependency-hold",
+    },
+    target = "dependency_wait",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/dependency_wait/operator_reentry/reready_blocked_dependency_hold/apply",
+        effect_ids = { "github-proxy.github_issue_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop/dependency_wait/operator_reentry/reready_blocked_dependency_hold/idempotent",
+        effect_ids = {},
+      },
+    },
+    pending_order = { participates = false },
+    cause_evidence = {
+      command = "reready",
+      requires_applied_certificate = true,
+      resolver = "operator_commands",
+    },
+    provenance = {
+      owner = "github-devloop",
+      row = "dependency_wait",
+      field = "operator_reentry_inventory.reready_blocked_dependency_hold",
+    },
+  },
 }

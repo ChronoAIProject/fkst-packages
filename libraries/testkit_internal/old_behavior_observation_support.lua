@@ -45,12 +45,12 @@ function M.json_array(values)
   return array
 end
 
-function M.is_json_array(value)
+local function is_json_array(value)
   return type(value) == "table" and getmetatable(value) == M.JSON_ARRAY_TAG
 end
 
 local function json_container_kind(value)
-  if M.is_json_array(value) then
+  if is_json_array(value) then
     return "array"
   end
   local length = array_length(value)
@@ -66,7 +66,7 @@ function M.copy_value(value)
   end
   local length = array_length(value)
   local copy = {}
-  if M.is_json_array(value) or (length ~= nil and length > 0) then
+  if is_json_array(value) or (length ~= nil and length > 0) then
     copy = M.json_array()
   end
   for key, field in pairs(value) do
@@ -396,7 +396,7 @@ local R11_DELIVERY_ATOMS = {
 }
 
 local function sorted_unique_strings(values, label)
-  if not M.is_json_array(values) then
+  if not is_json_array(values) then
     error(label .. " must be a JSON array", 0)
   end
   local seen = {}
@@ -436,7 +436,7 @@ local function delivery_authorizations(manifest)
     end
   end
 
-  if not M.is_json_array(manifest.authorized_delivery_atoms) then
+  if not is_json_array(manifest.authorized_delivery_atoms) then
     error("testkit-internal: r11-authorized-delivery-atoms-not-array: R11 manifest authorized_delivery_atoms must be a JSON array", 0)
   end
   local authorizations = {}
@@ -643,7 +643,7 @@ local function exact_set_difference(actual, expected)
 end
 
 local function index_records(records, label)
-  if not M.is_json_array(records) then error(label .. " must be a JSON array", 0) end
+  if not is_json_array(records) then error(label .. " must be a JSON array", 0) end
   local indexed = {}
   for _, record in ipairs(records) do
     local observation_id = type(record) == "table" and record.observation_id or nil

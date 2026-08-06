@@ -1,11 +1,14 @@
 local S = {}
 local forge_validators = require("forge.gitref")
+local forge_parse_pr_view_merge = require("forge.github_view").parse_pr_view_merge
 
 function S.install(M, shared, ci_gate, opts)
 local github = opts.github_handle
+local log_info = opts.log_info
+local invalidate_pr_after_write = opts.invalidate_pr_after_write
 local merge_attempt_limit = shared.merge_attempt_limit
 local expected_pr_identity = shared.expected_pr_identity
-local parse_pr_view_merge = M.parse_pr_view_merge
+local parse_pr_view_merge = opts.pr_view_projection or forge_parse_pr_view_merge
 local evaluate_ci_merge_gate = ci_gate.evaluate_ci_merge_gate
 
 local function is_merged_pr(pr)
@@ -80,7 +83,7 @@ local function run_verified_pr_merge(request)
       local merge_result = github("forge.merge").gh_pr_merge(repo, pr_number, merge_head_sha, 120)
       if merge_result.exit_code ~= 0 then
         if attempt < max_attempts and is_match_head_modified_error(merge_result.stderr) then
-          M.log_line("info", tostring(request.dept or "merge"), tostring(request.proposal_id or "merge"), "MATCH_HEAD_RETRY", {
+          log_info(tostring(request.dept or "merge"), tostring(request.proposal_id or "merge"), "MATCH_HEAD_RETRY", {
             "repo=" .. tostring(repo),
             "pr=" .. tostring(pr_number),
             "head_sha=" .. tostring(merge_head_sha),
@@ -92,7 +95,7 @@ local function run_verified_pr_merge(request)
         end
         error("forge.merge: gh-pr-merge-failed: gh pr merge failed: " .. tostring(merge_result.stderr))
       end
-      M.invalidate_entity_after_write(repo, "pr", pr_number)
+      invalidate_pr_after_write(repo, pr_number)
       local merged_view, merged_view_error = github("forge.merge").gh_pr_view_merge(repo, pr_number, 30)
       if merged_view == nil then
         error("forge.merge: gh-pr-post-merge-view-failed: gh pr post-merge view failed: "

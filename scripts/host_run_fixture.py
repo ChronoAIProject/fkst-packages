@@ -20,27 +20,23 @@ class HostRunHarness:
     def __init__(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.packages_host = self.root / "packages-host"
         self.substrate_host = self.root / "substrate-host"
         self.website_host = self.root / "website-host"
-        self.platform = self.root / "platform"
         self.durable = self.root / "durable"
         self.runtime = self.root / "runtime"
-        for pkg in ("github-proxy", "consensus"):
-            (self.platform / "packages" / pkg).mkdir(parents=True, exist_ok=True)
-            (self.platform / "packages" / pkg / "fkst.toml").write_text(
-                f'kind = "package"\nname = "{pkg}"\n',
-                encoding="utf-8",
-            )
-            (self.packages_host / "packages" / pkg).mkdir(parents=True, exist_ok=True)
-            (self.packages_host / "packages" / pkg / "fkst.toml").write_text(
-                f'kind = "package"\nname = "{pkg}"\n',
-                encoding="utf-8",
-            )
-        (self.packages_host / "packages" / "autochrono").mkdir(parents=True)
-        (self.packages_host / "packages" / "autochrono" / "fkst.toml").write_text(
-            'kind = "package"\nname = "autochrono"\n',
-            encoding="utf-8",
+        platform_files = {
+            f"packages/{pkg}/fkst.toml": f'kind = "package"\nname = "{pkg}"\n'
+            for pkg in ("github-proxy", "consensus")
+        }
+        self.platform, _ = create_git_source(self.root, "platform", platform_files)
+        packages_host_files = dict(platform_files)
+        packages_host_files["packages/autochrono/fkst.toml"] = (
+            'kind = "package"\nname = "autochrono"\n'
+        )
+        self.packages_host, _ = create_git_source(
+            self.root,
+            "packages-host",
+            packages_host_files,
         )
         (self.website_host / ".fkst" / "local-packages" / "site-board").mkdir(parents=True)
         self.substrate_host.mkdir()

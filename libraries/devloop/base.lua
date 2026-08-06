@@ -545,28 +545,6 @@ function C.intake_decision_dedup_key(proposal_id, current)
   })
 end
 
-function C.ci_selfheal_once_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-selfheal",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
-  })
-end
-
-function C.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
-  return dedup_key({
-    "github-devloop",
-    "ci-missing-status-observed",
-    base_ids.safe_repo(repo),
-    "pr",
-    base_ids.safe_issue(pr_number),
-    C.safe_head_segment(head_sha),
-  })
-end
-
 function C.observe_lock_key(repo, issue_number)
   return "github-devloop/transition/" .. base_ids.safe_repo(repo) .. "/issue/" .. base_ids.safe_issue(issue_number)
 end

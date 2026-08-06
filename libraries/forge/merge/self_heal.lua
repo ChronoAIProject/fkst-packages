@@ -2,15 +2,20 @@ local S = {}
 local check_runs = require("forge.github.check_runs")
 local forge_validators = require("forge.gitref")
 local git_adapter = require("forge.git")
+local self_heal_keys = require("forge.merge.self_heal_keys")
 local strings = require("contract.strings")
 
 function S.install(M, shared, ci_gate, opts)
 local github = opts.github_handle
 local git = git_adapter.production_handle
+local read_runtime_root_cmd = opts.read_runtime_root_cmd
+local mkdir_p_cmd = opts.mkdir_p_cmd
+local log_info = opts.log_info
+local invalidate_pr_after_write = opts.invalidate_pr_after_write
 local pr_rollup_green = check_runs.pr_rollup_green
 
 local function merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local runtime_result = exec_sync({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
+  local runtime_result = exec_sync({ cmd = read_runtime_root_cmd(), timeout = 30 })
   if runtime_result.exit_code ~= 0 then
     error("forge.merge: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
   end
@@ -38,7 +43,7 @@ local function rerequest_head_check_runs(repo, pr_number, head_sha, runs, propos
       error("forge.merge: gh-check-run-rerequest-failed: check-run rerequest failed: " .. tostring(result.stderr))
     end
   end
-  M.log_line("info", "merge", proposal_id, "ci-selfheal-rerequest", {
+  log_info("merge", proposal_id, "ci-selfheal-rerequest", {
     "repo=" .. tostring(repo),
     "pr=" .. tostring(pr_number),
     "head_sha=" .. tostring(head_sha),
@@ -63,12 +68,12 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
     return false, "ci-selfheal-foreign-head"
   end
   local worktree = merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local remove_result = M.git_worktree_remove_if_present(worktree, 60)
+  local remove_result = git("forge.merge").git_worktree_remove_if_present(worktree, 60)
   if remove_result.exit_code ~= 0 then
     error("forge.merge: git-worktree-remove-failed: merge CI self-heal worktree cleanup failed: " .. tostring(remove_result.stderr))
   end
   local plan = git("forge.merge").git_worktree_add_detached_plan(worktree, head_sha)
-  local mkdir_result = exec_sync({ cmd = M.mkdir_p_cmd(plan.parent_dir), timeout = 30 })
+  local mkdir_result = exec_sync({ cmd = mkdir_p_cmd(plan.parent_dir), timeout = 30 })
   if mkdir_result.exit_code ~= 0 then
     error("forge.merge: directory-setup-failed: merge CI self-heal worktree parent setup failed: " .. tostring(mkdir_result.stderr))
   end
@@ -92,8 +97,8 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
   if not forge_validators.is_git_sha(new_head_sha) or new_head_sha == head_sha then
     error("forge.merge: ci-selfheal-fresh-head-missing: merge CI self-heal did not create a fresh head")
   end
-  M.invalidate_entity_after_write(repo, "pr", pr_number)
-  M.log_line("info", "merge", proposal_id, "ci-selfheal-head-nudge", {
+  invalidate_pr_after_write(repo, pr_number)
+  log_info("merge", proposal_id, "ci-selfheal-head-nudge", {
     "repo=" .. tostring(repo),
     "pr=" .. tostring(pr_number),
     "old_head_sha=" .. tostring(head_sha),
@@ -131,7 +136,7 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
   end
   local head_sha = tostring(pr and pr.head_sha or "")
   local now_seconds = now()
-  local observed_key = M.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
+  local observed_key = self_heal_keys.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
   local first_observed_seconds = tonumber(cache_get(observed_key) or "")
   if first_observed_seconds == nil then
     first_observed_seconds = tonumber(now_seconds)
@@ -146,7 +151,7 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
   if not eligible then
     return false, reason
   end
-  local key = M.ci_selfheal_once_key(repo, pr_number, head_sha)
+  local key = self_heal_keys.ci_selfheal_once_key(repo, pr_number, head_sha)
   local ran = once(key, function()
     local rerequested, rerequest_reason = rerequest_head_check_runs(
       repo,

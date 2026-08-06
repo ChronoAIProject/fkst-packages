@@ -1,4 +1,5 @@
 local S = {}
+local workflow_ports = require("devloop.adapters.workflow_ports")
 
 local function copy_map(map)
   local out = {}
@@ -85,6 +86,7 @@ function S.install(M, resolved)
   policy.restart_source_root = M.restart_source_root
   local shared = require("workflow_internal.liveness.shared").install(M, policy)
   require("workflow_internal.liveness.contract").install(M, shared, {
+    workflow_ports = workflow_ports.from_devloop(M),
     pr_recovery = {
       allowed = {
         not_mergeable = {
