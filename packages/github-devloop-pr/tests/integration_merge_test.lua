@@ -735,4 +735,22 @@ return {
     t.is_true(wait_comment.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
   end,
 
+  test_merge_missing_mergeability_fails_closed_without_hold = function()
+    local event = merge_ready()
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "", "")
+
+    local result = run_merge(event, opts("merge-missing-mergeability", { FKST_GITHUB_WRITE = "1" }))
+    local failure = tostring(result.error or result.stderr)
+
+    t.eq(result.exit_code, 1, failure)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh pr merge"), 0)
+    t.is_true(failure:find("missing-mergeability", 1, true) ~= nil, failure)
+  end,
+
 }

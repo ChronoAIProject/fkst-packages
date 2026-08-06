@@ -571,11 +571,16 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       end
       return
     end
-    if not check_runs.is_not_mergeable_reason(mergeable_reason) then
+    if ci_wait.is_mergeability_wait(current_pr, mergeable_reason) then
       return ci_wait.hold(core, merge_ready, repo, current_pr, {
         kind = "MERGEABILITY_WAIT",
         reason = mergeable_reason,
       })
+    end
+    if not check_runs.is_not_mergeable_reason(mergeable_reason) then
+      devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state,
+        "merge-ready", "merging", "fail-closed(mergeability-facts)", mergeable_reason)
+      error("github-devloop: pr-fact-incomplete: " .. tostring(mergeable_reason))
     end
     local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(
       current_pr, branches, mergeable_reason, merge_ready.proposal_id)
