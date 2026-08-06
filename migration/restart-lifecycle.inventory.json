@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
+  "artifact_sha256": "594b4eb67f689e67afe4ad2f4a0ab40ffabef5364baf67f16de46b0890ec8a6f",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -24381,7 +24381,7 @@
         },
         {
           "kind": "runtime-disposition",
-          "ref": "devloop.logging.log_cas_decision:observe_issue:skip-idempotent(retry-limit)"
+          "ref": "devloop.logging.log_cas_decision:observe_issue:skip-pending(operator-reentry)"
         },
         {
           "kind": "runtime-event-source",
@@ -24403,11 +24403,11 @@
         "target_version": null
       },
       "old_outcome": {
-        "cas_outcome": "skip-idempotent(retry-limit)",
+        "cas_outcome": "skip-pending(operator-reentry)",
         "emitted_effects": [],
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
-        "reason_code": "implementation-failure-not-retryable",
+        "reason_code": "operator-reentry-required",
         "status": "no-op",
         "timeout_evidence_source": null
       },
