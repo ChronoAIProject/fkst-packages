@@ -7,7 +7,6 @@ resolved = resolved or {}
 local deps = Ports.restart_liveness_contract(resolved)
 local has_required_table = shared.has_required_table
 local valid_budget = shared.valid_budget
-local reachable_lifecycle_states = shared.reachable_lifecycle_states
 local valid_timeout = shared.valid_timeout
 local liveness_resolver_families = shared.liveness_resolver_families
 local liveness_signal_producers = shared.liveness_signal_producers
@@ -17,9 +16,27 @@ local numeric_minutes = shared.numeric_minutes
 local liveness_bound_minutes = shared.liveness_bound_minutes
 local source_contains = shared.source_contains
 local pr_recovery_policy = resolved.pr_recovery or {}
+local is_state = deps.ports.is_state
+local restart_lifecycle_states = deps.ports.restart_lifecycle_states
 
-local function validate_restart_totality(M, rows, errors)
-  local reachable = reachable_lifecycle_states(M)
+local function reachable_lifecycle_states()
+  local function add_to(seen, state)
+    if type(state) == "string" and state ~= "" and state ~= "unmanaged" then
+      seen[state] = true
+    end
+  end
+  if type(restart_lifecycle_states) == "table" then
+    local scoped = {}
+    for _, state in ipairs(restart_lifecycle_states) do
+      add_to(scoped, state)
+    end
+    return scoped
+  end
+  return {}
+end
+
+local function validate_restart_totality(rows, errors)
+  local reachable = reachable_lifecycle_states()
   local seen = {}
   for _, row in ipairs(rows or {}) do
     local state = row and row.from_state
@@ -219,7 +236,7 @@ end
 	local function liveness_contract_errors(rows)
 	  local errors = {}
 	  local table_rows = rows or deps.ports.restart_transition_table()
-  validate_restart_totality(M, table_rows, errors)
+  validate_restart_totality(table_rows, errors)
   for _, row in ipairs(table_rows) do
     if type(row.from_state) ~= "string" or row.from_state == "" then
       table.insert(errors, "row: missing from_state")
@@ -291,7 +308,7 @@ end
       end
     end
     for _, next_state in ipairs(row.to_states or {}) do
-      if M.is_state ~= nil and not M.is_state(next_state) then
+      if is_state ~= nil and not is_state(next_state) then
         table.insert(errors, tostring(row.from_state or "?") .. ": unknown next state " .. tostring(next_state))
       end
     end

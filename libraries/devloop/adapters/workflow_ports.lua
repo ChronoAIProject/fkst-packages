@@ -24,6 +24,12 @@ function M.from_devloop(devloop)
       return trusted_bot_login(...)
     end,
   }
+  if devloop.is_state ~= nil then
+    require_devloop_function(devloop, "is_state")
+    ports.is_state = function(...)
+      return require_devloop_function(devloop, "is_state")(...)
+    end
+  end
   if devloop.actionable_epoch_resolve ~= nil then
     require_devloop_function(devloop, "actionable_epoch_resolve")
     ports.actionable_epoch_resolve = function(...)
@@ -35,6 +41,12 @@ function M.from_devloop(devloop)
     ports.restart_durable_marker_fields = function(...)
       return require_devloop_function(devloop, "restart_durable_marker_fields")(...)
     end
+  end
+  if devloop.restart_lifecycle_states ~= nil then
+    if type(devloop.restart_lifecycle_states) ~= "table" then
+      error("devloop.adapters.workflow_ports: workflow-port-missing: missing restart_lifecycle_states")
+    end
+    ports.restart_lifecycle_states = devloop.restart_lifecycle_states
   end
   if devloop.restart_responsibility_inventory_errors ~= nil then
     require_devloop_function(devloop, "restart_responsibility_inventory_errors")

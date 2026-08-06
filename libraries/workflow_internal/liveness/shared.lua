@@ -48,24 +48,6 @@ local function valid_budget(row)
 end
 shared.valid_budget = valid_budget
 
-local function reachable_lifecycle_states(M)
-  local function add_to(seen, state)
-    if type(state) == "string" and state ~= "" and state ~= "unmanaged" then
-      seen[state] = true
-    end
-  end
-  if type(M.restart_lifecycle_states) == "table" then
-    local scoped = {}
-    for _, state in ipairs(M.restart_lifecycle_states) do
-      add_to(scoped, state)
-    end
-    return scoped
-  end
-  local seen = {}
-  return seen
-end
-shared.reachable_lifecycle_states = reachable_lifecycle_states
-
 local function valid_timeout(row)
   if type(row.on_timeout) ~= "table" then
     return false
