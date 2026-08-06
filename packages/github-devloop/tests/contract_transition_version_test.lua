@@ -422,6 +422,26 @@ return {
     t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(indeterminate), review)
   end,
 
+  test_pr_review_redrive_delivery_bounds_maximum_valid_review_identity = function()
+    local repo = string.rep("r", 48)
+    local review = devloop_base.pr_review_proposal_id(
+      repo,
+      2147483647,
+      string.rep("v", 40),
+      string.rep("a", 40)
+    )
+    local generation = "restart-liveness-v2/github-devloop/issue/" .. repo
+      .. "/42/fixing/fixing.actionable/codex_run_with_durable_hold-v1/codex-run-indeterminate/1798144657406"
+
+    t.eq(#review, 166)
+    local first = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 2)
+    local later = devloop_base.pr_review_redrive_delivery_dedup_key(review, generation, 100)
+    t.is_true(#first <= devloop_base._max_key_len)
+    t.eq(#later, #first)
+    t.is_true(later ~= first)
+    t.eq(devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(later), review)
+  end,
+
   test_devloop_state_builders_delegate_to_byte_exact_transition_constructors = function()
     local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 

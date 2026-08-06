@@ -32,7 +32,7 @@ local max_worktree_prefix_len = base_constants.max_worktree_prefix_len
 local max_branch_len = base_constants.max_branch_len
 local max_pr_title_len = base_constants.max_pr_title_len
 local max_judgment_prefix_len = base_constants.max_judgment_prefix_len
-local redrive_delivery_fingerprint_hex_len = 32
+local max_redrive_delivery_fingerprint_hex_len = 32
 local action_label = base_constants.action_label
 local intake_label = base_constants.intake_label
 local class_label = base_constants.class_label
@@ -327,6 +327,15 @@ local function pr_review_redrive_generation_code(review_repo, generation_key)
   return "f"
 end
 
+local function pr_review_redrive_key_prefix(review_proposal_id, generation_code)
+  return tostring(review_proposal_id) .. "/r/" .. generation_code .. "/"
+end
+
+local function pr_review_redrive_fingerprint_hex_len(review_proposal_id, generation_code)
+  local available = max_key_len - #pr_review_redrive_key_prefix(review_proposal_id, generation_code)
+  return math.min(max_redrive_delivery_fingerprint_hex_len, available)
+end
+
 function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_key, attempt)
   local review_repo = C.parse_pr_review_proposal_id(review_proposal_id)
   if review_repo == nil then
@@ -341,9 +350,13 @@ function C.pr_review_redrive_delivery_dedup_key(review_proposal_id, generation_k
     error("github-devloop: review-redrive-attempt-invalid: invalid PR review redrive attempt")
   end
   local attempt_text = string.format("%.0f", round)
+  local fingerprint_hex_len = pr_review_redrive_fingerprint_hex_len(review_proposal_id, generation_code)
+  if fingerprint_hex_len < 1 then
+    error("github-devloop: review-redrive-dedup-key-too-long: PR review redrive delivery dedup exceeds the consensus key bound")
+  end
   local delivery_fingerprint = sha256.hex(generation_key .. "/attempt/" .. attempt_text)
-    :sub(1, redrive_delivery_fingerprint_hex_len)
-  local key = tostring(review_proposal_id) .. "/r/" .. generation_code .. "/" .. delivery_fingerprint
+    :sub(1, fingerprint_hex_len)
+  local key = pr_review_redrive_key_prefix(review_proposal_id, generation_code) .. delivery_fingerprint
   if not is_path_safe_key(key, max_key_len) then
     error("github-devloop: review-redrive-dedup-key-too-long: PR review redrive delivery dedup exceeds the consensus key bound")
   end
@@ -366,7 +379,8 @@ local function parse_pr_review_proposal_dedup_key(dedup_key)
   if review_proposal == nil
     or not is_path_safe_key(without_loop, max_key_len)
     or generation_code == nil
-    or #tostring(delivery_fingerprint or "") ~= redrive_delivery_fingerprint_hex_len
+    or #tostring(delivery_fingerprint or "")
+      ~= pr_review_redrive_fingerprint_hex_len(review_proposal, generation_code)
     or C.parse_pr_review_proposal_id(review_proposal) == nil then
     return nil
   end

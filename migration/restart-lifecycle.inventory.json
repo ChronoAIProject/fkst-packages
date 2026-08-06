@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
+  "artifact_sha256": "52c13666e8b1125829c8d601ff6c567a93fd7d00a19f3d383c00e9827837d195",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -19137,7 +19137,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/703",
-        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/1783840000000/attempt/2"
+        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/603adeb873f68513e17f16d0047a2e23"
       },
       "old_outcome": {
         "cas_outcome": "not-applicable-direct-constructor",
@@ -19156,7 +19156,7 @@
             "payload": {
               "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Capture review proposal constructor\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-gi-1970636351/github-devloop-pr-review-owner-repo-2718475964-7-1109506126",
-              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/1783840000000/attempt/2",
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/603adeb873f68513e17f16d0047a2e23",
               "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456",
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -19185,8 +19185,8 @@
         "cause_schema_id": "github-devloop.reviewing.v1",
         "generation_epoch": {
           "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/703",
-          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/1783840000000/attempt/2",
-          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/1783840000000/attempt/2",
+          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/603adeb873f68513e17f16d0047a2e23",
+          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/603adeb873f68513e17f16d0047a2e23",
           "source_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/703"
         },
         "kind": "direct_constructor",
@@ -19540,7 +19540,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/706",
-        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/1783840000000/attempt/2"
+        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/603adeb873f68513e17f16d0047a2e23"
       },
       "old_outcome": {
         "cas_outcome": "not-applicable-direct-constructor",
@@ -19559,7 +19559,7 @@
             "payload": {
               "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Capture review proposal constructor\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-gi-2152127246/github-devloop-pr-review-owner-repo-2718475964-7-3639361983",
-              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/1783840000000/attempt/2",
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/603adeb873f68513e17f16d0047a2e23",
               "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456",
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -19588,8 +19588,8 @@
         "cause_schema_id": "github-devloop.reviewing.v1",
         "generation_epoch": {
           "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/706",
-          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/1783840000000/attempt/2",
-          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/1783840000000/attempt/2",
+          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/603adeb873f68513e17f16d0047a2e23",
+          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118408/def456/r/m/603adeb873f68513e17f16d0047a2e23",
           "source_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/706"
         },
         "kind": "direct_constructor",
@@ -19638,7 +19638,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/707",
-        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/1783840000000/attempt/2"
+        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/603adeb873f68513e17f16d0047a2e23"
       },
       "old_outcome": {
         "cas_outcome": "not-applicable-direct-constructor",
@@ -19663,7 +19663,7 @@
               ],
               "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Capture review proposal constructor\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-gi-2212624211/github-devloop-pr-review-owner-repo-2718475964-7-3050991505",
-              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/1783840000000/attempt/2",
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/603adeb873f68513e17f16d0047a2e23",
               "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456",
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -19692,8 +19692,8 @@
         "cause_schema_id": "github-devloop.reviewing.v1",
         "generation_epoch": {
           "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/707",
-          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/1783840000000/attempt/2",
-          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/1783840000000/attempt/2",
+          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/603adeb873f68513e17f16d0047a2e23",
+          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118409/def456/r/m/603adeb873f68513e17f16d0047a2e23",
           "source_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/707"
         },
         "kind": "direct_constructor",
@@ -19747,7 +19747,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/708",
-        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/1783840000000/attempt/2"
+        "target_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/603adeb873f68513e17f16d0047a2e23"
       },
       "old_outcome": {
         "cas_outcome": "not-applicable-direct-constructor",
@@ -19772,7 +19772,7 @@
               ],
               "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Capture review proposal constructor\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
               "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-gi-1437434159/github-devloop-pr-review-owner-repo-2718475964-7-2378013341",
-              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/1783840000000/attempt/2",
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/603adeb873f68513e17f16d0047a2e23",
               "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456",
               "schema": "consensus.proposal.v1",
               "source_ref": {
@@ -19801,8 +19801,8 @@
         "cause_schema_id": "github-devloop.reviewing.v1",
         "generation_epoch": {
           "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/708",
-          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/1783840000000/attempt/2",
-          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/1783840000000/attempt/2",
+          "payload_version": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/603adeb873f68513e17f16d0047a2e23",
+          "review_delivery_dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118410/def456/r/m/603adeb873f68513e17f16d0047a2e23",
           "source_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/708"
         },
         "kind": "direct_constructor",
