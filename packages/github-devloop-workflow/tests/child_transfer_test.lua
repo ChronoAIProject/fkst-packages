@@ -579,6 +579,15 @@ local tests = {
       run_transfer(state)
       mutate(state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref])
 
+      local effect_count = #state.events
+      local transfer_outcome = run_transfer(state, true)
+      t.is_true(tostring(transfer_outcome.failure.error):find(
+        "transfer-chain-acceptance-invalid",
+        1,
+        true
+      ) ~= nil)
+      t.eq(#state.events, effect_count)
+
       local ok, err = pcall(read_materialized_child_status, state)
       t.eq(ok, false)
       t.is_true(tostring(err):find("transfer-chain-acceptance-invalid", 1, true) ~= nil)
@@ -604,6 +613,9 @@ local tests = {
     local ok, err = pcall(read_materialized_child_status, state)
     t.eq(ok, false)
     t.is_true(tostring(err):find("transfer-chain-cross-repository", 1, true) ~= nil)
+
+    local poll = run_materialization_poll(state)
+    t.is_nil(terminal_request(poll.raises))
   end,
 
   test_replay_after_acceptance_visibility_commits_receipt_before_close = function()
