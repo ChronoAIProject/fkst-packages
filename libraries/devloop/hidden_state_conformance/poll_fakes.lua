@@ -5,7 +5,56 @@ local config = require("devloop.config")
 local devloop_base = require("devloop.base")
 local git_mechanics = require("devloop.git_mechanics")
 local git_commands = require("devloop.commands.git_ops")
+local devloop_logging = require("devloop.logging")
 local pr_commands = require("devloop.commands.prs")
+
+local function with_effect_capture(fn)
+  local events = {
+    decisions = {},
+    raises = {},
+    applies = {},
+  }
+  local previous_decision = devloop_logging.log_cas_decision
+  local previous_raise = devloop_logging.log_raise
+  local previous_apply = devloop_logging.log_apply
+  devloop_logging.log_cas_decision = function(dept, proposal_id, state, from_state, to_state, outcome, reason)
+    table.insert(events.decisions, {
+      dept = dept,
+      proposal_id = proposal_id,
+      state = state,
+      from_state = from_state,
+      to_state = to_state,
+      outcome = outcome,
+      reason = reason,
+    })
+  end
+  devloop_logging.log_raise = function(dept, proposal_id, queue, payload)
+    table.insert(events.raises, {
+      dept = dept,
+      proposal_id = proposal_id,
+      queue = queue,
+      payload = payload,
+    })
+  end
+  devloop_logging.log_apply = function(dept, proposal_id, apply_state, version, label_changes, queues)
+    table.insert(events.applies, {
+      dept = dept,
+      proposal_id = proposal_id,
+      apply_state = apply_state,
+      version = version,
+      label_changes = label_changes,
+      queues = queues,
+    })
+  end
+  local ok, result = pcall(fn)
+  devloop_logging.log_cas_decision = previous_decision
+  devloop_logging.log_raise = previous_raise
+  devloop_logging.log_apply = previous_apply
+  if not ok then
+    error(result)
+  end
+  return result, events
+end
 
 function S.with(core, opts, fn)
   local head_sha = opts.head_sha
@@ -81,7 +130,7 @@ function S.with(core, opts, fn)
     return "Hidden-state conformance board fixture."
   end
 
-  local ok, first, second = pcall(fn)
+  local ok, first, second = pcall(with_effect_capture, fn)
   if type(previous_children) == "function" then
     core.gh_issue_list_decompose_children = previous_children
   end

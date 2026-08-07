@@ -42,6 +42,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local branch_worktree = merge_mechanics.branch_worktree
+local branch_head_if_ahead = merge_mechanics.branch_head_if_ahead
 local merge_integration_for_fix = merge_mechanics.merge_integration_for_fix
 local current_predecessors_for_fix = merge_mechanics.current_predecessors_for_fix
 local merge_predecessor_entries_for_fix = merge_mechanics.merge_predecessor_entries_for_fix
@@ -151,29 +152,6 @@ local function assert_fix_write_gate(fix, repo, issue_number)
     "reason=PR fix requires FKST_GITHUB_WRITE=1 before codex",
   })
   return false
-end
-
-local function branch_head_if_ahead(base_head_sha, branch)
-  local ahead_result = devloop_commands.git_branch_ahead_count(base_head_sha, branch, 30)
-  if ahead_result.exit_code ~= 0 then
-    error("github-devloop: git-branch-ahead-check-failed: git branch ahead check failed: " .. tostring(ahead_result.stderr))
-  end
-  local ahead_count = tonumber(tostring(ahead_result.stdout or ""):match("%d+"))
-  if ahead_count == nil or ahead_count <= 0 then
-    return nil
-  end
-  local head_result = devloop_commands.git_branch_head(branch, 30)
-  if head_result.exit_code ~= 0 then
-    error("github-devloop: git-branch-head-check-failed: git branch head check failed: " .. tostring(head_result.stderr))
-  end
-  local branch_head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
-  if not require("devloop.pr_safety").is_safe_head_sha(branch_head_sha) then
-    error("github-devloop: deterministic-branch-head-unsafe: unsafe deterministic branch head sha")
-  end
-  if branch_head_sha == base_head_sha then
-    return nil
-  end
-  return branch_head_sha
 end
 
 local function validate_fix_write_gate_snapshot(repo, fix, branch, pr, reason_prefix, fail_closed)
