@@ -68,14 +68,14 @@ function M.new(deps)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = root, stderr = "", exit_code = 0 })
   end
 
-  local function mock_dev_base_head()
+  local function mock_dev_base_head(head_sha)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
+      stdout = tostring(head_sha or "abc123") .. "\n",
       stderr = "",
       exit_code = 0,
     })
@@ -200,13 +200,14 @@ function M.new(deps)
     }
   end
 
-  local function mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
+  local function mock_substrate_pin_refresh(worktree, base_pin, branch_pin, base_head)
     if not enable_substrate_pin_refresh then
       return
     end
     local pin = base_pin or "2222222222222222222222222222222222222222"
     local stale = branch_pin or "1111111111111111111111111111111111111111"
-    t.mock_command("git show abc123:.fkst/substrate-ref", git_show_pin_result(pin))
+    t.mock_command("git show " .. tostring(base_head or "abc123") .. ":.fkst/substrate-ref",
+      git_show_pin_result(pin))
     t.mock_command("git show", git_show_pin_result(stale))
     if worktree ~= nil then
       ensure_dir(tostring(worktree):gsub("/+$", "") .. "/.fkst")
@@ -373,11 +374,14 @@ function M.new(deps)
   end
 
   local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
-    local durable = path or default_durable_root
+    local durable, opts = worktree_options(path)
+    local base_head = opts.base_head or "abc123"
+    branch = opts.branch or branch
+    ahead_count = opts.ahead_count or ahead_count
     local stable_root = devloop_base.implementation_worktree_root(durable)
-    local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, {})
+    local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, opts)
       or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY")
-    mock_dev_base_head()
+    mock_dev_base_head(base_head)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -395,12 +399,20 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
+    local merge = opts.merge or {}
+    t.mock_command("merge --no-edit '" .. tostring(base_head) .. "'", {
+      stdout = merge.stdout or "Already up to date.\n",
+      stderr = merge.stderr or "",
+      exit_code = merge.exit_code or 0,
     })
-    mock_substrate_pin_refresh(worktree)
+    if merge.exit_code ~= nil and merge.exit_code ~= 0 then
+      t.mock_command("ls-files -u", {
+        stdout = merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
+        stderr = merge.unmerged_stderr or "",
+        exit_code = merge.unmerged_exit_code or 0,
+      })
+    end
+    mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin, base_head)
     mock_harvest_worktree(worktree, branch)
     return worktree
   end
