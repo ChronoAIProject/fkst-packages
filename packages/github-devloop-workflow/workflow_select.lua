@@ -11,6 +11,7 @@ local execution_start = require("devloop.execution_start")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local digest = require("core.digest")
+local forge_strings = require("forge.strings")
 local parsers_misc = require("devloop.parsers.misc")
 local requests_labels = require("devloop.requests.labels")
 local select_request = require("core.select_request")
@@ -121,7 +122,7 @@ end
 
 local function issue_body_author_is_trusted(current)
   local author = claims.issue_author_login(current or {})
-  return devloop_base.strip_bot_login_suffix(author) == devloop_base.trusted_bot_login()
+  return forge_strings.canonical_login(author) == forge_strings.canonical_login(devloop_base.trusted_bot_login())
 end
 
 local function trusted_workflow_lineage_header(ctx)

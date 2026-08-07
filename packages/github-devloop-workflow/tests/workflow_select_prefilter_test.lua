@@ -133,7 +133,7 @@ return {
     t.eq(workflow_select.workflow_prefilter(ctx_with_comments({})), false)
   end,
 
-  test_trusted_lineage_header_in_body_fast_paths_before_catalog = function()
+  test_app_authored_lineage_header_in_body_fast_paths_before_catalog = function()
     local payload = candidate()
     local lineage, err = core.marker.build_lineage_header("github-devloop/issue/owner/repo/7", "d-1234567890", "slot-one")
     t.is_nil(err)
@@ -149,7 +149,7 @@ return {
           current = {
             body = lineage .. "\n\nChild issue body.",
             comments = {},
-            author_login = "fkst-test-bot",
+            author_login = "app/fkst-test-bot",
           },
         }), true)
         t.eq(#raised, 2)
