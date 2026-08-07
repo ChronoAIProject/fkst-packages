@@ -5,6 +5,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local t = fkst.test
 local core = require("core")
 local author_policy = require("testkit_internal.github_author_policy")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local function json_string(value)
   return tostring(value or "")
@@ -101,6 +102,15 @@ local function mock_issue_reads()
 end
 
 local function mock_context_bundle()
+  local payload = candidate()
+  context_fixtures.materialize_context_bundle({
+    proposal_id = payload.proposal_id,
+    dedup_key = devloop_base.intake_decision_dedup_key(payload.proposal_id, {
+      title = "Repair retry backoff for failed widget sync",
+      body = "Implement exponential backoff for widget sync retries.",
+    }),
+  }, "/tmp/fkst-packages-test/github-devloop-workflow-run-graph/runtime",
+    "/tmp/fkst-packages-test/github-devloop-workflow-run-graph/runtime/context/.bundle-tmp.intake")
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   for _ = 1, 3 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })

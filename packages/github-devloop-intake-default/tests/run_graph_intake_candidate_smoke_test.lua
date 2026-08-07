@@ -6,6 +6,13 @@ local core = require("core")
 local h = require("tests.devloop_base_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+
+local context_runtime_root = "/tmp/fkst-packages-test/github-devloop-intake-default-run-graph/runtime"
+local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.intake"
+local proposal_id = "github-devloop/issue/owner/repo/42"
+local title = "Add retry backoff to failed widget sync"
+local body = "Implement exponential backoff for widget sync retries."
 
 local function encode_labels_json(labels)
   local rendered = {}
@@ -18,8 +25,8 @@ end
 local function issue_view_json()
   return string.format(
     '{"title":"%s","body":"%s","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[%s],"comments":[],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-    h.encode_json_string("Add retry backoff to failed widget sync"),
-    h.encode_json_string("Implement exponential backoff for widget sync retries."),
+    h.encode_json_string(title),
+    h.encode_json_string(body),
     encode_labels_json({})
   )
 end
@@ -60,7 +67,7 @@ local function mock_env()
       exit_code = 0,
     })
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-run-graph/runtime",
+      stdout = context_runtime_root,
       stderr = "",
       exit_code = 0,
     })
@@ -74,14 +81,21 @@ local function mock_issue_reads()
   entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state", {
     stdout = string.format(
       '{"title":"%s","body":"%s","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
-      h.encode_json_string("Add retry backoff to failed widget sync"),
-      h.encode_json_string("Implement exponential backoff for widget sync retries.")
+      h.encode_json_string(title),
+      h.encode_json_string(body)
     ),
   })
 end
 
 local function mock_context_bundle()
   local ok = { stdout = "", stderr = "", exit_code = 0 }
+  context_fixtures.materialize_context_bundle({
+    proposal_id = proposal_id,
+    dedup_key = devloop_base.intake_decision_dedup_key(proposal_id, {
+      title = title,
+      body = body,
+    }),
+  }, context_runtime_root, context_tmp_dir)
   for _ = 1, 3 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
   end
@@ -90,15 +104,15 @@ local function mock_context_bundle()
   end
   t.mock_command("install -d -m 0755", ok)
   t.mock_command("mktemp -d", {
-    stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-run-graph/runtime/context/.bundle-tmp.intake\n",
+    stdout = context_tmp_dir .. "\n",
     stderr = "",
     exit_code = 0,
   })
   entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state", {
     stdout = string.format(
       '{"title":"%s","body":"%s","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
-      h.encode_json_string("Add retry backoff to failed widget sync"),
-      h.encode_json_string("Implement exponential backoff for widget sync retries.")
+      h.encode_json_string(title),
+      h.encode_json_string(body)
     ),
   })
   entity_read_mocks.mock_issue_board_digest_list_raw(t, "owner/repo", { stdout = "[]\n" })
