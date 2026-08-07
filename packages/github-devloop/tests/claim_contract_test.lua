@@ -147,6 +147,19 @@ local function self_current(extra)
   }
 end
 
+local function fork_parent_issue_fields(marker_body, marker_author, created_at)
+  return {
+    author_login = "human",
+    created_at = created_at,
+    comments = {
+      {
+        body = marker_body,
+        author_login = marker_author,
+      },
+    },
+  }
+end
+
 local function iso_at(seconds)
   return os.date("!%Y-%m-%dT%H:%M:%SZ", seconds)
 end
@@ -613,15 +626,10 @@ return {
     mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = issue_state_json({
-        author_login = "human",
-        comments = {
-          {
-            body = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
-            author_login = "fkst-test-bot",
-          },
-        },
-      }),
+      stdout = issue_state_json(fork_parent_issue_fields(
+        '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
+        "fkst-test-bot"
+      )),
       stderr = "",
       exit_code = 0,
     })
@@ -631,15 +639,10 @@ return {
         "claim_contract",
         "owner/repo",
         42,
-        self_current({
-          author_login = "human",
-          comments = {
-            {
-              body = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
-              author_login = "fkst-test-bot",
-            },
-          },
-        }),
+        self_current(fork_parent_issue_fields(
+          '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
+          "fkst-test-bot"
+        )),
         "github-devloop/issue/owner/repo/42"
       )
     end)
@@ -663,16 +666,11 @@ return {
     mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = issue_state_json({
-        author_login = "human",
-        created_at = created_after_grace(),
-        comments = {
-          {
-            body = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
-            author_login = "ElonSG",
-          },
-        },
-      }),
+      stdout = issue_state_json(fork_parent_issue_fields(
+        '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
+        "ElonSG",
+        created_after_grace()
+      )),
       stderr = "",
       exit_code = 0,
     })
@@ -682,16 +680,11 @@ return {
         "claim_contract",
         "owner/repo",
         42,
-        self_current({
-          author_login = "human",
-          created_at = created_after_grace(),
-          comments = {
-            {
-              body = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
-              author_login = "ElonSG",
-            },
-          },
-        }),
+        self_current(fork_parent_issue_fields(
+          '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->',
+          "ElonSG",
+          created_after_grace()
+        )),
         "github-devloop/issue/owner/repo/42"
       )
     end)
@@ -707,15 +700,10 @@ return {
     mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = issue_state_json({
-        author_login = "human",
-        comments = {
-          {
-            body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
-            author_login = "fkst-test-bot",
-          },
-        },
-      }),
+      stdout = issue_state_json(fork_parent_issue_fields(
+        '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
+        "fkst-test-bot"
+      )),
       stderr = "",
       exit_code = 0,
     })
@@ -725,15 +713,10 @@ return {
         "claim_contract",
         "owner/repo",
         42,
-        self_current({
-          author_login = "human",
-          comments = {
-            {
-              body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
-              author_login = "fkst-test-bot",
-            },
-          },
-        }),
+        self_current(fork_parent_issue_fields(
+          '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
+          "fkst-test-bot"
+        )),
         "github-devloop/issue/owner/repo/42"
       )
     end)
@@ -749,16 +732,11 @@ return {
     mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = issue_state_json({
-        author_login = "human",
-        created_at = created_after_grace(),
-        comments = {
-          {
-            body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
-            author_login = "human",
-          },
-        },
-      }),
+      stdout = issue_state_json(fork_parent_issue_fields(
+        '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
+        "human",
+        created_after_grace()
+      )),
       stderr = "",
       exit_code = 0,
     })
@@ -768,16 +746,11 @@ return {
         "claim_contract",
         "owner/repo",
         42,
-        self_current({
-          author_login = "human",
-          created_at = created_after_grace(),
-          comments = {
-            {
-              body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
-              author_login = "human",
-            },
-          },
-        }),
+        self_current(fork_parent_issue_fields(
+          '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->',
+          "human",
+          created_after_grace()
+        )),
         "github-devloop/issue/owner/repo/42"
       )
     end)
