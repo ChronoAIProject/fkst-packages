@@ -78,11 +78,11 @@ local function find_raise(result, queue)
   return nil
 end
 
-local function mock_thinking_issue(comments, updated_at)
+local function mock_thinking_issue(comments, updated_at, title)
   entity_read_mocks.mock_issue_read_forms(t, {
     repo = repo,
     number = issue_number,
-    title = "Issue 42 has a nonempty title",
+    title = title == nil and "Issue 42 has a nonempty title" or title,
     body = "",
     state = "OPEN",
     updated_at = updated_at,
@@ -93,7 +93,7 @@ local function mock_thinking_issue(comments, updated_at)
   })
 end
 
-local function run_liveness_thinking_replay(version)
+local function run_liveness_thinking_replay(version, title, name)
   local updated_at = "2026-06-03T01:02:03Z"
   t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
     stdout = repo,
@@ -105,7 +105,7 @@ local function run_liveness_thinking_replay(version)
     stderr = "",
     exit_code = 0,
   })
-  mock_thinking_issue({ state_comment(version, "2026-06-03T00:00:00Z") }, updated_at)
+  mock_thinking_issue({ state_comment(version, "2026-06-03T00:00:00Z") }, updated_at, title)
   h.mock_context_bundle({
     proposal_id = proposal_id,
     dedup_key = version,
@@ -115,7 +115,7 @@ local function run_liveness_thinking_replay(version)
     queue = "devloop_liveness_tick",
     payload = { schema = "github-devloop.tick.v1" },
     ts = "2026-06-03T02:00:00Z",
-  }, h.opts("thinking-replay-pipeline-liveness"))
+  }, h.opts(name or "thinking-replay-pipeline-liveness"))
 end
 
 local function run_observe_level_replay(version, name, event_ts)
@@ -389,6 +389,19 @@ return {
     if consensus == nil then
       error("thinking replay reproduction: liveness_scan omitted devloop_consensus_request after title validation failed")
     end
+  end,
+
+  test_liveness_scan_thinking_reconstruction_failure_has_no_attempt_receipt = function()
+    local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local result = run_liveness_thinking_replay(version, "", "thinking-replay-invalid-payload")
+
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_consensus_request"), nil)
+    t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+    local failure = find_raise(result, "devloop_observe_issue")
+    t.is_true(failure ~= nil)
+    t.eq(failure.payload.proposal_id, proposal_id)
+    t.eq(failure.payload.failure.error_class, "thinking-replay-proposal-invalid")
   end,
 
   test_observe_issue_level_replay_gets_a_fresh_durable_delivery = function()

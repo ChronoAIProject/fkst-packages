@@ -52,6 +52,7 @@ local timeout_facts = fixture.timeout_facts
 local ci_repair_hold_fixture = fixture.ci_repair_hold_fixture
 local capture_raises = fixture.capture_raises
 local captured_raise = fixture.captured_raise
+local captured_raise_index = fixture.captured_raise_index
 local with_codex_runs = fixture.with_codex_runs
 local with_codex_runs_unavailable = fixture.with_codex_runs_unavailable
 local dispatch_liveness = fixture.dispatch_liveness
@@ -219,8 +220,8 @@ return {
   test_fixing_no_codex_run_over_budget_redrives_never_reaching_blocked = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
-    local state = fixing_state(event, event.version .. "/timeout/fixing/2")
-    local comments = fixing_comments(event, state.version)
+    local state = fixing_state(event)
+    local comments = fixing_comments(event)
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
@@ -240,8 +241,15 @@ return {
       -- next timeout-attempt PR comment) and NEVER escalates to a terminal reconcile /
       -- blocked -- the timeout is a counter, not an explicit cannot-proceed.
       t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
+      t.is_true(captured_raise(raised, "devloop_fixing") ~= nil)
+      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request", function(payload)
+        return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+      end)
       t.is_true(attempt ~= nil)
+      t.is_true(captured_raise_index(raised, "devloop_fixing")
+        < captured_raise_index(raised, "github-proxy.github_pr_comment_request", function(payload)
+          return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+        end))
       t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
       t.is_true(tostring(attempt.payload.body or ""):find('state="fixing"', 1, true) ~= nil)
     end)
