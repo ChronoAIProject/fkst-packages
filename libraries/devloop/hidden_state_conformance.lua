@@ -7,7 +7,6 @@ local decompose_lib = require("devloop.decompose")
 local replayer = require("devloop.replayer")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
-local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 
 local C = {}
@@ -63,54 +62,6 @@ local function comment(core, body, when)
     author_login = marker_author(core),
     created_at = when or "2026-06-03T01:02:03Z",
   }
-end
-
-local function with_effect_capture(core, fn)
-  local events = {
-    decisions = {},
-    raises = {},
-    applies = {},
-  }
-  local previous_decision = devloop_logging.log_cas_decision
-  local previous_raise = devloop_logging.log_raise
-  local previous_apply = devloop_logging.log_apply
-  devloop_logging.log_cas_decision = function(dept, proposal_id, state, from_state, to_state, outcome, reason)
-    table.insert(events.decisions, {
-      dept = dept,
-      proposal_id = proposal_id,
-      state = state,
-      from_state = from_state,
-      to_state = to_state,
-      outcome = outcome,
-      reason = reason,
-    })
-  end
-  devloop_logging.log_raise = function(dept, proposal_id, queue, payload)
-    table.insert(events.raises, {
-      dept = dept,
-      proposal_id = proposal_id,
-      queue = queue,
-      payload = payload,
-    })
-  end
-  devloop_logging.log_apply = function(dept, proposal_id, apply_state, version, label_changes, queues)
-    table.insert(events.applies, {
-      dept = dept,
-      proposal_id = proposal_id,
-      apply_state = apply_state,
-      version = version,
-      label_changes = label_changes,
-      queues = queues,
-    })
-  end
-  local ok, result = pcall(fn)
-  devloop_logging.log_cas_decision = previous_decision
-  devloop_logging.log_raise = previous_raise
-  devloop_logging.log_apply = previous_apply
-  if not ok then
-    error(result)
-  end
-  return result, events
 end
 
 local function source_ref_for(core, derivation)
@@ -768,19 +719,13 @@ end
 
 local function replay(core, row, declared, include_fact)
   local entity, state, facts = build_fixture(core, row, declared, include_fact)
-  local issued, events = with_effect_capture(core, function()
-    -- Keep the historical G-HIDDEN-STATE token as text only: core.replay_from_table.
-    return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
-  end)
-  return issued, events
+  -- Keep the historical G-HIDDEN-STATE token as text only: core.replay_from_table.
+  return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
 end
 
 local function replay_exemption(core, row, rows, focus)
   local entity, state, facts = build_exemption_fixture(core, row, rows, focus)
-  local issued, events = with_effect_capture(core, function()
-    return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
-  end)
-  return issued, events
+  return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
 end
 
 local function with_poll_fakes(core, fn)
