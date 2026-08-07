@@ -57,7 +57,7 @@ return {
     t.eq(has_value(core.state_successors("implementing"), "pr-open"), false)
   end,
 
-  test_awaiting_pr_timeout_escalates_through_timeout_reconcile = function()
+  test_awaiting_pr_timeout_without_delegation_fails_loud_without_receipt = function()
     local row = table_by_state()["awaiting-pr"]
     local state = {
       state = "awaiting-pr",
@@ -71,7 +71,7 @@ return {
       table.insert(raised, { queue = queue, payload = payload })
     end
     local ok, err = pcall(function()
-      local applied = core.maybe_timeout_redrive_from_table("observe_issue", {
+      core.maybe_timeout_redrive_from_table("observe_issue", {
         repo = "owner/repo",
         number = 42,
         source_ref = entity_lib.issue_source_ref("owner/repo", 42),
@@ -82,20 +82,10 @@ return {
         current_pr = { comments = {} },
         now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
       })
-      t.eq(applied, true)
     end)
     devloop_logging.log_raise = original_log_raise
-    if not ok then
-      error(err)
-    end
-    -- Owner directive (#2725): an awaiting-pr timeout must NEVER escalate to a terminal
-    -- reconcile; it REDRIVES, emitting the next timeout-attempt marker instead of the
-    -- terminal devloop_timeout_reconcile event.
-    t.eq(raised[#raised].queue, "github-proxy.github_issue_comment_request")
-    t.is_true(tostring(raised[#raised].payload.body):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-    t.is_true(tostring(raised[#raised].payload.body):find('state="awaiting-pr"', 1, true) ~= nil)
-    for _, r in ipairs(raised) do
-      t.eq(r.queue == "devloop_timeout_reconcile", false)
-    end
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+    t.eq(#raised, 0)
   end,
 }

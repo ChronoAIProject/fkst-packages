@@ -57,6 +57,24 @@ function M.reconcile_worktree_to_branch(worktree, branch)
   end
 end
 
+function M.merge_integration(git, worktree, integration_branch, base_head)
+  local merge_result = devloop_commands.git_worktree_merge_no_edit(worktree, base_head, 120)
+  if merge_result.exit_code == 0 then return true end
+  local unmerged_result = git.unmerged_paths(worktree, 30)
+  if unmerged_result.exit_code ~= 0 then
+    error("github-devloop: unmerged-path-check-failed: git unmerged path check failed: " .. tostring(unmerged_result.stderr))
+  end
+  if tostring(unmerged_result.stdout or "") == "" then
+    error("github-devloop: integration-merge-failed: git integration merge failed: " .. tostring(merge_result.stderr))
+  end
+  devloop_logging.log_line("info", "implement", "merge-target", "MERGE_SKEW", {
+    "integration_branch=" .. tostring(integration_branch),
+    "integration_sha=" .. tostring(base_head),
+    "reason=integration merge requires codex conflict resolution",
+  })
+  return false
+end
+
 function M.remove_stale_worktree(path)
   local dir_result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(path), timeout = 30 })
   if dir_result.exit_code ~= 0 and dir_result.exit_code ~= 1 then

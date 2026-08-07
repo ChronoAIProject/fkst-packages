@@ -86,7 +86,7 @@ local function with_codex_runs(running, fn)
   end
 end
 
-local function capture_raises(fn)
+local function capture_failure_and_raises(fn)
   local raised = {}
   local original = devloop_logging.log_raise
   devloop_logging.log_raise = function(_, _, queue, payload)
@@ -94,19 +94,7 @@ local function capture_raises(fn)
   end
   local ok, err = pcall(fn)
   devloop_logging.log_raise = original
-  if not ok then
-    error(err)
-  end
-  return raised
-end
-
-local function captured_raise(raised, queue, predicate)
-  for _, item in ipairs(raised or {}) do
-    if item.queue == queue and (predicate == nil or predicate(item.payload, item)) then
-      return item
-    end
-  end
-  return nil
+  return ok, err, raised
 end
 
 local function trusted_comment(body)
@@ -118,7 +106,7 @@ local function trusted_comment(body)
 end
 
 local function run_timeout(row, state, facts)
-  return capture_raises(function()
+  return capture_failure_and_raises(function()
     core.maybe_timeout_redrive_from_table("liveness_scan", entity_for(), state, row, facts)
   end)
 end
@@ -148,7 +136,7 @@ return {
   --   (c) the timeout round ACCUMULATES across restarts (does not reset), and
   --   (d) the actionable (not-live) path DOES force-terminate at the budget.
   -- So a round reset is NOT what stalls #2624.
-  test_actionable_path_generation_stable_and_force_terminates = function()
+  test_actionable_path_generation_stable_and_missing_replay_fails_loud = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local state = state_for(event)
@@ -181,16 +169,12 @@ return {
       core.liveness_timeout_due_with_facts(row, state, facts3, now2)
       t.eq(core.liveness_timeout_attempt(row, state, facts3), 2)
 
-      -- (d) Owner directive (#2725): with the budget exceeded and the round accumulated
-      -- to the former escalate limit, the actionable path must NEVER force-terminate to a
-      -- terminal state; it REDRIVES, emitting the next timeout-attempt marker (round 3)
-      -- instead of the terminal devloop_timeout_reconcile event.
-      local raised = run_timeout(row, state, facts3)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      -- The fixture has no implementing fact from which to rebuild a driving request.
+      -- The coordinator must expose that stuck replay and must not mint a receipt.
+      local ok, err, raised = run_timeout(row, state, facts3)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+      t.eq(#raised, 0)
     end)
   end,
 
@@ -205,7 +189,7 @@ return {
   -- termination"): the implementing state MUST force-terminate. It is RED against
   -- current code, which returns a pure live-defer (skip-timeout-count) with zero
   -- effects, no matter how much wall-clock passes.
-  test_persistently_live_codex_run_never_force_terminates = function()
+  test_persistently_live_codex_run_past_cap_fails_loud_without_receipt = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local state = state_for(event)
@@ -228,28 +212,10 @@ return {
       table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
         row.from_state, row.liveness_class_id, facts.actionable_epoch_eval.generation_key, 2, event.source_ref)))
 
-      -- Owner directive (#2725) supersedes the #2624 undefeatable-budget contract: a
-      -- timeout/row-budget cap is exactly the transient/counter class that must NEVER
-      -- reach a terminal state. At 10x budget the implementing state must NOT
-      -- force-terminate (no devloop_timeout_reconcile, no fkst-dev:impl-failed label); it
-      -- REDRIVES, emitting the next timeout-attempt marker. The row-budget-absolute-cap
-      -- still fires as "stuck" (asserted above) so the redrive is gated by real liveness,
-      -- not deferred forever -- it just redrives instead of dropping to blocked.
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local impl_failed = captured_raise(raised, "github-proxy.github_issue_label_request", function(payload)
-        for _, label in ipairs(payload.add_labels or {}) do
-          if label == "fkst-dev:impl-failed" then
-            return true
-          end
-        end
-        return false
-      end)
-      t.eq(impl_failed, nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil,
-        "implementing 20h past budget must redrive (emit a timeout-attempt marker), never force-terminate to a terminal state")
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      local ok, err, raised = run_timeout(row, state, facts)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+      t.eq(#raised, 0)
     end)
   end,
 }

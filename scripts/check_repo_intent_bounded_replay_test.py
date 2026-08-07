@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the R9 canonical artifact hashing foundation."""
+"""Unit tests and canonical admission-trace fixtures for R9 replay enforcement."""
 
 from __future__ import annotations
 
@@ -26,6 +26,283 @@ from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_t
 
 ZERO_HASH = "0" * 64
 ALLOWLIST_HEADER = "# protected allowlist\n"
+
+
+def thinking_trace() -> dict[str, object]:
+    artifact: dict[str, object] = {
+        "schema": "restart-thinking-trace.v1",
+        "owner": "github-devloop",
+        "family": "thinking",
+        "fixtures": [
+            {
+                "fixture_id": "source-equal-apply",
+                "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+                "cas_status": "apply",
+                "reason_code": "apply",
+                "cas_outcome": "applied",
+                "effect_entitlement_id": "github-devloop/thinking/autonomous/consensus-reached/apply",
+                "granted_effect_ids": [
+                    "github-proxy.github_issue_comment_request",
+                    "github-proxy.github_issue_label_request",
+                ],
+                "observable_writes": [
+                    {
+                        "ordinal": 1,
+                        "effect_id": "github-proxy.github_issue_comment_request",
+                        "write_kind": "comment",
+                        "marker_write": True,
+                    },
+                    {
+                        "ordinal": 2,
+                        "effect_id": "github-proxy.github_issue_label_request",
+                        "write_kind": "label",
+                        "marker_write": False,
+                    },
+                ],
+            }
+        ],
+        "artifact_sha256": "",
+    }
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def issue_reconcile_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-issue-reconcile-trace.v1"
+    artifact["family"] = "issue-reconcile"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/thinking/entry/issue_reconcile_true_stall"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/entry/issue_reconcile_true_stall/apply"
+    )
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def loop_plain_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-loop-plain-trace.v1"
+    artifact["family"] = "loop-plain"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/thinking/autonomous/consensus-stalled"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/autonomous/consensus-stalled/apply"
+    )
+    fixture["granted_effect_ids"] = ["github-proxy.github_issue_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    fixture["observable_writes"][0]["marker_write"] = False
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def implement_activation_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-implement-activation-trace.v1"
+    artifact["family"] = "implement-activation"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/ready/entry/implementation_kicked_off"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/ready/entry/implementation_kicked_off/apply"
+    )
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def awaiting_pr_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-awaiting-pr-trace.v1"
+    artifact["family"] = "awaiting-pr"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def timeout_reconcile_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-timeout-reconcile-trace.v1"
+    artifact["family"] = "timeout-reconcile"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop/ready/timeout/actionable_kickoff_timeout"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def observe_issue_entry_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-observe-issue-entry-trace.v1"
+    artifact["family"] = "observe-issue-entry"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop/thinking/entry/unmanaged_issue"
+    fixture["fixture_id"] = "unmanaged-source-apply"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_review_result_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-pr-review-result-trace.v1"
+    artifact["owner"] = "github-devloop-pr"
+    artifact["family"] = "pr-review-result"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/autonomous/changes_requested"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    fixture["granted_effect_ids"][0] = "github-proxy.github_pr_comment_request"
+    fixture["observable_writes"][0]["effect_id"] = "github-proxy.github_pr_comment_request"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_review_meta_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-review-meta-trace.v1"
+    artifact["family"] = "pr-review-meta"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/review-meta/autonomous/fix"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_fix_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-fix-trace.v1"
+    artifact["family"] = "pr-fix"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/fixing/autonomous/revision_published"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_review_activation_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-review-activation-trace.v1"
+    artifact["family"] = "pr-review-activation"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/entry/first_seen_pr"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    fixture["granted_effect_ids"] = ["github-proxy.github_pr_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def observe_pr_fix_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-observe-pr-fix-trace.v1"
+    artifact["family"] = "observe-pr-fix"
+    fixture = artifact["fixtures"][0]
+    edge_id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+def pr_review_loop_trace() -> dict[str, object]:
+    artifact = pr_review_activation_trace()
+    artifact["schema"] = "restart-pr-review-loop-trace.v1"
+    artifact["family"] = "pr-review-loop"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/entry/review_convergence_round"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_fix_reconcile_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-fix-reconcile-trace.v1"
+    artifact["family"] = "pr-fix-reconcile"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def pr_merge_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-merge-trace.v1"
+    artifact["family"] = "pr-merge"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    fixture["granted_effect_ids"] = ["github-proxy.github_pr_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
+def idempotent_thinking_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["fixture_id"] = "target-incomplete-idempotent"
+    fixture["cas_status"] = "idempotent"
+    fixture["reason_code"] = "already-at-target"
+    fixture["cas_outcome"] = "skip-idempotent(already at to_state)"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/autonomous/consensus-reached/idempotent"
+    )
+    fixture["observable_writes"] = []
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
 
 
 def git(root: Path, *args: str) -> str:
