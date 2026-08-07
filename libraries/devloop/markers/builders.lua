@@ -44,6 +44,12 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
       .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
       .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
       .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
+  elseif action == "no-actionable-gap" then
+    feedback = shared.parse_fix_feedback_fact(feedback)
+    fields = fields
+      .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
+      .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
+      .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
   elseif action == "spec-amendment" then
     fields = fields .. '" reason="blocked-pending-spec'
   end
