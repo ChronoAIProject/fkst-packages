@@ -146,11 +146,11 @@ local function mock_issue_view_other_owned()
   })
 end
 
-local function mock_fetch_and_heads(current_branch_sha, managed_branch)
+local function mock_fetch_and_heads(current_branch_sha, managed_branch, current_integration_sha)
   local target_branch = managed_branch or branch
   t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git fetch 'origin' '" .. target_branch .. "'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = integration_sha .. "\n", stderr = "", exit_code = 0 })
+  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = (current_integration_sha or integration_sha) .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'" .. target_branch .. "'^{commit}", { stdout = (current_branch_sha or branch_sha) .. "\n", stderr = "", exit_code = 0 })
 end
 
@@ -340,7 +340,7 @@ return {
       issue_updated_at = issue_updated_at,
       pr_updated_at = pr_updated_at,
     })
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     local first = run_scan(run_opts)
     t.eq(first.exit_code, 1)
@@ -352,7 +352,7 @@ return {
       issue_updated_at = issue_updated_at,
       pr_updated_at = pr_updated_at,
     })
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     local retry = run_scan(run_opts)
     t.eq(retry.exit_code, 1)
@@ -377,7 +377,11 @@ return {
 
     mock_env("", nil, repo)
     mock_pr_list(false, managed_branch, repo)
-    mock_pr_view("merge-ready", comments, { head = managed_branch, head_repo = repo })
+    mock_pr_view("merge-ready", comments, {
+      head = managed_branch,
+      head_repo = repo,
+      merge_state_status = "DIRTY",
+    })
     mock_issue_view({}, nil, nil, repo)
     mock_fetch_and_heads(nil, managed_branch)
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 0 })
@@ -387,10 +391,55 @@ return {
     t.eq(h.count_calls("git fetch"), 2)
   end,
 
-  test_pr_freshness_approved_pr_from_production_bot_merges_and_pushes = function()
+  test_pr_freshness_preserves_approved_clean_head_across_base_advances = function()
+    local run_opts = opts("pr-freshness-approved-clean")
+    local observations = {
+      {
+        integration_head = integration_sha,
+        issue_updated_at = issue_updated_at,
+        pr_updated_at = pr_updated_at,
+      },
+      {
+        integration_head = "dddd4444",
+        issue_updated_at = "2026-06-03T01:02:04Z",
+        pr_updated_at = "2026-06-03T02:03:05Z",
+      },
+    }
+
+    for _, observation in ipairs(observations) do
+      mock_env("")
+      mock_pr_list(false, nil, nil, {
+        issue_updated_at = observation.issue_updated_at,
+        pr_updated_at = observation.pr_updated_at,
+      })
+      mock_pr_view("merge-ready", nil, {
+        merge_state_status = "CLEAN",
+        updated_at = observation.pr_updated_at,
+      })
+      mock_issue_view({}, nil, nil, nil, { updated_at = observation.issue_updated_at })
+      mock_fetch_and_heads(nil, nil, observation.integration_head)
+      t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
+      mock_worktree_merge(0)
+      t.mock_command("commit -F", { stdout = "[detached " .. merge_sha .. "] Refresh branch\n", stderr = "", exit_code = 0 })
+      t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
+
+      local result = run_scan(run_opts)
+      t.eq(result.exit_code, 0)
+    end
+
+    t.eq(h.count_calls("git fetch"), 0)
+    t.eq(h.count_calls("merge-base --is-ancestor"), 0)
+    t.eq(h.count_calls("merge --no-ff --no-commit"), 0)
+    t.eq(h.count_calls("commit -F"), 0)
+    t.eq(h.count_calls("--force-with-lease"), 0)
+  end,
+
+  test_pr_freshness_approved_dirty_pr_from_production_bot_merges_and_pushes = function()
     mock_env("1")
     mock_pr_list(false)
-    mock_pr_view("merge-ready", pr_comments("merge-ready", production_bot))
+    mock_pr_view("merge-ready", pr_comments("merge-ready", production_bot), {
+      merge_state_status = "DIRTY",
+    })
     mock_issue_view({}, nil, production_bot)
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
@@ -421,7 +470,7 @@ return {
   test_pr_freshness_missing_integration_branch_holds_without_dlq = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     mock_missing_integration_fetch()
 
@@ -472,7 +521,7 @@ return {
   test_pr_freshness_conflict_raises_sync_conflict_for_pr_branch = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
@@ -493,7 +542,7 @@ return {
   test_pr_freshness_skips_other_owned_pr_before_branch_work = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view_other_owned()
 
     local result = run_scan()
@@ -506,7 +555,7 @@ return {
   test_pr_freshness_dry_run_does_not_consume_same_baseline_retry = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
@@ -519,7 +568,7 @@ return {
     t.eq(first.exit_code, 0)
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
+    mock_pr_view("merge-ready", nil, { merge_state_status = "DIRTY" })
     mock_issue_view({})
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
