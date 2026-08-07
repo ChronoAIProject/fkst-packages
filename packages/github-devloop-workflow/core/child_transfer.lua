@@ -4,6 +4,7 @@ local devloop_logging = require("devloop.logging")
 local discovery = require("core.materialize.discovery")
 local marker = require("core.marker")
 local receipt = require("core.child_disposition_receipt")
+local transfer_chain = require("core.child_transfer_chain")
 local sha256 = require("contract.sha256")
 local source_refs = require("contract.source_ref")
 
@@ -143,17 +144,7 @@ local function read_fresh(github, source_ref, consumer)
   return current
 end
 
-local function matching_acceptance(current, identity)
-  for _, comment in ipairs(discovery.trusted_comments(nil, current and current.comments)) do
-    local fact = marker.parse_transfer_accept_marker(comment.body, identity)
-    if fact ~= nil then
-      return fact
-    end
-  end
-  return nil
-end
-
-local function verify_origin_ledger(origin_current, identity)
+local function origin_ledger_child(origin_current, identity)
   local by_slot = marker.latest_materialization_by_slot(
     discovery.materialization_facts(nil, origin_current, identity.origin)
   )
@@ -161,9 +152,10 @@ local function verify_origin_ledger(origin_current, identity)
   if type(entry) ~= "table"
     or entry.state ~= "created"
     or entry.blueprint_digest ~= identity.blueprint_digest
-    or tostring(entry.child_issue or "") ~= identity.predecessor_issue then
-    fail("transfer-origin-ledger-mismatch", "origin ledger does not own the predecessor for the exact slot")
+    or not base_ids.issue_ref_round_trips(identity.repo, entry.child_issue) then
+    fail("transfer-origin-ledger-mismatch", "origin ledger does not own a child for the exact slot")
   end
+  return base_ids.issue_source_ref(identity.repo, entry.child_issue)
 end
 
 local function receipt_identity(identity)
@@ -180,6 +172,16 @@ local function matching_transfer_receipt(value, identity)
   return type(value) == "table"
     and value.disposition == "transferred"
     and source_refs.same(value.successor_source_ref, identity.successor_source_ref)
+end
+
+local function chain_lock_key(identity)
+  return base_ids.dedup_key({
+    "github-devloop-workflow",
+    "child-transfer-chain",
+    identity.origin,
+    identity.blueprint_digest,
+    identity.slot,
+  })
 end
 
 local function acceptance_body_file(identity)
@@ -230,6 +232,12 @@ function M.new(deps)
     fail("transfer-ports-invalid", "github and git ports are required")
   end
   local store = receipt.new({ git = git, file = file_port })
+  local resolver = transfer_chain.new({
+    receipt_store = store,
+    read_issue = function(source_ref)
+      return read_fresh(github, source_ref, M.DEPT .. ":chain")
+    end,
+  })
 
   local function transfer(request)
     local identity = canonical_request(request)
@@ -242,18 +250,41 @@ function M.new(deps)
     end
     devloop_base.assert_trusted_bot_configured()
 
-    return with_lock(identity.dedup_key, function()
+    return with_lock(chain_lock_key(identity), function()
       local origin_current = read_fresh(github, identity.source_ref, M.DEPT .. ":origin")
+      local initial_source_ref = origin_ledger_child(origin_current, identity)
+      local chain = resolver.resolve({
+        repo = identity.repo,
+        origin = identity.origin,
+        blueprint_digest = identity.blueprint_digest,
+        slot = identity.slot,
+        initial_source_ref = initial_source_ref,
+      })
+      local replay = transfer_chain.edge_matches(
+        chain,
+        identity.predecessor_source_ref,
+        identity.successor_source_ref
+      )
+      if not source_refs.same(chain.tip_source_ref, identity.predecessor_source_ref)
+        and not replay then
+        if transfer_chain.contains(chain, identity.predecessor_source_ref) then
+          fail("transfer-chain-predecessor-stale", "predecessor is no longer the accepted chain tip")
+        end
+        fail("transfer-origin-ledger-mismatch", "origin transfer chain does not contain the predecessor")
+      end
+      if transfer_chain.contains(chain, identity.successor_source_ref) and not replay then
+        fail("transfer-chain-cycle", "successor is already present in the accepted transfer chain")
+      end
+
       local predecessor_current = read_fresh(github, identity.predecessor_source_ref, M.DEPT .. ":predecessor")
       local successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":successor")
-      verify_origin_ledger(origin_current, identity)
 
       local receipt_value = store.read(receipt_identity(identity))
       if receipt_value ~= nil then
         if not matching_transfer_receipt(receipt_value, identity) then
           fail("transfer-receipt-conflict", "child disposition was already committed differently")
         end
-        if matching_acceptance(successor_current, identity) == nil then
+        if not transfer_chain.has_matching_acceptance(successor_current, identity) then
           fail("transfer-acceptance-missing", "committed transfer has no exact source-visible acceptance")
         end
       else
@@ -263,14 +294,14 @@ function M.new(deps)
         if tostring(successor_current.state or ""):upper() ~= "OPEN" then
           fail("transfer-successor-not-open", "an uncommitted transfer requires an open successor")
         end
-        if matching_acceptance(successor_current, identity) == nil then
+        if not transfer_chain.has_matching_acceptance(successor_current, identity) then
           write_acceptance(github, file_port, identity)
         end
         successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":acceptance-readback")
         if tostring(successor_current.state or ""):upper() ~= "OPEN" then
           fail("transfer-successor-not-open", "successor closed before transfer receipt commit")
         end
-        if matching_acceptance(successor_current, identity) == nil then
+        if not transfer_chain.has_matching_acceptance(successor_current, identity) then
           fail("transfer-acceptance-readback-missing", "exact successor acceptance is not source-visible")
         end
         devloop_logging.log_line("info", M.DEPT, identity.origin, "TRANSFER", {
@@ -296,7 +327,7 @@ function M.new(deps)
       local predecessor_state = tostring(predecessor_current.state or ""):upper()
       if predecessor_state == "OPEN" then
         successor_current = read_fresh(github, identity.successor_source_ref, M.DEPT .. ":pre-close-successor")
-        if matching_acceptance(successor_current, identity) == nil then
+        if not transfer_chain.has_matching_acceptance(successor_current, identity) then
           fail("transfer-acceptance-missing", "exact acceptance disappeared before predecessor close")
         end
         close_predecessor(github, identity)

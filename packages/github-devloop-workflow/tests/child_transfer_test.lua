@@ -17,6 +17,8 @@ local BOT = "fkst-test-bot"
 local ORIGIN_ISSUE = 42
 local PREDECESSOR_ISSUE = 108
 local SUCCESSOR_ISSUE = 109
+local FINAL_SUCCESSOR_ISSUE = 110
+local OFF_CHAIN_SUCCESSOR_ISSUE = 111
 local ORIGIN = base_ids.proposal_id(REPO, ORIGIN_ISSUE)
 local TREE_SHA = string.rep("1", 40)
 
@@ -178,6 +180,8 @@ local function install_github_fake(events, owned_child_issue)
       [source_ref(ORIGIN_ISSUE).ref] = issue(ORIGIN_ISSUE, "OPEN", origin_comments(owned_child_issue)),
       [source_ref(PREDECESSOR_ISSUE).ref] = issue(PREDECESSOR_ISSUE, "OPEN"),
       [source_ref(SUCCESSOR_ISSUE).ref] = issue(SUCCESSOR_ISSUE, "OPEN"),
+      [source_ref(FINAL_SUCCESSOR_ISSUE).ref] = issue(FINAL_SUCCESSOR_ISSUE, "OPEN"),
+      [source_ref(OFF_CHAIN_SUCCESSOR_ISSUE).ref] = issue(OFF_CHAIN_SUCCESSOR_ISSUE, "OPEN"),
     },
   })
   model.fail_closes = 0
@@ -215,9 +219,9 @@ local function install_github_fake(events, owned_child_issue)
 
   function github.issue_close(repo, issue_number, disposition)
     t.eq(repo, REPO)
-    t.eq(tonumber(issue_number), PREDECESSOR_ISSUE)
     t.eq(disposition.kind, "duplicate")
-    t.eq(tonumber(disposition.duplicate_of), SUCCESSOR_ISSUE)
+    t.is_true(model.issues[source_ref(issue_number).ref] ~= nil)
+    t.is_true(model.issues[source_ref(disposition.duplicate_of).ref] ~= nil)
     model.writes[#model.writes + 1] = {
       kind = "issue_close",
       issue_number = tonumber(issue_number),
@@ -249,13 +253,13 @@ local function fixture(owned_child_issue)
   }
 end
 
-local function request()
+local function request(predecessor_issue, successor_issue)
   return core.child_transfer.build_request({
     origin = ORIGIN,
     blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
     slot = "first",
-    predecessor_source_ref = source_ref(PREDECESSOR_ISSUE),
-    successor_source_ref = source_ref(SUCCESSOR_ISSUE),
+    predecessor_source_ref = source_ref(predecessor_issue or PREDECESSOR_ISSUE),
+    successor_source_ref = source_ref(successor_issue or SUCCESSOR_ISSUE),
   })
 end
 
@@ -398,12 +402,35 @@ local function terminal_request(raises)
   return nil
 end
 
-local function add_successor_merged_evidence(state)
-  local successor = state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref]
-  local proposal_id = base_ids.proposal_id(REPO, SUCCESSOR_ISSUE)
-  local version = "ready/github-devloop/issue/owner/repo/109/intake/1"
-  local pr_number = 210
-  local pr_proposal_id = "github-devloop/pr/owner/repo/210"
+local function materialized_child_ref()
+  return {
+    kind = "issue",
+    repo = REPO,
+    issue_number = tostring(PREDECESSOR_ISSUE),
+    proposal_id = base_ids.proposal_id(REPO, PREDECESSOR_ISSUE),
+    source_ref = source_ref(PREDECESSOR_ISSUE),
+    origin = ORIGIN,
+    blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
+    slot = "first",
+  }
+end
+
+local function read_materialized_child_status(state)
+  local child_status = require("core.materialize.child_status")
+  local reader = child_status.reader(core, {
+    github = state.github,
+    git = state.git,
+  }, REPO)
+  return reader(materialized_child_ref())
+end
+
+local function add_merged_evidence(state, issue_number)
+  local successor_issue = issue_number or SUCCESSOR_ISSUE
+  local successor = state.github_model.issues[source_ref(successor_issue).ref]
+  local proposal_id = base_ids.proposal_id(REPO, successor_issue)
+  local version = "ready/" .. proposal_id .. "/intake/1"
+  local pr_number = successor_issue + 101
+  local pr_proposal_id = "github-devloop/pr/" .. REPO .. "/" .. tostring(pr_number)
   local head_sha = "0123456789abcdef0123456789abcdef01234567"
   successor.comments[#successor.comments + 1] = trusted_comment(table.concat({
     core.state_marker(proposal_id, "merged", version),
@@ -440,7 +467,7 @@ local tests = {
     local waiting = run_materialization_poll(state)
     t.is_nil(terminal_request(waiting.raises))
 
-    add_successor_merged_evidence(state)
+    add_merged_evidence(state)
     local completed = run_materialization_poll(state)
     local terminal = terminal_request(completed.raises)
     t.is_true(terminal ~= nil)
@@ -450,6 +477,133 @@ local tests = {
     t.eq(count_writes(state.github_model, "issue_comment_create"), 1)
     t.eq(state.git_model.successful_pushes, 1)
     t.eq(state.github_model.successful_closes, 1)
+  end,
+
+  test_transfer_follows_the_full_production_chain_and_projects_only_the_final_tip = function()
+    local state = fixture()
+
+    run_transfer(state, false, request(PREDECESSOR_ISSUE, SUCCESSOR_ISSUE))
+    run_transfer(state, false, request(SUCCESSOR_ISSUE, FINAL_SUCCESSOR_ISSUE))
+
+    t.eq(table.concat(state.events, ","), "acceptance,receipt,close,acceptance,receipt,close")
+    t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "CLOSED")
+    t.eq(state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref].state, "CLOSED")
+    t.eq(state.github_model.issues[source_ref(FINAL_SUCCESSOR_ISSUE).ref].state, "OPEN")
+
+    local waiting = run_materialization_poll(state)
+    t.is_nil(terminal_request(waiting.raises))
+    add_merged_evidence(state, PREDECESSOR_ISSUE)
+    add_merged_evidence(state, SUCCESSOR_ISSUE)
+    local predecessors_merged = run_materialization_poll(state)
+    t.is_nil(terminal_request(predecessors_merged.raises))
+
+    add_merged_evidence(state, FINAL_SUCCESSOR_ISSUE)
+    local completed = run_materialization_poll(state)
+    local terminal = terminal_request(completed.raises)
+    t.is_true(terminal ~= nil)
+    t.is_true(terminal.body:find('state="done"', 1, true) ~= nil)
+
+    run_transfer(state, false, request(PREDECESSOR_ISSUE, SUCCESSOR_ISSUE))
+    run_transfer(state, false, request(SUCCESSOR_ISSUE, FINAL_SUCCESSOR_ISSUE))
+    t.eq(count_writes(state.github_model, "issue_comment_create"), 2)
+    t.eq(state.git_model.successful_pushes, 2)
+    t.eq(state.github_model.successful_closes, 2)
+  end,
+
+  test_transfer_rejects_stale_predecessors_and_cycles_before_external_effects = function()
+    local state = fixture()
+    run_transfer(state, false, request(PREDECESSOR_ISSUE, SUCCESSOR_ISSUE))
+
+    local effect_count = #state.events
+    local stale_origin = run_transfer(
+      state,
+      true,
+      request(PREDECESSOR_ISSUE, FINAL_SUCCESSOR_ISSUE)
+    )
+    t.is_true(tostring(stale_origin.failure.error):find("transfer-chain-predecessor-stale", 1, true) ~= nil)
+    t.eq(#state.events, effect_count)
+
+    local two_hop_cycle = run_transfer(
+      state,
+      true,
+      request(SUCCESSOR_ISSUE, PREDECESSOR_ISSUE)
+    )
+    t.is_true(tostring(two_hop_cycle.failure.error):find("transfer-chain-cycle", 1, true) ~= nil)
+    t.eq(#state.events, effect_count)
+
+    run_transfer(state, false, request(SUCCESSOR_ISSUE, FINAL_SUCCESSOR_ISSUE))
+    effect_count = #state.events
+    local stale_middle = run_transfer(
+      state,
+      true,
+      request(SUCCESSOR_ISSUE, OFF_CHAIN_SUCCESSOR_ISSUE)
+    )
+    t.is_true(tostring(stale_middle.failure.error):find("transfer-chain-predecessor-stale", 1, true) ~= nil)
+    t.eq(#state.events, effect_count)
+
+    local longer_cycle = run_transfer(
+      state,
+      true,
+      request(FINAL_SUCCESSOR_ISSUE, PREDECESSOR_ISSUE)
+    )
+    t.is_true(tostring(longer_cycle.failure.error):find("transfer-chain-cycle", 1, true) ~= nil)
+    t.eq(#state.events, effect_count)
+  end,
+
+  test_committed_transfer_with_invalid_acceptance_fails_closed = function()
+    local cases = {
+      function(successor)
+        successor.comments = {}
+      end,
+      function(successor)
+        successor.comments[1].author_login = "untrusted-user"
+      end,
+      function(successor)
+        successor.comments[1] = trusted_comment(
+          successor.comments[1].body:gsub('successor_ref="[^"]+"', 'successor_ref="invalid"')
+        )
+      end,
+      function(successor)
+        successor.comments[1] = trusted_comment(assert(marker.build_transfer_accept_marker({
+          origin = ORIGIN,
+          blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
+          slot = "first",
+          predecessor_source_ref = source_ref(PREDECESSOR_ISSUE),
+          successor_source_ref = source_ref(FINAL_SUCCESSOR_ISSUE),
+        })))
+      end,
+    }
+
+    for _, mutate in ipairs(cases) do
+      local state = fixture()
+      run_transfer(state)
+      mutate(state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref])
+
+      local ok, err = pcall(read_materialized_child_status, state)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("transfer-chain-acceptance-invalid", 1, true) ~= nil)
+
+      local poll = run_materialization_poll(state)
+      t.is_nil(terminal_request(poll.raises))
+    end
+  end,
+
+  test_committed_cross_repository_transfer_fails_closed = function()
+    local state = fixture()
+    local store = core.child_disposition_receipt.new({ git = state.git })
+    store.put_once({
+      repo = REPO,
+      origin = ORIGIN,
+      blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
+      slot = "first",
+      child_issue = tostring(PREDECESSOR_ISSUE),
+      disposition = "transferred",
+      successor_source_ref = base_ids.issue_source_ref("other/repo", SUCCESSOR_ISSUE),
+    })
+
+    local ok, err = pcall(read_materialized_child_status, state)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("transfer-chain-cross-repository", 1, true) ~= nil)
   end,
 
   test_replay_after_acceptance_visibility_commits_receipt_before_close = function()
@@ -530,7 +684,7 @@ local tests = {
     state.github_model.fail_closes = 1
 
     run_transfer(state, true)
-    add_successor_merged_evidence(state)
+    add_merged_evidence(state)
     local completed = run_materialization_poll(state)
 
     local terminal = terminal_request(completed.raises)

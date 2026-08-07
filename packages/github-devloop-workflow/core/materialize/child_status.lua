@@ -1,15 +1,14 @@
 local base_ids = require("devloop.base_ids")
 local child_result = require("core.child_result")
 local child_disposition_receipt = require("core.child_disposition_receipt")
+local child_transfer_chain = require("core.child_transfer_chain")
 local commands = require("devloop.commands")
 local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
 local devloop_marker_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
-local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_pr = require("devloop.parsers.pr")
-local marker = require("core.marker")
 
 local M = {}
 
@@ -81,6 +80,7 @@ local function production_child_status_deps(core, repo, opts)
         issue_cache[number].proposal_id = base_ids.proposal_id(repo, number)
       else
         issue_cache[number] = child_issue_view(core, repo, number)
+        issue_cache[number].source_ref = base_ids.issue_source_ref(repo, number)
       end
     end
     return issue_cache[number]
@@ -192,52 +192,47 @@ local function production_child_status_deps(core, repo, opts)
     end,
   }
 
-  local function accepted_successor(child_ref)
+  local resolver = child_transfer_chain.new({
+    receipt_store = receipt_store,
+    read_issue = function(source_ref)
+      local source_repo, issue_number = devloop_base.parse_issue_source_ref(source_ref)
+      return issue({
+        kind = "issue",
+        repo = source_repo,
+        issue_number = tostring(issue_number),
+        proposal_id = base_ids.proposal_id(source_repo, issue_number),
+        source_ref = source_ref,
+      })
+    end,
+  })
+
+  local function resolved_tip(child_ref)
     if type(child_ref.origin) ~= "string"
       or type(child_ref.blueprint_digest) ~= "string"
       or type(child_ref.slot) ~= "string" then
-      return nil
+      return child_ref
     end
-    local receipt_value = receipt_store.read({
+    local chain = resolver.resolve({
       repo = repo,
       origin = child_ref.origin,
       blueprint_digest = child_ref.blueprint_digest,
       slot = child_ref.slot,
-      child_issue = tostring(child_ref.issue_number or child_ref.number or ""),
+      initial_source_ref = child_ref.source_ref,
     })
-    if type(receipt_value) ~= "table" or receipt_value.disposition ~= "transferred" then
-      return nil
-    end
-    local successor_repo, successor_issue = devloop_base.parse_issue_source_ref(
-      receipt_value.successor_source_ref
-    )
-    if successor_repo ~= repo then
-      return nil
-    end
-    local successor_ref = {
+    local _, tip_issue = devloop_base.parse_issue_source_ref(chain.tip_source_ref)
+    return {
       kind = "issue",
       repo = repo,
-      issue_number = tostring(successor_issue),
-      proposal_id = base_ids.proposal_id(repo, successor_issue),
-      source_ref = base_ids.issue_source_ref(repo, successor_issue),
-    }
-    local expected = {
+      issue_number = tostring(tip_issue),
+      proposal_id = base_ids.proposal_id(repo, tip_issue),
+      source_ref = chain.tip_source_ref,
       origin = child_ref.origin,
       blueprint_digest = child_ref.blueprint_digest,
       slot = child_ref.slot,
-      predecessor_source_ref = child_ref.source_ref,
-      successor_source_ref = successor_ref.source_ref,
     }
-    local successor = issue(successor_ref)
-    for _, comment in ipairs(parsers_misc._trusted_marker_comments(successor.comments or {})) do
-      if marker.parse_transfer_accept_marker(parsers_misc.comment_body(comment), expected) ~= nil then
-        return successor_ref
-      end
-    end
-    return nil
   end
 
-  return child_deps, accepted_successor
+  return child_deps, resolved_tip
 end
 
 function M.reader(core, deps, repo)
@@ -246,13 +241,9 @@ function M.reader(core, deps, repo)
       return deps.child_status(core, child_ref)
     end
   end
-  local child_deps, accepted_successor = production_child_status_deps(core, repo, deps)
+  local child_deps, resolved_tip = production_child_status_deps(core, repo, deps)
   return function(child_ref)
-    local successor = accepted_successor(child_ref)
-    if successor ~= nil then
-      return child_result.child_result_status(child_deps, successor)
-    end
-    return child_result.child_result_status(child_deps, child_ref)
+    return child_result.child_result_status(child_deps, resolved_tip(child_ref))
   end
 end
 
