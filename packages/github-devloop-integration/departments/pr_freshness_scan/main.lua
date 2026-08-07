@@ -208,10 +208,12 @@ local function candidate_reason(pr, origin, issue, state)
   if state.state == "fixing" or state.state == "review-meta" or state.state == "merging" then
     return nil, "arbitrating"
   end
-  if is_approved(pr, origin) then
-    return "approved"
+  local approved = is_approved(pr, origin)
+    or m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil
+  if approved and is_imminently_mergeable(pr) then
+    return nil, "imminently-mergeable"
   end
-  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
+  if approved then
     return "approved"
   end
   if is_blocked_by_skew(pr, issue) and is_imminently_mergeable(pr) then
