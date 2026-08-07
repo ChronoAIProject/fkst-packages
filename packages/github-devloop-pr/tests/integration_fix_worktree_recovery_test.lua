@@ -21,6 +21,24 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
+local function build_reject_comment(event)
+  return requests_review.build_review_result_comment_request(core,
+    "owner/repo",
+    "42",
+    event.proposal_id,
+    event.version,
+    {
+      proposal_id = event.review_proposal_id,
+      decision = "reject",
+      body = "Reject because parser must fail closed.",
+      blocking_gap = "missing regression guard",
+      dedup_key = event.review_dedup_key,
+      source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+    },
+    event.source_ref
+  ).body
+end
+
 local function mock_fix_recovery_context(event, branch, origin_marker, reject_comment, impl_version)
   mock_bot_env()
   mock_write_env("1")
@@ -38,21 +56,7 @@ local function mock_fix_writeback(event, branch, origin_marker, impl_version)
   mock_write_env("1")
   mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
     core.state_marker(event.proposal_id, "fixing", event.version),
-    requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body,
+    build_reject_comment(event),
   }, branch, impl_version or event.version)
   mock_git_push(branch)
   mock_pr_fix({ origin_marker }, branch, "feedface")
@@ -64,21 +68,7 @@ return {
     local origin_impl_version = core._strip_latest_fix_version_suffix(event.version)
     t.is_true(origin_impl_version ~= event.version)
     local branch = devloop_base.implement_branch("owner/repo", "42", origin_impl_version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event)
     local origin_marker = m_builders.pr_origin_marker(
       event.proposal_id, "42", branch, origin_impl_version, "dev")
     mock_fix_recovery_context(
@@ -111,21 +101,7 @@ return {
   test_fix_rebuilds_missing_recorded_worktree_under_stable_root = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event)
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
     mock_missing_fix_worktree(branch, "def456")
@@ -154,21 +130,7 @@ return {
   test_fix_removes_existing_outside_stable_root_worktree_before_rebuild = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event)
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
     mock_outside_stable_root_fix_worktree(branch, "def456")
@@ -195,21 +157,7 @@ return {
   test_fix_removes_noncanonical_worktree_inside_stable_root_before_rebuild = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event)
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
     mock_outside_stable_root_fix_worktree(
