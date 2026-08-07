@@ -99,15 +99,21 @@ local function mock_issue_reads(comments)
   )
 end
 
-local function mock_intake_codex(run_opts)
+local function mock_intake_codex(run_opts, candidate)
   local ok = { stdout = "", stderr = "", exit_code = 0 }
+  local runtime_root = "/tmp/fkst-packages-test/premise-correction-identity/runtime"
+  local tmp_dir = runtime_root .. "/context/.bundle-tmp.intake"
+  h.materialize_context_bundle({
+    proposal_id = candidate.proposal_id,
+    dedup_key = candidate.dedup_key,
+  }, runtime_root, tmp_dir)
   author_policy.mock_env(t, run_opts, {
     configure_trusted_bot_login = h.mock_author_policy_configure,
     times = 4,
   })
   for _ = 1, 3 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/premise-correction-identity/runtime",
+      stdout = runtime_root,
       stderr = "",
       exit_code = 0,
     })
@@ -117,7 +123,7 @@ local function mock_intake_codex(run_opts)
   end
   t.mock_command("install -d -m 0755", ok)
   t.mock_command("mktemp -d", {
-    stdout = "/tmp/fkst-packages-test/premise-correction-identity/runtime/context/.bundle-tmp.intake\n",
+    stdout = tmp_dir .. "\n",
     stderr = "",
     exit_code = 0,
   })
@@ -146,7 +152,7 @@ local function run_judge(candidate, comments, name, with_codex)
   h.mock_bot_env()
   mock_issue_reads(comments)
   if with_codex then
-    mock_intake_codex(run_opts)
+    mock_intake_codex(run_opts, candidate)
   end
   author_policy.mock_env(t, run_opts, {
     configure_trusted_bot_login = h.mock_author_policy_configure,

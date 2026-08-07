@@ -1,4 +1,6 @@
 local devloop_base = require("devloop.base")
+local consensus_core = require("consensus.core")
+local context_bundle_identity = require("contract.context_bundle_identity")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local liveness_scan = require("devloop.liveness_scan")
@@ -13,6 +15,9 @@ local issue_number = 42
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
 local fixture_prefix = "/tmp/fkst-thinking-replay-pipeline."
+local verdict_label = "⟦FKST:VERDICT⟧"
+local reply_label = "⟦FKST:REPLY⟧"
+local stance_label = "⟦FKST:STANCE⟧"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -126,6 +131,91 @@ local function run_observe_level_replay(version, name, event_ts)
     payload = payload,
     ts = event_ts,
   }, h.opts(name))
+end
+
+local function run_observe_generation(version, name, event_ts, root)
+  mock_thinking_issue({
+    state_comment(version, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
+  }, "2026-06-03T01:02:03Z")
+  local payload = h.issue({
+    labels = { "fkst-dev:enabled", "fkst-dev:thinking" },
+    proposal_id = proposal_id,
+    dedup_key = version,
+  })
+  local run_opts = h.opts(name, { FKST_RUNTIME_ROOT = root })
+  run_opts.context_runtime_root_mock_times = 1
+  run_opts.strict_context_path_probe_mocks = true
+  h.mock_context_bundle(payload, run_opts)
+  local result = h.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = payload,
+    ts = event_ts,
+  }, run_opts)
+  return result, run_opts
+end
+
+local function clear_context_bundle_cache(content_fetch)
+  local manifest_key = assert(tostring(content_fetch):match("^runtime%-cache:(.+)$"))
+  t.eq(manifest_key:sub(1, #context_bundle_identity.manifest_cache_prefix),
+    context_bundle_identity.manifest_cache_prefix)
+  local relative = manifest_key:sub(#context_bundle_identity.manifest_cache_prefix + 1)
+  local bundle_key = context_bundle_identity.bundle_cache_prefix .. relative
+  -- A runtime-root rotation starts a new engine with a fresh ephemeral cache.
+  cache_set(manifest_key, "")
+  cache_set(bundle_key, "")
+  t.eq(cache_get(manifest_key), "")
+  t.eq(cache_get(bundle_key), "")
+end
+
+local function mock_consensus_convergence(root)
+  for _ = 1, 16 do
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = root,
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 11 do
+    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("mkdir -p", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 5 do
+    t.mock_command("codex exec", {
+      stdout = verdict_label .. " abstain\n" .. reply_label .. " More evidence is required.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 5 do
+    t.mock_command("codex exec", {
+      stdout = stance_label .. " defend\n"
+        .. verdict_label .. " abstain\n"
+        .. reply_label .. " The evidence gap remains.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  t.mock_command("codex exec", {
+    stdout = "converge: generation context is readable + inspect the remaining evidence\n"
+      .. "open: remaining evidence is unresolved\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function remove_generation(root)
+  if root:sub(1, #fixture_prefix) ~= fixture_prefix then
+    error("refusing to remove unexpected generation root: " .. tostring(root))
+  end
+  run_command("rm -rf " .. shell_quote(root))
 end
 
 local function lua_value(value)
@@ -322,5 +412,65 @@ return {
       ~= second_request.payload.redrive_delivery.generation_key)
 
     prove_duplicate_level_replay_delivery({ first_request.payload, second_request.payload })
+  end,
+
+  test_rotated_generation_real_thinking_replay_reaches_consensus_continuation_without_root_a_reads = function()
+    local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local generation_base = read_command("mktemp -d " .. shell_quote(fixture_prefix .. "generation.XXXXXX")):gsub("%s+$", "")
+    local root_a = generation_base .. "/root-a"
+    local root_b = generation_base .. "/root-b"
+    local first = run_observe_generation(version, "thinking-generation-root-a", "2026-06-03T02:00:11Z", root_a)
+    local first_request = find_raise(first, "devloop_consensus_request")
+    t.eq(first.exit_code, 0)
+    t.is_true(first_request ~= nil)
+    clear_context_bundle_cache(first_request.payload.content_fetch)
+    local root_b_call_start = #t.command_calls()
+    local second, root_b_opts = run_observe_generation(version, "thinking-generation-root-b", "2026-06-03T02:00:12Z", root_b)
+    local second_request = find_raise(second, "devloop_consensus_request")
+
+    t.eq(second.exit_code, 0)
+    t.is_true(second_request ~= nil)
+    t.eq(first_request.payload.content_fetch, second_request.payload.content_fetch)
+
+    local manifest_key = tostring(second_request.payload.content_fetch):match("^runtime%-cache:(.+)$")
+    local identity = assert(context_bundle_identity.from_key(
+      manifest_key,
+      context_bundle_identity.manifest_cache_prefix
+    ))
+    local root_b_dir = root_b .. "/context/"
+      .. identity.proposal_directory_segment .. "/" .. identity.version_directory_segment
+    local identity_handle = io.open(root_b_dir .. "/" .. context_bundle_identity.identity_file_name, "r")
+    local bound_identity = identity_handle and identity_handle:read("*a") or nil
+    if identity_handle ~= nil then
+      identity_handle:close()
+    end
+    t.eq(bound_identity, manifest_key)
+
+    remove_generation(root_a)
+    mock_consensus_convergence(root_b)
+    local result = h.run_department("departments/consensus_result/main.lua", {
+      queue = "devloop_consensus_request",
+      payload = second_request.payload,
+    }, root_b_opts)
+
+    t.eq(result.exit_code, 0)
+    local continuation = find_raise(result, "devloop_consensus_continue")
+    t.is_true(continuation ~= nil)
+    t.eq(continuation.payload.status, "converge")
+    t.eq(continuation.payload.proposal_id, proposal_id)
+    local saw_root_b_context = false
+    local calls = t.command_calls()
+    for index = root_b_call_start + 1, #calls do
+      local call = calls[index]
+      local rendered = tostring(call.rendered or "")
+      local stdin = tostring(call.stdin or "")
+      t.is_nil(rendered:find(root_a, 1, true))
+      t.is_nil(stdin:find(root_a, 1, true))
+      if stdin:find(root_b_dir, 1, true) ~= nil then
+        saw_root_b_context = true
+      end
+    end
+    t.eq(saw_root_b_context, true)
+    remove_generation(generation_base)
   end,
 }

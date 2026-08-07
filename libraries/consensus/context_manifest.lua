@@ -1,11 +1,11 @@
 local M = {}
+local context_bundle_identity = require("contract.context_bundle_identity")
 local strings = require("contract.strings")
 
 local max_content_fetch_len = 4000
 local stale_generation_context_error_class = "stale_generation_context"
-local context_manifest_cache_prefix = "github-devloop/context-bundle-manifest-v2/"
+local context_manifest_cache_prefix = context_bundle_identity.manifest_cache_prefix
 local pr_review_proposal_prefix = "github-devloop/pr-review/"
-local max_context_segment_len = 120
 
 local function trim(value)
   return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -45,36 +45,12 @@ local function assert_manifest_files_readable(manifest, read_file)
   end
 end
 
-local function context_segment(value)
-  local segment = strings.sanitize_key(tostring(value or ""), false):gsub("[/#]", "-"):gsub("%-+", "-")
-  segment = segment:gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
-  if segment == "" then
-    segment = "context"
-  end
-  if #segment > max_context_segment_len then
-    local suffix = "-" .. strings.decimal_checksum(value)
-    segment = segment:sub(1, max_context_segment_len - #suffix):gsub("%-+$", "") .. suffix
-  end
-  if segment == "" then
-    return "context"
-  end
-  return segment
-end
-
-local function cache_segment_matches_directory(cache_segment, directory_segment, allow_publish_suffix)
+local function directory_segment_matches(expected, directory_segment, allow_publish_suffix)
   local candidate = directory_segment
   if allow_publish_suffix then
     candidate = candidate:match("^(.-)%.publish%-%d+$") or candidate
   end
-  local expected = context_segment(cache_segment)
-  if candidate == expected then
-    return true
-  end
-  local truncated_prefix, checksum = expected:match("^(.*)%-(%d%d%d%d%d%d%d%d%d%d)$")
-  return truncated_prefix ~= nil
-    and truncated_prefix ~= ""
-    and candidate:sub(1, #truncated_prefix) == truncated_prefix
-    and candidate:sub(-#checksum - 1) == "-" .. checksum
+  return candidate == expected
 end
 
 local function context_generation_parts(path, context_root)
@@ -86,20 +62,31 @@ local function context_generation_parts(path, context_root)
   return generation_dir, proposal_dir, version_dir
 end
 
-local function matching_context_generations(key, context_root, list_files)
-  local relative = key:sub(#context_manifest_cache_prefix + 1)
-  local proposal_segment, version_segment = relative:match("^(.*)/([^/]+)$")
-  if proposal_segment == nil then
+local function matching_context_generations(key, context_root, read_file, list_files)
+  local identity = context_bundle_identity.from_key(key, context_manifest_cache_prefix)
+  if identity == nil then
     return {}, {}, nil
   end
 
   local matches = {}
   local files_by_generation = {}
+  local identity_matches = {}
+  local function generation_identity_matches(generation_dir)
+    if identity_matches[generation_dir] == nil then
+      local ok, value = pcall(
+        read_file,
+        generation_dir .. "/" .. context_bundle_identity.identity_file_name
+      )
+      identity_matches[generation_dir] = ok and value == key
+    end
+    return identity_matches[generation_dir]
+  end
   for _, path in ipairs(list_files(context_root)) do
     local generation_dir, proposal_dir, version_dir = context_generation_parts(path, context_root)
     if generation_dir ~= nil
-      and cache_segment_matches_directory(proposal_segment, proposal_dir, false)
-      and cache_segment_matches_directory(version_segment, version_dir, true) then
+      and directory_segment_matches(identity.proposal_directory_segment, proposal_dir, false)
+      and directory_segment_matches(identity.version_directory_segment, version_dir, true)
+      and generation_identity_matches(generation_dir) then
       if files_by_generation[generation_dir] == nil then
         files_by_generation[generation_dir] = {}
         table.insert(matches, generation_dir)
@@ -107,7 +94,7 @@ local function matching_context_generations(key, context_root, list_files)
       table.insert(files_by_generation[generation_dir], path)
     end
   end
-  return matches, files_by_generation, proposal_segment
+  return matches, files_by_generation, identity.proposal_key_segment
 end
 
 local context_manifest_labels = {
@@ -125,8 +112,10 @@ local function generation_manifest(generation_dir, files, require_pr_context)
   for _, path in ipairs(files or {}) do
     if path:match("^(.*)/[^/]+$") == generation_dir then
       local name = path:match("([^/]+)$") or "context"
-      direct_files[name] = path
-      table.insert(direct_names, name)
+      if name ~= context_bundle_identity.identity_file_name then
+        direct_files[name] = path
+        table.insert(direct_names, name)
+      end
     end
   end
   local lines = {
@@ -183,6 +172,7 @@ local function rebuild_content_manifest(key, runtime_root, read_file, list_files
   local matches, files_by_generation, proposal_segment = matching_context_generations(
     key,
     root .. "/context",
+    read_file,
     list_files
   )
   if #matches == 0 then
