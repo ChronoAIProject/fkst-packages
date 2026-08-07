@@ -30,6 +30,31 @@ def git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def write_missing_line_coverage_artifact(
+    root: Path,
+    *,
+    file: str,
+    line: int,
+    digest: str,
+    text: str,
+) -> Path:
+    artifact = root / "coverage.json"
+    artifact.write_text(
+        json.dumps({
+            "files": [{
+                "file": file,
+                "missing_lines": [{
+                    "line": line,
+                    "normalized_line_hash": digest,
+                    "text": text,
+                }],
+            }],
+        }),
+        encoding="utf-8",
+    )
+    return artifact
+
+
 class CoverageRatchetTest(unittest.TestCase):
     def key(self, file: str = "packages/example/core.lua", line: int = 2, digest: str = "abcdef12"):
         return coverage.CoverageKey(file, line, digest)
@@ -393,19 +418,12 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -432,19 +450,12 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/github-devloop/core/restart/transitions/ready.lua",
-                        "missing_lines": [{
-                            "line": 74,
-                            "normalized_line_hash": "af87eb9432e4a024",
-                            "text": "\"result_effects_complete\"",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/github-devloop/core/restart/transitions/ready.lua",
+                line=74,
+                digest="af87eb9432e4a024",
+                text="\"result_effects_complete\"",
             )
             shifted_key = coverage.CoverageKey(
                 "packages/github-devloop/core/restart/transitions/ready.lua",
@@ -520,19 +531,12 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -549,19 +553,12 @@ class CoverageRatchetTest(unittest.TestCase):
             root = Path(tmp)
             (root / "migration").mkdir()
             (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -584,19 +581,12 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -609,19 +599,12 @@ class CoverageRatchetTest(unittest.TestCase):
     def test_repository_messages_report_only_without_required_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -654,19 +637,12 @@ class CoverageRatchetTest(unittest.TestCase):
             root = Path(tmp)
             (root / "migration").mkdir()
             (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -710,19 +686,12 @@ class CoverageRatchetTest(unittest.TestCase):
     def test_repository_messages_ignores_coverage_json_env_without_required_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
@@ -736,19 +705,12 @@ class CoverageRatchetTest(unittest.TestCase):
         # as a warning, not a blocking message, even when base still has the flag.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({
-                    "files": [{
-                        "file": "packages/example/core.lua",
-                        "missing_lines": [{
-                            "line": 2,
-                            "normalized_line_hash": "abcdef12",
-                            "text": "return missing_branch()",
-                        }],
-                    }],
-                }),
-                encoding="utf-8",
+            artifact = write_missing_line_coverage_artifact(
+                root,
+                file="packages/example/core.lua",
+                line=2,
+                digest="abcdef12",
+                text="return missing_branch()",
             )
 
             with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
