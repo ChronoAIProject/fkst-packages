@@ -100,7 +100,7 @@ M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("core.branches").install(M)
 require("core.sync_conflict").install(M)
-require("core.rollup_health").install(M)
+require("core.branches.branch_train").install_rollup_health(M)
 require("core.release_notes").install(M)
 
 return M
