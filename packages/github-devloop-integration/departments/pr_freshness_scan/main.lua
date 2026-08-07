@@ -7,6 +7,8 @@ local pr_safety = require("devloop.pr_safety")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
+local contract_time = require("contract.time")
+local entity_highwater = require("devloop.entity_highwater")
 local core = require("core")
 local git_adapter = require("forge.git")
 local config = require("devloop.config")
@@ -28,6 +30,7 @@ local spec = {
 local git = git_adapter.production_handle
 
 local blocked_by_skew_label = "fkst-dev:blocked-by-skew"
+local checkpoint_consumer = "github-devloop-integration/pr-freshness-scan"
 
 local function require_repo(repo)
   local value = tostring(repo or "")
@@ -35,6 +38,10 @@ local function require_repo(repo)
     error("github-devloop: config-missing: FKST_GITHUB_REPO is required for PR freshness")
   end
   return value
+end
+
+local function scan_lock_key(repo)
+  return "github-devloop/pr-freshness-scan/" .. require_repo(repo)
 end
 
 local function trim_stdout(result)
@@ -100,12 +107,85 @@ local function has_approval_marker(comments, issue_proposal_id, pr_number, head_
   return false
 end
 
-local function issue_state(repo, issue_number)
-  if issue_number == nil then
-    return { labels = {}, comments = {} }
+local function valid_updated_at(value)
+  return type(value) == "string"
+    and contract_time.iso_timestamp_epoch_seconds(value) ~= nil
+end
+
+local function checkpoint_keys(repo, kind, number)
+  local mark_key = entity_highwater.key(checkpoint_consumer, {
+    kind = "external",
+    ref = tostring(repo) .. "#" .. tostring(kind) .. "/" .. tostring(number),
+  })
+  if mark_key == nil then
+    return nil, nil
   end
-  local viewed = git_mechanics.run_required(devloop_commands.gh_issue_view_result(repo, issue_number, 30), "PR freshness issue view")
-  return parsers_issue.parse_issue_view_result(core, viewed.stdout)
+  return mark_key, mark_key .. "/view"
+end
+
+local function load_checkpointed_entity(repo, kind, number, current_updated_at, parse, fetch, description)
+  local mark_key, view_key = checkpoint_keys(repo, kind, number)
+  local stored = mark_key ~= nil and cache_get(mark_key) or nil
+  if valid_updated_at(current_updated_at)
+    and valid_updated_at(stored)
+    and current_updated_at == stored then
+    local cached = cache_get(view_key)
+    local ok, entity = pcall(parse, cached)
+    if ok and type(entity) == "table"
+      and valid_updated_at(entity.updated_at)
+      and entity.updated_at == stored then
+      devloop_logging.log_line("info", "pr_freshness_scan", "pr-freshness", "RECONCILE", {
+        "outcome=skip-unchanged-freshness",
+        "entity=" .. tostring(repo) .. "#" .. tostring(kind) .. "/" .. tostring(number),
+        "updated_at=" .. tostring(stored),
+      })
+      return entity, { dirty = false }
+    end
+  end
+
+  local viewed = git_mechanics.run_required(fetch(), description)
+  local stdout = tostring(viewed.stdout or "")
+  local entity = parse(stdout)
+  if valid_updated_at(stored)
+    and valid_updated_at(entity and entity.updated_at)
+    and entity.updated_at == stored then
+    devloop_logging.log_line("info", "pr_freshness_scan", "pr-freshness", "RECONCILE", {
+      "outcome=verified-unchanged-after-fetch",
+      "entity=" .. tostring(repo) .. "#" .. tostring(kind) .. "/" .. tostring(number),
+      "updated_at=" .. tostring(stored),
+    })
+  end
+  return entity, {
+    dirty = true,
+    mark_key = mark_key,
+    stdout = stdout,
+    view_key = view_key,
+  }
+end
+
+local function commit_checkpoint(checkpoint, entity)
+  if type(checkpoint) ~= "table" or checkpoint.dirty ~= true
+    or checkpoint.mark_key == nil or checkpoint.view_key == nil
+    or not valid_updated_at(entity and entity.updated_at) then
+    return
+  end
+  cache_set(checkpoint.view_key, checkpoint.stdout)
+  cache_set(checkpoint.mark_key, entity.updated_at)
+end
+
+local function issue_state(repo, issue_number, current_updated_at)
+  if issue_number == nil then
+    return { labels = {}, comments = {}, assignees = {} }, nil
+  end
+  return load_checkpointed_entity(
+    repo,
+    "issue",
+    issue_number,
+    current_updated_at,
+    function(stdout) return parsers_issue.parse_issue_view_state(core, stdout) end,
+    function() return devloop_commands.gh_issue_view_state(repo, issue_number, 30) end,
+    "PR freshness issue view"
+  )
 end
 
 local function is_blocked_by_skew(pr, issue)
@@ -128,10 +208,12 @@ local function candidate_reason(pr, origin, issue, state)
   if state.state == "fixing" or state.state == "review-meta" or state.state == "merging" then
     return nil, "arbitrating"
   end
-  if is_approved(pr, origin) then
-    return "approved"
+  local approved = is_approved(pr, origin)
+    or m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil
+  if approved and is_imminently_mergeable(pr) then
+    return nil, "imminently-mergeable"
   end
-  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
+  if approved then
     return "approved"
   end
   if is_blocked_by_skew(pr, issue) and is_imminently_mergeable(pr) then
@@ -140,14 +222,32 @@ local function candidate_reason(pr, origin, issue, state)
   return nil, "not-candidate"
 end
 
-local function load_current_pr(repo, pr_number)
-  local viewed = git_mechanics.run_required(devloop_commands.gh_pr_view_freshness(repo, pr_number, 30), "PR freshness view")
-  return parsers_pr.parse_pr_view_merge(viewed.stdout)
+local function load_current_pr(repo, listed_pr)
+  return load_checkpointed_entity(
+    repo,
+    "pr",
+    listed_pr.number,
+    listed_pr.updated_at,
+    parsers_pr.parse_pr_view_merge,
+    function() return devloop_commands.gh_pr_view_freshness(repo, listed_pr.number, 30) end,
+    "PR freshness view"
+  )
 end
 
 local function list_open_prs(repo)
   local listed = git_mechanics.run_required(devloop_commands.gh_pr_list_freshness(repo, 30), "PR freshness list")
   return parsers_pr.parse_pr_list_freshness(listed.stdout)
+end
+
+local function list_issue_versions(repo, issue_numbers)
+  if #issue_numbers == 0 then
+    return {}
+  end
+  local listed = git_mechanics.run_required(
+    devloop_commands.gh_issue_list_freshness(repo, issue_numbers, 30),
+    "PR freshness issue list"
+  )
+  return parsers_issue.parse_issue_list_freshness(listed.stdout)
 end
 
 local function raise_conflict(repo, branch, integration, branch_sha, integration_sha, pr_number)
@@ -217,16 +317,7 @@ local function in_managed_scope(repo, branches, pr, origin)
     and require("forge.merge.shared").is_same_repo_pr_head(pr, repo)
 end
 
-local function process_pr(repo, branches, listed_pr)
-  local pr = load_current_pr(repo, listed_pr.number)
-  pr.number = listed_pr.number
-  local origin = m_facts.pr_origin_fact(pr.comments)
-  if not in_managed_scope(repo, branches, pr, origin) then
-    devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = nil, version = nil }, "tick", "freshness", "skip-foreign(pr-shape)", "PR is outside managed freshness scope")
-    return
-  end
-
-  local issue = issue_state(repo, origin.issue_number)
+local function process_pr(repo, branches, listed_pr, pr, origin, issue)
   if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id) then
     return
   end
@@ -281,6 +372,46 @@ local function process_pr(repo, branches, listed_pr)
   end)
 end
 
+local function prepare_listed_pr(repo, branches, listed_pr)
+  local pr, pr_checkpoint = load_current_pr(repo, listed_pr)
+  pr.number = listed_pr.number
+  local origin = m_facts.pr_origin_fact(pr.comments)
+  if not in_managed_scope(repo, branches, pr, origin) then
+    devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = nil, version = nil }, "tick", "freshness", "skip-foreign(pr-shape)", "PR is outside managed freshness scope")
+    commit_checkpoint(pr_checkpoint, pr)
+    return nil
+  end
+
+  return {
+    listed_pr = listed_pr,
+    origin = origin,
+    pr = pr,
+    pr_checkpoint = pr_checkpoint,
+  }
+end
+
+local function backing_issue_numbers(prepared_prs)
+  local numbers = {}
+  local seen = {}
+  for _, prepared in ipairs(prepared_prs) do
+    local number = tonumber(prepared.origin.issue_number)
+    if number ~= nil and not seen[number] then
+      seen[number] = true
+      table.insert(numbers, number)
+    end
+  end
+  return numbers
+end
+
+local function process_prepared_pr(repo, branches, prepared, issue_versions)
+  local issue_number = prepared.origin.issue_number
+  local issue_updated_at = issue_versions[tonumber(issue_number)]
+  local issue, issue_checkpoint = issue_state(repo, issue_number, issue_updated_at)
+  process_pr(repo, branches, prepared.listed_pr, prepared.pr, prepared.origin, issue)
+  commit_checkpoint(issue_checkpoint, issue)
+  commit_checkpoint(prepared.pr_checkpoint, prepared.pr)
+end
+
 return saga.department(spec, { done = function() return false end, act = function(event)
   devloop_logging.log_entry("pr_freshness_scan", event, "pr-freshness", event and event.queue or "")
   local branches = config.branch_config()
@@ -290,7 +421,18 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = "same-branch", version = branches.integration }, "tick", "freshness", "skip-idempotent(same-branch)", "integration branch equals upstream branch")
     return
   end
-  for _, pr in ipairs(list_open_prs(repo)) do
-    process_pr(repo, branches, pr)
-  end
+  with_lock(scan_lock_key(repo), function()
+    local prs = list_open_prs(repo)
+    local prepared_prs = {}
+    for _, listed_pr in ipairs(prs) do
+      local prepared = prepare_listed_pr(repo, branches, listed_pr)
+      if prepared ~= nil then
+        table.insert(prepared_prs, prepared)
+      end
+    end
+    local issue_versions = list_issue_versions(repo, backing_issue_numbers(prepared_prs))
+    for _, prepared in ipairs(prepared_prs) do
+      process_prepared_pr(repo, branches, prepared, issue_versions)
+    end
+  end)
 end, name = "pr_freshness_scan" })

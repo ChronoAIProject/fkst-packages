@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local branch_train = require("core.branches.branch_train")
 
 local core = h.core
 local t = h.t
@@ -24,6 +25,16 @@ local function red_pr(head_sha, failing_head_sha)
 end
 
 return {
+  test_branch_train_owns_rollup_health_alert = function()
+    local installed = {}
+    t.is_true(type(branch_train.install_rollup_health) == "function")
+    branch_train.install_rollup_health(installed)
+    t.is_true(type(installed.rollup_red_window_minutes) == "function")
+    t.is_true(type(installed.rollup_health_dedup_key) == "function")
+    t.is_true(type(installed.build_rollup_health_issue_create_request) == "function")
+    t.is_true(type(installed.observe_rollup_health) == "function")
+  end,
+
   -- Regression guard for the latent bug fixed alongside the _trim decouple: the old
   -- ambient M._trim returned two values (the trimmed string plus the chained gsub's
   -- substitution count), so `tonumber(M._trim(raw))` passed that count (0 or 1) as

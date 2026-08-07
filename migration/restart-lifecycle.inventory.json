@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "309e2cbc3005161680931e61a2fd6e1382e3cbfa041d636e3ab44ac4a4253dc4",
+  "artifact_sha256": "069712d954192be63b85a2957cd48ffb4f5075d01fc2178e0f5d476b7b3637b7",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -9097,168 +9097,6 @@
           "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-3554227821/def456/review",
           "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-3554227821/def456",
           "round": 12,
-          "source_ref": {
-            "kind": "external",
-            "ref": "owner/repo#pr/7"
-          }
-        },
-        "source_boundary": null,
-        "source_state": "fixing",
-        "target": "blocked"
-      }
-    },
-    {
-      "boundary": "writer",
-      "evidence_refs": [
-        {
-          "kind": "runtime-cas-probe",
-          "ref": "devloop.state.versioned_transition_status:apply"
-        },
-        {
-          "kind": "runtime-event-source",
-          "ref": "owner/repo#pr/7"
-        }
-      ],
-      "observation_id": "writer:github-devloop-pr:reconcile-generic-blocked/own-ci-policy-invalid-fixing-apply/blocked/apply/apply/blocked",
-      "old_inputs": {
-        "caller_from_states": [
-          "fixing",
-          "merge-ready",
-          "merging"
-        ],
-        "current_fact": {
-          "stage_rank": 700,
-          "state": "fixing",
-          "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
-        },
-        "handoff_reference": null,
-        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-        "target_version": null
-      },
-      "old_outcome": {
-        "cas_outcome": "applied",
-        "emitted_effects": [
-          {
-            "authority_class": "lifecycle-authoritative",
-            "effect_id": "comment:pr:reconcile-generic-blocked",
-            "ordinal": 1,
-            "sink_kind": "comment"
-          },
-          {
-            "authority_class": "lifecycle-authoritative",
-            "effect_id": "label:issue:reconcile-generic-blocked",
-            "ordinal": 2,
-            "sink_kind": "label"
-          }
-        ],
-        "handoff_direct_lookup_count": 0,
-        "observable_writes": [
-          {
-            "effect_id": "comment:pr:reconcile-generic-blocked",
-            "payload": {
-              "body": "github-devloop fix reconcile action: drop\n\nReason:\nci-repair-retry-policy-invalid\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000003/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000800\" -->\n<!-- fkst:github-devloop:fix-reconcile:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3\" round=\"3\" action=\"drop\" dedup=\"fix-reconcile:ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3\" -->\n⟦AI:FKST⟧",
-              "dedup_key": "fix-reconcile/comment/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/ci-repair-retry-policy-invalid",
-              "pr_number": "7",
-              "repo": "owner/repo",
-              "schema": "github-proxy.v1",
-              "source_ref": {
-                "kind": "external",
-                "ref": "owner/repo#pr/7"
-              }
-            },
-            "queue": "github-proxy.github_pr_comment_request"
-          },
-          {
-            "effect_id": "label:issue:reconcile-generic-blocked",
-            "payload": {
-              "add_labels": [
-                "fkst-dev:blocked"
-              ],
-              "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/ci-repair-retry-policy-invalid",
-              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
-              "expected_state": "blocked",
-              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-              "issue_number": "42",
-              "label_colors": {
-                "fkst-dev:blocked": "1B1F23"
-              },
-              "marker_guard": {
-                "expected": {
-                  "state": "blocked",
-                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
-                },
-                "marker": "state",
-                "marker_target": {
-                  "kind": "pr",
-                  "number": "7"
-                },
-                "match": {
-                  "proposal": "github-devloop/issue/owner/repo/42"
-                },
-                "namespace": "github-devloop",
-                "order_by": [
-                  "marker_order_key",
-                  "version_order_key",
-                  "stage_rank"
-                ],
-                "version": "v1"
-              },
-              "remove_labels": [
-                "fkst-dev:thinking",
-                "fkst-dev:ready",
-                "fkst-dev:implementing",
-                "fkst-dev:pr-open",
-                "fkst-dev:reviewing",
-                "fkst-dev:merge-ready",
-                "fkst-dev:fixing",
-                "fkst-dev:impl-failed",
-                "fkst-dev:declined",
-                "fkst-dev:review-meta",
-                "fkst-dev:merging",
-                "fkst-dev:merged",
-                "fkst-dev:awaiting-pr"
-              ],
-              "repo": "owner/repo",
-              "require_marker_guard": true,
-              "schema": "github-proxy.label.v1",
-              "source_ref": {
-                "kind": "external",
-                "ref": "owner/repo#pr/7"
-              },
-              "target_kind": "issue",
-              "target_number": "42"
-            },
-            "queue": "github-proxy.github_issue_label_request"
-          }
-        ],
-        "reason_code": "apply",
-        "status": "apply",
-        "timeout_evidence_source": null
-      },
-      "owner": "github-devloop-pr",
-      "schema": "restart-old-behavior-observation.v2",
-      "site": {
-        "ordinal": "versioned_transition_status:from_states->blocked",
-        "path": "packages/github-devloop-pr/departments/reconcile/main.lua",
-        "symbol": "pipeline_fix"
-      },
-      "typed_intent": {
-        "cause_schema_id": "github-devloop.own-ci-reconcile.v1",
-        "generation_epoch": {
-          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-          "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-          "target_version": null
-        },
-        "kind": "versioned_transition_status",
-        "lineage": {
-          "bound_head_sha": "def456",
-          "dedup_key": "github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/ci-repair-retry-policy-invalid",
-          "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-          "issue_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
-          "proposal_id": "github-devloop/issue/owner/repo/42",
-          "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-3554227821/def456/review",
-          "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-3554227821/def456",
-          "round": 3,
           "source_ref": {
             "kind": "external",
             "ref": "owner/repo#pr/7"
@@ -24381,7 +24219,7 @@
         },
         {
           "kind": "runtime-disposition",
-          "ref": "devloop.logging.log_cas_decision:observe_issue:skip-idempotent(retry-limit)"
+          "ref": "devloop.logging.log_cas_decision:observe_issue:skip-pending(operator-reentry)"
         },
         {
           "kind": "runtime-event-source",
@@ -24403,11 +24241,11 @@
         "target_version": null
       },
       "old_outcome": {
-        "cas_outcome": "skip-idempotent(retry-limit)",
+        "cas_outcome": "skip-pending(operator-reentry)",
         "emitted_effects": [],
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
-        "reason_code": "implementation-failure-not-retryable",
+        "reason_code": "operator-reentry-required",
         "status": "no-op",
         "timeout_evidence_source": null
       },
@@ -35802,14 +35640,14 @@
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "comment:pr:review-meta-result",
-            "family": "state:v1/fixing|blocked+review-meta:v1",
+            "family": "state:v1/fixing|reviewing|blocked+review-meta:v1",
             "sink_kind": "comment"
           },
           {
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "label:issue:review-meta-result",
-            "family": "state-label:fixing|blocked;dedup=review-meta/label",
+            "family": "state-label:fixing|reviewing|blocked;dedup=review-meta/label",
             "sink_kind": "label"
           },
           {
@@ -37937,101 +37775,6 @@
         "source_boundary": "github-proxy.github_entity_changed",
         "source_state": "fixing",
         "target": "reviewing"
-      }
-    },
-    {
-      "boundary": "row_replay",
-      "evidence_refs": [
-        {
-          "kind": "runtime-row-replay-router",
-          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:142-170"
-        },
-        {
-          "kind": "runtime-row-replay-dispatch",
-          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:569-583"
-        },
-        {
-          "kind": "runtime-disposition",
-          "ref": "packages/github-devloop-pr/core/pr_review_replayer.lua:282-309;packages/github-devloop-pr/core/ci_repair_retry.lua:103-120"
-        },
-        {
-          "kind": "runtime-event-source",
-          "ref": "owner/repo#pr/7001"
-        }
-      ],
-      "observation_id": "row-replay-observe-pr-local-route-fixing-ci-repair-policy-invalid",
-      "old_inputs": {
-        "caller_from_states": [
-          "fixing"
-        ],
-        "current_fact": {
-          "stage_rank": 700,
-          "state": "fixing",
-          "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
-        },
-        "handoff_reference": null,
-        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
-        "target_version": null
-      },
-      "old_outcome": {
-        "cas_outcome": "applied(fix-loop-max-rounds)",
-        "emitted_effects": [
-          {
-            "authority_class": "lifecycle-authoritative",
-            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
-            "ordinal": 1,
-            "sink_kind": "queue"
-          },
-          {
-            "authority_class": "grantless-published-intent",
-            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
-            "ordinal": 2,
-            "sink_kind": "queue"
-          }
-        ],
-        "handoff_direct_lookup_count": 0,
-        "observable_writes": [
-          {
-            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
-            "queue": "devloop_fix_reconcile"
-          },
-          {
-            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
-            "queue": "github-devloop-decompose.devloop_decompose"
-          }
-        ],
-        "reason_code": "applied(fix-loop-max-rounds)",
-        "status": "routed",
-        "timeout_evidence_source": null
-      },
-      "owner": "github-devloop-pr",
-      "schema": "restart-old-behavior-observation.v2",
-      "site": {
-        "ordinal": "row-replay/pr-local-state",
-        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
-        "symbol": "replay_pr_local_state"
-      },
-      "typed_intent": {
-        "cause_schema_id": "github-proxy.v1",
-        "generation_epoch": {
-          "replay_version": null,
-          "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
-          "terminal": false
-        },
-        "kind": "row_replay",
-        "lineage": {
-          "issue_number": 42,
-          "pr_number": 7001,
-          "proposal_id": "github-devloop/issue/owner/repo/42",
-          "source_ref": {
-            "kind": "external",
-            "ref": "owner/repo#pr/7001"
-          },
-          "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
-        },
-        "source_boundary": "github-proxy.github_entity_changed",
-        "source_state": "fixing",
-        "target": "blocked"
       }
     },
     {

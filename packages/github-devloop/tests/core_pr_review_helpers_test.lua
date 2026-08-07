@@ -63,11 +63,7 @@ return {
     local meta_review_dedup = devloop_base.pr_review_consensus_dedup_key(meta_review_proposal)
     local meta_comment = "github-devloop review-meta action: fix\n\nReason:\nRun another fix pass."
       .. "\n\n" .. core.state_marker(issue_proposal_id, "fixing", action_version)
-      .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, meta_review_dedup, "fix", action_version, "missing retry guard", nil, {
-        review_proposal_id = meta_review_proposal,
-        review_dedup_key = meta_review_dedup,
-        reviewed_head_sha = head_sha,
-      })
+      .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, meta_review_dedup, "fix", action_version, "missing retry guard")
     local meta_fact = m_facts.review_meta_fix_fact({ meta_comment }, issue_proposal_id, action_version)
     t.eq(meta_fact.review_proposal_id, meta_review_proposal)
     t.eq(meta_fact.review_dedup_key, meta_review_dedup)

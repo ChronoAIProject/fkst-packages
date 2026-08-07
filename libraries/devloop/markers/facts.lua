@@ -2,6 +2,7 @@ local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local base_ids = require("devloop.base_ids")
+local contract_pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
 local C = {}
@@ -178,14 +179,15 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
       local marker_lineage = transition_version.strip_suffixes(version)
       if marker_issue == tostring(issue_proposal_id)
         and marker_lineage == expected_lineage
-        and (action == "fix" or action == "block" or action == "spec-amendment")
+        and (action == "fix" or action == "no-actionable-gap"
+          or action == "block" or action == "spec-amendment")
         and strings.is_bounded_string(marker_dedup, devloop_base._max_dedup_len) then
         local ignored = ignore_legacy_unbound
           and fix_feedback_observation.is_legacy_review_meta_unbound_marker(
             marker, issue_proposal_id, issue_version)
         if not ignored then
           local review_proposal, reviewed_head_sha
-          if action == "fix" then
+          if action == "fix" or action == "no-actionable-gap" then
             review_proposal = marker_attr(marker, "review_proposal")
             reviewed_head_sha = marker_attr(marker, "head_sha")
           else
@@ -196,7 +198,8 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
           end
           local fact = {
             review_proposal_id = review_proposal,
-            review_dedup_key = action == "fix" and marker_review_dedup or marker_dedup,
+            review_dedup_key = (action == "fix" or action == "no-actionable-gap")
+              and marker_review_dedup or marker_dedup,
             reviewed_head_sha = reviewed_head_sha,
             action = action,
             version = version,
@@ -204,9 +207,9 @@ local function review_meta_decision_fact(comments, issue_proposal_id, issue_vers
             blocking_gap = gap,
             comment_created_at = parsers_misc._comment_created_at(comment),
           }
-          if action == "fix" then
-            if gap == nil
-              or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
+          if action == "fix" or action == "no-actionable-gap" then
+            if action == "fix" and (gap == nil
+              or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len)) then
               return nil
             end
             return C.parse_fix_feedback_fact(fact)
@@ -743,46 +746,18 @@ function C.pr_origin_fact(comments)
   if type(comments) ~= "table" then
     return nil
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
+  local authorities = {
+    parse_issue_proposal_id = base_ids.parse_proposal_id,
+    parse_pr_proposal_id = entity_lib.parse_pr_proposal_id,
+    is_git_ref_safe = forge_validators.is_git_ref_safe,
+    is_implementation_version = function(value)
+      return strings.is_bounded_string(value, devloop_base._max_dedup_len)
+    end,
+  }
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_proposal = marker:match('proposal="([^"]+)"')
-      local marker_issue = marker:match('issue="([^"]+)"')
-      local marker_branch = marker:match('branch="([^"]+)"')
-      local marker_impl_version = marker:match('impl_version="([^"]*)"')
-      local marker_base_branch = marker:match('base_branch="([^"]+)"')
-      local repo, issue_number = base_ids.parse_proposal_id(marker_proposal)
-      if repo ~= nil
-        and marker_issue == issue_number
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = repo,
-          issue_number = issue_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-        }
-      end
-      local pr_repo, pr_number = entity_lib.parse_pr_proposal_id(marker_proposal)
-      if pr_repo ~= nil
-        and marker_issue == tostring(pr_number)
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = pr_repo,
-          issue_number = nil,
-          pr_number = pr_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-          pr_native = true,
-        }
-      end
+    local fact = contract_pr_origin.fact(parsers_misc._comment_body(comment), authorities)
+    if fact ~= nil then
+      return fact
     end
   end
   return nil

@@ -7,6 +7,8 @@ local substrate_pin = require("departments.implement.substrate_pin")
 local local_iteration_result = require("departments.implement.local_iteration_result")
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
 local devloop_logging = require("devloop.logging")
+local durable_impl_failure = require("devloop.impl_failure")
+local workflow_codex = require("workflow_internal.codex")
 
 local exec_sync = exec_sync
 
@@ -66,11 +68,20 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
   }
 end
 
-local function impl_failed_outcome(ready, reason, detail, attempt, started_at, exec_ref, base_sha)
+local function impl_failed_outcome(
+    ready, reason, fault_class, retryable, detail, attempt, started_at, exec_ref, base_sha)
+  if durable_impl_failure.valid_fault_class(fault_class) == nil then
+    error("github-devloop: invalid-fault-class: invalid implementation failure outcome fault class")
+  end
+  if type(retryable) ~= "boolean" then
+    error("github-devloop: invalid-retry-disposition: implementation failure outcome retryable must be boolean")
+  end
   return {
     kind = "impl-failed",
     ready = ready,
     reason = reason,
+    fault_class = fault_class,
+    retryable = retryable,
     detail = detail,
     attempt = attempt,
     started_at = started_at,
@@ -134,6 +145,7 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
     ready = ready,
     reason = receipt.reason,
     evidence = receipt.evidence,
+    blocker = receipt.blocker,
     receipt = receipt,
     attempt = attempt,
     started_at = started_at,
@@ -144,15 +156,35 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
   }
 end
 
-function M.local_iteration_check(worktree)
+local function execute_local_iteration_check(worktree, base_head, observe_worktree, exec)
   local quoted_worktree = devloop_base._shell_single_quote(worktree)
   local command = "cd " .. quoted_worktree
-    .. " || { if [ ! -d " .. quoted_worktree .. " ]; then printf '%s\\n' "
-    .. devloop_base._shell_single_quote(WORKTREE_MISSING_MARKER)
-    .. " >&2; fi; exit 1; }\nprintf '%s\\n' "
-    .. devloop_base._shell_single_quote(WORKTREE_ENTERED_MARKER)
-    .. " >&2\n" .. config.local_iteration_test_command()
-  return exec_sync({ cmd = command, timeout = 7200 })
+  if observe_worktree then
+    command = command
+      .. " || { if [ ! -d " .. quoted_worktree .. " ]; then printf '%s\\n' "
+      .. devloop_base._shell_single_quote(WORKTREE_MISSING_MARKER)
+      .. " >&2; fi; exit 1; }\nprintf '%s\\n' "
+      .. devloop_base._shell_single_quote(WORKTREE_ENTERED_MARKER)
+      .. " >&2\n"
+  else
+    command = command .. " && "
+  end
+  if base_head ~= nil then
+    command = command .. "export BASE=" .. devloop_base._shell_single_quote(base_head) .. " && "
+  end
+  command = command .. config.local_iteration_test_command()
+  -- The gate verifies the attempt, so it must live inside the attempt's own budget rather than
+  -- restate it: a hardcoded gate timeout drifts the moment a deployment raises
+  -- FKST_CODEX_TIMEOUT_IMPLEMENT, and then times out on work still within budget, losing the
+  -- attempt's real outcome to UNKNOWN (#2887).
+  return (exec or exec_sync)({ cmd = command, timeout = workflow_codex.role_timeout_seconds("implement") })
+end
+
+function M.local_iteration_check(worktree, base_head, deps)
+  if base_head == nil or tostring(base_head) == "" then
+    error("github-devloop: local-iteration-base-missing: candidate base head is required")
+  end
+  return execute_local_iteration_check(worktree, base_head, true, deps and deps.exec or nil)
 end
 
 local function worktree_unavailability_from_command(result)
@@ -227,7 +259,8 @@ local function run_base_probe(worktree, base_sha)
     return { status = "head-mismatch", head_readback = head_readback }
   end
 
-  local check = M.local_iteration_check(plan.worktree)
+  -- A raw-base probe has no candidate diff and must not inherit candidate comparison context.
+  local check = execute_local_iteration_check(plan.worktree, nil, true)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
   local result = local_iteration_result.from_command(check)
   if exit_code == nil then
@@ -297,8 +330,8 @@ function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
   return observation
 end
 
-local function run_local_iteration_check(ready, worktree)
-  local check = M.local_iteration_check(worktree)
+local function run_local_iteration_check(ready, worktree, base_head)
+  local check = M.local_iteration_check(worktree, base_head)
   local unavailable_reason = worktree_unavailability_from_command(check)
   local result = local_iteration_result.from_command(check)
   devloop_logging.log_line(result.kind == "PASS" and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
@@ -310,10 +343,10 @@ local function run_local_iteration_check(ready, worktree)
   return result.kind == "PASS", command_detail(check), result, unavailable_reason
 end
 
-local function run_candidate_local_iteration_check(ready, worktree)
+local function run_candidate_local_iteration_check(ready, worktree, base_head)
   local green, detail, result, unavailable_reason
   for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
-    green, detail, result, unavailable_reason = run_local_iteration_check(ready, worktree)
+    green, detail, result, unavailable_reason = run_local_iteration_check(ready, worktree, base_head)
     if unavailable_reason ~= nil or result.kind ~= "UNKNOWN" then
       return green, detail, result, verification_attempt, unavailable_reason
     end
@@ -405,7 +438,7 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     return unavailable
   end
   local green, verify_detail, candidate_result, candidate_verification_attempt, verify_unavailable_reason =
-    run_candidate_local_iteration_check(ready, worktree)
+    run_candidate_local_iteration_check(ready, worktree, base_head)
   if verify_unavailable_reason ~= nil then
     return worktree_unavailable_outcome(ready, worktree, verify_unavailable_reason,
       attempt, started_at, exec_ref, base_head)
@@ -413,7 +446,8 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
   if not green then
     local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
     if typed_failure_reason ~= nil then
-      return impl_failed_outcome(ready, typed_failure_reason, verify_detail,
+      return impl_failed_outcome(
+        ready, typed_failure_reason, candidate_result.fault_class, false, verify_detail,
         attempt, started_at, exec_ref, base_head)
     end
     if candidate_result.kind == "UNKNOWN" then
@@ -448,21 +482,25 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       end
     end
     if verdict == "OWN_LOCAL_RED" then
-      return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
+      return impl_failed_outcome(ready, "local-iteration-failed", candidate_result.fault_class, false,
+        verify_detail, attempt, started_at, exec_ref, base_head)
     end
     if verdict == "BASE_RED" then
-      return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+      return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe.result.fault_class, false,
+        base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
     end
     local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
     if typed_base_failure_reason ~= nil then
-      return impl_failed_outcome(ready, typed_base_failure_reason, base_probe_detail(base_probe),
+      return impl_failed_outcome(
+        ready, typed_base_failure_reason, base_probe.result.fault_class, false,
+        base_probe_detail(base_probe),
         attempt, started_at, exec_ref, base_head)
     end
     if verdict == "INDETERMINATE" then
       return verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
         base_head, worktree, attempt, started_at, exec_ref, head_sha, base_probe_detail(base_probe))
     end
-    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
+    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", "UNKNOWN", false,
       base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end
   local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
@@ -487,7 +525,8 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   local verify_detail = ""
   if progress_head ~= nil then
     local ignored_result, verify_unavailable_reason
-    green, verify_detail, ignored_result, verify_unavailable_reason = run_local_iteration_check(ready, worktree)
+    green, verify_detail, ignored_result, verify_unavailable_reason =
+      run_local_iteration_check(ready, worktree, base_head)
     if verify_unavailable_reason ~= nil then
       return worktree_unavailable_outcome(ready, worktree, verify_unavailable_reason,
         attempt, started_at, exec_ref, base_head)
@@ -499,7 +538,8 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   if progress_head ~= nil then
     return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
   end
-  return impl_failed_outcome(ready, "codex-failed", stderr, attempt, started_at, exec_ref, base_head)
+  return impl_failed_outcome(
+    ready, "codex-failed", "UNKNOWN", true, stderr, attempt, started_at, exec_ref, base_head)
 end
 
 return M

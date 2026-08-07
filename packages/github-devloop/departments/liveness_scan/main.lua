@@ -174,7 +174,13 @@ local function act_liveness_scan(event)
       )
       liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if not call_ok then
-        error(should_reinject, 0)
+        liveness_scan.liveness_scan_reinject_failure(
+          repo,
+          activation.entity,
+          "issue",
+          should_reinject
+        )
+        should_reinject = false
       end
       if defer_reason == "deadline" then
         liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)

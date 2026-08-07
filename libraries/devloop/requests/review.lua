@@ -444,6 +444,9 @@ function C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_h
     tostring(fix.review_dedup_key),
     tostring(new_head_sha),
   }), fix.source_ref)
+  if fix.redrive_delivery ~= nil then
+    request.dedup_key = fix.dedup_key
+  end
   return C.attach_reviewing_handoff(request, fix.proposal_id, fix.pr_number, new_version or fix.version, fix.source_ref)
 end
 
@@ -611,6 +614,28 @@ function C.build_review_carry_over_comment_request(repo, pr_number, issue_propos
     source_ref = base_ids.normalize_source_ref(source_ref),
   }
   return request
+end
+
+function C.build_fix_feedback_recovery_reviewing_comment_request(repo, proposal_id,
+    pr_number, version, current_head_sha, source_ref)
+  local state_marker = devloop_state.state_marker(proposal_id, "reviewing", version)
+  local request = entity_lib.build_entity_comment_request({
+    kind = "pr",
+    repo = repo,
+    number = pr_number,
+  }, "github-devloop rejected invalid fix feedback and re-entered review"
+    .. "\nCurrent head: " .. tostring(current_head_sha)
+    .. "\n\n" .. state_marker
+    .. "\n" .. ai_sentinel, base_ids.dedup_key({
+    "fix-feedback-recovery",
+    "comment",
+    tostring(proposal_id),
+    tostring(version),
+    tostring(pr_number),
+    tostring(current_head_sha),
+  }), source_ref)
+  return C.attach_reviewing_handoff(
+    request, proposal_id, pr_number, version, source_ref)
 end
 
 return C

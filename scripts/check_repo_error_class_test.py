@@ -3,23 +3,12 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-
-def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
+from script_test_support import load_module
 
 scripts_dir = Path(__file__).resolve().parent
 check_repo = load_module("check_repo", scripts_dir / "check_repo.py")
@@ -102,8 +91,8 @@ class ErrorEnvelopeGrammarTest(unittest.TestCase):
     def test_checker_loads_grammar_from_contract_owner(self) -> None:
         expected = Path(__file__).resolve().parents[1] / "libraries/contract/error_facts.lua"
 
-        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR_SOURCE, expected)
-        self.assertEqual(check_repo.ERROR_ENVELOPE_GRAMMAR, check_repo.load_error_envelope_grammar())
+        self.assertEqual(error_class.ERROR_ENVELOPE_GRAMMAR_SOURCE, expected)
+        self.assertEqual(error_class.ERROR_ENVELOPE_GRAMMAR, error_class.load_error_envelope_grammar())
 
     def test_allows_hierarchical_subsystem_with_underscore(self) -> None:
         source = """

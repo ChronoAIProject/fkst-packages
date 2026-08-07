@@ -24,6 +24,9 @@ local function review_meta_to_state(action)
   if action == "fix" or action == "continue" then
     return "fixing"
   end
+  if action == "no-actionable-gap" then
+    return "reviewing"
+  end
   return "blocked"
 end
 
@@ -37,11 +40,17 @@ local function review_meta_action_text(review_meta, action)
   return tostring(action)
 end
 
-local function review_meta_fix_feedback(review_meta)
+local function review_meta_review_binding(review_meta)
   local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
+  local review_dedup_key = review_meta.review_dedup_key
+  if devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
+      review_dedup_key, review_meta.review_proposal_id) == nil then
+    review_dedup_key =
+      devloop_base.pr_review_consensus_dedup_key(review_meta.review_proposal_id)
+  end
   return {
     review_proposal_id = review_meta.review_proposal_id,
-    review_dedup_key = review_meta.review_dedup_key,
+    review_dedup_key = review_dedup_key,
     reviewed_head_sha = reviewed_head_sha,
   }
 end
@@ -54,7 +63,8 @@ local function review_meta_result_marker(review_meta, action, reason, state_vers
       state_version,
       blocking_gap,
       reason,
-      action == "fix" and review_meta_fix_feedback(review_meta) or nil)
+      (action == "fix" or action == "no-actionable-gap")
+        and review_meta_review_binding(review_meta) or nil)
   end
   local marker = m_builders.fix_reflection_marker(review_meta.proposal_id,
     review_meta.dedup_key,
@@ -69,7 +79,7 @@ local function review_meta_result_marker(review_meta, action, reason, state_vers
       state_version,
       review_meta.blocking_gap,
       reason,
-      review_meta_fix_feedback(review_meta)
+      review_meta_review_binding(review_meta)
     )
   end
   return marker
@@ -162,13 +172,17 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
     tostring(state_version),
   }), review_meta.source_ref)
   if action == "fix" or action == "continue" then
-    local feedback = review_meta_fix_feedback(review_meta)
+    local feedback = review_meta_review_binding(review_meta)
     return requests_review.attach_fixing_handoff(request, review_meta.proposal_id, review_meta.pr_number, state_version, {
       review_proposal_id = feedback.review_proposal_id,
       review_dedup_key = feedback.review_dedup_key,
       reviewed_head_sha = feedback.reviewed_head_sha,
       blocking_gap = blocking_gap or review_meta.blocking_gap,
     }, review_meta.source_ref)
+  end
+  if action == "no-actionable-gap" then
+    return requests_review.attach_reviewing_handoff(request, review_meta.proposal_id,
+      review_meta.pr_number, state_version, review_meta.source_ref)
   end
   return request
 end

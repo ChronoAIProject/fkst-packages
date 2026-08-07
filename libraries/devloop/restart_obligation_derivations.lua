@@ -3,6 +3,29 @@ local generation_derivation = require("devloop.restart_generation_derivation")
 
 local M = {}
 
+local function validate_owner_edges(owner_edges)
+  local edge_count = 0
+  for key, edge in pairs(owner_edges) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
+      error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
+    end
+    edge_count = edge_count + 1
+  end
+  if edge_count ~= #owner_edges then
+    error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
+  end
+end
+
+local function validate_derivation_inputs(owner_edges, witness_index)
+  if type(owner_edges) ~= "table" then
+    error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
+  end
+  if type(witness_index) ~= "table" then
+    error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
+  end
+  validate_owner_edges(owner_edges)
+end
+
 function M.new(primitives)
   local K = {}
   local define = primitives.define
@@ -14,26 +37,11 @@ function M.new(primitives)
   K.derive_generation = generation_derivation.new(primitives).derive_generation
 
   function K.derive_edge(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local obligations = {}
     local unmapped = {}
     local seen_edge_ids = {}
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -107,26 +115,11 @@ function M.new(primitives)
   end
 
   function K.derive(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local obligations = {}
     local unmapped = {}
     local seen_edge_ids = {}
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       if edge.cas_policy_id ~= nil then
@@ -179,26 +172,11 @@ function M.new(primitives)
   end
 
   function K.derive_pending(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local obligations = {}
     local unmapped = {}
     local seen_edge_ids = {}
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       local pending_order = edge.pending_order
@@ -336,24 +314,9 @@ function M.new(primitives)
   end
 
   function K.derive_edge_pair(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
-    local edge_count = 0
     local seen_edge_ids = {}
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -514,26 +477,11 @@ function M.new(primitives)
   end
 
   function K.derive_entitlement(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local obligations = {}
     local unmapped = {}
     local seen_edge_ids = {}
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       local entitlements = edge.transition_effect_entitlements
@@ -626,23 +574,7 @@ function M.new(primitives)
   end
 
   function K.derive_family_variant(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
-
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local groups = family_variant_groups(owner_edges)
     local obligations = {}
@@ -708,26 +640,11 @@ function M.new(primitives)
   end
 
   function K.derive_timeout(owner_edges, witness_index)
-    if type(owner_edges) ~= "table" then
-      error("devloop.restart_obligations: owner-edges-not-table: owner_edges must be an array")
-    end
-    if type(witness_index) ~= "table" then
-      error("devloop.restart_obligations: witness-index-not-table: witness_index must be a table")
-    end
+    validate_derivation_inputs(owner_edges, witness_index)
 
     local obligations = {}
     local unmapped = {}
     local seen_edge_ids = {}
-    local edge_count = 0
-    for key, edge in pairs(owner_edges) do
-      if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
-        error("devloop.restart_obligations: owner-edges-entry-invalid: owner_edges must be an array of tables")
-      end
-      edge_count = edge_count + 1
-    end
-    if edge_count ~= #owner_edges then
-      error("devloop.restart_obligations: owner-edges-not-dense: owner_edges must be a dense array")
-    end
 
     for _, edge in ipairs(owner_edges) do
       local resolver = edge.timeout_evidence_policy_id

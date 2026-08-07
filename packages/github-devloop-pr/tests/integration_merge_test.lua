@@ -122,7 +122,8 @@ end
 
 local function mock_base_head_for_stale_mergeability() t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", { stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", stderr = "", exit_code = 0 })
-  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "", exit_code = 1 }) end
+  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "", exit_code = 1 })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "CONFLICT (content): merge conflict", exit_code = 1 }) end
 
 local function mock_failing_required_check_runs()
   t.mock_command("gh api 'repos/owner/repo/commits/def456/check-runs'", {
@@ -693,7 +694,7 @@ return {
     t.eq(fixing_payload.gate_failure_excerpt, "merge-state-dirty")
   end,
 
-  test_merge_unstable_pending_rollup_errors_for_retry_without_fixing = function()
+  test_merge_unstable_pending_rollup_holds_without_fixing = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     local rollup_json = '[{"__typename":"CheckRun","completedAt":null,"conclusion":null,"detailsUrl":"https://example.invalid/checks/verify","name":"verify","startedAt":"2026-06-03T02:03:04Z","status":"IN_PROGRESS","workflowName":"ci"}]'
@@ -704,13 +705,17 @@ return {
     mock_pr_merge_rollup({ origin_marker }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
 
     local result = run_merge(event, opts("merge-unstable-pending-rollup", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 0)
+    t.eq(find_causal_raise(result, "devloop_fixing"), nil)
+    local wait_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="rollup-pending"', 1, true) ~= nil)
   end,
 
-  test_merge_unknown_mergeability_errors_for_retry_without_fixing = function()
+  test_merge_unknown_mergeability_holds_without_fixing = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
@@ -720,10 +725,32 @@ return {
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "UNKNOWN", "CLEAN")
 
     local result = run_merge(event, opts("merge-unknown-mergeability", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(#result.raises, 1)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 0)
+    t.eq(find_causal_raise(result, "devloop_fixing"), nil)
+    local wait_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
+  end,
+
+  test_merge_missing_mergeability_fails_closed_without_hold = function()
+    local event = merge_ready()
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "", "")
+
+    local result = run_merge(event, opts("merge-missing-mergeability", { FKST_GITHUB_WRITE = "1" }))
+    local failure = tostring(result.error or result.stderr)
+
+    t.eq(result.exit_code, 1, failure)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh pr merge"), 0)
+    t.is_true(failure:find("missing-mergeability", 1, true) ~= nil, failure)
   end,
 
 }

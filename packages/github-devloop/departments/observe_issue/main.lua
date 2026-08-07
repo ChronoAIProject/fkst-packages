@@ -1,11 +1,12 @@
 local entity_lib = require("devloop.entity")
+local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
-local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local m_facts = require("devloop.markers.facts")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
@@ -18,11 +19,12 @@ local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
+local pr_parent_observation = require("departments.observe_issue.pr_parent_observation")
+local liveness_scan = require("devloop.liveness_scan")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local v_issue = require("devloop.validators.issue")
-local v_pr = require("devloop.validators.pr")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
@@ -40,6 +42,7 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_create_request",
+    "github-proxy.github_issue_blocked_by_request",
     "github-proxy.github_pr_comment_request",
     "devloop_ready",
     "github-devloop-decompose.devloop_decompose",
@@ -55,6 +58,7 @@ local operator_recovery = operator_recovery_factory.make({
   contract_time = contract_time,
   conv_reconcile = conv_reconcile,
   core = core,
+  dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
@@ -159,7 +163,16 @@ local function issue_label_projection_state(issue_state, link, snapshot)
   return issue_label_state(issue_state)
 end
 
-local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
+local function derive_dependency_gate(issue, proposal_id, state, comments)
+  return core.dependency_gate(issue.repo, issue.number, {
+    proposal_id = proposal_id,
+    version = state.version,
+    comments = comments,
+  })
+end
+
+local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state,
+  dependency_gate)
   local row = replay_fields.restart_transition_row(restart_transition_table(), state.state)
   local facts = {
     proposal_id = proposal_id,
@@ -168,6 +181,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     snapshot = snapshot,
     event_ts = event_ts,
     fresh_current_state = state,
+    dependency_gate = dependency_gate,
   }
   local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
   facts.pr_delegation = delegation
@@ -175,18 +189,13 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   local epoch = row and row.actionable_epoch
   if issue.source == "liveness-scan"
     and type(epoch) == "table"
-    and epoch.allows_state_entry_if_never_deferred == true then
-    facts.dependency_gate = core.dependency_gate(issue.repo, issue.number, {
-      proposal_id = proposal_id,
-      version = state.version,
-      comments = current.comments,
-    })
+    and epoch.allows_state_entry_if_never_deferred == true
+    and facts.dependency_gate == nil then
+    facts.dependency_gate = derive_dependency_gate(issue, proposal_id, state, current.comments)
   end
   for _, advancing_fact in ipairs(row and row.advancing_facts or {}) do
     if advancing_fact.fact_family == "dependency-gate" and facts.dependency_gate == nil then
-      facts.dependency_gate = core.dependency_gate(issue.repo, issue.number, {
-        proposal_id = proposal_id, version = state.version, comments = current.comments,
-      })
+      facts.dependency_gate = derive_dependency_gate(issue, proposal_id, state, current.comments)
     end
   end
   if core.canonicalize_legacy_ready_dependency_wait("observe_issue", issue, state, facts) then
@@ -261,11 +270,20 @@ local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, prop
   })
 end
 
-local function raise_stale_dependency_label_clear(issue, proposal_id, state, labels)
-  if state.state == "ready" or state.state == "dependency_wait" or not devloop_state.has_label(labels, devloop_base._blocked_on_dependency_label) then
-    return false
+local function raise_stale_dependency_label_clear(issue, proposal_id, state, current)
+  local has_label = devloop_state.has_label(current.labels, devloop_base._blocked_on_dependency_label)
+  if state.state == "dependency_wait" then
+    return false, nil
   end
-  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, { add = {}, remove = { devloop_base._blocked_on_dependency_label } }, {
+  local ready = state.state == "ready"
+  local gate = ready and derive_dependency_gate(issue, proposal_id, state, current.comments) or nil
+  if not has_label or (ready and not dependency_gate_lib.dependency_gate_is_satisfied(gate)) then
+    return false, gate
+  end
+  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, {
+    add = {},
+    remove = { devloop_base._blocked_on_dependency_label },
+  }, {
     "github-proxy.github_issue_label_request",
   })
   devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo,
@@ -275,7 +293,7 @@ local function raise_stale_dependency_label_clear(issue, proposal_id, state, lab
     base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(state.version or "unversioned") }),
     issue.source_ref
   ))
-  return true
+  return true, gate
 end
 
 local function source_ref_matches(left, right)
@@ -399,7 +417,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   return true
 end
 
-local function process_issue_event(event)
+local function reconcile_issue_event(event, opts)
   local issue = event.payload or {}
   if not v_issue.is_supported_issue(issue) then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(issue, "dedup_key"))
@@ -410,10 +428,11 @@ local function process_issue_event(event)
   local proposal_id = base_ids.proposal_id(issue.repo, issue.number)
   devloop_logging.log_entry("observe_issue", event, proposal_id, issue.dedup_key)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
-  with_lock(lock_key, function()
+  local options = opts or {}
+  local function process_issue_event(_, record_authoritative_version)
     devloop_base.assert_trusted_bot_configured()
 
-    local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
+    local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
       allow_cached_validator = issue.source == "liveness-scan",
     })
@@ -422,7 +441,9 @@ local function process_issue_event(event)
     end
 
     local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+    local authoritative_updated_at = current.updated_at
     current.updated_at = current.updated_at or issue.updated_at
+    record_authoritative_version(authoritative_updated_at)
     if current.state ~= "OPEN" then
       devloop_logging.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-advanced-or-diverged", "issue is not open")
       return
@@ -609,11 +630,12 @@ local function process_issue_event(event)
         })
         devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
       end
-      raise_stale_dependency_label_clear(issue, proposal_id, state, current.labels)
+      local _, dependency_gate = raise_stale_dependency_label_clear(issue, proposal_id, state, current)
       if maybe_reconcile_issue_local_orphaned_pr(issue, proposal_id, current, issue_state, link, snapshot) then
         return
       end
-      if replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event.ts, issue_state) then
+      if replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event.ts, issue_state,
+        dependency_gate) then
         return
       end
     end
@@ -706,58 +728,22 @@ local function process_issue_event(event)
     end
 
 
-  end)
+  end
+  return entity_highwater.reconcile({
+    consumer = "github-devloop/observe_issue",
+    enabled = options.highwater_enabled,
+    event = event,
+    lock_held = options.lock_held,
+    lock_key = lock_key,
+    work = process_issue_event,
+  })
 end
 
-local function process_pr_event(event)
-  local pr = event.payload or {}
-  if not v_pr.is_supported_pr(pr) then
-    devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr)", "unsupported PR payload")
-    return
-  end
+local process_pr_event = pr_parent_observation.make(reconcile_issue_event)
 
-  local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
-    force_fresh = true,
-    allow_cached_validator = true,
-    consumer = "observe_issue",
-  })
-  if pr_view.exit_code ~= 0 then
-    error("github-devloop: pr-read-failed: observe-issue-pr-view-failed: " .. tostring(pr_view.stderr))
-  end
-  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
-  current_pr.number = pr.number
-  current_pr.force_fresh = true
-  local origin = m_facts.pr_origin_fact(current_pr.comments)
-  if origin == nil or origin.pr_native == true or origin.repo ~= pr.repo or tonumber(origin.issue_number) == nil then
-    devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr-origin)", "PR entity change has no issue-backed devloop origin")
-    return
-  end
-  if tostring(origin.branch or "") ~= tostring(current_pr.head_ref_name or "")
-    or tostring(origin.base_branch or "") ~= tostring(current_pr.base_ref_name or "") then
-    devloop_logging.log_entry("observe_issue", event, origin.proposal_id, devloop_logging.payload_field(pr, "dedup_key"))
-    devloop_logging.log_cas_decision("observe_issue", origin.proposal_id, { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-stale(pr-origin)", "PR origin no longer matches current PR head/base")
-    return
-  end
-
-  return process_issue_event({
-    queue = event.queue,
-    ts = event.ts,
-    payload = {
-      schema = "github-proxy.v1",
-      type = "issue",
-      repo = origin.repo,
-      number = tonumber(origin.issue_number),
-      title = "PR-backed parent issue",
-      state = "OPEN",
-      updated_at = pr.updated_at,
-      dedup_key = tostring(pr.dedup_key or "") .. "/parent-awaiting-pr",
-      source_ref = entity_lib.issue_source_ref(origin.repo, origin.issue_number),
-      source = "pr-entity-change",
-      child_pr = current_pr,
-    },
-  })
+local function reconcile_liveness_issue_event(event)
+  liveness_scan.liveness_scan_fail_observe_payload(event and event.payload)
+  return reconcile_issue_event(event)
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
@@ -766,8 +752,8 @@ return saga.department(spec, { done = function() return false end, act = functio
       if devloop_logging.payload_field(e and e.payload, "type") == "pr" then
         return process_pr_event(e)
       end
-      return process_issue_event(e)
+      return reconcile_issue_event(e)
     end,
-    devloop_observe_issue = process_issue_event,
+    devloop_observe_issue = reconcile_liveness_issue_event,
   })
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_issue" })

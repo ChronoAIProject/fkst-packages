@@ -25,8 +25,6 @@ local base = require("devloop.base")
 M.safe_updated_at = function(...) return base.safe_updated_at(...) end
 M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
 M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
-M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(...) end
-M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(...) end
 M.judgment_worktree_path = base.judgment_worktree_path
 M.max_body_len = function(...) return base.max_body_len(...) end
 M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(...) end
@@ -78,7 +76,18 @@ require("forge.merge_commands").install(M)
 local git_mechanics = require("devloop.git_mechanics")
 local function dept_exec_argv(...) return exec_argv(...) end
 M.git = require("forge.git").new(dept_exec_argv)
-require("forge.merge").install(M, { github_handle = require("devloop.github_factory").production_handle })
+require("forge.merge").install(M, {
+  github_handle = require("devloop.github_factory").production_handle,
+  read_runtime_root_cmd = base.read_runtime_root_cmd,
+  mkdir_p_cmd = base.mkdir_p_cmd,
+  log_info = function(dept, proposal_id, tag, fields)
+    return require("devloop.logging").log_line("info", dept, proposal_id, tag, fields)
+  end,
+  invalidate_pr_after_write = function(repo, pr_number)
+    return require("devloop.github_proxy_entity_view").invalidate_entity_after_write(repo, "pr", pr_number)
+  end,
+  pr_view_projection = parsers_pr.parse_pr_view_merge,
+})
 require("devloop.logging").install(M)
 require("devloop.state").install(M)
 local entity = require("devloop.entity")
@@ -91,7 +100,7 @@ M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("core.branches").install(M)
 require("core.sync_conflict").install(M)
-require("core.rollup_health").install(M)
+require("core.branches.branch_train").install_rollup_health(M)
 require("core.release_notes").install(M)
 
 return M

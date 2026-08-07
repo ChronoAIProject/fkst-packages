@@ -62,64 +62,6 @@ TEST_REQUIRE_RE = re.compile(
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
 HIDDEN_TEXT_STRING_CHAR_ARG_MIN = 6
-ERROR_CALL_STRING_RE = re.compile(r"\berror\s*\(\s*(?P<quote>['\"])(?P<message>[^'\"]*)(?P=quote)")
-ERROR_ENVELOPE_GRAMMAR_SOURCE = Path(__file__).resolve().parents[1] / "libraries/contract/error_facts.lua"
-ERROR_ENVELOPE_GRAMMAR_TABLE_RE = re.compile(
-    r"F\.ERROR_ENVELOPE_GRAMMAR\s*=\s*\{(?P<body>.*?)\n\}",
-    re.DOTALL,
-)
-ERROR_ENVELOPE_GRAMMAR_FIELD_RE = re.compile(
-    r'^\s*(?P<name>[a-z_]+)\s*=\s*"(?P<value>[^"]*)",?\s*$',
-    re.MULTILINE,
-)
-
-
-def load_error_envelope_grammar() -> dict[str, str]:
-    source = ERROR_ENVELOPE_GRAMMAR_SOURCE.read_text(encoding="utf-8")
-    table_match = ERROR_ENVELOPE_GRAMMAR_TABLE_RE.search(source)
-    if table_match is None:
-        raise RuntimeError(f"missing F.ERROR_ENVELOPE_GRAMMAR in {ERROR_ENVELOPE_GRAMMAR_SOURCE}")
-    grammar = {
-        match.group("name"): match.group("value")
-        for match in ERROR_ENVELOPE_GRAMMAR_FIELD_RE.finditer(table_match.group("body"))
-    }
-    required = {
-        "subsystem_segment_initial",
-        "subsystem_segment_rest",
-        "hierarchy_separator",
-        "component_separator",
-        "class_initial",
-        "class_rest",
-        "class_terminator",
-        "fallback",
-    }
-    missing = required - grammar.keys()
-    if missing:
-        raise RuntimeError(f"incomplete error-envelope grammar: missing {sorted(missing)}")
-    return grammar
-
-
-def error_class_prefix_re(grammar: dict[str, str]) -> re.Pattern[str]:
-    subsystem_segment = (
-        f"[{re.escape(grammar['subsystem_segment_initial'])}]"
-        f"[{re.escape(grammar['subsystem_segment_rest'])}]*"
-    )
-    error_class = f"[{re.escape(grammar['class_initial'])}][{re.escape(grammar['class_rest'])}]*"
-    return re.compile(
-        "^"
-        + subsystem_segment
-        + "(?:"
-        + re.escape(grammar["hierarchy_separator"])
-        + subsystem_segment
-        + ")*"
-        + re.escape(grammar["component_separator"])
-        + error_class
-        + re.escape(grammar["class_terminator"])
-    )
-
-
-ERROR_ENVELOPE_GRAMMAR = load_error_envelope_grammar()
-ERROR_CLASS_PREFIX_RE = error_class_prefix_re(ERROR_ENVELOPE_GRAMMAR)
 HELPER_STRING_ARG_RE = re.compile(
     r"\b(?P<func>(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*)"
     r"\s*\(\s*(?P<quote>[\"'])"
@@ -251,16 +193,12 @@ def hidden_text_string_char_lines(text: str) -> list[int]:
     return lines
 
 
+def unclassified_error_calls(text: str) -> list[tuple[int, str]]:
+    return check_repo_error_class.unclassified_error_calls(text, strip_lua_comments_and_strings, is_unmasked_range)
+
+
 def unclassified_error_call_lines(text: str) -> list[int]:
-    stripped = strip_lua_comments_and_strings(text)
-    lines: list[int] = []
-    for match in ERROR_CALL_STRING_RE.finditer(text):
-        if not is_unmasked_range(text, stripped, match.start(), match.start("quote")):
-            continue
-        message = match.group("message")
-        if not ERROR_CLASS_PREFIX_RE.match(message):
-            lines.append(text.count("\n", 0, match.start()) + 1)
-    return lines
+    return [line for line, _message in unclassified_error_calls(text)]
 
 
 def looks_like_decode_helper(func: str) -> bool:

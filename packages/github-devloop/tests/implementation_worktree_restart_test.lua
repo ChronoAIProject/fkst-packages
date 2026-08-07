@@ -41,6 +41,16 @@ local function remove_fixture(root)
   run_command("rm -rf " .. shell_quote(root))
 end
 
+local function implementation_worktree_path(durable_root, event)
+  local implementation_root = devloop_base.implementation_worktree_root(durable_root)
+  return devloop_base.implement_worktree_path(
+    implementation_root,
+    "owner/repo",
+    42,
+    event.dedup_key
+  )
+end
+
 local function worktree_outcome(worktree)
   local event = h.ready()
   local branch = h.deterministic_branch_for(event)
@@ -60,6 +70,83 @@ local function worktree_outcome(worktree)
 end
 
 return {
+  test_integration_merge_reports_clean_without_probing_unmerged_paths = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "Already up to date.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    local probes = 0
+    local git = {
+      unmerged_paths = function()
+        probes = probes + 1
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local clean = worktree_lifecycle.merge_integration(
+      git, "/tmp/fkst-implement-merge-clean", "dev", "abc123")
+
+    t.eq(clean, true)
+    t.eq(probes, 0)
+  end,
+
+  test_integration_merge_reports_conflict_when_unmerged_paths_exist = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "CONFLICT (content): merge conflict in main.lua\n",
+      exit_code = 1,
+    })
+    local git = {
+      unmerged_paths = function(worktree, timeout)
+        t.eq(worktree, "/tmp/fkst-implement-merge-conflict")
+        t.eq(timeout, 30)
+        return { stdout = "main.lua\n", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local clean = worktree_lifecycle.merge_integration(
+      git, "/tmp/fkst-implement-merge-conflict", "dev", "abc123")
+
+    t.eq(clean, false)
+  end,
+
+  test_integration_merge_fails_closed_when_unmerged_paths_cannot_be_read = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "merge failed\n",
+      exit_code = 1,
+    })
+    local git = {
+      unmerged_paths = function()
+        return { stdout = "", stderr = "index unavailable", exit_code = 2 }
+      end,
+    }
+
+    assert_error_contains(function()
+      worktree_lifecycle.merge_integration(
+        git, "/tmp/fkst-implement-merge-probe-failed", "dev", "abc123")
+    end, "unmerged-path-check-failed")
+  end,
+
+  test_integration_merge_fails_closed_when_failure_has_no_conflicts = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "fatal: refusing to merge unrelated histories\n",
+      exit_code = 128,
+    })
+    local git = {
+      unmerged_paths = function()
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    assert_error_contains(function()
+      worktree_lifecycle.merge_integration(
+        git, "/tmp/fkst-implement-merge-failed", "dev", "abc123")
+    end, "integration-merge-failed")
+  end,
+
   test_durable_root_rejects_leading_and_trailing_newlines_before_trimming = function()
     assert_error_contains(function()
       devloop_base.implementation_worktree_root("\n/tmp/fkst-durable")
@@ -79,13 +166,7 @@ return {
     retry.dedup_key = event.dedup_key .. "/reimplement/2"
     retry.impl_retry_attempt = 2
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local first_attempt_worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local first_attempt_worktree = implementation_worktree_path(durable_root, event)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -125,13 +206,7 @@ return {
     local durable_root = "/tmp/fkst-packages-test/github-devloop/path-conflict-durable"
     local event = h.ready()
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -393,7 +468,7 @@ return {
       exit_code = 1,
     })
 
-    harvest.local_iteration_check(worktree)
+    harvest.local_iteration_check(worktree, "abc123")
     local rendered = nil
     for _, call in ipairs(t.command_calls()) do
       if tostring(call.rendered or ""):find("scripts/run.sh test-affected", 1, true) ~= nil then
@@ -408,13 +483,7 @@ return {
   test_review_worktree_lookup_rejects_unregistered_husk = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-husk-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -442,13 +511,7 @@ return {
   test_review_worktree_lookup_rejects_wrong_branch_registration = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-wrong-branch-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -478,13 +541,7 @@ return {
     local event = h.ready()
     local impl_version = event.dedup_key .. "/reimplement/2"
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -541,13 +598,7 @@ return {
   test_review_worktree_lookup_surfaces_directory_probe_failure = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-directory-probe-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     local branch = h.deterministic_branch_for(event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,

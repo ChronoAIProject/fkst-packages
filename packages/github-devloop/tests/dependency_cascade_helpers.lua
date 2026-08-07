@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local dependency_gate = require("devloop.dependency_gate")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -364,6 +365,7 @@ end
 return {
   devloop_base = devloop_base,
   base_ids = base_ids,
+  dependency_gate = dependency_gate,
   h = h,
   t = t,
   core = core,

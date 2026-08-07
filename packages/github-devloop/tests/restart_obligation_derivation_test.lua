@@ -2,6 +2,7 @@ local h = require("tests.devloop_core_helpers")
 local owner_projection = require("devloop.restart_owner_pending_projection")
 local restart_obligations = require("devloop.restart_obligations")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
+local shared_fixtures = require("testkit_internal.restart_obligation_derivation_fixtures")
 
 local OWNER = "github-devloop"
 local inventories = {
@@ -16,56 +17,12 @@ local exemplars = {
 
 local t = h.t
 
-local function canonical_edges()
-  return owner_projection.edges(OWNER, h.core.restart_transition_table(), inventories)
-end
-
 local function witness_index_without(excluded_edge_id)
   local result = {}
   for _, exemplar in ipairs(exemplars) do
     if exemplar.edge_id ~= excluded_edge_id then
       result[exemplar.edge_id] = exemplar
     end
-  end
-  return result
-end
-
-local function edge_witness_index_without(edges, excluded_edge_id)
-  local result = owner_projection.frozen_edge_witness_index(OWNER, edges)
-  if excluded_edge_id ~= nil then
-    result[excluded_edge_id] = nil
-  end
-  return result
-end
-
-local function pending_witness_index_without(edges, excluded_edge_id)
-  local result = owner_projection.frozen_pending_witness_index(OWNER, edges)
-  if excluded_edge_id ~= nil then
-    result[excluded_edge_id] = nil
-  end
-  return result
-end
-
-local function entitlement_witness_index_without(edges, excluded_edge_id)
-  local result = owner_projection.frozen_entitlement_witness_index(OWNER, edges)
-  if excluded_edge_id ~= nil then
-    result[excluded_edge_id] = nil
-  end
-  return result
-end
-
-local function timeout_witness_index_without(rows, edges, excluded_edge_id)
-  local result = owner_projection.frozen_timeout_witness_index(OWNER, rows, edges)
-  if excluded_edge_id ~= nil then
-    result[excluded_edge_id] = nil
-  end
-  return result
-end
-
-local function family_variant_witness_index_without(edges, excluded_edge_id)
-  local result = owner_projection.frozen_family_variant_witness_index(OWNER, edges)
-  if excluded_edge_id ~= nil then
-    result[excluded_edge_id] = nil
   end
   return result
 end
@@ -77,175 +34,34 @@ local LOOP_CLASS_ORDER = {
   "stale-lineage",
 }
 
-local function row_index(rows)
-  local result = {}
-  for _, row in ipairs(rows) do
-    result[row.from_state] = row
-  end
-  return result
-end
+local fixtures = shared_fixtures.new({
+  h = h,
+  owner = OWNER,
+  inventories = inventories,
+  loop_class_order = LOOP_CLASS_ORDER,
+  owner_projection = owner_projection,
+  restart_obligations = restart_obligations,
+  restart_cas_catalog = restart_cas_catalog,
+})
 
-local function matching_successor(row, edge)
-  local signature = type(row) == "table" and row.responsibility_signature or nil
-  for _, successor in ipairs(type(signature) == "table" and signature.successors or {}) do
-    if successor.state == edge.target and successor.output_variant == edge.semantic_variant then
-      return successor
-    end
-  end
-  return nil
-end
-
-local function expected_bounded_loop_representatives(rows, edges)
-  local by_row = row_index(rows)
-  local representatives = {}
-  for _, edge in ipairs(edges) do
-    local row = by_row[edge.row_id]
-    local budget = type(row) == "table" and row.budget or nil
-    local successor = matching_successor(row, edge)
-    local defer = type(row) == "table" and row.defer or nil
-    local policy = edge.cas_policy_id and restart_cas_catalog.definition(edge.cas_policy_id) or nil
-    local has_row_budget = type(budget) == "table"
-      and type(budget.minutes) == "number" and budget.minutes > 0
-    local signals = {
-      ["self-loop"] = has_row_budget
-        and (
-          (type(edge.source) == "table"
-            and edge.source.state ~= nil
-            and edge.source.state == edge.target)
-          or (edge.kind == "entry"
-            and edge.row_id == edge.target
-            and type(policy) == "table"
-            and policy.evidence_type == "review_loop_safe_cas_evidence_v1")
-        ),
-      release = type(defer) == "table"
-        and defer.clear_opens_generation == true
-        and type(successor) == "table"
-        and successor.bump == true,
-      timeout = has_row_budget
-        and edge.kind == "timeout"
-        and type(edge.timeout_evidence_policy_id) == "string"
-        and edge.timeout_evidence_policy_id ~= "",
-      ["stale-lineage"] = type(policy) == "table"
-        and (policy.base == "plain" or policy.base == "versioned" or policy.base == "cyclic"),
-    }
-    for _, loop_class in ipairs(LOOP_CLASS_ORDER) do
-      if signals[loop_class] and representatives[loop_class] == nil then
-        representatives[loop_class] = edge
-      end
-    end
-  end
-  return representatives
-end
-
-local function bounded_loop_key(loop_class, edge_id)
-  return loop_class .. "\n" .. edge_id
-end
-
-local function bounded_loop_witness_index_without(rows, edges, excluded_loop_class)
-  local representatives = expected_bounded_loop_representatives(rows, edges)
-  local result = owner_projection.frozen_bounded_loop_witness_index(
-    OWNER,
-    restart_obligations.bounded_loop_representatives(rows, edges)
-  )
-  if excluded_loop_class ~= nil then
-    local edge = representatives[excluded_loop_class]
-    result[bounded_loop_key(excluded_loop_class, edge.id)] = nil
-  end
-  return result
-end
-
-local function index_by_loop_class(entries)
-  local result = {}
-  for _, entry in ipairs(entries) do
-    result[entry.loop_class] = entry
-  end
-  return result
-end
-
-local function family_variant_groups(edges)
-  local groups = {}
-  for _, edge in ipairs(edges) do
-    if type(edge.cas_policy_id) == "string" and edge.cas_policy_id ~= ""
-        and type(edge.cas_variant) == "string" and edge.cas_variant ~= "" then
-      local variants = groups[edge.cas_policy_id]
-      if variants == nil then
-        variants = {}
-        groups[edge.cas_policy_id] = variants
-      end
-      variants[edge.cas_variant] = true
-    end
-  end
-  return groups
-end
-
-local function is_family_variant_edge(edge, groups)
-  local variants = groups[edge.cas_policy_id]
-  if variants == nil or variants[edge.cas_variant] ~= true then
-    return false
-  end
-  local count = 0
-  for _ in pairs(variants) do
-    count = count + 1
-  end
-  return count > 1
-end
-
-local function declared_effect_ids(entitlements)
-  local result = {}
-  local seen = {}
-  for _, status in ipairs({ "apply", "idempotent" }) do
-    for _, effect_id in ipairs(entitlements[status].effect_ids) do
-      if not seen[effect_id] then
-        seen[effect_id] = true
-        table.insert(result, effect_id)
-      end
-    end
-  end
-  return result
-end
-
-local function assert_array(actual, expected)
-  t.eq(#actual, #expected)
-  for index, value in ipairs(expected) do
-    t.eq(actual[index], value)
-  end
-end
-
-local function index_by_edge(entries)
-  local result = {}
-  for _, entry in ipairs(entries) do
-    result[entry.edge_id] = entry
-  end
-  return result
-end
-
-local function edge_pair_key(edge_a_id, edge_b_id)
-  return edge_a_id .. "\n" .. edge_b_id
-end
-
-local function compatible_edge_pairs(edges)
-  local result = {}
-  for _, edge_a in ipairs(edges) do
-    for _, edge_b in ipairs(edges) do
-      local pending_order = edge_b.pending_order
-      if edge_a.id ~= edge_b.id
-          and edge_a.owner == edge_b.owner
-          and type(pending_order) == "table"
-          and edge_a.target == pending_order.predecessor_state then
-        table.insert(result, { edge_a = edge_a, edge_b = edge_b })
-      end
-    end
-  end
-  return result
-end
-
-local function index_by_edge_pair(entries)
-  local result = {}
-  for _, entry in ipairs(entries) do
-    result[edge_pair_key(entry.edge_a_id, entry.edge_b_id)] = entry
-  end
-  return result
-end
+local assert_array = fixtures.assert_array
+local bounded_loop_key = fixtures.bounded_loop_key
+local bounded_loop_witness_index_without = fixtures.bounded_loop_witness_index_without
+local canonical_edges = fixtures.canonical_edges
+local compatible_edge_pairs = fixtures.compatible_edge_pairs
+local declared_effect_ids = fixtures.declared_effect_ids
+local edge_pair_key = fixtures.edge_pair_key
+local edge_witness_index_without = fixtures.edge_witness_index_without
+local entitlement_witness_index_without = fixtures.entitlement_witness_index_without
+local expected_bounded_loop_representatives = fixtures.expected_bounded_loop_representatives
+local family_variant_groups = fixtures.family_variant_groups
+local family_variant_witness_index_without = fixtures.family_variant_witness_index_without
+local index_by_edge = fixtures.index_by_edge
+local index_by_edge_pair = fixtures.index_by_edge_pair
+local index_by_loop_class = fixtures.index_by_loop_class
+local is_family_variant_edge = fixtures.is_family_variant_edge
+local pending_witness_index_without = fixtures.pending_witness_index_without
+local timeout_witness_index_without = fixtures.timeout_witness_index_without
 
 return {
   test_issue_owner_derives_one_edge_obligation_per_canonical_edge = function()
@@ -451,7 +267,7 @@ return {
       end
     end
 
-    t.eq(participating_count, 20)
+    t.eq(participating_count, 21)
     t.eq(#result.obligations, participating_count)
     t.eq(#result.unmapped, 0)
   end,

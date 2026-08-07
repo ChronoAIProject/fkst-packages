@@ -34,7 +34,9 @@ local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T0
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 local REVIEW_META_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-review-meta.json"
-local REVIEW_META_NEW_TRACE_PATH = ".fkst/run/r9-pr-review-meta-new-trace.json"
+local REVIEW_META_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-review-meta-new-trace.json"
+)
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -313,7 +315,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(probe.incoming_version, fixture.incoming_version, fixture.name .. ": probe incoming version")
   t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
 
-  local expected_owner_decisions = fixture.effect_state == "blocked" and 2 or 1
+  local expected_owner_decisions = fixture.effect_state ~= nil and fixture.effect_state ~= "fixing" and 2 or 1
   t.eq(#owner_decisions, expected_owner_decisions, fixture.name .. ": owner decision count")
   t.eq(owner_decisions[1].intent.semantic_variant, "fix", fixture.name .. ": predecision gate variant")
   t.eq(owner_decisions[1].intent.target, "fixing", fixture.name .. ": predecision gate target")
@@ -322,7 +324,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   local decision = decisions[1]
   t.eq(decision.dept, "review_meta", fixture.name .. ": CAS decision department")
   t.eq(decision.from_state, "review-meta", fixture.name .. ": logged source state")
-  t.eq(decision.to_state, "fixing|blocked", fixture.name .. ": logged decision family")
+  t.eq(decision.to_state, "fixing|reviewing|blocked", fixture.name .. ": logged decision family")
   t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
   t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
 
@@ -375,7 +377,8 @@ local function assert_catalog_matches_observed_decision(fixture)
     end
     t.eq(#result_grant_mints, 1, fixture.name .. ": exactly one result grant minted")
     t.eq(result_grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
-    local expected_variant = fixture.effect_state == "blocked" and "block" or "fix"
+    local expected_variant = fixture.effect_state == "blocked" and "block"
+      or fixture.effect_state == "reviewing" and "no-actionable-gap" or "fix"
     t.eq(result_grant_mints[1].decision.edge_id,
       OWNER .. "/review-meta/autonomous/" .. expected_variant,
       fixture.name .. ": action-selected grant edge")
@@ -742,6 +745,21 @@ return {
       effect_state = "fixing",
       marker_check_reached = true,
       post_admission_disposition = "effect-emitted(fixing)",
+    })
+  end,
+
+  test_review_meta_source_equal_no_actionable_gap_applies_to_reviewing = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-meta-source-equal-no-actionable-gap",
+      current_state = "review-meta",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      probe_outcome = "apply",
+      codex_stdout = h.action_label .. " no-actionable-gap\n"
+        .. h.reason_label .. " No actionable implementation gap remains.",
+      effect_state = "reviewing",
+      marker_check_reached = true,
+      post_admission_disposition = "effect-emitted(reviewing)",
     })
   end,
 

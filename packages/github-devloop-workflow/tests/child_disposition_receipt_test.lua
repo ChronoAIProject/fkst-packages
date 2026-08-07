@@ -1,6 +1,8 @@
 local forge_git = require("forge.git")
 local sha256 = require("contract.sha256")
+local strings = require("contract.strings")
 local receipt = require("core.child_disposition_receipt")
+local marker = require("core.marker")
 
 local t = fkst.test
 
@@ -23,18 +25,42 @@ local function fact(overrides)
   return value
 end
 
-local function transferred_fact(overrides)
-  local value = fact({
-    disposition = "transferred",
-    successor_source_ref = {
-      kind = "external",
-      ref = "owner/repo#issue/788439",
-    },
-  })
-  for key, field in pairs(overrides or {}) do
-    value[key] = field
+local function receipt_json(value)
+  local encoded = "{"
+    .. '"schema":' .. strings.json_string(receipt.RECEIPT_SCHEMA)
+    .. ',"repo":' .. strings.json_string(value.repo)
+    .. ',"origin":' .. strings.json_string(value.origin)
+    .. ',"blueprint_digest":' .. strings.json_string(value.blueprint_digest)
+    .. ',"slot":' .. strings.json_string(value.slot)
+    .. ',"child_issue":' .. strings.json_string(value.child_issue)
+    .. ',"disposition":' .. strings.json_string(value.disposition)
+  if value.reason_code ~= nil then
+    encoded = encoded .. ',"reason_code":' .. strings.json_string(value.reason_code)
   end
-  return value
+  if value.successor_source_ref ~= nil then
+    encoded = encoded
+      .. ',"successor_source_ref":{"kind":' .. strings.json_string(value.successor_source_ref.kind)
+      .. ',"ref":' .. strings.json_string(value.successor_source_ref.ref)
+    if value.successor_source_ref.extra ~= nil then
+      encoded = encoded .. ',"extra":' .. strings.json_string(value.successor_source_ref.extra)
+    end
+    encoded = encoded .. "}"
+  end
+  if value.unsupported_field ~= nil then
+    encoded = encoded .. ',"unsupported_field":' .. strings.json_string(value.unsupported_field)
+  end
+  return encoded .. "}"
+end
+
+local function assert_outcome(actual, expected)
+  t.eq(actual.disposition, expected.disposition)
+  t.eq(actual.reason_code, expected.reason_code)
+  if expected.successor_source_ref == nil then
+    t.eq(actual.successor_source_ref, nil)
+  else
+    t.eq(actual.successor_source_ref.kind, expected.successor_source_ref.kind)
+    t.eq(actual.successor_source_ref.ref, expected.successor_source_ref.ref)
+  end
 end
 
 local function result(stdout, stderr, exit_code)
@@ -216,62 +242,177 @@ local tests = {
     t.eq(count_calls(replay_model, "cat-file"), 1)
   end,
 
-  test_put_once_persists_a_transferred_receipt_bound_to_the_successor = function()
-    local model, commands = new_git_process()
-    local store = receipt.new({ commands = commands })
-
-    local created = store.put_once(transferred_fact())
-
-    t.eq(created.schema, receipt.RECEIPT_SCHEMA)
-    t.eq(created.disposition, "transferred")
-    t.eq(created.successor_source_ref.kind, "external")
-    t.eq(created.successor_source_ref.ref, "owner/repo#issue/788439")
-    local replayed = store.read(transferred_fact())
-    t.eq(replayed.disposition, "transferred")
-    t.eq(replayed.successor_source_ref.ref, "owner/repo#issue/788439")
-  end,
-
-  test_put_once_keeps_the_first_disposition_for_the_child_identity = function()
-    local _, commands = new_git_process()
-    local store = receipt.new({ commands = commands })
-
-    local satisfied = store.put_once(fact())
-    local transfer_attempt = store.put_once(transferred_fact())
-
-    t.eq(satisfied.disposition, "satisfied")
-    t.eq(transfer_attempt.disposition, "satisfied")
-    t.is_nil(transfer_attempt.successor_source_ref)
-  end,
-
-  test_put_once_rejects_a_transferred_receipt_without_a_successor = function()
-    local model, commands = new_git_process()
-    local store = receipt.new({ commands = commands })
-
-    local ok, err = pcall(function()
-      store.put_once(fact({ disposition = "transferred" }))
-    end)
-
-    t.eq(ok, false)
-    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
-    t.eq(#model.calls, 0)
-  end,
-
-  test_put_once_rejects_a_transfer_to_the_same_child = function()
-    local model, commands = new_git_process()
-    local store = receipt.new({ commands = commands })
-
-    local ok, err = pcall(function()
-      store.put_once(transferred_fact({
+  test_put_once_source_reads_and_replays_every_child_disposition = function()
+    local values = {
+      fact(),
+      fact({
+        disposition = "undeliverable",
+        reason_code = "missing-required-artifact",
+      }),
+      fact({
+        disposition = "transferred",
         successor_source_ref = {
           kind = "external",
-          ref = "owner/repo#issue/788438",
+          ref = "owner/next-repo#issue/42",
         },
-      }))
-    end)
+      }),
+    }
+    local expected_ref = receipt.receipt_ref(values[1])
 
-    t.eq(ok, false)
-    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
-    t.eq(#model.calls, 0)
+    for _, value in ipairs(values) do
+      t.eq(receipt.receipt_ref(value), expected_ref)
+      local model, commands = new_git_process()
+      local created = receipt.new({ commands = commands }).put_once(value)
+
+      assert_outcome(created, value)
+      t.eq(created.commit_sha, FIRST_SHA)
+
+      local replay_model, replay_commands = new_git_process({
+        refs = model.refs,
+        commits = model.commits,
+      })
+      local fresh = receipt.new({ commands = replay_commands })
+      assert_outcome(fresh.read(value), value)
+      local replayed = fresh.put_once(value)
+
+      assert_outcome(replayed, value)
+      t.eq(replayed.commit_sha, FIRST_SHA)
+      t.eq(count_calls(replay_model, "commit-tree"), 0)
+      t.eq(count_calls(replay_model, "push"), 0)
+    end
+  end,
+
+  test_put_once_rejects_invalid_outcome_values_before_git_mutation = function()
+    local cases = {
+      fact({ disposition = "unknown" }),
+      fact({ reason_code = "forbidden" }),
+      fact({
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
+      }),
+      fact({ disposition = "undeliverable" }),
+      fact({ disposition = "undeliverable", reason_code = "" }),
+      fact({ disposition = "undeliverable", reason_code = "not path safe" }),
+      fact({
+        disposition = "undeliverable",
+        reason_code = string.rep("x", marker.MAX_TERMINAL_REASON_CODE_BYTES + 1),
+      }),
+      fact({
+        disposition = "undeliverable",
+        reason_code = "blocked",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
+      }),
+      fact({ disposition = "transferred" }),
+      fact({
+        disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
+      }),
+      fact({
+        disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#pr/9" },
+      }),
+      fact({
+        disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9", extra = "field" },
+      }),
+      fact({
+        disposition = "transferred",
+        reason_code = "forbidden",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
+      }),
+    }
+
+    for _, value in ipairs(cases) do
+      local model, commands = new_git_process()
+      local ok, err = pcall(function()
+        receipt.new({ commands = commands }).put_once(value)
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("receipt-", 1, true) ~= nil)
+      t.eq(count_calls(model, "commit-tree"), 0)
+      t.eq(count_calls(model, "push"), 0)
+    end
+  end,
+
+  test_put_once_rejects_conflicting_committed_values_without_replacing_them = function()
+    local cases = {
+      {
+        committed = fact(),
+        proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" }),
+      },
+      {
+        committed = fact({ disposition = "undeliverable", reason_code = "not-actionable" }),
+        proposed = fact({ disposition = "undeliverable", reason_code = "missing-context" }),
+      },
+      {
+        committed = fact({
+          disposition = "transferred",
+          successor_source_ref = { kind = "external", ref = "owner/repo#issue/90" },
+        }),
+        proposed = fact({
+          disposition = "transferred",
+          successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
+        }),
+      },
+    }
+
+    for _, case in ipairs(cases) do
+      local model, commands = new_git_process()
+      local store = receipt.new({ commands = commands })
+      local committed = store.put_once(case.committed)
+      local authoritative_sha = model.refs[receipt.receipt_ref(case.committed)]
+
+      local ok, err = pcall(function()
+        store.put_once(case.proposed)
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("receipt-conflict", 1, true) ~= nil)
+      t.eq(model.refs[receipt.receipt_ref(case.committed)], authoritative_sha)
+      t.eq(authoritative_sha, committed.commit_sha)
+      t.eq(count_calls(model, "commit-tree"), 1)
+      t.eq(count_calls(model, "push"), 1)
+      assert_outcome(store.read(case.committed), case.committed)
+    end
+  end,
+
+  test_put_once_keeps_staged_bytes_bound_to_the_normalized_value = function()
+    local proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" })
+    local competing = fact({
+      disposition = "transferred",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
+    })
+    local model, commands = new_git_process()
+    local competing_commands = {
+      git_ls_remote_ref = commands.git_ls_remote_ref,
+      git_rev_parse_ref_tree = commands.git_rev_parse_ref_tree,
+      git_commit_tree = function()
+        return result("", "staging interleaving complete", 1)
+      end,
+    }
+    local interleaved = false
+    local file_port = {
+      write = function(path, body)
+        file.write(path, body)
+        if interleaved then
+          return
+        end
+        interleaved = true
+        local ok, err = pcall(function()
+          receipt.new({ commands = competing_commands }).put_once(competing)
+        end)
+        t.eq(ok, false)
+        t.is_true(tostring(err):find("receipt-commit-failed", 1, true) ~= nil)
+      end,
+    }
+
+    local committed = receipt.new({ commands = commands, file = file_port }).put_once(proposed)
+
+    t.eq(interleaved, true)
+    assert_outcome(committed, proposed)
+    t.eq(model.refs[receipt.receipt_ref(proposed)], committed.commit_sha)
+    t.eq(count_calls(model, "commit-tree"), 1)
+    t.eq(count_calls(model, "push"), 1)
   end,
 
   test_put_once_accepts_only_the_matching_source_visible_race_winner = function()
@@ -291,9 +432,52 @@ local tests = {
     t.eq(count_calls(model, "ls-remote"), 2)
   end,
 
+  test_put_once_reports_a_conflicting_source_visible_race_winner = function()
+    local proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" })
+    local winner = fact({
+      disposition = "transferred",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
+    })
+    local model, commands = new_git_process()
+    model.before_push_result = function(current, _, ref)
+      current.commits[RACE_SHA] = commit_stdout(receipt_json(winner) .. "\n")
+      current.object_types[RACE_SHA] = "commit"
+      current.refs[ref] = RACE_SHA
+      return result("", "non-fast-forward", 1)
+    end
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).put_once(proposed)
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-conflict", 1, true) ~= nil)
+    t.eq(model.refs[receipt.receipt_ref(proposed)], RACE_SHA)
+    t.eq(count_calls(model, "commit-tree"), 1)
+    t.eq(count_calls(model, "push"), 1)
+  end,
+
   test_put_once_preserves_the_push_failure_when_no_valid_winner_is_visible = function()
     local model, commands = new_git_process()
     model.before_push_result = function()
+      return result("", "remote rejected candidate", 1)
+    end
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).put_once(fact())
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-push-failed", 1, true) ~= nil)
+    t.is_true(tostring(err):find("remote rejected candidate", 1, true) ~= nil)
+  end,
+
+  test_put_once_preserves_the_push_failure_when_the_visible_winner_is_invalid = function()
+    local model, commands = new_git_process()
+    model.before_push_result = function(current, _, ref)
+      current.commits[RACE_SHA] = commit_stdout("{not-json\n")
+      current.object_types[RACE_SHA] = "commit"
+      current.refs[ref] = RACE_SHA
       return result("", "remote rejected candidate", 1)
     end
 
@@ -317,26 +501,58 @@ local tests = {
     t.is_true(tostring(err):find("receipt-decode-failed", 1, true) ~= nil)
   end,
 
+  test_read_fails_closed_for_invalid_outcome_content = function()
+    local cases = {
+      fact({ disposition = "unknown" }),
+      fact({ reason_code = "forbidden" }),
+      fact({ disposition = "undeliverable" }),
+      fact({ disposition = "undeliverable", reason_code = "not path safe" }),
+      fact({
+        disposition = "undeliverable",
+        reason_code = "blocked",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
+      }),
+      fact({ disposition = "transferred" }),
+      fact({
+        disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#pr/9" },
+      }),
+      fact({
+        disposition = "transferred",
+        reason_code = "forbidden",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
+      }),
+      fact({
+        disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9", extra = "field" },
+      }),
+      fact({ unsupported_field = "field" }),
+    }
+
+    for _, value in ipairs(cases) do
+      local _, commands = seed_remote_commit(fact(), receipt_json(value) .. "\n")
+      local ok, err = pcall(function()
+        receipt.new({ commands = commands }).read(fact())
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
+    end
+  end,
+
   test_read_fails_closed_for_a_source_visible_self_transfer_receipt = function()
-    local message = table.concat({
-      '{"schema":"github-devloop-workflow.child-disposition-receipt.v1"',
-      ',"repo":"owner/repo"',
-      ',"origin":"github-devloop/issue/owner/repo/249813"',
-      ',"blueprint_digest":"d-1234567890"',
-      ',"slot":"first"',
-      ',"child_issue":"788438"',
-      ',"disposition":"transferred"',
-      ',"successor_kind":"external"',
-      ',"successor_ref":"owner/repo#issue/788438"}',
+    local self_transfer = fact({
+      disposition = "transferred",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
     })
-    local _, commands = seed_remote_commit(fact(), message)
+    local _, commands = seed_remote_commit(fact(), receipt_json(self_transfer) .. "\n")
 
     local ok, err = pcall(function()
       receipt.new({ commands = commands }).read(fact())
     end)
 
     t.eq(ok, false)
-    t.is_true(tostring(err):find("receipt-successor-invalid", 1, true) ~= nil)
+    t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
   end,
 
   test_read_fails_closed_when_committed_identity_differs_from_requested_identity = function()

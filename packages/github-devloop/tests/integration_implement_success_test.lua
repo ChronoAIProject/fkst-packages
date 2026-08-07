@@ -105,6 +105,16 @@ local function mock_codex_success_without_local_iteration()
   })
 end
 
+local function local_iteration_calls()
+  local calls = {}
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find("scripts/run.sh test-affected", 1, true) ~= nil then
+      table.insert(calls, call)
+    end
+  end
+  return calls
+end
+
 local function mock_base_probe(worktree, options)
   local base_probe = worktree .. "-base-probe"
   local values = options or {}
@@ -280,10 +290,13 @@ return {
     end
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
-    t.eq(count_calls("git -C"), 10)
+    t.eq(count_calls("git -C"), 12)
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 1)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 0)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
@@ -301,6 +314,7 @@ return {
       exit_code = 0,
     })
     mock_git_status(" M docs/devloop/plans/42-plan.md\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md\n")
     mock_base_probe(worktree)
 
@@ -308,8 +322,13 @@ return {
 
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    local verification_calls = local_iteration_calls()
+    t.eq(#verification_calls, 2)
+    t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
+    t.eq(verification_calls[2].rendered:find("export BASE=", 1, true), nil)
+    t.is_true(verification_calls[2].rendered:find("-base-probe-", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 1)
-    t.eq(count_calls("commit -m"), 1)
+    t.eq(count_calls("commit -m"), 2)
     local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
     t.is_true(failure.payload.body:find("FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md", 1, true) ~= nil)
     local failed_label = find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
@@ -385,10 +404,12 @@ return {
 
   test_implement_local_gate_configuration_failure_has_explicit_disposition = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = local_iteration_marker("CONFIGURATION_FAIL") .. "no packages matched for 'missing-package'\n",
@@ -405,10 +426,12 @@ return {
 
   test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -441,10 +464,12 @@ return {
 
   test_implement_local_gate_typed_base_toolchain_failure_has_explicit_disposition = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -464,10 +489,12 @@ return {
 
   test_implement_local_gate_unknown_base_probe_recovers_without_rerunning_codex = function()
     local event = ready()
+    local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
@@ -494,6 +521,7 @@ return {
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
@@ -501,7 +529,6 @@ return {
     mock_base_probe(worktree, {
       checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
     })
-    mock_git_commit("def456", branch)
 
     local result = run_implement(event, opts("implement-base-probe-checkout-failure"))
 
@@ -517,6 +544,7 @@ return {
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       check = {
@@ -528,8 +556,6 @@ return {
     mock_base_probe(worktree, {
       check = { stdout = "", stderr = "second slot timeout\n", exit_code = 2 },
     })
-    mock_git_commit("def456", branch)
-
     local result = run_implement(event, opts("implement-base-probe-untyped-exit-two"))
 
     local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
@@ -545,6 +571,7 @@ return {
     local worktree = mock_fresh_implement_worktree()
     mock_codex_success_without_local_iteration()
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
       head = {
@@ -560,8 +587,6 @@ return {
         exit_code = 0,
       },
     })
-    mock_git_commit("def456", branch)
-
     local result = run_implement(event, opts("implement-base-probe-head-mismatch"))
 
     local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")

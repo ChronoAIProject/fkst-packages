@@ -93,6 +93,55 @@ function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
   }
 end
 
+local function observe_queue(kind)
+  if kind == "pr" then
+    return "devloop_observe_pr"
+  end
+  return "devloop_observe_issue"
+end
+
+function C.liveness_scan_build_failure_observe_payload(repo, entity, kind, failure)
+  local proposal_id = kind == "pr"
+      and entity_lib.pr_proposal_id(repo, entity.number)
+    or base_ids.proposal_id(repo, entity.number)
+  local queue = observe_queue(kind)
+  local error_class = devloop_logging.error_class_from_message(failure)
+  local fingerprint = devloop_logging.error_fingerprint(error_class, queue, "liveness_scan", failure)
+  local payload = C.liveness_scan_build_observe_payload(repo, entity, kind)
+  payload.proposal_id = proposal_id
+  payload.dedup_key = base_ids.dedup_key({
+    "liveness-scan-failure",
+    proposal_id,
+    tostring(entity.updated_at or "unknown-lineage"),
+    error_class,
+    fingerprint,
+  })
+  payload.failure = {
+    error_class = error_class,
+    fingerprint = fingerprint,
+  }
+  return payload
+end
+
+function C.liveness_scan_fail_observe_payload(payload)
+  local failure = type(payload) == "table" and payload.failure or nil
+  if failure == nil then
+    return false
+  end
+  local error_class = type(failure) == "table" and tostring(failure.error_class or "") or ""
+  local fingerprint = type(failure) == "table" and tostring(failure.fingerprint or "") or ""
+  if payload.source ~= "liveness-scan"
+    or not error_class:match("^[a-z0-9][a-z0-9-]*$")
+    or not fingerprint:match("^fp%-%d+$") then
+    error("github-devloop: liveness-scan-failure-envelope-invalid: malformed entity failure observation", 0)
+  end
+  error("github-devloop: liveness-scan-entity-failure: liveness scan entity failure"
+    .. " cause_error_class=" .. error_class
+    .. " proposal_id=" .. tostring(payload.proposal_id or "unknown")
+    .. " entity_updated_at=" .. tostring(payload.updated_at or "unknown")
+    .. " fingerprint=" .. fingerprint, 0)
+end
+
 function C.liveness_scan_state_is_non_terminal(M, state)
   local row = replay_fields.restart_transition_row(M.restart_transition_table(), state and state.state)
   return row ~= nil and row.terminal ~= true
@@ -159,10 +208,7 @@ function C.liveness_scan_maybe_timeout_action(M, entity, state, facts)
 end
 
 function C.liveness_scan_observe_queue(kind)
-  if kind == "pr" then
-    return "devloop_observe_pr"
-  end
-  return "devloop_observe_issue"
+  return observe_queue(kind)
 end
 
 local function rate_limit_deferred_outcome(result)
@@ -285,6 +331,15 @@ function C.liveness_scan_reinject(repo, entity, kind, tick)
     queue,
   })
   devloop_logging.log_raise("liveness_scan", proposal_id, queue, payload)
+end
+
+function C.liveness_scan_reinject_failure(repo, entity, kind, failure)
+  local payload = C.liveness_scan_build_failure_observe_payload(repo, entity, kind, failure)
+  local queue = observe_queue(kind)
+  devloop_logging.log_apply("liveness_scan", payload.proposal_id, nil, nil, { add = {}, remove = {} }, {
+    queue,
+  })
+  devloop_logging.log_raise("liveness_scan", payload.proposal_id, queue, payload)
 end
 
 return C

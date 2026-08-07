@@ -58,6 +58,8 @@ The profile schema is the existing host-run environment surface:
 | `FKST_RATE_POOL_ROOT` | yes for GitHub traffic | Host-stable external-command rate-pool root. |
 | `FKST_GITHUB_REPO` | package-dependent | GitHub repository identity such as `owner/repo`. |
 | `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. |
+| `FKST_GITHUB_CLAIM_MODE` | optional | Claim ownership posture: trimmed `label` selects claim labels for GitHub App hosts that cannot be issue assignees; `assignee` is the default, and unset or every other value uses issue assignees. |
+| `FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE` | optional | Claim-label naming posture: trimmed `1` selects the bare `fkst-dev:claimed` label, and only one App host may use that exclusive posture because two bare-label hosts recreate a holderless lock; unset or every other value defaults to `fkst-dev:claimed:<normalized-owner>`, and existing bare-label deployments must either opt in with `1` or clear stale bare claim labels before switching. |
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
@@ -76,6 +78,11 @@ The configured target should be the repository's canonical local and CI gate, in
 freshness or conflict checks required for a born-green pull request. It must be one direct executable
 invocation. Put multiple steps in a repository-owned executable, Make target, or task-runner target
 instead of shell control operators in the environment value.
+
+For implementation candidate verification, `github-devloop` exports `BASE` as the candidate's frozen
+base head before invoking the configured target. Base-aware gates must use that value instead of a
+moving default branch. The detached raw-base attribution probe runs without this candidate-only
+override because it has no candidate diff.
 
 The gate owns the meaning of its result. On every catchable process completion it must print exactly
 one v2 result line to stdout or stderr. The closed verdict and fault-class pairs are:

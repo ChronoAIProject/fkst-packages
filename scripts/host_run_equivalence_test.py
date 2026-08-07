@@ -600,6 +600,7 @@ class HostRunEquivalenceTest(unittest.TestCase):
                     case "$cmd" in
                       rev-parse)
                         case "${2:-}" in
+                          --is-inside-work-tree) printf 'true\\n' ;;
                           --git-dir) printf '.git\\n' ;;
                           --show-toplevel) printf '%s\\n' "${cdir:-$PWD}" ;;
                           --verify) exit 0 ;;

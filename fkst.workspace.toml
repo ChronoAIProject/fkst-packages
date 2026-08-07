@@ -77,3 +77,8 @@ version = "workspace"
 name = "git-branch-detector"
 source = "workspace"
 version = "workspace"
+
+[[package]]
+name = "github-devloop-worktree-gc"
+source = "workspace"
+version = "workspace"

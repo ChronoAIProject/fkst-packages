@@ -385,8 +385,8 @@ function M.ensure_repo()
     color = "ededed",
     description = "fkst observability dashboard singleton",
   })
-  -- The fkst-dev:claimed label backs label-mode ownership; only register it when
-  -- the deployment opts into label-mode so assignee-mode repos stay unchanged.
+  -- The active claim label backs label-mode ownership; only register it when the
+  -- deployment opts into label-mode so assignee-mode repos stay unchanged.
   local claim_label_result = nil
   if config.claim_mode() == "label" then
     claim_label_result = ensure_label(repo, apply_mode, repo_labels, {

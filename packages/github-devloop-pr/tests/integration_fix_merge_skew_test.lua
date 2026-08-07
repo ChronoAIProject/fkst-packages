@@ -20,21 +20,25 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
+local function merge_gate_reject_comment(event, gate_reason)
+  return "github-devloop merge gate failed: " .. gate_reason
+    .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
+    .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
+      event.pr_number,
+      event.version,
+      event.review_proposal_id,
+      event.review_dedup_key,
+      event.reviewed_head_sha,
+      event.gate_baseline_sha,
+      gate_reason
+    )
+end
+
 return {
   test_mergeable_conflicting_fix_skips_pr_merge_ref_verification = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "mergeable-conflicting" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: mergeable-conflicting"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "mergeable-conflicting"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "mergeable-conflicting")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -91,17 +95,7 @@ return {
   test_fix_merges_gate_baseline_before_codex = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -195,17 +189,7 @@ return {
   test_fix_ignores_unchanged_pytest_separator_outside_candidate_diff = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -254,17 +238,7 @@ return {
   test_fix_errors_on_conflict_marker_in_candidate_diff = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -304,17 +278,7 @@ return {
   test_fix_checks_reviewed_head_through_ahead_plus_dirty_candidate = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -350,17 +314,7 @@ return {
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", string.rep("managed-version/", 20))
     t.eq(#branch, 160)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -405,17 +359,7 @@ return {
   test_fix_errors_on_staged_diff_check_conflict_markers = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -466,17 +410,7 @@ return {
   test_fix_errors_when_unmerged_index_remains_after_worker = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -517,17 +451,7 @@ return {
   test_fix_clean_ahead_reuse_blocks_on_range_diff_check = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: own-ci-red"
-      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
-      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
-        event.pr_number,
-        event.version,
-        event.review_proposal_id,
-        event.review_dedup_key,
-        event.reviewed_head_sha,
-        event.gate_baseline_sha,
-        "own-ci-red"
-      )
+    local reject_comment = merge_gate_reject_comment(event, "own-ci-red")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")

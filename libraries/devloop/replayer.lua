@@ -170,8 +170,11 @@ end
 local function replay_impl_failed(M, dept, issue, state, row, facts)
   local proposal_id = facts.proposal_id
   local failure = facts.impl_failure
-  if not M.impl_failure_retry_allowed(failure) then
+  if failure == nil then
     return log_skip(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-limit)", "implementation failure is not a bounded codex retry candidate")
+  end
+  if not M.impl_failure_retry_allowed(failure) then
+    return log_defer(M, dept, proposal_id, state, "impl-failed", "implementing", "skip-pending(operator-reentry)", "implementation failure is waiting for an explicit operator reready or reimplement command")
   end
   local fields = resolve_payload_fields(M, row, state, {
     issue = issue,
@@ -252,7 +255,9 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
 
   local feedback = facts.feedback or M.fixing_replay_feedback_fact(facts.snapshot.comments, proposal_id, state.version)
   if feedback ~= nil then
-    feedback = m_facts.parse_fix_feedback_fact(feedback)
+    if feedback.review_proposal_id == nil or feedback.reviewed_head_sha == nil then
+      return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-foreign(fix-feedback-binding)", "trusted fix feedback marker lacks review binding")
+    end
     if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
       return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number))
     end
@@ -522,7 +527,7 @@ local function replay_blocked(M, dept, issue, state, row, facts)
 end
 
 local function replayer_tools(M)
-  return {
+  local tools = {
     find_linked_pr = find_linked_pr,
     log_skip = function(...)
       return log_skip(M, ...)
@@ -537,6 +542,10 @@ local function replayer_tools(M)
       return resolve_payload_fields(M, row, state, facts)
     end,
   }
+  tools.replay_review_meta_receiver = function(...)
+    return replay_review_meta(M, tools, ...)
+  end
+  return tools
 end
 
 local function restart_replayers(M)

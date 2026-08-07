@@ -113,6 +113,17 @@ local function capture_raises(fn)
   return raised
 end
 
+local function capture_failure_and_raises(fn)
+  local raised = {}
+  local original = devloop_logging.log_raise
+  devloop_logging.log_raise = function(_, _, queue, payload)
+    table.insert(raised, { queue = queue, payload = payload })
+  end
+  local ok, err = pcall(fn)
+  devloop_logging.log_raise = original
+  return ok, err, raised
+end
+
 local function captured_raise(raised, queue)
   for _, item in ipairs(raised or {}) do
     if item.queue == queue then
@@ -350,23 +361,16 @@ return {
             entity_lib.issue_source_ref(repo, 42)
           )))
         end
-        local raised = capture_raises(function()
-          local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {
+        local ok, err, raised = capture_failure_and_raises(function()
+          core.maybe_timeout_redrive_from_table("liveness_scan", {
             repo = repo,
             number = 42,
             source_ref = entity_lib.issue_source_ref(repo, 42),
           }, state, row, facts)
-          t.eq(handled, true, case.name)
         end)
-        -- Owner directive (#2725): the row-budget-absolute-cap still fires (receiver
-        -- "stuck", asserted above), but a timeout must NEVER reach terminal reconcile;
-        -- it REDRIVES, emitting the next timeout-attempt marker instead.
-        t.eq(captured_raise(raised, "devloop_ready"), nil, case.name)
-        t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil, case.name)
-        local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil, case.name)
-        t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil, case.name)
-        t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil, case.name)
+        t.eq(ok, false, case.name)
+        t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil, case.name)
+        t.eq(#raised, 0, case.name)
       end)
     end
   end,
@@ -406,11 +410,13 @@ return {
     t.eq(#second.raises, 0)
   end,
 
-  test_impl_failed_retry_limit_replay_decline_climbs_to_timeout_reconcile_without_seeded_timeout_markers = function()
+  test_impl_failed_retry_disallowed_defers_without_timeout_effects_across_repeated_sweeps = function()
     local event = h.ready()
     local comments = {
       state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
-      issue_comment(core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed", core._max_impl_auto_retry_attempts)),
+      issue_comment(core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed",
+        1, "UNKNOWN", false)),
     }
 
     for sweep = 1, 3 do
@@ -419,53 +425,76 @@ return {
       mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:0" .. tostring(sweep) .. "Z")
       mock_empty_pr_list()
 
-      local result = run_liveness_scan("liveness-impl-failed-retry-limit-stuck-sweep-" .. tostring(sweep))
+      local result = run_liveness_scan("liveness-impl-failed-operator-reentry-deferred-sweep-" .. tostring(sweep))
       t.eq(result.exit_code, 0)
       t.eq(find_raise(result, "devloop_ready"), nil)
-      if sweep < 3 then
-        t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-        local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42))))
-      else
-        -- Owner directive (#2725): the impl-failed retry/attempt counter must NEVER climb
-        -- to a terminal reconcile; past the former limit it REDRIVES, emitting the next
-        -- timeout-attempt marker (round 3) rather than dropping to blocked.
-        t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-        local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-      end
+      t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+      t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+      t.eq(#result.raises, 0)
     end
   end,
 
-  test_blocked_missing_decomposed_replay_decline_climbs_to_decompose_exhausted_without_seeded_timeout_markers = function()
+  test_impl_failed_retry_allowed_still_issues_from_over_budget_liveness_sweep = function()
+    local event = h.ready()
+    local comments = {
+      state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
+      issue_comment(core.impl_failure_marker(
+        event.proposal_id, event.dedup_key, "codex-failed", 1, "UNKNOWN", true)),
+    }
+    mock_repo()
+    mock_issue_list("2026-06-03T01:02:03Z")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:03Z")
+    mock_empty_pr_list()
+
+    local result = run_liveness_scan("liveness-impl-failed-retry-allowed-still-issues")
+    t.eq(result.exit_code, 0)
+    t.is_true(find_raise(result, "devloop_ready") ~= nil)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
+    t.is_true(attempt ~= nil)
+    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+  end,
+
+  test_impl_failed_without_failure_fact_emits_failure_without_receipt = function()
+    local event = h.ready()
+    local comments = {
+      state_comment("impl-failed", event.dedup_key, "2026-06-01T00:00:00Z"),
+    }
+    mock_repo()
+    mock_issue_list("2026-06-03T01:02:03Z")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, comments, "2026-06-03T01:02:03Z")
+    mock_empty_pr_list()
+
+    local result = run_liveness_scan("liveness-impl-failed-missing-fact-still-stuck")
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_ready"), nil)
+    t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+    local failure = find_raise(result, "devloop_observe_issue")
+    t.is_true(failure ~= nil)
+    t.eq(failure.payload.proposal_id, event.proposal_id)
+    t.eq(failure.payload.failure.error_class, "timeout-redrive-stuck")
+  end,
+
+  test_blocked_missing_decomposed_fact_emits_failure_without_receipt = function()
     local comments = {
       state_comment("blocked", version, "2026-06-01T00:00:00Z"),
       m_builders.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     }
 
-    for sweep = 1, 3 do
-      mock_repo()
-      mock_issue_list("2026-06-03T01:03:0" .. tostring(sweep) .. "Z")
-      mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, comments, "2026-06-03T01:03:0" .. tostring(sweep) .. "Z")
-      mock_decompose_children()
-      mock_empty_pr_list()
+    mock_repo()
+    mock_issue_list("2026-06-03T01:03:01Z")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, comments, "2026-06-03T01:03:01Z")
+    mock_decompose_children()
+    mock_empty_pr_list()
 
-      local result = run_liveness_scan("liveness-blocked-missing-decomposed-stuck-sweep-" .. tostring(sweep))
-      t.eq(result.exit_code, 0)
-      t.eq(find_raise(result, "github-devloop-decompose.devloop_decompose"), nil)
-      t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-      local comment = find_raise(result, "github-proxy.github_issue_comment_request")
-      t.is_true(comment ~= nil)
-      if sweep < 3 then
-        t.is_true(comment.payload.body:find(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42))))
-      else
-        t.is_true(comment.payload.body:find(conv_attempts.decompose_exhausted_marker(proposal_id, version, 3, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-      end
-    end
+    local result = run_liveness_scan("liveness-blocked-missing-decomposed-stuck")
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "github-devloop-decompose.devloop_decompose"), nil)
+    t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+    local failure = find_raise(result, "devloop_observe_issue")
+    t.is_true(failure ~= nil)
+    t.eq(failure.payload.proposal_id, proposal_id)
+    t.eq(failure.payload.failure.error_class, "timeout-redrive-stuck")
   end,
 
 }

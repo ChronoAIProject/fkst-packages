@@ -4,6 +4,7 @@ local function make(deps)
 local contract_time = deps.contract_time
 local conv_reconcile = deps.conv_reconcile
 local core = deps.core
+local dependency_hold_fact = deps.dependency_hold_fact
 local devloop_logging = deps.devloop_logging
 local devloop_state = deps.devloop_state
 local operator_commands = deps.operator_commands
@@ -116,6 +117,32 @@ local function timeout_reconcile_reready_reentry_state(current, proposal_id, sta
   }, nil
 end
 
+local function dependency_hold_reready_reentry_state(current, proposal_id, state, link)
+  if state.state ~= "blocked" or link ~= nil then
+    return nil
+  end
+  local fact = dependency_hold_fact(current.comments, proposal_id)
+  if fact == nil or tostring(fact.version or "") ~= tostring(state.version or "") then
+    return nil
+  end
+  return {
+    state = "dependency_wait",
+    version = state.version,
+    stage_rank = devloop_state.stage_rank("dependency_wait"),
+    marker_created_at = fact.comment_created_at,
+    operator_reentry = {
+      command = "reready",
+      from_state = "blocked",
+      boundary = "dependency-hold",
+      terminal_version = state.version,
+      dependency_origin = {
+        marker_kind = fact.marker_kind,
+        version = fact.version,
+      },
+    },
+  }
+end
+
 local function maybe_apply_issue_reready_command(issue, proposal_id, current, state, link)
   local command = operator_commands.operator_command_fact(current.comments, "reready")
   if command == nil then
@@ -128,7 +155,11 @@ local function maybe_apply_issue_reready_command(issue, proposal_id, current, st
   local replay_state = state
   local refusal_reason = nil
   if state.state ~= "ready" and state.state ~= "dependency_wait" then
-    replay_state, refusal_reason = timeout_reconcile_reready_reentry_state(current, proposal_id, state, issue.source_ref, link)
+    replay_state = dependency_hold_reready_reentry_state(current, proposal_id, state, link)
+    if replay_state == nil then
+      replay_state, refusal_reason = timeout_reconcile_reready_reentry_state(
+        current, proposal_id, state, issue.source_ref, link)
+    end
   end
   if replay_state == nil then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-state)", "operator reready requires ready state")
@@ -218,7 +249,6 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
     current = current,
     command_comment_request = comment_request,
     dependency_gate = {
-      ok = true,
       kind = "satisfied",
       reason = "dependency-waiver",
       notes = {

@@ -36,10 +36,44 @@ host_run_same_path() {
   [ "$left_phys" = "$right_phys" ]
 }
 
+host_run_export_codex_repository_roots() {
+  local root physical existing duplicate
+  local roots=()
+  for root in "$@"; do
+    case "$root" in
+      ""|*$'\n'*|*$'\r'*)
+        echo "error: codex repository roots must be non-empty single-line paths" >&2
+        return 1
+        ;;
+    esac
+    physical="$(cd "$root" 2>/dev/null && pwd -P)" || {
+      echo "error: codex repository root does not exist: $root" >&2
+      return 1
+    }
+    duplicate=0
+    for existing in ${roots[@]+"${roots[@]}"}; do
+      if [ "$existing" = "$physical" ]; then
+        duplicate=1
+        break
+      fi
+    done
+    if [ "$duplicate" -eq 0 ]; then
+      roots+=("$physical")
+    fi
+  done
+  if [ "${#roots[@]}" -eq 0 ]; then
+    echo "error: at least one codex repository root is required" >&2
+    return 1
+  fi
+  printf -v FKST_CODEX_REPOSITORY_ROOTS '%s\n' "${roots[@]}"
+  export FKST_CODEX_REPOSITORY_ROOTS
+}
+
 host_run_resolve_target_platform_roots() {
   local output line
   output="$(python3 - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -67,9 +101,13 @@ def git_output(args: list[str], *, cwd: Path) -> str:
             check=True,
         )
     except FileNotFoundError:
-        fail("git is required to resolve host external sources")
+        fail(f"{shlex.join(['git', *args])} could not start (cwd={cwd}): git executable not found")
     except subprocess.CalledProcessError as exc:
-        fail(f"git {' '.join(args)} failed with exit {exc.returncode}")
+        message = f"{shlex.join(['git', *args])} failed with exit {exc.returncode} (cwd={cwd})"
+        stderr = exc.stderr.strip()
+        if stderr:
+            message = f"{message}: {stderr}"
+        fail(message)
     return result.stdout.strip()
 
 
@@ -400,6 +438,19 @@ host_run_parse_supervise_args() {
 
 host_run_validate_shape() {
   [ -d "$HOST_RUN_PROJECT_ROOT" ] || { echo "error: project root does not exist: $HOST_RUN_PROJECT_ROOT" >&2; return 1; }
+  local work_tree_result core_bare
+  if ! work_tree_result="$(git -C "$HOST_RUN_PLATFORM_ROOT" rev-parse --is-inside-work-tree)" || [ "$work_tree_result" != "true" ]; then
+    core_bare="$(git -C "$HOST_RUN_PLATFORM_ROOT" config --bool core.bare 2>/dev/null || true)"
+    printf 'error: --platform-root failed predicate git rev-parse --is-inside-work-tree=true: %s' "$HOST_RUN_PLATFORM_ROOT" >&2
+    if [ "$core_bare" = "true" ]; then
+      printf ' (core.bare=true)' >&2
+    fi
+    if [ -n "$work_tree_result" ]; then
+      printf ': %s' "$work_tree_result" >&2
+    fi
+    printf '\n' >&2
+    return 1
+  fi
   mkdir -p "$HOST_RUN_DURABLE_ROOT"
   if [ "$HOST_RUN_RUNTIME_IS_EXPLICIT" -eq 1 ]; then
     mkdir -p "$HOST_RUN_RUNTIME_BASE"
@@ -642,6 +693,11 @@ host_run_supervise_contract() {
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
   export FKST_PROJECT_ROOT="$HOST_RUN_PROJECT_ROOT"
+  local repository_roots=("$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_ROOT")
+  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
+    repository_roots+=("$BIN_REPOSITORY_ROOT")
+  fi
+  host_run_export_codex_repository_roots "${repository_roots[@]}" || return $?
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")

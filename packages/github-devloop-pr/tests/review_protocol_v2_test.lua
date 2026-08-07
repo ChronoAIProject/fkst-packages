@@ -1,11 +1,11 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local requests_review = require("devloop.requests.review")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
-local devloop_logging = require("devloop.logging")
 local core = h.core
 local t = h.t
 
@@ -246,7 +246,8 @@ return {
     })
     t.is_true(prompt:find("If you cannot read the local context files (issue body / PR diff / comments) for ANY reason, choose `block`.", 1, true) ~= nil)
     t.is_true(prompt:find("Respond with exactly two lines", 1, true) ~= nil)
-    t.is_true(prompt:find("one word from fix, block, or spec-amendment", 1, true) ~= nil)
+    t.is_true(prompt:find("one value from fix, no-actionable-gap, block, or spec-amendment", 1, true) ~= nil)
+    t.is_true(prompt:find("Only `review_result` may approve the PR or advance it to `merge-ready`.", 1, true) ~= nil)
     t.is_true(prompt:find("fixing the PR would violate it", 1, true) ~= nil)
     t.is_nil(prompt:find("FETCH", 1, true))
     t.is_nil(prompt:find("one word from fix, block, or accept", 1, true))
@@ -529,6 +530,60 @@ return {
     t.is_true(proposal.body:find("Judge whether THE NAMED GAP is closed", 1, true) ~= nil)
   end,
 
+  test_fix_marker_write_uses_redrive_delivery_identity_only_for_redrives = function()
+    local fix = h.fixing()
+    local forward = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      fix,
+      "def456",
+      "feedface",
+      core.next_fix_version(fix.version)
+    )
+    local expected_forward_key = base_ids.dedup_key({
+      "fix",
+      "comment",
+      fix.proposal_id,
+      fix.review_dedup_key,
+      "feedface",
+    })
+    t.eq(forward.dedup_key, expected_forward_key)
+
+    local first = h.fixing({
+      dedup_key = "fixing/redrive/generation-1/attempt-1",
+      redrive_delivery = {
+        generation_key = "generation-1",
+        attempt = 1,
+      },
+    })
+    local second = h.fixing({
+      dedup_key = "fixing/redrive/generation-1/attempt-2",
+      redrive_delivery = {
+        generation_key = "generation-1",
+        attempt = 2,
+      },
+    })
+    local first_request = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      first,
+      "def456",
+      "feedface",
+      core.next_fix_version(first.version)
+    )
+    local second_request = requests_review.build_fix_reviewing_comment_request(core,
+      "owner/repo",
+      "42",
+      second,
+      "def456",
+      "feedface",
+      core.next_fix_version(second.version)
+    )
+    t.eq(first_request.dedup_key, first.dedup_key)
+    t.eq(second_request.dedup_key, second.dedup_key)
+    t.is_true(first_request.dedup_key ~= second_request.dedup_key)
+  end,
+
   test_review_result_gap_marker_is_structured_and_sanitized = function()
     local event = review_event({
       decision = "reject",
@@ -548,7 +603,7 @@ return {
     t.eq(fact.blocking_gap, "first line second")
   end,
 
-  test_review_result_foreign_dedup_fails_closed = function()
+  test_review_result_foreign_dedup_is_excluded = function()
     local issue_version = h.reviewing().version
     local fix_version = core.next_fix_version(issue_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
@@ -561,20 +616,12 @@ return {
       author_login = "fkst-test-bot",
     }
 
-    for _, comments in ipairs({ { foreign }, { foreign, current } }) do
-      local ok, failure = pcall(m_facts.review_reject_fact,
-        comments,
-        "github-devloop/issue/owner/repo/42",
-        fix_version)
-      t.eq(ok, false)
-      t.eq(devloop_logging.error_class_from_message(failure), "fix-feedback-mismatched-review-dedup-key")
-    end
-    local ok, failure = pcall(m_facts.review_prior_round_ledger,
-      { foreign },
-      "github-devloop/issue/owner/repo/42",
-      core.next_fix_version(fix_version))
-    t.eq(ok, false)
-    t.eq(devloop_logging.error_class_from_message(failure), "fix-feedback-mismatched-review-dedup-key")
+    local fact = m_facts.review_reject_fact({ foreign }, "github-devloop/issue/owner/repo/42", fix_version)
+    t.is_nil(fact)
+    fact = m_facts.review_reject_fact({ foreign, current }, "github-devloop/issue/owner/repo/42", fix_version)
+    t.eq(fact.blocking_gap, "current gap")
+    local ledger = m_facts.review_prior_round_ledger({ foreign }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
+    t.is_nil(ledger)
   end,
 
   test_review_result_legacy_loop_dedup_marker_is_canonicalized = function()

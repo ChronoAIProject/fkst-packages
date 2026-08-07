@@ -29,6 +29,7 @@ local expected_new_apply_effects = {
   ["github-devloop-pr/pr-open/autonomous/review_requested"] = { PR_COMMENT },
   ["github-devloop-pr/pr-open/entry/pr_open_handoff"] = { "devloop_observe_pr" },
   ["github-devloop-pr/pr-open/guard_boundary/pr_base_unmanaged"] = { PR_COMMENT },
+  ["github-devloop-pr/review-meta/autonomous/no-actionable-gap"] = { PR_COMMENT, ISSUE_LABEL },
   ["github-devloop-pr/reviewing/canonicalization/fixing_head_renormalization"] = { PR_COMMENT, ISSUE_LABEL },
   ["github-devloop-pr/reviewing/canonicalization/pr_base_unmanaged_self_heal"] = { PR_COMMENT },
   ["github-devloop-pr/reviewing/operator_reentry/rereview_blocked"] = { PR_COMMENT },
@@ -44,7 +45,7 @@ end
 return {
   test_pr_owner_every_canonical_edge_has_closed_effect_entitlements = function()
     local edges = owner_projection.edges(owner, rows, inventories)
-    t.eq(#edges, 43)
+    t.eq(#edges, 44)
     for _, edge in ipairs(edges) do
       local entitlements = edge.transition_effect_entitlements
       t.eq(type(entitlements), "table", edge.id .. " missing transition_effect_entitlements")

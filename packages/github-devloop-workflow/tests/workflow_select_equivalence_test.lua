@@ -5,6 +5,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local candidate_queue = "github-devloop-intake.devloop_intake_candidate"
 
@@ -111,7 +112,20 @@ local function mock_issue_view(current, times)
   end
 end
 
-local function mock_context_bundle(current)
+local function expected_decision_key(payload, current)
+  local c = current or {}
+  return devloop_base.intake_decision_dedup_key(payload.proposal_id, {
+    title = c.title or "Repair retry backoff for failed widget sync",
+    body = c.body or "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries.",
+  })
+end
+
+local function mock_context_bundle(current, payload)
+  context_fixtures.materialize_context_bundle({
+    proposal_id = payload.proposal_id,
+    dedup_key = expected_decision_key(payload, current),
+  }, "/tmp/fkst-packages-test/github-devloop-workflow/runtime",
+    "/tmp/fkst-packages-test/github-devloop-workflow/runtime/context/.bundle-tmp.intake")
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   author_policy.mock_env(t, {
     env = {
@@ -177,8 +191,8 @@ local function mock_context_bundle(current)
   t.mock_command("mkdir -p", ok)
 end
 
-local function mock_codex(stdout, current)
-  mock_context_bundle(current)
+local function mock_codex(stdout, current, payload)
+  mock_context_bundle(current, payload)
   t.mock_command("codex exec", {
     stdout = stdout,
     stderr = "",
@@ -222,11 +236,11 @@ local function mock_class_escalation_lists(siblings)
   })
 end
 
-local function mock_workflow_select_path(case, current)
+local function mock_workflow_select_path(case, current, payload)
   mock_env()
   mock_issue_view(current, 2)
   mock_workflow_none()
-  mock_codex(case.codex, current)
+  mock_codex(case.codex, current, payload)
   if case.class_siblings ~= nil then
     mock_class_escalation_lists(case.class_siblings)
   end
@@ -234,13 +248,6 @@ end
 
 local function candidate()
   return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
-end
-
-local function expected_decision_key(payload)
-  return devloop_base.intake_decision_dedup_key(payload.proposal_id, {
-    title = "Repair retry backoff for failed widget sync",
-    body = "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries.",
-  })
 end
 
 local function event(payload)
@@ -259,7 +266,7 @@ end
 local function exercise_default_policy(case)
   local payload = candidate()
   local current = case.current or {}
-  mock_workflow_select_path(case, current)
+  mock_workflow_select_path(case, current, payload)
   local workflow_result = run_workflow_select(payload, "workflow-select-" .. case.name)
 
   t.eq(#workflow_result.raises, #case.expected_queues)
@@ -349,7 +356,7 @@ local tests = {
     }
     mock_workflow_select_path({
       codex = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Replay must not run intake codex.",
-    }, current)
+    }, current, payload)
 
     local result = run_workflow_select(payload, "workflow-select-pr-state-marker")
 

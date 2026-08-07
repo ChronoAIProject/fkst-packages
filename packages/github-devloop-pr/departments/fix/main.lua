@@ -15,6 +15,7 @@ local conflict_telemetry = require("devloop.conflict_telemetry")
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local merge_mechanics = require("departments.fix.merge_mechanics").make(core)
+local worktree_precondition = require("departments.fix.worktree_precondition").make()
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
@@ -41,6 +42,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local branch_worktree = merge_mechanics.branch_worktree
+local branch_head_if_ahead = merge_mechanics.branch_head_if_ahead
 local merge_integration_for_fix = merge_mechanics.merge_integration_for_fix
 local current_predecessors_for_fix = merge_mechanics.current_predecessors_for_fix
 local merge_predecessor_entries_for_fix = merge_mechanics.merge_predecessor_entries_for_fix
@@ -152,29 +154,6 @@ local function assert_fix_write_gate(fix, repo, issue_number)
   return false
 end
 
-local function branch_head_if_ahead(base_head_sha, branch)
-  local ahead_result = devloop_commands.git_branch_ahead_count(base_head_sha, branch, 30)
-  if ahead_result.exit_code ~= 0 then
-    error("github-devloop: git-branch-ahead-check-failed: git branch ahead check failed: " .. tostring(ahead_result.stderr))
-  end
-  local ahead_count = tonumber(tostring(ahead_result.stdout or ""):match("%d+"))
-  if ahead_count == nil or ahead_count <= 0 then
-    return nil
-  end
-  local head_result = devloop_commands.git_branch_head(branch, 30)
-  if head_result.exit_code ~= 0 then
-    error("github-devloop: git-branch-head-check-failed: git branch head check failed: " .. tostring(head_result.stderr))
-  end
-  local branch_head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
-  if not require("devloop.pr_safety").is_safe_head_sha(branch_head_sha) then
-    error("github-devloop: deterministic-branch-head-unsafe: unsafe deterministic branch head sha")
-  end
-  if branch_head_sha == base_head_sha then
-    return nil
-  end
-  return branch_head_sha
-end
-
 local function validate_fix_write_gate_snapshot(repo, fix, branch, pr, reason_prefix, fail_closed)
   local state = require("devloop.entity").current_entity_state(pr.comments, fix.proposal_id)
   if state.state ~= "fixing" or tostring(state.version or "") ~= tostring(fix.version) then
@@ -211,6 +190,17 @@ end
 local function run_fix_attempt(plan)
   local worktree = branch_worktree(
     plan.repo, plan.issue_number, plan.impl_version, plan.branch)
+  local established, owner = worktree_precondition.establish(
+    worktree, plan.branch, plan.fix.proposal_id)
+  if not established then
+    devloop_logging.log_line("info", "fix", plan.fix.proposal_id, "WORKTREE_PRECONDITION", {
+      "outcome=deferred-live-owner",
+      "owner_role=" .. tostring(owner.role or ""),
+      "owner_run_id=" .. tostring(owner.run_id or ""),
+      "owner_dedup_key=" .. tostring(owner.dedup_key or ""),
+    })
+    return nil
+  end
   local merge_context, speculative_reason, speculative_current_set
   if plan.speculative_predecessors ~= nil then
     merge_context, speculative_reason = merge_predecessor_entries_for_fix(

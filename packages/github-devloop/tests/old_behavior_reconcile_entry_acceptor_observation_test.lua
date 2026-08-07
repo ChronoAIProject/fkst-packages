@@ -158,7 +158,7 @@ local function capture(fixture)
   end, restorations)
   ra.replace(core, "restart_row_liveness_signal", function() return { age_minutes = 181 } end, restorations)
   ra.replace(core, "dependency_gate", function()
-    return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+    return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
   end, restorations)
   if fixture.adopt_open_pr then
     ra.replace(devloop_config, "branch_config", function() return { integration = "dev", upstream = "dev" } end,

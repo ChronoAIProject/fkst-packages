@@ -41,6 +41,11 @@ local function mock_base_head_for_merge_conflict()
     stderr = "",
     exit_code = 1,
   })
+  t.mock_command("git merge-tree --write-tree aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", {
+    stdout = "",
+    stderr = "CONFLICT (content): merge conflict",
+    exit_code = 1,
+  })
 end
 
 local function source_comments(event, source_state)
@@ -155,6 +160,8 @@ local function mock_decompose_pr(event, comments)
 end
 
 local function mock_decompose_execution(event, blocked_comment)
+  local runtime_root = "/tmp/fkst-packages-test/github-devloop-decompose-merge-cap/runtime"
+  local tmp_dir = "/tmp/fkst-packages-test/github-devloop-decompose-merge-cap/context/.bundle-tmp.decompose"
   local blocked_comments = decompose_pr_comments(event, blocked_comment)
   local decomposed_comments = decompose_pr_comments(event, blocked_comment, {
     decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 2),
@@ -193,9 +200,10 @@ local function mock_decompose_execution(event, blocked_comment)
   mock_decompose_pr(event, blocked_comments)
   mock_decompose_pr(event, blocked_comments)
   mock_decompose_pr(event, decomposed_comments)
+  h.materialize_context_bundle(event, runtime_root, tmp_dir)
   for _ = 1, 8 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/github-devloop-decompose-merge-cap/runtime",
+      stdout = runtime_root,
       stderr = "",
       exit_code = 0,
     })
@@ -205,7 +213,7 @@ local function mock_decompose_execution(event, blocked_comment)
   end
   t.mock_command("install -d -m 0755", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("mktemp -d", {
-    stdout = "/tmp/fkst-packages-test/github-devloop-decompose-merge-cap/context/.bundle-tmp.decompose\n",
+    stdout = tmp_dir .. "\n",
     stderr = "",
     exit_code = 0,
   })
