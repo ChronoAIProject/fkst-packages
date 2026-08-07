@@ -32,6 +32,17 @@ def load_slicer():
 slicer = load_slicer()
 
 
+def reconcile_as_trusted_bot(spec, inventory, client):
+    return slicer.reconcile_ratchet(
+        spec,
+        inventory,
+        1,
+        "owner/repo",
+        client,
+        env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
+    )
+
+
 class FakeGithubClient:
     def __init__(self) -> None:
         self.parent = {"number": 979, "state": "OPEN", "comments": []}
@@ -397,14 +408,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             + '" -->',
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-in-flight")
         self.assertEqual(result.issue_number, 123)
@@ -420,14 +424,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": '<!-- fkst:ratchet-slice:v1 schema="fkst.ratchet-slice.v1" ratchet="saga-handler" parent="979" dedup="saga-handler/slice/old" fingerprint="old" entries="0000000000000000" -->',
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "would-create-slice")
         self.assertEqual(client.created, [])
@@ -442,14 +439,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": '<!-- fkst:ratchet-slice:v1 schema="fkst.ratchet-slice.v1" ratchet="saga-handler" parent="979" dedup="saga-handler/slice/old" fingerprint="old" -->',
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-in-flight")
         self.assertEqual(result.issue_number, 123)
@@ -471,14 +461,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": str(slicer.render_reconciled_issue_body(spec, inventory, 1)),
         }
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-parent-ledger")
         self.assertEqual(result.issue_number, 123)
@@ -500,14 +483,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": str(slicer.render_reconciled_issue_body(spec, inventory, 1)),
         }
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "would-create-slice")
         self.assertEqual(client.created, [])
@@ -540,14 +516,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": str(slicer.render_reconciled_issue_body(spec, inventory, 1)),
         }
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-parent-ledger")
         self.assertEqual(result.issue_number, 124)
@@ -565,14 +534,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "createdAt": datetime.now(timezone.utc).isoformat(),
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-parent-ledger")
         self.assertEqual(client.created, [])
@@ -589,14 +551,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "createdAt": (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat(),
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "would-create-slice")
         self.assertEqual(client.created, [])
@@ -618,14 +573,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": str(slicer.render_reconciled_issue_body(spec, inventory, 1)),
         }
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "deduped-parent-ledger")
         self.assertEqual(result.issue_number, 123)
@@ -645,14 +593,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
             "body": exact_marker,
         }]
 
-        result = slicer.reconcile_ratchet(
-            spec,
-            inventory,
-            1,
-            "owner/repo",
-            client,
-            env={"FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
-        )
+        result = reconcile_as_trusted_bot(spec, inventory, client)
 
         self.assertEqual(result.action, "would-create-slice")
         self.assertIn(("owner/repo", "open", exact_marker), getattr(client, "searched", []))
