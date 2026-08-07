@@ -70,6 +70,83 @@ local function worktree_outcome(worktree)
 end
 
 return {
+  test_integration_merge_reports_clean_without_probing_unmerged_paths = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "Already up to date.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    local probes = 0
+    local git = {
+      unmerged_paths = function()
+        probes = probes + 1
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local clean = worktree_lifecycle.merge_integration(
+      git, "/tmp/fkst-implement-merge-clean", "dev", "abc123")
+
+    t.eq(clean, true)
+    t.eq(probes, 0)
+  end,
+
+  test_integration_merge_reports_conflict_when_unmerged_paths_exist = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "CONFLICT (content): merge conflict in main.lua\n",
+      exit_code = 1,
+    })
+    local git = {
+      unmerged_paths = function(worktree, timeout)
+        t.eq(worktree, "/tmp/fkst-implement-merge-conflict")
+        t.eq(timeout, 30)
+        return { stdout = "main.lua\n", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local clean = worktree_lifecycle.merge_integration(
+      git, "/tmp/fkst-implement-merge-conflict", "dev", "abc123")
+
+    t.eq(clean, false)
+  end,
+
+  test_integration_merge_fails_closed_when_unmerged_paths_cannot_be_read = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "merge failed\n",
+      exit_code = 1,
+    })
+    local git = {
+      unmerged_paths = function()
+        return { stdout = "", stderr = "index unavailable", exit_code = 2 }
+      end,
+    }
+
+    assert_error_contains(function()
+      worktree_lifecycle.merge_integration(
+        git, "/tmp/fkst-implement-merge-probe-failed", "dev", "abc123")
+    end, "unmerged-path-check-failed")
+  end,
+
+  test_integration_merge_fails_closed_when_failure_has_no_conflicts = function()
+    t.mock_command("merge --no-edit", {
+      stdout = "",
+      stderr = "fatal: refusing to merge unrelated histories\n",
+      exit_code = 128,
+    })
+    local git = {
+      unmerged_paths = function()
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    assert_error_contains(function()
+      worktree_lifecycle.merge_integration(
+        git, "/tmp/fkst-implement-merge-failed", "dev", "abc123")
+    end, "integration-merge-failed")
+  end,
+
   test_durable_root_rejects_leading_and_trailing_newlines_before_trimming = function()
     assert_error_contains(function()
       devloop_base.implementation_worktree_root("\n/tmp/fkst-durable")
