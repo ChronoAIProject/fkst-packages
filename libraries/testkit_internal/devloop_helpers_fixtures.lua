@@ -18,7 +18,7 @@ local function ensure_directory(dir)
   end
 end
 
-local function materialize_context_bundle(payload, runtime_root)
+local function materialize_context_bundle(payload, runtime_root, tmp_dir)
   local identity = context_bundle_identity.from_values(
     payload and payload.proposal_id,
     payload and payload.dedup_key,
@@ -37,6 +37,9 @@ local function materialize_context_bundle(payload, runtime_root)
     file.write(dir .. "/diff.patch", "diff --git a/file.lua b/file.lua\n+return true\n")
     file.write(dir .. "/risk.txt", "PR risk tier: normal\n")
   end
+  if tmp_dir ~= nil then
+    ensure_directory(tmp_dir)
+  end
   return dir
 end
 
@@ -46,7 +49,12 @@ local function copy_into(target, source)
   end
 end
 
-local function mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+local function mock_decompose_context_bundle(helpers, entity_read_mocks, payload, issue_stdout, pr_stdout)
+  materialize_context_bundle(
+    payload,
+    mock_context_runtime_root,
+    mock_context_runtime_root .. "/context/.bundle-tmp.decompose"
+  )
   entity_read_mocks.mock_issue_view_raw_selector(helpers.t, {}, "title,body,updatedAt,labels,comments,state,author", {
     stdout = issue_stdout or '{"title":"Original large issue","body":"Original body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
   })
@@ -73,6 +81,7 @@ function M.new(deps)
   copy_into(helpers, base)
   copy_into(helpers, pr)
   copy_into(helpers, worktree)
+  helpers.materialize_context_bundle = materialize_context_bundle
 
   local function issue_identity_from_payload(payload)
     local entity = entity_lib.parse_entity_proposal_id(payload and payload.proposal_id)
@@ -122,8 +131,8 @@ function M.new(deps)
     helpers.mock_default_issue_claim = mock_default_issue_claim
     helpers.issue_identity_from_payload = issue_identity_from_payload
     helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for
-    helpers.mock_decompose_context_bundle = function(issue_stdout, pr_stdout)
-      return mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+    helpers.mock_decompose_context_bundle = function(payload, issue_stdout, pr_stdout)
+      return mock_decompose_context_bundle(helpers, entity_read_mocks, payload, issue_stdout, pr_stdout)
     end
     return helpers
   end
@@ -164,8 +173,11 @@ function M.new(deps)
       and run_opts.env
       and run_opts.env.FKST_RUNTIME_ROOT
       or mock_context_runtime_root
-    local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
-    ensure_directory(mock_context_tmp_dir)
+    local materialized_context_dir = materialize_context_bundle(
+      payload,
+      materialized_runtime_root,
+      mock_context_tmp_dir
+    )
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"

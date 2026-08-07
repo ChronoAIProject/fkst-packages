@@ -5,6 +5,7 @@ local graph = require("testkit.graph")
 local marker_builders = require("devloop.markers.builders")
 local premise_correction = require("devloop.premise_correction")
 local t = fkst.test
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -137,6 +138,18 @@ local function mock_issue_reads(fixture)
 end
 
 local function mock_context_bundle(fixture)
+  local decision_key = premise_correction.decision_dedup_key(
+    devloop_base.intake_decision_dedup_key(proposal_id, {
+      title = "Automate deployment",
+      body = "Use the repository fake deployment adapter.",
+    }),
+    { premise_fingerprint = fixture.premise, correction_fingerprint = fixture.correction }
+  )
+  context_fixtures.materialize_context_bundle({
+    proposal_id = proposal_id,
+    dedup_key = decision_key,
+  }, "/tmp/fkst-packages-test/premise-correction/runtime",
+    "/tmp/fkst-packages-test/premise-correction/runtime/context/.bundle-tmp.intake")
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   for _ = 1, 3 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
