@@ -111,6 +111,7 @@ local semantic_specs = {
   { "git.push:fix-branch", "fix", "publish_fix.push", "git", "lifecycle-authoritative", "git-push/fix-branch/proposal+head", "packages/github-devloop-pr/departments/fix/main.lua", { "git_push_ref_update", "local push =" } },
 
   { "comment:issue:row-replay", "liveness_scan", "scan.restart_replay_issue_comments", "comment", "lifecycle-authoritative", "restart-row-replay/issue-comment-marker-families", "libraries/devloop/liveness/timeout.lua", { "replayer.replay_from_table_classified", "github-proxy.github_issue_comment_request" } },
+  { "label:issue:row-replay", "liveness_scan", "scan.restart_replay_issue_labels", "label", "lifecycle-authoritative", "restart-row-replay/issue-label-families", "packages/github-devloop-pr/core/pr_review_replayer.lua", { "append_issue_label_effect", "github-proxy.github_issue_label_request" } },
   { "comment:pr:row-replay", "liveness_scan", "scan.restart_replay_pr_comments", "comment", "lifecycle-authoritative", "restart-row-replay/pr-comment-marker-families", "libraries/devloop/liveness/timeout.lua", { "replayer.replay_from_table_classified", "github-proxy.github_pr_comment_request" } },
 
   { "comment:pr:merge-fixing", "merge", "raise_fixing.comment", "comment", "lifecycle-authoritative", "state:v1/fixing+merge-gate:v1;dedup=merge/fixing/comment", "packages/github-devloop-pr/core/merge_executor.lua", { "local function raise_fixing", "github-proxy.github_pr_comment_request" } },

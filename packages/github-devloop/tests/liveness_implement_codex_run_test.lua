@@ -67,6 +67,17 @@ local function capture_raises(fn)
   return raised
 end
 
+local function capture_failure_and_raises(fn)
+  local raised = {}
+  local original = devloop_logging.log_raise
+  devloop_logging.log_raise = function(_, _, queue, payload)
+    table.insert(raised, { queue = queue, payload = payload })
+  end
+  local ok, err = pcall(fn)
+  devloop_logging.log_raise = original
+  return ok, err, raised
+end
+
 local function captured_raise(raised, queue, predicate)
   for _, item in ipairs(raised or {}) do
     if item.queue == queue and (predicate == nil or predicate(item.payload, item)) then
@@ -100,6 +111,16 @@ local function run_timeout(row, state, facts)
       source_ref = entity_lib.issue_source_ref(repo, 42),
     }, state, row, facts)
     t.eq(handled, true)
+  end)
+end
+
+local function run_timeout_expecting_failure(row, state, facts)
+  return capture_failure_and_raises(function()
+    core.maybe_timeout_redrive_from_table("liveness_scan", {
+      repo = repo,
+      number = 42,
+      source_ref = entity_lib.issue_source_ref(repo, 42),
+    }, state, row, facts)
   end)
 end
 
@@ -180,7 +201,7 @@ return {
     end)
   end,
 
-  test_implement_hung_codex_run_past_deadline_terminates_after_budget = function()
+  test_implement_hung_codex_run_past_deadline_fails_loud_without_receipt = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -219,16 +240,10 @@ return {
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
       t.eq(age, 180)
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local ok, err, raised = run_timeout_expecting_failure(row, state, facts)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+      assert_no_timeout_effects(raised)
     end)
   end,
 
@@ -316,7 +331,7 @@ return {
     end
   end,
 
-  test_implement_codex_runs_unavailable_past_budget_escalates = function()
+  test_implement_codex_runs_unavailable_past_budget_fails_loud_without_receipt = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -353,16 +368,10 @@ return {
       t.eq(age, 180)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local failure_ok, failure_err, raised = run_timeout_expecting_failure(row, state, facts)
+      t.eq(failure_ok, false)
+      t.is_true(tostring(failure_err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+      assert_no_timeout_effects(raised)
     end)
     fkst.codex_runs = original
     if not ok then
@@ -413,7 +422,7 @@ return {
     end)
   end,
 
-  test_implement_running_codex_run_without_deadline_past_budget_escalates = function()
+  test_implement_running_codex_run_without_deadline_past_budget_fails_loud_without_receipt = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -454,16 +463,10 @@ return {
       t.eq(age, 180)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local ok, err, raised = run_timeout_expecting_failure(row, state, facts)
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+      assert_no_timeout_effects(raised)
     end)
   end,
 
