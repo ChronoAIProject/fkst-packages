@@ -94,6 +94,20 @@ class HostEntryHarness:
 
 
 class HostEntryTest(unittest.TestCase):
+    def read_engine_command_blocks(self, engine_log: Path) -> list[list[str]]:
+        blocks: list[list[str]] = []
+        current: list[str] | None = None
+        for line in engine_log.read_text(encoding="utf-8").splitlines():
+            if line == "CMD":
+                current = []
+            elif line == "END":
+                self.assertIsNotNone(current)
+                blocks.append(current or [])
+                current = None
+            elif current is not None:
+                current.append(line)
+        return blocks
+
     def test_test_cleanup_exit_traps_also_disarm_the_watchdog(self) -> None:
         # A bounded-exec watchdog is armed for the whole test run (in main() and cmd_host). Any inner EXIT
         # trap a test function installs OVERRIDES the armed disarm trap, so it must itself disarm — else the
@@ -407,17 +421,7 @@ class HostEntryTest(unittest.TestCase):
                 )
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            blocks: list[list[str]] = []
-            current: list[str] | None = None
-            for line in engine_log.read_text(encoding="utf-8").splitlines():
-                if line == "CMD":
-                    current = []
-                elif line == "END":
-                    self.assertIsNotNone(current)
-                    blocks.append(current or [])
-                    current = None
-                elif current is not None:
-                    current.append(line)
+            blocks = self.read_engine_command_blocks(engine_log)
 
             conformance = [block for block in blocks if block and block[0] == "conformance"]
             tests = [block for block in blocks if block and block[0] == "test"]
@@ -555,17 +559,7 @@ class HostEntryTest(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            blocks: list[list[str]] = []
-            current: list[str] | None = None
-            for line in engine_log.read_text(encoding="utf-8").splitlines():
-                if line == "CMD":
-                    current = []
-                elif line == "END":
-                    self.assertIsNotNone(current)
-                    blocks.append(current or [])
-                    current = None
-                elif current is not None:
-                    current.append(line)
+            blocks = self.read_engine_command_blocks(engine_log)
 
             tests_blocks = [block for block in blocks if block and block[0] == "test"]
             self.assertEqual(len(tests_blocks), 2, blocks)
@@ -643,17 +637,7 @@ class HostEntryTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("OK: 2 host package(s)", result.stdout)
-            blocks: list[list[str]] = []
-            current: list[str] | None = None
-            for line in engine_log.read_text(encoding="utf-8").splitlines():
-                if line == "CMD":
-                    current = []
-                elif line == "END":
-                    self.assertIsNotNone(current)
-                    blocks.append(current or [])
-                    current = None
-                elif current is not None:
-                    current.append(line)
+            blocks = self.read_engine_command_blocks(engine_log)
 
             tests = [block for block in blocks if block and block[0] == "test"]
             tested_roots = [
