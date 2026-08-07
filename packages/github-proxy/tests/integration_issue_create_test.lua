@@ -40,6 +40,13 @@ local function event(extra)
   }
 end
 
+local function run_issue_create(payload, run_opts)
+  return t.run_department("departments/github_issue_create/main.lua", {
+    queue = "github_issue_create_request",
+    payload = payload,
+  }, run_opts)
+end
+
 local function archaudit_payload(extra)
   local payload = {
     schema = "github-proxy.issue-create.v1",
@@ -270,10 +277,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-idempotent", {
+    local result = run_issue_create(payload, opts("issue-create-idempotent", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -293,10 +297,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-archaudit-marker-skip", {
+    local result = run_issue_create(payload, opts("issue-create-archaudit-marker-skip", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -318,10 +319,7 @@ return {
     mock_issue_create_search("[]\n")
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-parent-ledger-skip", {
+    local result = run_issue_create(payload, opts("issue-create-parent-ledger-skip", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -345,10 +343,7 @@ return {
     mock_issue_create()
     mock_parent_pr_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-parent-intent-skip", {
+    local result = run_issue_create(payload, opts("issue-create-parent-intent-skip", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -376,10 +371,7 @@ return {
     mock_issue_create()
     mock_parent_pr_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-parent-intent-reconcile", {
+    local result = run_issue_create(payload, opts("issue-create-parent-intent-reconcile", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -407,10 +399,7 @@ return {
     mock_parent_pr_comment_write()
     mock_parent_pr_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-write", {
+    local result = run_issue_create(payload, opts("issue-create-write", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -447,10 +436,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-post-blocked-by", {
+    local result = run_issue_create(payload, opts("issue-create-post-blocked-by", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -485,10 +471,7 @@ return {
     })
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-post-blocked-by-existing", {
+    local result = run_issue_create(payload, opts("issue-create-post-blocked-by-existing", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -514,10 +497,7 @@ return {
     mock_parent_pr_comment_write()
     mock_parent_pr_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-parent-ledger-write", {
+    local result = run_issue_create(payload, opts("issue-create-parent-ledger-write", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -548,10 +528,7 @@ return {
     mock_child_issue_rest_view(99, 987654321)
     mock_issue_add_sub_issue(42, 987654321)
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-native-sub-issue", {
+    local result = run_issue_create(payload, opts("issue-create-native-sub-issue", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -588,10 +565,7 @@ return {
     mock_parent_sub_issues(42, 987654321)
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-native-sub-issue-redelivery", {
+    local result = run_issue_create(payload, opts("issue-create-native-sub-issue-redelivery", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -621,10 +595,7 @@ return {
     mock_parent_pr_comment_write()
     mock_parent_pr_comment_write()
 
-    local first = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, run_opts)
+    local first = run_issue_create(payload, run_opts)
     t.eq(first.exit_code, 0)
 
     mock_write_env("1")
@@ -639,10 +610,7 @@ return {
     mock_issue_create()
     mock_parent_pr_comment_write()
 
-    local second = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, run_opts)
+    local second = run_issue_create(payload, run_opts)
     t.eq(second.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 3)
     t.eq(count_calls("gh issue list"), 2)
@@ -668,10 +636,7 @@ return {
       }).payload
       payload.parent_comment_target = nil
 
-      local result = t.run_department("departments/github_issue_create/main.lua", {
-        queue = "github_issue_create_request",
-        payload = payload,
-      }, run_opts)
+      local result = run_issue_create(payload, run_opts)
       t.eq(result.exit_code, 0, result.error)
     end
 
@@ -696,10 +661,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("issue-create-no-parent-search-fallback", {
+    local result = run_issue_create(payload, opts("issue-create-no-parent-search-fallback", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -742,10 +704,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("fork-issue-create-unauthorized-author", {
+    local result = run_issue_create(payload, opts("fork-issue-create-unauthorized-author", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -775,10 +734,7 @@ return {
     mock_source_issue_author(nil)
     h.mock_comment_view({})
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("fork-issue-create-missing-author", {
+    local result = run_issue_create(payload, opts("fork-issue-create-missing-author", {
       FKST_GITHUB_WRITE = "1",
     }))
 
@@ -816,10 +772,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = t.run_department("departments/github_issue_create/main.lua", {
-      queue = "github_issue_create_request",
-      payload = payload,
-    }, opts("fork-issue-create-authorized-author", {
+    local result = run_issue_create(payload, opts("fork-issue-create-authorized-author", {
       FKST_GITHUB_WRITE = "1",
     }))
 
