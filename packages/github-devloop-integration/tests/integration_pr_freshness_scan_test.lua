@@ -103,6 +103,14 @@ local function pr_comments(state, author_login)
   }
 end
 
+local function pr_comments_without_approval(state)
+  local issue_proposal = "github-devloop/issue/owner/repo/42"
+  return {
+    { body = m_builders.pr_origin_marker(issue_proposal, 42, branch, version, "integration/dev"), author_login = core._test_bot_login },
+    { body = core.state_marker(issue_proposal, state or "reviewing", version), author_login = core._test_bot_login },
+  }
+end
+
 local function mock_pr_view(state, comments, extra)
   local fields = extra or {}
   local head_repo = fields.head_repo or "owner/repo"
@@ -171,6 +179,14 @@ local function mock_worktree_merge(exit_code, unmerged_stdout)
     t.mock_command("ls-files -u", { stdout = unmerged_stdout or "100644 abc 1\tcore.lua\n", stderr = "", exit_code = 0 })
   end
   t.mock_command("git worktree remove --force", { stdout = "", stderr = "", exit_code = 0 })
+end
+
+local function mock_successful_dry_run_refresh(current_branch_sha)
+  mock_fetch_and_heads(current_branch_sha)
+  t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
+  mock_worktree_merge(0)
+  t.mock_command("commit -F", { stdout = "[detached " .. merge_sha .. "] Refresh branch\n", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
 end
 
 return {
@@ -340,8 +356,8 @@ return {
       issue_updated_at = issue_updated_at,
       pr_updated_at = pr_updated_at,
     })
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     local first = run_scan(run_opts)
     t.eq(first.exit_code, 1)
     t.eq(h.count_calls("gh pr view '7'"), 1)
@@ -352,8 +368,8 @@ return {
       issue_updated_at = issue_updated_at,
       pr_updated_at = pr_updated_at,
     })
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     local retry = run_scan(run_opts)
     t.eq(retry.exit_code, 1)
     t.eq(h.count_calls("gh pr view '7'"), 2)
@@ -365,20 +381,16 @@ return {
     local prefix = "devloop/issue/the-omega-institute/trureturing/42/ready-"
     local managed_branch = prefix .. string.rep("x", 160 - #prefix)
     local issue_proposal = "github-devloop/issue/" .. repo .. "/42"
-    local scan_review_proposal = devloop_base.pr_review_proposal_id(repo, 7, version, branch_sha)
-    local scan_review_dedup = "consensus:" .. scan_review_proposal .. "/review"
     local comments = {
       { body = m_builders.pr_origin_marker(issue_proposal, 42, managed_branch, version, "integration/dev"), author_login = core._test_bot_login },
-      { body = core.state_marker(issue_proposal, "merge-ready", version), author_login = core._test_bot_login },
-      { body = m_builders.review_result_marker(scan_review_proposal, issue_proposal, "approve", scan_review_dedup), author_login = core._test_bot_login },
-      { body = m_builders.merge_ready_marker(issue_proposal, 7, version, scan_review_proposal, scan_review_dedup, branch_sha), author_login = core._test_bot_login },
+      { body = core.state_marker(issue_proposal, "reviewing", version), author_login = core._test_bot_login },
     }
     t.eq(#managed_branch, 160)
 
     mock_env("", nil, repo)
     mock_pr_list(false, managed_branch, repo)
-    mock_pr_view("merge-ready", comments, { head = managed_branch, head_repo = repo })
-    mock_issue_view({}, nil, nil, repo)
+    mock_pr_view("reviewing", comments, { head = managed_branch, head_repo = repo })
+    mock_issue_view({ "fkst-dev:blocked-by-skew" }, nil, nil, repo)
     mock_fetch_and_heads(nil, managed_branch)
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 0 })
 
@@ -387,7 +399,7 @@ return {
     t.eq(h.count_calls("git fetch"), 2)
   end,
 
-  test_pr_freshness_approved_pr_from_production_bot_merges_and_pushes = function()
+  test_pr_freshness_live_approval_suppresses_refresh_of_advanced_base = function()
     mock_env("1")
     mock_pr_list(false)
     mock_pr_view("merge-ready", pr_comments("merge-ready", production_bot))
@@ -414,15 +426,96 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+    t.eq(h.count_calls("merge --no-ff --no-commit"), 0)
+    t.eq(h.count_calls("--force-with-lease=refs/heads/" .. branch .. ":" .. branch_sha), 0)
+  end,
+
+  test_pr_freshness_head_bound_merge_ready_fact_suppresses_refresh = function()
+    local issue_proposal = "github-devloop/issue/owner/repo/42"
+    local comments = {
+      { body = m_builders.pr_origin_marker(issue_proposal, 42, branch, version, "integration/dev"), author_login = core._test_bot_login },
+      { body = core.state_marker(issue_proposal, "merge-ready", version), author_login = core._test_bot_login },
+      { body = m_builders.merge_ready_marker(issue_proposal, 7, version, review_proposal, review_dedup, branch_sha), author_login = core._test_bot_login },
+    }
+    mock_env("")
+    mock_pr_list(false)
+    mock_pr_view("merge-ready", comments)
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
+    mock_successful_dry_run_refresh()
+
+    local result = run_scan(opts("pr-freshness-merge-ready-fact"))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("merge --no-ff --no-commit"), 0)
+  end,
+
+  test_pr_freshness_without_approval_keeps_blocked_by_skew_refresh = function()
+    local issue_proposal = "github-devloop/issue/owner/repo/42"
+    local comments = {
+      { body = m_builders.pr_origin_marker(issue_proposal, 42, branch, version, "integration/dev"), author_login = core._test_bot_login },
+      { body = core.state_marker(issue_proposal, "reviewing", version), author_login = core._test_bot_login },
+    }
+    mock_env("")
+    mock_pr_list(false)
+    mock_pr_view("reviewing", comments)
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
+    mock_successful_dry_run_refresh()
+
+    local result = run_scan(opts("pr-freshness-no-approval"))
+    t.eq(result.exit_code, 0)
     t.eq(h.count_calls("merge --no-ff --no-commit"), 1)
-    t.eq(h.count_calls("--force-with-lease=refs/heads/" .. branch .. ":" .. branch_sha), 1)
+  end,
+
+  test_pr_freshness_old_head_approval_does_not_suppress_refresh = function()
+    local issue_proposal = "github-devloop/issue/owner/repo/42"
+    local new_head_sha = "dddd4444"
+    local comments = {
+      { body = m_builders.pr_origin_marker(issue_proposal, 42, branch, version, "integration/dev"), author_login = core._test_bot_login },
+      { body = core.state_marker(issue_proposal, "reviewing", version), author_login = core._test_bot_login },
+      { body = m_builders.review_result_marker(review_proposal, issue_proposal, "approve", review_dedup), author_login = core._test_bot_login },
+      { body = m_builders.merge_ready_marker(issue_proposal, 7, version, review_proposal, review_dedup, branch_sha), author_login = core._test_bot_login },
+    }
+    mock_env("")
+    mock_pr_list(false)
+    mock_pr_view("reviewing", comments, { head_sha = new_head_sha })
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
+    mock_successful_dry_run_refresh(new_head_sha)
+
+    local result = run_scan(opts("pr-freshness-old-approval"))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("merge --no-ff --no-commit"), 1)
+  end,
+
+  test_pr_freshness_refresh_resumes_after_live_approval_is_gone = function()
+    local issue_proposal = "github-devloop/issue/owner/repo/42"
+    local comments_without_approval = {
+      { body = m_builders.pr_origin_marker(issue_proposal, 42, branch, version, "integration/dev"), author_login = core._test_bot_login },
+      { body = core.state_marker(issue_proposal, "reviewing", version), author_login = core._test_bot_login },
+    }
+    local run_opts = opts("pr-freshness-approval-consumed")
+
+    mock_env("")
+    mock_pr_list(false)
+    mock_pr_view("merge-ready", pr_comments("merge-ready"))
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
+    mock_successful_dry_run_refresh()
+    local live = run_scan(run_opts)
+    t.eq(live.exit_code, 0)
+
+    mock_env("")
+    mock_pr_list(false)
+    mock_pr_view("reviewing", comments_without_approval)
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
+    mock_successful_dry_run_refresh()
+    local consumed = run_scan(run_opts)
+    t.eq(consumed.exit_code, 0)
+    t.eq(h.count_calls("merge --no-ff --no-commit"), 1)
   end,
 
   test_pr_freshness_missing_integration_branch_holds_without_dlq = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     mock_missing_integration_fetch()
 
     local result = run_scan(opts("pr-freshness-missing-integration"))
@@ -472,8 +565,8 @@ return {
   test_pr_freshness_conflict_raises_sync_conflict_for_pr_branch = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
     mock_worktree_merge(1)
@@ -506,8 +599,8 @@ return {
   test_pr_freshness_dry_run_does_not_consume_same_baseline_retry = function()
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
     mock_worktree_merge(0)
@@ -519,8 +612,8 @@ return {
     t.eq(first.exit_code, 0)
     mock_env("")
     mock_pr_list(false)
-    mock_pr_view("merge-ready")
-    mock_issue_view({})
+    mock_pr_view("reviewing", pr_comments_without_approval())
+    mock_issue_view({ "fkst-dev:blocked-by-skew" })
     mock_fetch_and_heads()
     t.mock_command("merge-base --is-ancestor", { stdout = "", stderr = "", exit_code = 1 })
     mock_worktree_merge(0)

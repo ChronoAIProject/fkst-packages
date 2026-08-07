@@ -206,18 +206,18 @@ end
 
 local function candidate_reason(pr, origin, issue, state)
   if state.state == "fixing" or state.state == "review-meta" or state.state == "merging" then
-    return nil, "arbitrating"
+    return nil, "skip-idempotent(arbitrating)"
   end
   if is_approved(pr, origin) then
-    return "approved"
+    return nil, "skip-live-approval"
   end
-  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
-    return "approved"
+  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number, pr.head_sha) ~= nil then
+    return nil, "skip-live-approval"
   end
   if is_blocked_by_skew(pr, issue) and is_imminently_mergeable(pr) then
     return "blocked-by-skew"
   end
-  return nil, "not-candidate"
+  return nil, "skip-idempotent(not-candidate)"
 end
 
 local function load_current_pr(repo, listed_pr)
@@ -322,7 +322,7 @@ local function process_pr(repo, branches, listed_pr, pr, origin, issue)
   local state = require("devloop.entity").current_entity_state(pr.comments, origin.proposal_id)
   local reason, skip_reason = candidate_reason(pr, origin, issue, state)
   if reason == nil then
-    devloop_logging.log_cas_decision("pr_freshness_scan", origin.proposal_id, state, "tick", "freshness", "skip-idempotent(" .. skip_reason .. ")", "PR is not a freshness candidate")
+    devloop_logging.log_cas_decision("pr_freshness_scan", origin.proposal_id, state, "tick", "freshness", skip_reason, "PR is not a freshness candidate")
     return
   end
 
