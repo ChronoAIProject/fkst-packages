@@ -78,7 +78,7 @@ function C.issue_claim_state(assignees, owner, labels)
     local managed = C.managed_bot_logins()
     for _, login in ipairs(C.assignee_logins(assignees)) do
       if C.is_managed_bot_login(login, managed)
-        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
+        and github_author_policy.canonical_login(login) ~= github_author_policy.canonical_login(owner) then
         return "other"
       end
     end
@@ -88,7 +88,7 @@ function C.issue_claim_state(assignees, owner, labels)
   if #logins == 0 then
     return "unassigned"
   end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
+  if #logins == 1 and github_author_policy.canonical_login(logins[1]) == github_author_policy.canonical_login(owner) then
     return "self"
   end
   return "other"
@@ -110,7 +110,7 @@ local function issue_ownership_decision(ownership, owner)
   if author == nil then
     return { owned = false, claim_state = claim_state }
   end
-  return { owned = devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state = claim_state }
+  return { owned = github_author_policy.canonical_login(author) == github_author_policy.canonical_login(owner), claim_state = claim_state }
 end
 
 function C.is_self_owned_issue(ownership, owner)
@@ -258,7 +258,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local claim_mode = config.claim_mode()
   local author = C.issue_author_login(current)
   if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
+    author = github_author_policy.canonical_login(author)
   end
   local managed = nil
   local trusted_author_policy = nil
@@ -364,7 +364,7 @@ end
 function C.claim_admission_precheck(current, inputs)
   local author = C.issue_author_login(current)
   if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
+    author = github_author_policy.canonical_login(author)
   end
   local detail = {
     owner = inputs.owner,

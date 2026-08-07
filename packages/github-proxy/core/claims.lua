@@ -1,10 +1,10 @@
-local content_filter = require("forge.github.content_filter")
+local forge_strings = require("forge.strings")
 
 local S = {}
 
 local function same_login(left, right)
-  local canonical_left = content_filter.canon_login(left)
-  local canonical_right = content_filter.canon_login(right)
+  local canonical_left = forge_strings.canonical_login(left)
+  local canonical_right = forge_strings.canonical_login(right)
   return canonical_left ~= nil and canonical_right ~= nil and canonical_left == canonical_right
 end
 

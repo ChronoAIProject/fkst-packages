@@ -174,6 +174,22 @@ return {
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
+  test_app_author_is_classified_as_the_configured_owner_during_admission = function()
+    mock_env("fkst-test-bot", "", "")
+    local current = {
+      assignees = {},
+      author_login = "app/fkst-test-bot",
+      comments = {},
+    }
+    local inputs = m_claims.claim_admission_inputs(current, "owner/repo")
+    local admission, detail = m_claims.claim_admission_precheck(current, inputs)
+
+    t.eq(inputs.owner, "fkst-test-bot")
+    t.eq(detail.author, "fkst-test-bot")
+    t.eq(admission, "needs-claim")
+    t.eq(m_claims.is_self_owned_issue(current, inputs.owner), true)
+  end,
+
   -- (b) label-mode claim state + ownership are isolated by active claim label.
   test_claimed_label_uses_derived_and_exclusive_postures = function()
     mock_env("fkst-test-bot", "label", "", 1)

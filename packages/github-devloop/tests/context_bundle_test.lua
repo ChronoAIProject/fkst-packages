@@ -244,7 +244,7 @@ return {
     t.is_nil(result.issue_content:find(core._untrusted_issue_data_begin, 1, true))
   end,
 
-  test_context_bundle_redacts_external_comment_and_preserves_bot_comment = function()
+  test_context_bundle_preserves_app_authored_issue_and_redacts_external_comment = function()
     local result = run_probe("content_redaction", runtime_root("content-redaction"))
 
     t.eq(result.ok, true)

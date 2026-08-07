@@ -6,6 +6,19 @@ local forge_strings = require("forge.strings")
 local t = fkst.test
 
 return {
+  test_canonical_login_normalizes_all_github_app_actor_forms = function()
+    t.eq(forge_strings.canonical_login("Fkst-Test-Bot"), "fkst-test-bot")
+    t.eq(forge_strings.canonical_login("Fkst-Test-Bot[BOT]"), "fkst-test-bot")
+    t.eq(forge_strings.canonical_login("App/Fkst-Test-Bot"), "fkst-test-bot")
+    t.is_nil(forge_strings.canonical_login(nil))
+    t.is_nil(forge_strings.canonical_login(""))
+  end,
+
+  test_canonical_login_only_strips_app_at_the_start = function()
+    t.eq(forge_strings.canonical_login("Octocat"), "octocat")
+    t.eq(forge_strings.canonical_login("team-app/member"), "team-app/member")
+  end,
+
   test_trim_strips_both_ends = function()
     t.eq(strings.trim("  hi  "), "hi")
     t.eq(strings.trim(nil), "")

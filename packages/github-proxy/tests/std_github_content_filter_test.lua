@@ -1,4 +1,5 @@
 local cf = require("forge.github.content_filter")
+local forge_strings = require("forge.strings")
 local t = fkst.test
 
 local MARKER = "[fkst:blocked-github-content:v1"
@@ -20,12 +21,23 @@ local function assert_marker(value, author)
 end
 
 return {
-  test_canon_login_strips_bot_suffix_trims_lowercases = function()
-    t.eq(cf.canon_login("Fkst-Bot[bot]"), "fkst-bot")
-    t.eq(cf.canon_login("Fkst-Bot[BOT]"), "fkst-bot")
-    t.eq(cf.canon_login("  Alice  "), "alice")
-    t.is_nil(cf.canon_login(nil))
-    t.is_nil(cf.canon_login(""))
+  test_canonical_login_strips_bot_suffix_trims_lowercases = function()
+    t.eq(forge_strings.canonical_login("Fkst-Bot[bot]"), "fkst-bot")
+    t.eq(forge_strings.canonical_login("Fkst-Bot[BOT]"), "fkst-bot")
+    t.eq(forge_strings.canonical_login("  Alice  "), "alice")
+    t.is_nil(forge_strings.canonical_login(nil))
+    t.is_nil(forge_strings.canonical_login(""))
+  end,
+
+  test_app_authored_issue_is_authorized_without_redaction = function()
+    local input = '{"title":"App task","body":"App-owned body","author":{"login":"app/fkst-test-bot"},"comments":[]}'
+    local records = {}
+    local out = cf.filter_gh_content_json(input, "issue", wl("fkst-test-bot"), records)
+    local decoded = decode(out)
+
+    t.eq(decoded.title, "App task")
+    t.eq(decoded.body, "App-owned body")
+    t.eq(#records, 0)
   end,
 
   test_filter_cell_idempotent_on_existing_marker = function()

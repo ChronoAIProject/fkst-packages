@@ -10,6 +10,20 @@ function S.strip_bot_login_suffix(login)
   return (tostring(login):gsub("%[bot%]$", ""))
 end
 
+-- GitHub App actors surface as "app/<slug>", "<slug>[bot]", or bare "<slug>".
+-- Only the anchored transport prefix is syntax; embedded "app/" remains identity data.
+function S.canonical_login(login)
+  if login == nil then
+    return nil
+  end
+  local value = contract_strings.trim(login):lower():gsub("^app/", "")
+  value = contract_strings.trim(S.strip_bot_login_suffix(value))
+  if value == "" then
+    return nil
+  end
+  return value
+end
+
 function S.split_repo(repo)
   local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
   if owner == nil or owner == "" or name == nil or name == "" then

@@ -520,7 +520,7 @@ function M.bridge_issue_body(repo, pr)
 end
 
 function M.bridge_issue_title(pr)
-  local author = content_filter.canon_login(type(pr) == "table" and pr.author_login or nil)
+  local author = forge_strings.canonical_login(type(pr) == "table" and pr.author_login or nil)
   if author == nil then
     error("github-external-pr-intake: bridge-title-author-required: bridge issue author is required")
   end
