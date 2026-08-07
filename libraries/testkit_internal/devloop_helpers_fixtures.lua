@@ -5,7 +5,6 @@ local context_bundle_identity = require("contract.context_bundle_identity")
 local bundle_json = '{"title":"Implement decision recorder","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
 local pr_context_json = '{"title":"PR title","body":"PR body","headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n'
 local mock_context_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
-local mock_context_tmp_dir = mock_context_runtime_root .. "/context/.bundle-tmp.mocked"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -172,11 +171,13 @@ function M.new(deps)
     local materialized_runtime_root = run_opts
       and run_opts.env
       and run_opts.env.FKST_RUNTIME_ROOT
+      or os.getenv("FKST_RUNTIME_ROOT")
       or mock_context_runtime_root
+    local materialized_tmp_dir = materialized_runtime_root .. "/context/.bundle-tmp.mocked"
     local materialized_context_dir = materialize_context_bundle(
       payload,
       materialized_runtime_root,
-      mock_context_tmp_dir
+      materialized_tmp_dir
     )
     local empty_diff_name_only = run_opts
       and run_opts.env
@@ -221,7 +222,7 @@ function M.new(deps)
     end
     helpers.t.mock_command("install -d -m 0755", ok)
     helpers.t.mock_command("mktemp -d", {
-      stdout = mock_context_tmp_dir .. "\n",
+      stdout = materialized_tmp_dir .. "\n",
       stderr = "",
       exit_code = 0,
     })
