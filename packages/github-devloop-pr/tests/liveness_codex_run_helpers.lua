@@ -194,14 +194,22 @@ local function timeout_attempt_v2_comment(row, state, comments, round)
 end
 
 local function timeout_facts(event, state, comments)
+  local current_head_sha = event.reviewed_head_sha
+  if current_head_sha == nil then
+    local _, _, _, review_head_sha = devloop_base.parse_pr_review_proposal_id(event.review_proposal_id)
+    current_head_sha = review_head_sha
+  end
+  if current_head_sha == nil then
+    error("github-devloop-pr test: current PR head is required for timeout facts")
+  end
   return {
     proposal_id = event.proposal_id,
     source_ref = entity_lib.pr_source_ref(repo, event.pr_number),
-    current = { comments = {} },
+    current = { comments = comments },
     current_pr = {
       comments = comments,
       head_ref_name = "devloop-owner-repo-42-01HY",
-      head_sha = event.reviewed_head_sha,
+      head_sha = current_head_sha,
       base_ref_name = "dev",
       state = "OPEN",
     },
@@ -217,13 +225,13 @@ local function timeout_facts(event, state, comments)
       prs = { { number = event.pr_number, current = {
         comments = comments,
         head_ref_name = "devloop-owner-repo-42-01HY",
-        head_sha = event.reviewed_head_sha,
+        head_sha = current_head_sha,
         base_ref_name = "dev",
         state = "OPEN",
       } } },
       state = state,
     },
-    head_sha = event.reviewed_head_sha,
+    head_sha = current_head_sha,
     fresh_current_state = state,
     now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
   }
@@ -270,6 +278,15 @@ local function captured_raise(raised, queue, predicate)
   for _, item in ipairs(raised or {}) do
     if item.queue == queue and (predicate == nil or predicate(item.payload, item)) then
       return item
+    end
+  end
+  return nil
+end
+
+local function captured_raise_index(raised, queue, predicate)
+  for index, item in ipairs(raised or {}) do
+    if item.queue == queue and (predicate == nil or predicate(item.payload, item)) then
+      return index
     end
   end
   return nil
@@ -499,6 +516,7 @@ return {
   ci_repair_hold_fixture = ci_repair_hold_fixture,
   capture_raises = capture_raises,
   captured_raise = captured_raise,
+  captured_raise_index = captured_raise_index,
   with_codex_runs = with_codex_runs,
   with_codex_runs_unavailable = with_codex_runs_unavailable,
   dispatch_liveness = dispatch_liveness,

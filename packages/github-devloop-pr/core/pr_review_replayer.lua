@@ -373,6 +373,9 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
   if done ~= nil then return done end
   local fact = review_meta_decision_fact(facts, current_pr)
   if fact == nil then
+    if facts.redrive_delivery ~= nil then
+      return tools.replay_review_meta_receiver(dept, issue, state, row, facts)
+    end
     return tools.log_skip(dept, proposal_id, state, "review-meta", "fixing|blocked", "skip-foreign(review-meta)", "trusted review-meta decision marker is not visible")
   end
   if fact.action == "fix" then

@@ -7,6 +7,8 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_attempts = require("devloop.convergence.attempts")
 local m_mgw = require("devloop.merge_gate_wait")
+local m_builders = require("devloop.markers.builders")
+local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -18,6 +20,7 @@ local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local head_sha = "def456"
+local branch = "devloop-owner-repo-42-01HY"
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -85,30 +88,106 @@ local function recent_merge_state(state_name, state_version)
   }
 end
 
-local function merge_timeout_facts(pr_comments, now_seconds)
+local function merge_timeout_facts(state, extra_comments, now_seconds)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, state.version, head_sha)
+  local review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
+  local comments = {
+    trusted_comment(m_builders.pr_origin_marker(proposal_id, "42", branch, state.version, "dev"), "2026-06-03T00:00:00Z"),
+    state_comment(state.state, state.version, state.marker_created_at),
+    trusted_comment(m_builders.review_result_marker(review_proposal_id, proposal_id, "approve", review_dedup_key), "2026-06-03T00:00:00Z"),
+    trusted_comment(m_builders.merge_ready_marker(proposal_id, 7, state.version, review_proposal_id, review_dedup_key, head_sha), "2026-06-03T00:00:00Z"),
+  }
+  if state.state == "merging" then
+    table.insert(comments, trusted_comment(m_builders.merging_marker(proposal_id, 7, state.version, head_sha), "2026-06-03T00:00:00Z"))
+  end
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  local current_pr = {
+    comments = comments,
+    head_ref_name = branch,
+    head_sha = head_sha,
+    base_ref_name = "dev",
+    state = "OPEN",
+    mergeable = "MERGEABLE",
+    merge_state_status = "CLEAN",
+    status_check_rollup_present = true,
+    status_check_rollup = {
+      { name = "test", status = "COMPLETED", conclusion = "SUCCESS", headSha = head_sha },
+    },
+  }
   return {
     proposal_id = proposal_id,
     source_ref = entity_lib.pr_source_ref(repo, 7),
-    current = { comments = {} },
-    current_pr = {
-      head_sha = head_sha,
-      comments = pr_comments or {},
+    current = { comments = comments },
+    current_pr = current_pr,
+    link = {
+      proposal_id = proposal_id,
+      pr_number = 7,
+      branch = branch,
+      impl_version = state.version,
+      base_branch = "dev",
+    },
+    snapshot = {
+      comments = comments,
+      prs = { { number = 7, current = current_pr } },
+      state = state,
     },
     head_sha = head_sha,
+    fresh_current_state = state,
     now_seconds = now_seconds,
   }
+end
+
+local function add_timeout_attempt_comments(row, state, facts, count)
+  local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, facts.now_seconds)
+  t.eq(eval.status, "actionable")
+  for round = 1, count do
+    table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(
+      proposal_id,
+      row.from_state,
+      row.liveness_class_id,
+      eval.generation_key,
+      round,
+      facts.source_ref
+    ), "2026-06-03T00:00:00Z"))
+  end
+end
+
+local function raised_index(raised, queue, predicate)
+  for index, item in ipairs(raised or {}) do
+    if item.queue == queue and (predicate == nil or predicate(item.payload)) then
+      return index
+    end
+  end
+  return nil
+end
+
+local function assert_redrive_request_before_receipt(raised, state_name)
+  local request_index = raised_index(raised, "devloop_merge_ready")
+  local reconcile_index = raised_index(raised, "devloop_timeout_reconcile")
+  local receipt_index = raised_index(raised, "github-proxy.github_pr_comment_request", function(payload)
+    return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+  end)
+  t.eq(reconcile_index, nil)
+  t.is_true(request_index ~= nil)
+  t.is_true(receipt_index ~= nil)
+  t.is_true(request_index < receipt_index)
+  t.is_true(tostring(raised[receipt_index].payload.body):find('state="' .. state_name .. '"', 1, true) ~= nil)
 end
 
 local function assert_fresh_merge_wait_does_not_extend_absolute_cap(state_name, lineage_version)
   local row = restart_transition_row(state_name)
   local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z")
   local wait_lineage = lineage_version or version
-  local timeout_version = wait_lineage .. "/timeout/" .. state_name .. "/3"
   local wait = merge_gate_wait_comment(wait_lineage, "2026-06-04T00:30:00Z")
+  local state = old_merge_state(state_name, wait_lineage)
+  local facts = merge_timeout_facts(state, { wait }, now_seconds)
+  add_timeout_attempt_comments(row, state, facts, 3)
   local due, age = core.liveness_timeout_due_with_facts(
     row,
-    old_merge_state(state_name, timeout_version),
-    merge_timeout_facts({ wait }, now_seconds),
+    state,
+    facts,
     now_seconds
   )
   t.eq(due, true)
@@ -119,27 +198,26 @@ local function assert_fresh_merge_wait_does_not_extend_absolute_cap(state_name, 
       repo = repo,
       number = 42,
       source_ref = entity_lib.issue_source_ref(repo, 42),
-    }, old_merge_state(state_name, timeout_version), row, merge_timeout_facts({ wait }, now_seconds))
+    }, state, row, facts)
     t.eq(applied, true)
   end)
   -- Owner directive (#2725): a merge-gate wait timeout / row-budget cap is a
   -- liveness/resource condition that must NEVER escalate to a terminal reconcile; it
   -- REDRIVES, emitting the next timeout-attempt PR comment instead of the terminal
   -- devloop_timeout_reconcile event. merge-ready/merging are never dropped to blocked.
-  t.eq(#raised, 1)
-  t.eq(raised[1].queue, "github-proxy.github_pr_comment_request")
-  t.is_true(tostring(raised[1].payload.body):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-  t.is_true(tostring(raised[1].payload.body):find('state="' .. state_name .. '"', 1, true) ~= nil)
+  assert_redrive_request_before_receipt(raised, state_name)
 end
 
 local function assert_fresh_merge_wait_defers_within_absolute_cap(state_name)
   local row = restart_transition_row(state_name)
   local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z")
   local wait = merge_gate_wait_comment(version, "2026-06-04T00:30:00Z")
+  local state = recent_merge_state(state_name, version)
+  local facts = merge_timeout_facts(state, { wait }, now_seconds)
   local due, age = core.liveness_timeout_due_with_facts(
     row,
-    recent_merge_state(state_name, version),
-    merge_timeout_facts({ wait }, now_seconds),
+    state,
+    facts,
     now_seconds
   )
   t.eq(due, false)
@@ -150,7 +228,7 @@ local function assert_fresh_merge_wait_defers_within_absolute_cap(state_name)
       repo = repo,
       number = 42,
       source_ref = entity_lib.issue_source_ref(repo, 42),
-    }, recent_merge_state(state_name, version), row, merge_timeout_facts({ wait }, now_seconds))
+    }, state, row, facts)
     t.eq(applied, true)
   end)
   t.eq(#raised, 0)
@@ -160,33 +238,34 @@ local function assert_stale_or_missing_merge_wait_escalates(state_name, wait_com
   local row = restart_transition_row(state_name)
   local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z")
   local wait_lineage = lineage_version or version
-  local timeout_version = wait_lineage .. "/timeout/" .. state_name .. "/3"
+  local state = old_merge_state(state_name, wait_lineage)
+  local facts = merge_timeout_facts(state, wait_comment and { wait_comment } or {}, now_seconds)
+  add_timeout_attempt_comments(row, state, facts, 3)
   local raised = capture_raises(function()
     local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
       repo = repo,
       number = 42,
       source_ref = entity_lib.issue_source_ref(repo, 42),
-    }, old_merge_state(state_name, timeout_version), row, merge_timeout_facts(wait_comment and { wait_comment } or {}, now_seconds))
+    }, state, row, facts)
     t.eq(applied, true)
   end)
   -- Owner directive (#2725): a merge-gate wait timeout / row-budget cap is a
   -- liveness/resource condition that must NEVER escalate to a terminal reconcile; it
   -- REDRIVES, emitting the next timeout-attempt PR comment instead of the terminal
   -- devloop_timeout_reconcile event. merge-ready/merging are never dropped to blocked.
-  t.eq(#raised, 1)
-  t.eq(raised[1].queue, "github-proxy.github_pr_comment_request")
-  t.is_true(tostring(raised[1].payload.body):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-  t.is_true(tostring(raised[1].payload.body):find('state="' .. state_name .. '"', 1, true) ~= nil)
+  assert_redrive_request_before_receipt(raised, state_name)
 end
 
 local function assert_stale_merge_wait_falls_back_to_under_budget_state_age(state_name)
   local row = restart_transition_row(state_name)
   local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z")
   local stale_wait = merge_gate_wait_comment(version, "2026-06-03T00:00:00Z")
+  local state = recent_merge_state(state_name, version)
+  local facts = merge_timeout_facts(state, { stale_wait }, now_seconds)
   local due, age = core.liveness_timeout_due_with_facts(
     row,
-    recent_merge_state(state_name, version),
-    merge_timeout_facts({ stale_wait }, now_seconds),
+    state,
+    facts,
     now_seconds
   )
   t.eq(due, false)
@@ -197,7 +276,7 @@ local function assert_stale_merge_wait_falls_back_to_under_budget_state_age(stat
       repo = repo,
       number = 42,
       source_ref = entity_lib.issue_source_ref(repo, 42),
-    }, recent_merge_state(state_name, version), row, merge_timeout_facts({ stale_wait }, now_seconds))
+    }, state, row, facts)
     t.eq(applied, false)
   end)
   t.eq(#raised, 0)

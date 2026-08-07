@@ -164,7 +164,7 @@ function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, rai
   devloop_logging.log_cas_decision(dept, proposal_id, state, "unmanaged", "thinking", "skip-idempotent(already at to_state)", "trusted thinking state marker is already visible")
   local proposal = C.build_replay_proposal(caps, issue, proposal_id, state, facts.current, facts.event_ts)
   if proposal == nil then
-    return log_skip(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-foreign(payload)", "cannot rebuild thinking replay proposal")
+    error("github-devloop: thinking-replay-proposal-invalid: cannot rebuild thinking replay proposal")
   end
   local effect_version = proposal.dedup_key
   if caps.dispatch_live_run("consensus", proposal_id, effect_version, {
