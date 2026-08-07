@@ -47,6 +47,38 @@ local function issue_items(numbers)
 end
 
 return {
+  test_entity_failure_observe_identity_is_stable_per_source_lineage = function()
+    local entity = {
+      number = 7,
+      state = "open",
+      updated_at = "2026-07-30T01:00:00Z",
+    }
+    local failure = "github-devloop: timeout-redrive-stuck: replay did not emit a consumable redrive"
+    local first = liveness_scan.liveness_scan_build_failure_observe_payload(repo, entity, "issue", failure)
+    local second = liveness_scan.liveness_scan_build_failure_observe_payload(repo, entity, "issue", failure)
+
+    t.eq(first.dedup_key, second.dedup_key)
+    t.is_true(first.dedup_key:find("github-devloop/issue/owner/liveness-scan-fairness/7", 1, true) ~= nil)
+    t.eq(first.proposal_id, "github-devloop/issue/owner/liveness-scan-fairness/7")
+    t.eq(first.source_ref.ref, "owner/liveness-scan-fairness#issue/7")
+    t.eq(first.failure.error_class, "timeout-redrive-stuck")
+    t.is_true(type(first.failure.fingerprint) == "string" and first.failure.fingerprint ~= "")
+
+    local changed_lineage = liveness_scan.liveness_scan_build_failure_observe_payload(repo, {
+      number = entity.number,
+      state = entity.state,
+      updated_at = "2026-07-30T01:00:01Z",
+    }, "issue", failure)
+    local changed_failure = liveness_scan.liveness_scan_build_failure_observe_payload(
+      repo,
+      entity,
+      "issue",
+      "github-devloop: thinking-replay-proposal-invalid: cannot rebuild thinking replay proposal"
+    )
+    t.is_true(changed_lineage.dedup_key ~= first.dedup_key)
+    t.is_true(changed_failure.dedup_key ~= first.dedup_key)
+  end,
+
   test_under_cap_partial_ticks_resist_append_churn = function()
     local viewed = {}
     local reinjected = {}
