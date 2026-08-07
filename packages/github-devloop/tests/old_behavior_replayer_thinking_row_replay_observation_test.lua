@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local config = require("devloop.config")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
+local context_bundle = require("devloop.context_bundle")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local entity_highwater = require("devloop.entity_highwater")
@@ -190,6 +191,19 @@ local function controlled_codex_runs(fixture)
   })
 end
 
+local function replay_context_version(fixture)
+  if fixture.converge_round ~= nil then
+    return transition_version.loop_at(BASE_VERSION, fixture.converge_round + 1)
+  end
+  return BASE_VERSION
+end
+
+local function context_fetch_identity(version)
+  return context_bundle.context_bundle_manifest_ref(
+    context_bundle.context_bundle_manifest_key(PROPOSAL_ID, version)
+  )
+end
+
 local function prepare_fixture(fixture)
   h.mock_bot_env()
   entity_read_mocks.mock_issue_read_forms(t, {
@@ -206,7 +220,15 @@ local function prepare_fixture(fixture)
     created_at = "2026-06-01T00:00:00Z",
     times = 1,
   })
-  h.mock_context_bundle(event_payload())
+  local context_payload = event_payload()
+  context_payload.proposal_id = PROPOSAL_ID
+  context_payload.dedup_key = replay_context_version(fixture)
+  h.mock_context_bundle(context_payload, { strict_context_path_probe_mocks = true })
+  if fixture.live_run == true then
+    local entry_context_payload = event_payload()
+    entry_context_payload.proposal_id = PROPOSAL_ID
+    h.mock_context_bundle(entry_context_payload, { strict_context_path_probe_mocks = true })
+  end
 end
 
 local function effect_observations(raises)
@@ -244,7 +266,18 @@ local function capture_runtime(fixture)
   local event = issue_event()
   prepare_fixture(fixture)
   local original_replay_from_table = replayer.replay_from_table
+  local original_context_fetch_ref_from_bundle = context_bundle.context_fetch_ref_from_bundle
   local dispatch_calls = json_array()
+  local context_fetch_calls = json_array()
+  context_bundle.context_fetch_ref_from_bundle = function(M, args)
+    local content_fetch, high_risk, risk = original_context_fetch_ref_from_bundle(M, args)
+    table.insert(context_fetch_calls, {
+      proposal_id = args and args.proposal_id,
+      version = args and args.version,
+      content_fetch = content_fetch,
+    })
+    return content_fetch, high_risk, risk
+  end
   replayer.replay_from_table = function(M, dept, issue, state, row, facts)
     local dispatch = {
       dept = dept,
@@ -303,8 +336,53 @@ local function capture_runtime(fixture)
     })
   end)
   replayer.replay_from_table = original_replay_from_table
+  context_bundle.context_fetch_ref_from_bundle = original_context_fetch_ref_from_bundle
   if not ok then
     error(result, 0)
+  end
+
+  local expected_context_fetch_calls = fixture.live_run == true and 2 or 1
+  t.eq(
+    #context_fetch_calls,
+    expected_context_fetch_calls,
+    fixture.name .. ": exact production context-fetch call count"
+  )
+  local replay_context = context_fetch_calls[1]
+  local expected_replay_version = replay_context_version(fixture)
+  t.eq(replay_context.proposal_id, PROPOSAL_ID, fixture.name .. ": replay context proposal identity")
+  t.eq(replay_context.version, expected_replay_version, fixture.name .. ": replay context version identity")
+  t.eq(
+    replay_context.content_fetch,
+    context_fetch_identity(expected_replay_version),
+    fixture.name .. ": exact replay content-fetch manifest identity"
+  )
+  if fixture.live_run == true then
+    local raw_entry_version = event.payload.dedup_key
+    local raw_entry_context = context_fetch_calls[2]
+    t.is_true(
+      raw_entry_version ~= expected_replay_version,
+      fixture.name .. ": raw entry and replay versions are independently distinct"
+    )
+    t.eq(raw_entry_context.proposal_id, PROPOSAL_ID, fixture.name .. ": raw entry context proposal identity")
+    t.eq(raw_entry_context.version, raw_entry_version, fixture.name .. ": raw entry context version identity")
+    t.eq(
+      raw_entry_context.content_fetch,
+      context_fetch_identity(raw_entry_version),
+      fixture.name .. ": exact raw entry content-fetch manifest identity"
+    )
+
+    local raw_entry_requests = json_array()
+    for _, raised in ipairs(result.raises) do
+      if raised.queue == "devloop_consensus_request" then
+        table.insert(raw_entry_requests, raised)
+      end
+    end
+    t.eq(#raw_entry_requests, 1, fixture.name .. ": one raw entry consensus request")
+    t.eq(
+      raw_entry_requests[1].payload.content_fetch,
+      raw_entry_context.content_fetch,
+      fixture.name .. ": emitted raw entry request keeps its exact context identity"
+    )
   end
 
   t.eq(#dispatch_calls, 1, fixture.name .. ": real observe_issue dispatch reaches replay_from_table once")

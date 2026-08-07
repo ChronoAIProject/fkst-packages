@@ -11,7 +11,7 @@ local github_commands = require("forge.github").new(function() end)
 local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state"))
 local state_comment = require("testkit_internal.projected_state_fixture").bind_state_comment(require("devloop.state"))
 gh_argv.install(t, core)
-
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
   devloop_base = devloop_base,
   base_ids = base_ids,
@@ -37,7 +37,6 @@ local integration_branch = "integration-elonsg"
 local upstream_branch = "dev"
 local revived_branch = "devloop-owner-repo-2137-01HY"
 local blocked_child_version = transition_version.next_blocked(child_version, "child-pr-blocked")
-
 local function json_escape(value)
   return tostring(value or "")
     :gsub("\\", "\\\\")
@@ -114,8 +113,10 @@ local function mock_child_issue_reads(issue_number, title, body, labels, comment
   end
 end
 
-local function mock_child_implementation_context()
+local function mock_child_implementation_context(proposal_id, version)
   local runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child"
+  context_fixtures.materialize_context_bundle({ proposal_id = proposal_id, dedup_key = version }, runtime,
+    runtime .. "/context/.bundle-tmp.mocked")
   for _ = 1, 24 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = runtime, stderr = "", exit_code = 0,
@@ -833,16 +834,16 @@ return {
       child_labels,
       { ready_comment }
     )
-    mock_child_implementation_context()
+    local implementation_version = base_ids.dedup_key({
+      "ready",
+      ready_version .. "/redrive/ready/1",
+    })
+    mock_child_implementation_context(created_child, implementation_version)
     for _ = 1, 3 do
       t.mock_command(core.gh_blocked_by_cmd(repo, created_child_issue), {
         stdout = blocked_by_json({}), stderr = "", exit_code = 0,
       })
     end
-    local implementation_version = base_ids.dedup_key({
-      "ready",
-      ready_version .. "/redrive/ready/1",
-    })
     implement_fixtures.mock_fresh_implement_worktree({
       durable_root = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child-durable",
       repo = repo,

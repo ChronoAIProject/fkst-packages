@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local context_bundle_identity = require("contract.context_bundle_identity")
 local strings = require("contract.strings")
 local h = require("tests.devloop_core_helpers")
 local fixtures = require("tests.production_fixture_helpers")
@@ -16,7 +17,7 @@ local function runtime_root(name)
   return "/tmp/fkst-packages-test/github-devloop-context-bundle/" .. tostring(now()) .. "/" .. nonce() .. "/" .. name
 end
 
-local function run_probe(mode, root)
+local function run_probe(mode, root, extra_payload)
   local env = {
     FKST_RUNTIME_ROOT = root,
     FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
@@ -25,13 +26,17 @@ local function run_probe(mode, root)
     env.FKST_DEVLOOP_MANAGED_BOT_LOGINS = "Managed-Bot[bot],space-bot"
     env.FKST_GITHUB_AUTHORIZED_LOGINS = "Trusted-User"
   end
+  local payload = {
+    env = env,
+    mode = mode,
+    root = root,
+  }
+  for key, value in pairs(extra_payload or {}) do
+    payload[key] = value
+  end
   local result = t.run_department("departments/test_context_bundle_probe/main.lua", {
     queue = "context_bundle_probe",
-    payload = {
-      env = env,
-      mode = mode,
-      root = root,
-    },
+    payload = payload,
   }, {
     env = env,
   })
@@ -84,6 +89,147 @@ return {
 
     t.eq(context_bundle.context_bundle_key(proposal_id, version), "github-devloop/context-bundle-v2/github-devloop/issue/owner/repo/42/v1")
     t.eq(context_bundle.context_bundle_manifest_key(proposal_id, version), "github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/v1")
+  end,
+
+  test_context_bundle_identity_directory_segment_boundaries_are_canonical = function()
+    local prefix = context_bundle_identity.manifest_cache_prefix
+    for _, length in ipairs({ 119, 120, 121 }) do
+      local proposal_id = string.rep("p", length)
+      local identity = context_bundle_identity.from_values(proposal_id, "v1", prefix)
+      local parsed = context_bundle_identity.from_key(identity.key, prefix)
+
+      t.eq(parsed.proposal_directory_segment, identity.proposal_directory_segment)
+      t.is_true(#identity.proposal_directory_segment <= 120)
+      if length <= 120 then
+        t.eq(identity.proposal_directory_segment, proposal_id)
+      else
+        t.eq(#identity.proposal_directory_segment, 120)
+        t.is_true(identity.proposal_directory_segment:find("-" .. strings.decimal_checksum(proposal_id), 1, true) ~= nil)
+      end
+    end
+  end,
+
+  test_context_bundle_identity_whole_key_budget_boundaries_are_canonical = function()
+    local prefix = context_bundle_identity.manifest_cache_prefix
+    local version = "2026-08-07T12-34-56Z-loop-17"
+    local proposal_limit = context_bundle_identity.max_cache_key_len - #prefix - 1 - #version
+    for _, length in ipairs({ proposal_limit - 1, proposal_limit, proposal_limit + 1 }) do
+      local proposal_id = string.rep("q", length)
+      local identity = context_bundle_identity.from_values(proposal_id, version, prefix)
+      local parsed = context_bundle_identity.from_key(identity.key, prefix)
+
+      t.eq(#identity.key <= context_bundle_identity.max_cache_key_len, true)
+      t.eq(parsed.proposal_directory_segment, identity.proposal_directory_segment)
+      if length <= proposal_limit then
+        t.eq(identity.proposal_key_segment, proposal_id)
+      else
+        t.eq(#identity.proposal_key_segment, proposal_limit)
+        t.is_true(identity.proposal_key_segment:find("-" .. strings.decimal_checksum(proposal_id), 1, true) ~= nil)
+      end
+    end
+  end,
+
+  test_context_bundle_identity_version_segment_boundaries_are_canonical = function()
+    local prefix = context_bundle_identity.manifest_cache_prefix
+    for _, length in ipairs({ 59, 60, 61 }) do
+      local version = string.rep("v", length)
+      local identity = context_bundle_identity.from_values("github-devloop/issue/owner/repo/42", version, prefix)
+      local parsed = context_bundle_identity.from_key(identity.key, prefix)
+
+      t.eq(parsed.version_directory_segment, identity.version_directory_segment)
+      if length <= context_bundle_identity.max_version_segment_len then
+        t.eq(identity.version_key_segment, version)
+      else
+        t.eq(#identity.version_key_segment, context_bundle_identity.max_version_segment_len)
+        t.is_true(identity.version_key_segment:find("-" .. strings.decimal_checksum(version), 1, true) ~= nil)
+      end
+    end
+  end,
+
+  test_production_length_bundle_ref_rebuilds_from_current_root_with_empty_cache = function()
+    local proposal_prefix = "github-devloop/issue/owner/repo/2026-08-07T12-34-56Z/loop/17/"
+    local proposal_id = proposal_prefix .. string.rep("x", 118 - #proposal_prefix)
+    local version = "2026-08-07T12-34-56Z-loop-17"
+    local root = runtime_root("production-length-rebuild")
+    local manifest_key = context_bundle.context_bundle_manifest_key(proposal_id, version)
+    local relative_key = manifest_key:match("^github%-devloop/context%-bundle%-manifest%-v2/(.+)$")
+    local key_proposal_segment = relative_key and relative_key:match("^(.*)/[^/]+$")
+
+    t.eq(#proposal_id, 118)
+    t.is_true(type(key_proposal_segment) == "string")
+    t.is_true(#key_proposal_segment < #strings.sanitize_key(proposal_id, false))
+
+    local materialized = run_probe("production_length_materialize", root, {
+      proposal_id = proposal_id,
+      version = version,
+    })
+    t.eq(materialized.ref, context_bundle.context_bundle_manifest_ref(manifest_key))
+    t.eq(materialized.notice_exists, true)
+    t.eq(materialized.issue_exists, true)
+    t.eq(materialized.board_exists, true)
+
+    local resolved = run_probe("production_length_resolve", root, {
+      ref = materialized.ref,
+    })
+    if not resolved.ok then
+      t.is_true(resolved.error:find("error_class=stale_generation_context", 1, true) ~= nil)
+    end
+    t.eq(resolved.ok, true)
+    t.is_true(resolved.manifest:find(materialized.dir, 1, true) ~= nil)
+    t.eq(resolved.cache_writes, 1)
+  end,
+
+  test_production_length_version_bundle_ref_rebuilds_with_empty_cache = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version_prefix = "2026-08-07T12-34-56Z/loop/19/"
+    local version = version_prefix .. string.rep("s", 61 - #version_prefix)
+    local root = runtime_root("production-length-version-rebuild")
+    local manifest_key = context_bundle.context_bundle_manifest_key(proposal_id, version)
+    local key_version_segment = manifest_key:match("([^/]+)$")
+
+    t.eq(#version, 61)
+    t.is_true(type(key_version_segment) == "string")
+    t.is_true(#key_version_segment < #strings.sanitize_key(version, false))
+
+    local materialized = run_probe("production_length_materialize", root, {
+      proposal_id = proposal_id,
+      version = version,
+    })
+    local resolved = run_probe("production_length_resolve", root, {
+      ref = materialized.ref,
+    })
+
+    t.eq(resolved.ok, true)
+    t.is_true(resolved.manifest:find(materialized.dir, 1, true) ~= nil)
+  end,
+
+  test_production_length_redrive_rebuilds_only_from_rotated_current_root = function()
+    local proposal_prefix = "github-devloop/issue/owner/repo/2026-08-07T12-34-56Z/loop/18/"
+    local proposal_id = proposal_prefix .. string.rep("r", 118 - #proposal_prefix)
+    local version = "2026-08-07T12-34-56Z-loop-18"
+    local rotation_root = runtime_root("production-length-root-rotation")
+    local old_root = rotation_root .. "/root-a"
+    local fresh_root = rotation_root .. "/root-b"
+    local identity = {
+      proposal_id = proposal_id,
+      version = version,
+    }
+
+    local old = run_probe("production_length_materialize", old_root, identity)
+    local fresh = run_probe("production_length_materialize", fresh_root, identity)
+    t.eq(old.ref, fresh.ref)
+    t.is_true(old.dir:find(old_root, 1, true) == 1)
+    t.is_true(fresh.dir:find(fresh_root, 1, true) == 1)
+
+    local resolved = run_probe("production_length_resolve", fresh_root, {
+      ref = fresh.ref,
+      forbidden_root = old_root,
+    })
+    t.eq(resolved.ok, true)
+    t.eq(resolved.forbidden_reads, 0)
+    t.eq(resolved.listed_root, fresh_root .. "/context")
+    t.is_true(resolved.manifest:find(fresh.dir, 1, true) ~= nil)
+    t.is_nil(resolved.manifest:find(old.dir, 1, true))
   end,
 
   test_context_bundle_files_round_trip_from_different_cwd = function()
