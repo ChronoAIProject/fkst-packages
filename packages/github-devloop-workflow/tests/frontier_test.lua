@@ -387,7 +387,13 @@ local tests = {
     local first_version = "ready/consensus-github-devloop/issue/owner/repo/201/2026-07-04T00-00-00Z"
     local second_version = "ready/consensus-github-devloop/issue/owner/repo/202/2026-07-04T00-00-00Z"
     local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, {
+      receipt_store = {
+        read = function()
+          return nil
+        end,
+      },
+    }, repo)
     local second_fact = {
       state = "created",
       origin = "github-devloop/issue/owner/repo/90",
@@ -539,7 +545,13 @@ local tests = {
     local stale_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-00-00Z"
     local current_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-01-00Z"
     local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
-    local reader = child_status.reader(core, {}, repo)
+    local reader = child_status.reader(core, {
+      receipt_store = {
+        read = function()
+          return nil
+        end,
+      },
+    }, repo)
     local second_fact = {
       state = "created",
       origin = "github-devloop/issue/owner/repo/90",
