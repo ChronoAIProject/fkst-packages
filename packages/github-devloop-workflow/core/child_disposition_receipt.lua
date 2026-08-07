@@ -158,7 +158,7 @@ local receipt_fields = {
   successor_source_ref = true,
 }
 
-local function normalize_successor_source_ref(value)
+local function normalize_successor_source_ref(value, identity)
   if type(value) ~= "table" then
     fail("receipt-outcome-invalid", "successor_source_ref must be an external issue source ref")
   end
@@ -174,6 +174,9 @@ local function normalize_successor_source_ref(value)
   local canonical_ref = repo and (repo .. "#issue/" .. issue_number) or nil
   if value.kind ~= "external" or canonical_ref == nil or value.ref ~= canonical_ref then
     fail("receipt-outcome-invalid", "successor_source_ref must be a canonical external issue source ref")
+  end
+  if repo == identity.repo and tostring(issue_number) == identity.child_issue then
+    fail("receipt-outcome-invalid", "transferred successor must differ from child_issue")
   end
   return {
     kind = "external",
@@ -220,7 +223,7 @@ local function normalize_receipt(value)
     if value.reason_code ~= nil then
       fail("receipt-outcome-invalid", "transferred forbids reason_code")
     end
-    normalized.successor_source_ref = normalize_successor_source_ref(value.successor_source_ref)
+    normalized.successor_source_ref = normalize_successor_source_ref(value.successor_source_ref, identity)
   else
     fail("receipt-disposition-invalid", "disposition must be satisfied, undeliverable, or transferred")
   end
@@ -283,6 +286,18 @@ end
 function M.new(deps)
   local selected = deps or {}
   local adapter = selected.commands or commands
+  if selected.git ~= nil then
+    local git = selected.git
+    adapter = {
+      git_ls_remote_ref = function(...) return git.ls_remote_ref(...) end,
+      git_fetch_ref = function(...) return git.fetch_ref(...) end,
+      git_cat_file_pretty = function(...) return git.cat_file_pretty(...) end,
+      git_rev_parse_ref_commit = function(...) return git.rev_parse_ref_commit(...) end,
+      git_rev_parse_ref_tree = function(...) return git.rev_parse_ref_tree(...) end,
+      git_commit_tree = function(...) return git.commit_tree(...) end,
+      git_push_ref_update = function(...) return git.push_ref_update(...) end,
+    }
+  end
   local file_port = selected.file or file
   local decoder = selected.json or json
 

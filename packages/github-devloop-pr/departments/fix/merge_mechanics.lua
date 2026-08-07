@@ -52,6 +52,29 @@ function M.make(core)
     return worktree
   end
 
+  local function branch_head_if_ahead(base_head_sha, branch)
+    local ahead_result = devloop_commands.git_branch_ahead_count(base_head_sha, branch, 30)
+    if ahead_result.exit_code ~= 0 then
+      error("github-devloop: git-branch-ahead-check-failed: git branch ahead check failed: " .. tostring(ahead_result.stderr))
+    end
+    local ahead_count = tonumber(tostring(ahead_result.stdout or ""):match("%d+"))
+    if ahead_count == nil or ahead_count <= 0 then
+      return nil
+    end
+    local head_result = devloop_commands.git_branch_head(branch, 30)
+    if head_result.exit_code ~= 0 then
+      error("github-devloop: git-branch-head-check-failed: git branch head check failed: " .. tostring(head_result.stderr))
+    end
+    local branch_head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
+    if not require("devloop.pr_safety").is_safe_head_sha(branch_head_sha) then
+      error("github-devloop: deterministic-branch-head-unsafe: unsafe deterministic branch head sha")
+    end
+    if branch_head_sha == base_head_sha then
+      return nil
+    end
+    return branch_head_sha
+  end
+
   local function fetch_expected_pr_merge_product(pr_number, expected_baseline_sha)
     if expected_baseline_sha == nil then
       return nil
@@ -261,6 +284,7 @@ function M.make(core)
 
   return {
     branch_worktree = branch_worktree,
+    branch_head_if_ahead = branch_head_if_ahead,
     merge_integration_for_fix = merge_integration_for_fix,
     current_predecessors_for_fix = current_predecessors_for_fix,
     merge_predecessor_entries_for_fix = merge_predecessor_entries_for_fix,

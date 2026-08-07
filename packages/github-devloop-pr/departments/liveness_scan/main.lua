@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
 local m_facts = require("devloop.markers.facts")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local requests_review = require("devloop.requests.review")
 local core, sweep_bounds = require("core"), require("devloop.sweep_bounds")
 local liveness_scan = require("devloop.liveness_scan")
@@ -21,6 +22,7 @@ local spec = {
   produces = {
     "devloop_observe_pr",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "devloop_review_request",
     "devloop_reviewing",
@@ -86,6 +88,10 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
     return false
   end
   if should_reinject_pr_base_unmanaged_heal(origin, current, state) then
+    return true
+  end
+  if m_fix_feedback_observation.legacy_review_meta_unbound(
+      current.comments, origin.proposal_id, state.version) ~= nil then
     return true
   end
   local source_ref = entity_lib.pr_source_ref(repo, pr.number)
@@ -177,8 +183,12 @@ local function act_liveness_scan(event)
         current_now_seconds
       )
       if not call_ok then
-        -- Isolate the failed PR in the existing reliable per-PR consumer so the sweep can continue.
-        liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
+        liveness_scan.liveness_scan_reinject_failure(
+          repo,
+          activation.entity,
+          "pr",
+          should_reinject
+        )
         should_reinject = false
       end
       liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
