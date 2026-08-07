@@ -68,6 +68,19 @@ function M.new(deps)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = root, stderr = "", exit_code = 0 })
   end
 
+  local function mock_dev_base_head()
+    t.mock_command("git fetch 'origin' 'dev'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+      stdout = "abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
   local function worktree_registration(path, branch)
     return "worktree " .. tostring(path)
       .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
@@ -215,16 +228,7 @@ function M.new(deps)
     local worktree = implement_worktree_for(durable, opts)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -267,16 +271,7 @@ function M.new(deps)
     local external = provision or {}
     local pr_number = external.pr_number or 7
     local head_sha = external.head_sha or "1234567890abcdef1234567890abcdef12345678"
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     mock_durable_root(durable)
     t.mock_command("git worktree list --porcelain", {
       stdout = "",
@@ -336,16 +331,7 @@ function M.new(deps)
     local worktree = implement_worktree_for(durable, opts)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -391,16 +377,7 @@ function M.new(deps)
     local stable_root = devloop_base.implementation_worktree_root(durable)
     local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, {})
       or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY")
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -435,16 +412,7 @@ function M.new(deps)
   local function mock_noncanonical_implement_worktree_conflict(durable_root, branch)
     local durable = durable_root or default_durable_root
     local stale = "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/devloop-owner-repo-42-01HY"
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -465,16 +433,7 @@ function M.new(deps)
   end
 
   local function mock_existing_implement_branch(head)
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -710,16 +669,7 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_fix_worktree_precondition(branch)
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
       stderr = "",
@@ -761,16 +711,7 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_fix_worktree_precondition(branch)
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
       stderr = "",
