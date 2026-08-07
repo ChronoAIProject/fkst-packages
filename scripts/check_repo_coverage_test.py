@@ -7,6 +7,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -53,6 +54,19 @@ def write_missing_line_coverage_artifact(
         encoding="utf-8",
     )
     return artifact
+
+
+@contextmanager
+def default_missing_line_coverage(root: Path):
+    artifact = write_missing_line_coverage_artifact(
+        root,
+        file="packages/example/core.lua",
+        line=2,
+        digest="abcdef12",
+        text="return missing_branch()",
+    )
+    with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+        yield
 
 
 class CoverageRatchetTest(unittest.TestCase):
@@ -418,15 +432,7 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value="integration"):
                     with mock.patch.object(coverage, "required_flag_at_base", return_value="absent"):
                         with mock.patch.object(coverage, "allowlist_at_base", return_value=("absent", None)):
@@ -531,15 +537,7 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value="origin/integration"):
                     with mock.patch.object(coverage, "required_flag_at_base", return_value="present"):
                         with mock.patch.object(coverage, "allowlist_at_base", return_value=("present", set())) as base:
@@ -553,15 +551,7 @@ class CoverageRatchetTest(unittest.TestCase):
             root = Path(tmp)
             (root / "migration").mkdir()
             (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value=None):
                     messages = coverage.repository_messages(root)
 
@@ -581,15 +571,7 @@ class CoverageRatchetTest(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value="integration"):
                     with mock.patch.object(coverage, "required_flag_at_base", return_value="absent"):
                         messages = coverage.repository_messages(root)
@@ -599,15 +581,7 @@ class CoverageRatchetTest(unittest.TestCase):
     def test_repository_messages_report_only_without_required_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value=None):
                     with mock.patch("sys.stderr") as stderr:
                         messages = coverage.repository_messages(root)
@@ -637,15 +611,7 @@ class CoverageRatchetTest(unittest.TestCase):
             root = Path(tmp)
             (root / "migration").mkdir()
             (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value="integration"):
                     with mock.patch.object(coverage, "required_flag_at_base", return_value="absent"):
                         with mock.patch.object(coverage, "allowlist_at_base", return_value=("absent", None)):
@@ -686,15 +652,7 @@ class CoverageRatchetTest(unittest.TestCase):
     def test_repository_messages_ignores_coverage_json_env_without_required_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value=None):
                     messages = coverage.repository_messages(root)
 
@@ -705,15 +663,7 @@ class CoverageRatchetTest(unittest.TestCase):
         # as a warning, not a blocking message, even when base still has the flag.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            artifact = write_missing_line_coverage_artifact(
-                root,
-                file="packages/example/core.lua",
-                line=2,
-                digest="abcdef12",
-                text="return missing_branch()",
-            )
-
-            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=False):
+            with default_missing_line_coverage(root):
                 with mock.patch.object(coverage, "selected_base_ref", return_value="integration"):
                     with mock.patch.object(coverage, "required_flag_at_base", return_value="present"):
                         with mock.patch("sys.stderr"):
