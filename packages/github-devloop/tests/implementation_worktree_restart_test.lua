@@ -41,6 +41,16 @@ local function remove_fixture(root)
   run_command("rm -rf " .. shell_quote(root))
 end
 
+local function implementation_worktree_path(durable_root, event)
+  local implementation_root = devloop_base.implementation_worktree_root(durable_root)
+  return devloop_base.implement_worktree_path(
+    implementation_root,
+    "owner/repo",
+    42,
+    event.dedup_key
+  )
+end
+
 local function worktree_outcome(worktree)
   local event = h.ready()
   local branch = h.deterministic_branch_for(event)
@@ -79,13 +89,7 @@ return {
     retry.dedup_key = event.dedup_key .. "/reimplement/2"
     retry.impl_retry_attempt = 2
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local first_attempt_worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local first_attempt_worktree = implementation_worktree_path(durable_root, event)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -125,13 +129,7 @@ return {
     local durable_root = "/tmp/fkst-packages-test/github-devloop/path-conflict-durable"
     local event = h.ready()
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -408,13 +406,7 @@ return {
   test_review_worktree_lookup_rejects_unregistered_husk = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-husk-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -442,13 +434,7 @@ return {
   test_review_worktree_lookup_rejects_wrong_branch_registration = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-wrong-branch-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -478,13 +464,7 @@ return {
     local event = h.ready()
     local impl_version = event.dedup_key .. "/reimplement/2"
     local branch = h.deterministic_branch_for(event)
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
       stderr = "",
@@ -541,13 +521,7 @@ return {
   test_review_worktree_lookup_surfaces_directory_probe_failure = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/review-directory-probe-durable"
     local event = h.ready()
-    local implementation_root = devloop_base.implementation_worktree_root(durable_root)
-    local worktree = devloop_base.implement_worktree_path(
-      implementation_root,
-      "owner/repo",
-      42,
-      event.dedup_key
-    )
+    local worktree = implementation_worktree_path(durable_root, event)
     local branch = h.deterministic_branch_for(event)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
