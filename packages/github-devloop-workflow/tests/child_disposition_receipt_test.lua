@@ -304,6 +304,10 @@ local tests = {
       fact({ disposition = "transferred" }),
       fact({
         disposition = "transferred",
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
+      }),
+      fact({
+        disposition = "transferred",
         successor_source_ref = { kind = "external", ref = "owner/repo#pr/9" },
       }),
       fact({
@@ -534,6 +538,21 @@ local tests = {
       t.eq(ok, false)
       t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
     end
+  end,
+
+  test_read_fails_closed_for_a_source_visible_self_transfer_receipt = function()
+    local self_transfer = fact({
+      disposition = "transferred",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
+    })
+    local _, commands = seed_remote_commit(fact(), receipt_json(self_transfer) .. "\n")
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).read(fact())
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
   end,
 
   test_read_fails_closed_when_committed_identity_differs_from_requested_identity = function()
