@@ -400,6 +400,23 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "fixing", "applied(replay)", "trusted review-meta fix decision fact is visible")
     return tools.raise_effects(dept, proposal_id, "fixing", fact.version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:review-meta" } }, effects)
   end
+  if fact.action == "no-actionable-gap" then
+    local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    local effects = {
+      {
+        queue = "github-proxy.github_pr_comment_request",
+        payload = requests_review.build_reviewing_comment_request(M, issue.repo, issue.number, {
+          proposal_id = proposal_id,
+          impl_version = fact.version,
+        }, link.pr_number, source_ref),
+      },
+    }
+    add_issue_label_effect(issue, proposal_id, "reviewing", fact.version, issue_source_ref(issue), effects, {
+      "review-meta", "label", "reviewing", tostring(proposal_id), tostring(fact.version), tostring(link.pr_number),
+    }, { kind = "pr", number = link.pr_number })
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "reviewing", "applied(replay)", "trusted review-meta no-actionable-gap decision fact is visible")
+    return tools.raise_effects(dept, proposal_id, "reviewing", fact.version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:review-meta" } }, effects)
+  end
   local label_key = base_ids.dedup_key({
     "review-meta",
     "label",

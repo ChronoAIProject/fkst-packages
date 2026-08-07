@@ -71,7 +71,7 @@ return {
       end
     end
 
-    t.eq(expected_count, 17)
+    t.eq(expected_count, 18)
     local derived = restart_obligations.derive_generation(edges, witnesses)
     t.eq(#derived.obligations, expected_count)
     t.eq(#derived.unmapped, 0)
