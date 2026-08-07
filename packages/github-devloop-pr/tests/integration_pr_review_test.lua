@@ -102,6 +102,19 @@ local function assert_pr_label_guard(payload, expected_state, expected_version)
   t.eq(payload.expected_state, expected_state)
   t.eq(payload.expected_version, expected_version)
 end
+local function observe_pr(dedup_key, opts_key)
+  return run_observe_pr({
+    schema = "github-proxy.v1",
+    type = "pr",
+    repo = "owner/repo",
+    number = 7,
+    dedup_key = dedup_key,
+    source_ref = {
+      kind = "external",
+      ref = "owner/repo#pr/7",
+    },
+  }, opts(opts_key))
+end
 local function mock_existing_review_worktree(impl_version)
   local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local worktree = devloop_base.implement_worktree_path(
@@ -150,17 +163,7 @@ return {
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
     })
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reviewing"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-reviewing")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
@@ -196,17 +199,7 @@ return {
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reconcile-reviewing"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-reconcile-reviewing")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local pr_label_raise = find_label_raise(result.raises, "pr")
@@ -228,17 +221,7 @@ return {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
     })
 
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-no-issue-label-from-pr-fixing"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-no-issue-label-from-pr-fixing")
 
     t.eq(result.exit_code, 0)
     t.eq(count_label_raises(result.raises, "issue"), 0)
@@ -260,17 +243,7 @@ return {
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:reviewing" })
     mock_decompose_child_issue_list("github-devloop/issue/owner/repo/42", impl_version .. "/blocked", 7, {})
 
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reconcile-blocked-stale-reviewing"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-reconcile-blocked-stale-reviewing")
 
     t.eq(result.exit_code, 0)
     local pr_label_raise = find_label_raise(result.raises, "pr")
@@ -286,17 +259,7 @@ return {
       m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-merge-ready-self-heal"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-merge-ready-self-heal")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
@@ -315,17 +278,7 @@ return {
       m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:merging" }, comments)
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-merging-self-heal"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-merging-self-heal")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 3)
     t.is_true(find_raise(result.raises, "restart_transition_anomaly") ~= nil)
@@ -345,17 +298,7 @@ return {
     mock_issue_reviewing({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    local first = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reviewing-self-heal"))
+    local first = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-reviewing-self-heal")
     t.eq(first.exit_code, 0)
     local reviewing_raise = find_causal_raise(first, "devloop_reviewing")
     t.is_true(reviewing_raise ~= nil)
@@ -370,17 +313,7 @@ return {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", reviewing_raise.payload.version),
       m_builders.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "approve", "consensus:" .. review_id .. "/review"),
     })
-    local reviewed = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:04Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reviewing-reviewed"))
+    local reviewed = observe_pr("owner/repo#pr#7@2026-06-04T01:02:04Z", "observe-pr-reviewing-reviewed")
     t.eq(reviewed.exit_code, 0)
     t.eq(find_label_raise(reviewed.raises, "issue"), nil)
     t.eq(find_label_raise(reviewed.raises, "pr").payload.add_labels[1], "fkst-dev:reviewing")
@@ -395,17 +328,7 @@ return {
     mock_issue_reviewing({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", fix_round_version),
     })
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:05Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-reviewing-fix-round-self-heal"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:05Z", "observe-pr-reviewing-fix-round-self-heal")
     t.eq(result.exit_code, 0)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
     t.is_true(reviewing_raise ~= nil)
@@ -433,17 +356,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local branch = devloop_base.implement_branch("owner/repo", "42", impl_version)
     mock_pr_origin({}, branch)
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-backpointer-pending"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-backpointer-pending")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
@@ -451,17 +364,7 @@ return {
   end,
   test_observe_pr_non_devloop_branch_without_visible_backpointer_uses_pr_native_origin = function()
     mock_pr_origin({}, "feature/unrelated")
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-backpointer-foreign"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-backpointer-foreign")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
@@ -475,17 +378,7 @@ return {
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
     })
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-closed"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-closed")
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
     local terminal = find_raise(result.raises, "github-proxy.github_pr_comment_request")
@@ -507,17 +400,7 @@ return {
         author_login = "ordinary-user",
       },
     })
-    local result = run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-    }, opts("observe-pr-forged"))
+    local result = observe_pr("owner/repo#pr#7@2026-06-04T01:02:03Z", "observe-pr-forged")
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
