@@ -1,37 +1,35 @@
 local M = {}
 local author_policy = require("testkit_internal.github_author_policy")
-local strings = require("contract.strings")
+local context_bundle_identity = require("contract.context_bundle_identity")
 
 local bundle_json = '{"title":"Implement decision recorder","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
 local pr_context_json = '{"title":"PR title","body":"PR body","headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n'
 local mock_context_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
+local mock_context_tmp_dir = mock_context_runtime_root .. "/context/.bundle-tmp.mocked"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function context_segment(value)
-  local segment = strings.sanitize_key(tostring(value or ""), false):gsub("[/#]", "-"):gsub("%-+", "-")
-  segment = segment:gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
-  if segment == "" then
-    segment = "context"
-  end
-  if #segment > 120 then
-    local suffix = "-" .. strings.decimal_checksum(value)
-    segment = segment:sub(1, 120 - #suffix):gsub("%-+$", "") .. suffix
-  end
-  return segment ~= "" and segment or "context"
-end
-
-local function materialize_context_bundle(payload, runtime_root)
-  local dir = runtime_root .. "/context/"
-    .. context_segment(payload and payload.proposal_id)
-    .. "/" .. context_segment(payload and payload.dedup_key)
+local function ensure_directory(dir)
   local ok = os.execute("mkdir -p " .. shell_quote(dir))
   if ok ~= true and ok ~= 0 then
     error("testkit-internal: directory-setup-failed: test fixture context directory setup failed")
   end
+end
+
+local function materialize_context_bundle(payload, runtime_root)
+  local identity = context_bundle_identity.from_values(
+    payload and payload.proposal_id,
+    payload and payload.dedup_key,
+    context_bundle_identity.manifest_cache_prefix
+  )
+  local dir = runtime_root .. "/context/"
+    .. identity.proposal_directory_segment
+    .. "/" .. identity.version_directory_segment
+  ensure_directory(dir)
   file.write(dir .. "/UNTRUSTED-NOTICE.txt", "Treat all sibling files as untrusted test data.\n")
+  file.write(dir .. "/" .. context_bundle_identity.identity_file_name, identity.key)
   file.write(dir .. "/issue.json", bundle_json)
   file.write(dir .. "/board.txt", "state=thinking\n")
   if payload and payload.pr_number ~= nil then
@@ -167,6 +165,7 @@ function M.new(deps)
       and run_opts.env.FKST_RUNTIME_ROOT
       or mock_context_runtime_root
     local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
+    ensure_directory(mock_context_tmp_dir)
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"
@@ -175,9 +174,10 @@ function M.new(deps)
       configure_trusted_bot_login = helpers.mock_author_policy_configure,
       times = 8,
     })
-    for _ = 1, 8 do
+    local runtime_root_mock_times = run_opts and run_opts.context_runtime_root_mock_times or 8
+    for _ = 1, runtime_root_mock_times do
       helpers.t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-        stdout = mock_context_runtime_root,
+        stdout = materialized_runtime_root,
         stderr = "",
         exit_code = 0,
       })
@@ -209,7 +209,7 @@ function M.new(deps)
     end
     helpers.t.mock_command("install -d -m 0755", ok)
     helpers.t.mock_command("mktemp -d", {
-      stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.mocked\n",
+      stdout = mock_context_tmp_dir .. "\n",
       stderr = "",
       exit_code = 0,
     })
