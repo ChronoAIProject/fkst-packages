@@ -293,8 +293,15 @@ local function mock_reviewing_liveness_replay(version)
       exit_code = 0,
     })
   end
+  local replay_proposal_id = devloop_base.pr_review_proposal_id(
+    repo,
+    pr_number,
+    version,
+    reviewed_head_sha
+  )
   h.mock_context_bundle({
-    proposal_id = issue_proposal_id,
+    proposal_id = replay_proposal_id,
+    dedup_key = devloop_base.pr_review_proposal_dedup_key(replay_proposal_id),
     pr_number = pr_number,
     source_ref = pr_source_ref(),
   })
