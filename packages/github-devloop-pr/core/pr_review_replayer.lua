@@ -511,7 +511,7 @@ raise_reviewing_for_current_head = function(dept, issue, state, proposal_id, lin
   if not forge_validators.is_git_sha(current_pr.head_sha) then
     return false
   end
-  local review_version = state.version
+  local review_version = devloop_state.next_review_loop_version(state.version)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
   local request = requests_review.build_merge_head_reviewing_comment_request(M,
     issue.repo,
