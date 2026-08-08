@@ -4,6 +4,7 @@ local t = fkst.test
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local branch = "devloop-owner-repo-42-01HY"
+local reviewed_head_sha = "def456"
 local worktree = "/tmp/fkst-packages-test/github-devloop/worktrees/issue-42"
 
 local function result(exit_code, stderr)
@@ -57,21 +58,59 @@ local function error_text(fn)
 end
 
 return {
+  test_cleanup_resets_to_reviewed_remote_head_not_stale_local_branch = function()
+    local guard, calls = fixture({ responses = { result(1) } })
+
+    local established, owner = guard.establish(
+      worktree, branch, reviewed_head_sha, proposal_id)
+
+    t.eq(established, true)
+    t.eq(owner, nil)
+    t.eq(#calls, 3)
+    call_equals(calls[1], {
+      "git", "-C", worktree, "merge-base", "--is-ancestor",
+      reviewed_head_sha, "refs/heads/" .. branch,
+    })
+    call_equals(calls[2], {
+      "git", "-C", worktree, "reset", "--hard", reviewed_head_sha,
+    })
+    call_equals(calls[3], { "git", "-C", worktree, "clean", "-fd" })
+  end,
+
+  test_ancestry_query_failure_is_fail_closed_without_reset = function()
+    local guard, calls = fixture({
+      responses = { result(2, "bad object") },
+    })
+
+    local err = error_text(function()
+      guard.establish(worktree, branch, reviewed_head_sha, proposal_id)
+    end)
+
+    t.is_true(err:find("fix-worktree-ancestry-check-failed", 1, true) ~= nil)
+    t.is_true(err:find("bad object", 1, true) ~= nil)
+    t.eq(#calls, 1)
+  end,
+
   test_dirty_worktree_without_live_owner_is_reset_to_branch_then_cleaned = function()
     local guard, calls, worktree_state = fixture({
       tracked_dirty = true,
       untracked = true,
     })
 
-    local established, owner = guard.establish(worktree, branch, proposal_id)
+    local established, owner = guard.establish(
+      worktree, branch, reviewed_head_sha, proposal_id)
 
     t.eq(established, true)
     t.eq(owner, nil)
-    t.eq(#calls, 2)
+    t.eq(#calls, 3)
     call_equals(calls[1], {
+      "git", "-C", worktree, "merge-base", "--is-ancestor",
+      reviewed_head_sha, "refs/heads/" .. branch,
+    })
+    call_equals(calls[2], {
       "git", "-C", worktree, "reset", "--hard", "refs/heads/" .. branch,
     })
-    call_equals(calls[2], { "git", "-C", worktree, "clean", "-fd" })
+    call_equals(calls[3], { "git", "-C", worktree, "clean", "-fd" })
     t.eq(worktree_state.tracked_dirty, false)
     t.eq(worktree_state.untracked, false)
   end,
@@ -79,10 +118,11 @@ return {
   test_stale_merge_head_without_live_owner_is_cleared_by_branch_reset = function()
     local guard, calls, worktree_state = fixture({ merge_head = true })
 
-    local established = guard.establish(worktree, branch, proposal_id)
+    local established = guard.establish(
+      worktree, branch, reviewed_head_sha, proposal_id)
 
     t.eq(established, true)
-    t.eq(#calls, 2)
+    t.eq(#calls, 3)
     t.eq(worktree_state.merge_head, false)
   end,
 
@@ -99,7 +139,8 @@ return {
       },
     })
 
-    local established, owner = guard.establish(worktree, branch, proposal_id)
+    local established, owner = guard.establish(
+      worktree, branch, reviewed_head_sha, proposal_id)
 
     t.eq(established, false)
     t.eq(owner.role, "implement")
@@ -119,45 +160,46 @@ return {
       },
     })
 
-    local established = guard.establish(worktree, branch, proposal_id)
+    local established = guard.establish(
+      worktree, branch, reviewed_head_sha, proposal_id)
 
     t.eq(established, true)
-    t.eq(#calls, 2)
+    t.eq(#calls, 3)
   end,
 
   test_precondition_reset_failure_is_fail_closed = function()
     local guard, calls = fixture({
-      responses = { result(7, "reset refused") },
+      responses = { result(0), result(7, "reset refused") },
     })
 
     local err = error_text(function()
-      guard.establish(worktree, branch, proposal_id)
+      guard.establish(worktree, branch, reviewed_head_sha, proposal_id)
     end)
 
     t.is_true(err:find("fix-worktree-reset-failed", 1, true) ~= nil)
     t.is_true(err:find("reset refused", 1, true) ~= nil)
-    t.eq(#calls, 1)
+    t.eq(#calls, 2)
   end,
 
   test_precondition_clean_failure_is_fail_closed = function()
     local guard, calls = fixture({
-      responses = { result(0), result(8, "clean refused") },
+      responses = { result(0), result(0), result(8, "clean refused") },
     })
 
     local err = error_text(function()
-      guard.establish(worktree, branch, proposal_id)
+      guard.establish(worktree, branch, reviewed_head_sha, proposal_id)
     end)
 
     t.is_true(err:find("fix-worktree-clean-failed", 1, true) ~= nil)
     t.is_true(err:find("clean refused", 1, true) ~= nil)
-    t.eq(#calls, 2)
+    t.eq(#calls, 3)
   end,
 
   test_precondition_owner_query_failure_is_fail_closed_without_touching_worktree = function()
     local guard, calls = fixture({ codex_error = "codex run surface unavailable" })
 
     local err = error_text(function()
-      guard.establish(worktree, branch, proposal_id)
+      guard.establish(worktree, branch, reviewed_head_sha, proposal_id)
     end)
 
     t.is_true(err:find("fix-worktree-owner-check-failed", 1, true) ~= nil)

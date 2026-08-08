@@ -15,6 +15,7 @@ local mock_git_commit = h.mock_git_commit
 local mock_git_push = h.mock_git_push
 local mock_missing_fix_worktree = h.mock_missing_fix_worktree
 local mock_outside_stable_root_fix_worktree = h.mock_outside_stable_root_fix_worktree
+local mock_existing_fix_worktree = h.mock_existing_fix_worktree
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
@@ -63,6 +64,63 @@ local function mock_fix_writeback(event, branch, origin_marker, impl_version)
 end
 
 return {
+  test_fix_replays_stale_canonical_worktree_from_reviewed_remote_head = function()
+    local event = fixing()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local reject_comment = build_reject_comment(event)
+    local origin_marker = m_builders.pr_origin_marker(
+      event.proposal_id, "42", branch, event.version, "dev")
+    mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
+    mock_existing_fix_worktree(branch, "cafebabe", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
+      local_contains_reviewed = false,
+    })
+    mock_fix_writeback(event, branch, origin_marker)
+
+    local result = run_fix(event, opts("fix-stale-canonical-worktree", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1)
+    t.eq(count_calls("refs/remotes/'origin'/'" .. branch .. "'^{commit}"), 1)
+    t.eq(count_calls("reset --hard " .. event.reviewed_head_sha), 1)
+    t.eq(count_calls("reset --hard refs/heads/" .. branch), 0)
+    t.eq(count_calls("git push 'origin' 'feedface:refs/heads/" .. branch .. "'"), 1)
+    t.eq(count_calls("force-with-lease"), 0)
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version,
+      core.next_fix_version(event.version))
+  end,
+
+  test_fix_fails_closed_when_fetched_branch_no_longer_matches_write_gate_head = function()
+    local event = fixing()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    t.mock_command("git fetch 'origin' '" .. branch .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", {
+      stdout = "feedface\n",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local mechanics = require("departments.fix.merge_mechanics").make(core)
+    local ok, err = pcall(function()
+      mechanics.branch_worktree(
+        "owner/repo", "42", event.version, branch, event.reviewed_head_sha)
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err or ""):find(
+      "git-pr-head-branch-mismatch", 1, true) ~= nil)
+    t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1,
+      "PR branch is fetched before comparison")
+    t.eq(count_calls("FKST_DURABLE_ROOT"), 0)
+    t.eq(count_calls("git worktree"), 0)
+  end,
+
   test_fix_uses_immutable_pr_origin_version_for_canonical_worktree = function()
     local event = fixing()
     local origin_impl_version = core._strip_latest_fix_version_suffix(event.version)

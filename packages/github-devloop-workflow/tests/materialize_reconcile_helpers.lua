@@ -57,7 +57,7 @@ local function issue(comments, fields)
   local extra = fields or {}
   return {
     title = "Workflow origin",
-    body = "Run the workflow.",
+    body = extra.body or "Run the workflow.",
     state = extra.state or "OPEN",
     labels = extra.labels or {},
     assignees = { "fkst-test-bot" },

@@ -74,6 +74,7 @@ end
 
 function M.build_issue_create_request(repo, decompose, issue, index)
   local safe_title = bounded_text(issue.title, M._max_title_len, fallback_title)
+  local lineage = decompose_lib.decompose_lineage(decompose.current_issue_body)
   local parent_summary = "Parent issue: #" .. tostring(select(2, base_ids.parse_proposal_id(decompose.proposal_id)) or "unknown")
     .. "\nParent PR: #" .. tostring(decompose.pr_number)
     .. "\nBlocked reason: fix loop reached " .. tostring(decompose.round) .. " rounds and was reconciled to blocked."
@@ -82,7 +83,10 @@ function M.build_issue_create_request(repo, decompose, issue, index)
     .. "\n\nNon-goals:\n- Do not repeat the same high-round fix path without reducing scope or changing approach."
     .. "\n\nAcceptance:\n- The work is independently reviewable."
     .. "\n- The implementation can pass the normal intake, consensus, implementation, and review pipeline."
-    .. "\n\n" .. decompose_lib.decompose_lineage_marker(decompose.proposal_id, decompose_lib.decompose_lineage_depth(decompose.current_issue_body) + 1)
+    .. "\n\n" .. decompose_lib.decompose_lineage_marker(
+      lineage and lineage.root or decompose.proposal_id,
+      (lineage and lineage.depth or 0) + 1
+    )
     .. "\n\n" .. decompose_lib.decompose_child_marker(decompose.proposal_id, decompose.version, decompose.pr_number, index)
   if #body > M._max_body_len then
     body = base_ids.truncate_utf8(body, M._max_body_len)

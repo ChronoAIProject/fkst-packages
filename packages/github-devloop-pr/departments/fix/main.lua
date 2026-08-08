@@ -189,9 +189,10 @@ end
 
 local function run_fix_attempt(plan)
   local worktree = branch_worktree(
-    plan.repo, plan.issue_number, plan.impl_version, plan.branch)
+    plan.repo, plan.issue_number, plan.impl_version, plan.branch,
+    plan.fix.reviewed_head_sha)
   local established, owner = worktree_precondition.establish(
-    worktree, plan.branch, plan.fix.proposal_id)
+    worktree, plan.branch, plan.fix.reviewed_head_sha, plan.fix.proposal_id)
   if not established then
     devloop_logging.log_line("info", "fix", plan.fix.proposal_id, "WORKTREE_PRECONDITION", {
       "outcome=deferred-live-owner",
