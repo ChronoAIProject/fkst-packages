@@ -415,11 +415,12 @@ local function materialized_child_ref()
   }
 end
 
-local function read_materialized_child_status(state)
+local function read_materialized_child_status(state, receipt_store)
   local child_status = require("core.materialize.child_status")
   local reader = child_status.reader(core, {
     github = state.github,
     git = state.git,
+    receipt_store = receipt_store,
   }, REPO)
   return reader(materialized_child_ref())
 end
@@ -441,6 +442,20 @@ local function add_merged_evidence(state, issue_number)
 end
 
 local tests = {
+  test_non_transfer_receipts_fail_closed_before_child_status_projection = function()
+    for _, disposition in ipairs({ "satisfied", "undeliverable" }) do
+      local state = fixture()
+      local ok, err = pcall(read_materialized_child_status, state, {
+        read = function()
+          return { disposition = disposition }
+        end,
+      })
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("transfer-chain-receipt-invalid", 1, true) ~= nil)
+    end
+  end,
+
   test_transfer_orders_acceptance_receipt_and_close_then_parent_follows_successor = function()
     local state = fixture()
 

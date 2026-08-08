@@ -118,15 +118,13 @@ function M.new(deps)
         slot = identity.slot,
         child_issue = current_issue,
       })
-      if receipt_value == nil or receipt_value.disposition ~= "transferred" then
-        if receipt_value ~= nil
-          and receipt_value.disposition ~= "satisfied"
-          and receipt_value.disposition ~= "undeliverable" then
-          fail("transfer-chain-receipt-invalid", "receipt has an unsupported disposition")
-        end
+      if receipt_value == nil then
         chain.tip_source_ref = current_source_ref
         chain.tip_issue = current_issue
         return chain
+      end
+      if receipt_value.disposition ~= "transferred" then
+        fail("transfer-chain-receipt-invalid", "receipt has an unsupported disposition")
       end
 
       local successor_source_ref, successor_issue = canonical_issue_source_ref(
