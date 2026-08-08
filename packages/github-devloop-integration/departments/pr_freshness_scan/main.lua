@@ -24,6 +24,7 @@ local spec = {
   consumes = { "devloop_branch_tick" },
   produces = { "devloop_sync_conflict" },
   fanout = { "devloop_branch_tick" },
+  retry = {},
   stall_window = "10m",
 }
 

@@ -9,6 +9,7 @@ local spec = {
     "radar_weekly_content_generated",
   },
   fanout = { "github-proxy.github_entity_changed" },
+  retry = {},
   stall_window = "30s",
 }
 
