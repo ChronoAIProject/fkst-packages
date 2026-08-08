@@ -9,6 +9,7 @@ local spec = {
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_label_request",
   },
+  retry = {},
   stall_window = "2m",
 }
 
