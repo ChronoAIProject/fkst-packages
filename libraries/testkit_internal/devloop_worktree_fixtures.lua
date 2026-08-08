@@ -581,9 +581,18 @@ function M.new(deps)
     })
   end
 
-  local function mock_fix_worktree_precondition(branch)
-    t.mock_command("reset --hard refs/heads/" .. tostring(branch), {
-      stdout = "HEAD is now at def456 reviewed head\n",
+  local function mock_fix_worktree_precondition(branch, reviewed_head_sha, local_contains_reviewed)
+    t.mock_command("merge-base --is-ancestor", {
+      stdout = "",
+      stderr = "",
+      exit_code = local_contains_reviewed == false and 1 or 0,
+    })
+    local reset_target = "refs/heads/" .. tostring(branch)
+    if local_contains_reviewed == false then
+      reset_target = tostring(reviewed_head_sha)
+    end
+    t.mock_command("reset --hard " .. reset_target, {
+      stdout = "HEAD is now at " .. tostring(reviewed_head_sha) .. " reviewed head\n",
       stderr = "",
       exit_code = 0,
     })
@@ -595,6 +604,7 @@ function M.new(deps)
   end
 
   local function mock_existing_fix_worktree(branch, head, path, merge)
+    local reviewed_head_sha = merge and merge.reviewed_head_sha or head or "def456"
     local stable_root = devloop_base.implementation_worktree_root(default_durable_root)
     local worktree = path or devloop_base.implement_worktree_path(
       stable_root,
@@ -603,6 +613,16 @@ function M.new(deps)
       default_ready_version
     )
     mock_durable_root(default_durable_root)
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
         .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
@@ -614,7 +634,8 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(
+      branch, reviewed_head_sha, merge and merge.local_contains_reviewed)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -651,6 +672,7 @@ function M.new(deps)
   end
 
   local function mock_missing_fix_worktree(branch, head, path)
+    local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/missing/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
@@ -674,13 +696,18 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add --force -B", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
@@ -693,6 +720,7 @@ function M.new(deps)
   end
 
   local function mock_outside_stable_root_fix_worktree(branch, head, path)
+    local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
@@ -716,13 +744,18 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add --force -B", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
