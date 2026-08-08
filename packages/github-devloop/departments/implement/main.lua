@@ -13,7 +13,6 @@ local convergence_identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
 local refusal_publication = require("departments.implement.refusal_publication")
-local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
 local cache_preparation = require("departments.implement.cache_preparation")
@@ -494,14 +493,6 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
   return state, current, snapshot, decision
 end
 
-local function backing_original(current, managed)
-  local origin = forks.fork_origin_fact(core, current, managed)
-  if origin == nil then
-    return nil, nil
-  end
-  return origin, forks.rederive_issue_state(core, origin.repo, origin.issue_number)
-end
-
 local function checkpoint_matches_progress(checkpoint, progress)
   return checkpoint ~= nil
     and progress ~= nil
@@ -563,12 +554,7 @@ local function process_ready_event(event)
     if slice_gate.check(repo, issue_number, ready, current) then
       return
     end
-    local origin, original = backing_original(current, managed)
-    if original ~= nil and tostring(original.state or ""):upper() ~= "OPEN" then
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "fork backing issue is closed: " .. tostring(origin.repo) .. "#" .. tostring(origin.issue_number))
-      return
-    end
-    if fork_gate.check(repo, issue_number, ready, origin, original, managed) then
+    if fork_gate.check(repo, issue_number, ready, current, managed) then
       return
     end
     local state = devloop_state.current_state(current.comments, ready.proposal_id)
