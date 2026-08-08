@@ -44,13 +44,14 @@ return {
     local run_opts = opts("thinking-live-consensus-redrive", {
       now = "2026-06-03T02:00:00Z",
     })
-    codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+    local release_codex_run = codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
       started_at = "2026-06-03T00:30:00Z",
       started_at_ms = nil,
       timeout_seconds = 7200,
       lease_expires_at_ms = nil,
     })
     local result = run_observe(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
@@ -155,13 +156,14 @@ return {
     local run_opts = opts("thinking-latest-converge-live-consensus-redrive", {
       now = "2026-06-03T02:00:00Z",
     })
-    codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+    local release_codex_run = codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
       started_at = "2026-06-03T00:30:00Z",
       started_at_ms = nil,
       timeout_seconds = 7200,
       lease_expires_at_ms = nil,
     })
     local result = run_observe(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
