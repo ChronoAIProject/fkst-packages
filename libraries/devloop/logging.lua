@@ -136,6 +136,19 @@ function C.log_raise(dept, proposal_id, queue, payload)
     C.log_outbound(dept, proposal_id, queue, payload)
   end
   raise(queue, payload)
+  if queue == "devloop_review_request" then
+    local source_ref = error_facts.source_ref_field(type(payload) == "table" and payload.source_ref or nil)
+    local fields = {
+      "queue=" .. error_facts.one_line(queue),
+      "payload_schema=" .. error_facts.one_line(type(payload) == "table" and payload.schema or nil),
+      "payload_proposal_id=" .. error_facts.one_line(type(payload) == "table" and payload.proposal_id or nil),
+      "dedup_key=" .. error_facts.one_line(type(payload) == "table" and payload.dedup_key or nil),
+    }
+    if source_ref ~= nil and source_ref ~= "" then
+      table.insert(fields, "source_ref=" .. source_ref)
+    end
+    C.log_line("info", dept, proposal_id, "RAISE", fields)
+  end
 end
 
 function C.log_codex_start(dept, proposal_id, role)
