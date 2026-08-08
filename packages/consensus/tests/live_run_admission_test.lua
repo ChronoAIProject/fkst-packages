@@ -2,6 +2,7 @@ local identity = require("contract.convergence_identity")
 local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
 local t = fkst.test
+local witness = require("testkit_internal.codex_lifetime_witness")
 local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
 
@@ -296,7 +297,7 @@ return {
 
   test_consensus_reach_returns_nil_when_same_identity_is_live = function()
     local run_identity = library_run_identity(proposal(), "teleology")
-    with_codex_runs({ running_codex_record(run_identity) }, function()
+    with_codex_runs({ witness.role_codex_run(run_identity.role, run_identity.invocation_id, run_identity.dedup_key) }, function()
       t.is_nil(consensus.reach(proposal()))
       t.eq(#codex_calls(), 0)
     end)
@@ -530,14 +531,14 @@ return {
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
-
-    for _ = 1, 13 do
-      local result = run_decide(proposal(), run_opts)
-      t.eq(result.exit_code, 0)
-      t.eq(#result.raises, 0)
-    end
-    t.eq(#codex_calls(), 0)
+    witness.with_live_codex_runs(run_opts, { witness.role_codex_run(run_identity.role, run_identity.invocation_id, run_identity.dedup_key) }, function()
+      for _ = 1, 13 do
+        local result = run_decide(proposal(), run_opts)
+        t.eq(result.exit_code, 0)
+        t.eq(#result.raises, 0)
+      end
+      t.eq(#codex_calls(), 0)
+    end)
   end,
 
   test_live_run_drop_preserves_fresh_redrive_after_run_disappears = function()
@@ -548,11 +549,12 @@ return {
 
     local run_opts = opts("defer-then-redrive")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
-    local deferred = run_decide(proposal(), run_opts)
-    t.eq(deferred.exit_code, 0)
-    t.eq(#deferred.raises, 0)
-    t.eq(#codex_calls(), 0)
+    witness.with_live_codex_runs(run_opts, { witness.role_codex_run(run_identity.role, run_identity.invocation_id, run_identity.dedup_key) }, function()
+      local deferred = run_decide(proposal(), run_opts)
+      t.eq(deferred.exit_code, 0)
+      t.eq(#deferred.raises, 0)
+      t.eq(#codex_calls(), 0)
+    end)
 
     local retried = run_decide(proposal(), opts("redrive-after-live-run-missing"))
     t.eq(retried.exit_code, 0)

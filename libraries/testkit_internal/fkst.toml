@@ -18,6 +18,7 @@ version = "workspace"
 [exports]
 exact = true
 public = [
+  "testkit_internal.codex_lifetime_witness",
   "testkit_internal.devloop_core_fixtures",
   "testkit_internal.devloop_fixtures",
   "testkit_internal.devloop_fixtures.mocks",

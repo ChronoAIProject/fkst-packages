@@ -1,6 +1,6 @@
 local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
-local codex_status = require("tests.codex_status_helpers")
+local codex_status = require("testkit_internal.codex_lifetime_witness")
 local devloop_base = require("devloop.base")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
@@ -115,6 +115,7 @@ return {
     local numbers = { 42, 43, 44 }
     local delegated_issue_number = 44
     local delegated_pr_number = 144
+    local running = {}
     mock_repo_env()
     mock_issue_list_numbers(numbers)
     for _, number in ipairs(numbers) do
@@ -151,7 +152,11 @@ return {
         assignees = { "fkst-test-bot" },
         times = 2,
       })
-      codex_status.seed_role_codex_run(run_opts, "consensus", issue_proposal, version .. "-" .. tostring(number))
+      table.insert(running, codex_status.role_codex_run(
+        "consensus",
+        issue_proposal,
+        version .. "-" .. tostring(number)
+      ))
     end
     entity_read_mocks.mock_pr_read_forms(t, {
       repo = repo,
@@ -172,25 +177,27 @@ return {
       times = 2,
     })
 
-    local scanned = run_liveness_scan(run_opts)
-    t.eq(scanned.exit_code, 0, tostring(scanned.stderr or ""))
-    local raised_by_number = {}
-    for _, raised in ipairs(scanned.raises or {}) do
-      if raised.queue == "devloop_observe_issue" and raised.payload ~= nil then
-        raised_by_number[tonumber(raised.payload.number)] = raised
+    codex_status.with_live_codex_runs(run_opts, running, function()
+      local scanned = run_liveness_scan(run_opts)
+      t.eq(scanned.exit_code, 0, tostring(scanned.stderr or ""))
+      local raised_by_number = {}
+      for _, raised in ipairs(scanned.raises or {}) do
+        if raised.queue == "devloop_observe_issue" and raised.payload ~= nil then
+          raised_by_number[tonumber(raised.payload.number)] = raised
+        end
       end
-    end
-    t.eq(count_comment_stream_reads(), #numbers + 1)
+      t.eq(count_comment_stream_reads(), #numbers + 1)
 
-    for _, number in ipairs(numbers) do
-      local raised = raised_by_number[number]
-      t.is_true(raised ~= nil)
-      t.eq(raised.payload.source, "liveness-scan")
-      local observed = run_observe_issue(raised.payload, run_opts)
-      t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
-    end
+      for _, number in ipairs(numbers) do
+        local raised = raised_by_number[number]
+        t.is_true(raised ~= nil)
+        t.eq(raised.payload.source, "liveness-scan")
+        local observed = run_observe_issue(raised.payload, run_opts)
+        t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
+      end
 
-    t.eq(count_comment_stream_reads(), #numbers + 1)
+      t.eq(count_comment_stream_reads(), #numbers + 1)
+    end)
   end,
 
   test_liveness_scan_reinjected_observe_reuses_same_validator_comment_stream = function()
@@ -198,20 +205,22 @@ return {
     mock_repo_env()
     mock_issue_list()
     mock_issue_state()
-    codex_status.seed_role_codex_run(run_opts, "consensus", proposal_id, version)
+    local live_run = codex_status.role_codex_run("consensus", proposal_id, version)
 
-    local scanned = run_liveness_scan(run_opts)
-    t.eq(scanned.exit_code, 0, tostring(scanned.stderr or ""))
-    local raised = h.find_raise(scanned.raises, "devloop_observe_issue", function(payload)
-      return payload.source == "liveness-scan" and payload.updated_at == updated_at
+    codex_status.with_live_codex_runs(run_opts, { live_run }, function()
+      local scanned = run_liveness_scan(run_opts)
+      t.eq(scanned.exit_code, 0, tostring(scanned.stderr or ""))
+      local raised = h.find_raise(scanned.raises, "devloop_observe_issue", function(payload)
+        return payload.source == "liveness-scan" and payload.updated_at == updated_at
+      end)
+      t.is_true(raised ~= nil)
+      t.eq(raised.payload.source, "liveness-scan")
+      t.eq(raised.payload.updated_at, updated_at)
+      t.eq(count_comment_stream_reads(issue_number), 1)
+
+      local observed = run_observe_issue(raised.payload, run_opts)
+      t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
+      t.eq(count_comment_stream_reads(issue_number), 1)
     end)
-    t.is_true(raised ~= nil)
-    t.eq(raised.payload.source, "liveness-scan")
-    t.eq(raised.payload.updated_at, updated_at)
-    t.eq(count_comment_stream_reads(issue_number), 1)
-
-    local observed = run_observe_issue(raised.payload, run_opts)
-    t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
-    t.eq(count_comment_stream_reads(issue_number), 1)
   end,
 }

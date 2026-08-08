@@ -39,6 +39,8 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
+local witness = require("testkit_internal.codex_lifetime_witness")
+
 local function nonce()
   return tostring({}):gsub("[^%w._-]", "_")
 end
@@ -93,7 +95,7 @@ local function live_run_timing()
     (now() + 3600) * 1000
 end
 
-local function seed_role_codex_run(run_opts, role, run_proposal_id, dedup_key, extra)
+local function role_codex_record(role, run_proposal_id, dedup_key, extra)
   local started_at, started_at_ms, lease_expires_at_ms = live_run_timing()
   local record = {
     run_id = nonce(),
@@ -112,7 +114,22 @@ local function seed_role_codex_run(run_opts, role, run_proposal_id, dedup_key, e
   for key, value in pairs(extra or {}) do
     record[key] = value
   end
+  return record
+end
+
+local function seed_role_codex_run(run_opts, role, run_proposal_id, dedup_key, extra)
+  local record = role_codex_record(role, run_proposal_id, dedup_key, extra)
   seed_codex_run(run_opts, record)
+  return record
+end
+
+-- A run only counts as live while a process holds an exclusive flock on its log
+-- (fkst-substrate 4e4a08e, refs #308); seeding alone describes a run that has
+-- already finished. Assertions about live-run behaviour must therefore hold the
+-- witness for their duration, which the shared helper does.
+local function with_live_role_codex_run(run_opts, role, run_proposal_id, dedup_key, fn, extra)
+  local record = witness.role_codex_run(role, run_proposal_id, dedup_key, extra)
+  witness.with_live_codex_runs(run_opts, { record }, fn)
   return record
 end
 
@@ -506,6 +523,7 @@ return {
   seed_codex_run = seed_codex_run,
   live_run_timing = live_run_timing,
   seed_role_codex_run = seed_role_codex_run,
+  with_live_role_codex_run = with_live_role_codex_run,
   trusted_comment = trusted_comment,
   recent_comment = recent_comment,
   fixing_state = fixing_state,

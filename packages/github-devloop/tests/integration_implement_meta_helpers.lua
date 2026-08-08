@@ -84,7 +84,7 @@ local mock_bot_env = h.mock_bot_env
 local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
-local codex_status = require("tests.codex_status_helpers")
+local codex_status = require("testkit_internal.codex_lifetime_witness")
 local m_builders = require("devloop.markers.builders")
 
 local function find_comment_with(raises, text)

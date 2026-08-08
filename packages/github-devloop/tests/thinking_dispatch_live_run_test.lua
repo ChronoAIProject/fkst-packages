@@ -1,6 +1,6 @@
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
-local codex_status = require("tests.codex_status_helpers")
+local codex_status = require("testkit_internal.codex_lifetime_witness")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
 local t = h.t
@@ -44,13 +44,16 @@ return {
     local run_opts = opts("thinking-live-consensus-redrive", {
       now = "2026-06-03T02:00:00Z",
     })
-    codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+    local live_run = codex_status.role_codex_run("consensus", original.proposal_id, version, {
       started_at = "2026-06-03T00:30:00Z",
       started_at_ms = nil,
       timeout_seconds = 7200,
       lease_expires_at_ms = nil,
     })
-    local result = run_observe(event, run_opts)
+    local result
+    codex_status.with_live_codex_runs(run_opts, { live_run }, function()
+      result = run_observe(event, run_opts)
+    end)
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
@@ -155,13 +158,16 @@ return {
     local run_opts = opts("thinking-latest-converge-live-consensus-redrive", {
       now = "2026-06-03T02:00:00Z",
     })
-    codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+    local live_run = codex_status.role_codex_run("consensus", original.proposal_id, version, {
       started_at = "2026-06-03T00:30:00Z",
       started_at_ms = nil,
       timeout_seconds = 7200,
       lease_expires_at_ms = nil,
     })
-    local result = run_observe(event, run_opts)
+    local result
+    codex_status.with_live_codex_runs(run_opts, { live_run }, function()
+      result = run_observe(event, run_opts)
+    end)
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
