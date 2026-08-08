@@ -36,49 +36,52 @@ end
 
 return {
   test_live_claim_verification_canonicalizes_mixed_case_assignee = function()
-    local payload = claim_payload("elonsg")
-    mock_ownership('[{"login":"ElonSG"}]')
+    local payload = claim_payload("fkst-test-bot")
+    mock_ownership('[{"login":"FKST-Test-Bot"}]')
 
     t.is_true(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"))
   end,
 
   test_in_memory_claim_verification_canonicalizes_mixed_case_assignee = function()
-    local payload = claim_payload("elonsg")
-    local issue = { assignees = { { login = "ElonSG" } }, labels = {} }
-
-    t.is_true(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"))
-  end,
-
-  test_live_claim_verification_canonicalizes_mixed_case_owner = function()
-    local payload = claim_payload("ElonSG")
-    mock_ownership('[{"login":"elonsg"}]')
-
-    t.is_true(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"))
-  end,
-
-  test_in_memory_claim_verification_canonicalizes_mixed_case_owner = function()
-    local payload = claim_payload("ElonSG")
-    local issue = { assignees = { { login = "elonsg" } }, labels = {} }
+    local payload = claim_payload("fkst-test-bot")
+    local issue = { assignees = { { login = "FKST-Test-Bot" } }, labels = {} }
+    author_policy.mock_env(t)
 
     t.is_true(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"))
   end,
 
   test_live_claim_verification_canonicalizes_bot_suffix = function()
-    local payload = claim_payload("elonsg")
-    mock_ownership('[{"login":"ElonSG[bot]"}]')
+    local payload = claim_payload("fkst-test-bot")
+    mock_ownership('[{"login":"FKST-Test-Bot[bot]"}]')
 
     t.is_true(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"))
   end,
 
   test_in_memory_claim_verification_canonicalizes_bot_suffix = function()
-    local payload = claim_payload("elonsg")
-    local issue = { assignees = { { login = "ElonSG[bot]" } }, labels = {} }
+    local payload = claim_payload("fkst-test-bot")
+    local issue = { assignees = { { login = "FKST-Test-Bot[bot]" } }, labels = {} }
+    author_policy.mock_env(t)
 
     t.is_true(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"))
   end,
 
+  test_live_claim_verification_refuses_owner_not_matching_authenticated_principal = function()
+    local payload = claim_payload("peer-bot")
+    mock_ownership('[{"login":"peer-bot"}]')
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
+  end,
+
+  test_in_memory_claim_verification_refuses_owner_not_matching_authenticated_principal = function()
+    local payload = claim_payload("peer-bot")
+    local issue = { assignees = { { login = "peer-bot" } }, labels = {} }
+    author_policy.mock_env(t)
+
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
+  end,
+
   test_claim_verification_refuses_different_assignee = function()
-    local payload = claim_payload("elonsg")
+    local payload = claim_payload("fkst-test-bot")
     local issue = { assignees = { { login = "someone-else" } }, labels = {} }
     mock_ownership('[{"login":"someone-else"}]')
 
@@ -87,7 +90,7 @@ return {
   end,
 
   test_claim_verification_refuses_empty_assignees = function()
-    local payload = claim_payload("elonsg")
+    local payload = claim_payload("fkst-test-bot")
     local issue = { assignees = {}, labels = {} }
     mock_ownership("[]")
 
@@ -96,27 +99,27 @@ return {
   end,
 
   test_claim_verification_refuses_multiple_assignees = function()
-    local payload = claim_payload("elonsg")
+    local payload = claim_payload("fkst-test-bot")
     local issue = {
       assignees = {
-        { login = "ElonSG" },
+        { login = "FKST-Test-Bot" },
         { login = "someone-else" },
       },
       labels = {},
     }
-    mock_ownership('[{"login":"ElonSG"},{"login":"someone-else"}]')
+    mock_ownership('[{"login":"FKST-Test-Bot"},{"login":"someone-else"}]')
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
   end,
 
   test_assignee_claim_verification_refuses_foreign_claim_label = function()
-    local payload = claim_payload("elonsg")
+    local payload = claim_payload("fkst-test-bot")
     local issue = {
-      assignees = { { login = "ElonSG" } },
+      assignees = { { login = "FKST-Test-Bot" } },
       labels = { { name = "fkst-dev:claimed:peer" } },
     }
-    mock_ownership('[{"login":"ElonSG"}]', '[{"name":"fkst-dev:claimed:peer"}]')
+    mock_ownership('[{"login":"FKST-Test-Bot"}]', '[{"name":"fkst-dev:claimed:peer"}]')
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
@@ -175,11 +178,11 @@ return {
   end,
 
   test_claim_verification_refuses_incomplete_label_projection = function()
-    local payload = claim_payload("elonsg")
-    local issue = { assignees = { { login = "ElonSG" } } }
-    author_policy.mock_env(t)
+    local payload = claim_payload("fkst-test-bot")
+    local issue = { assignees = { { login = "FKST-Test-Bot" } } }
+    author_policy.mock_env(t, nil, { times = 2 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"ElonSG"}]}\n', stderr = "", exit_code = 0,
+      stdout = '{"assignees":[{"login":"FKST-Test-Bot"}]}\n', stderr = "", exit_code = 0,
     })
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)

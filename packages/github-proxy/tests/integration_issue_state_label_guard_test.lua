@@ -320,4 +320,20 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
+
+  test_issue_label_rejects_assignee_claim_from_different_owner = function()
+    mock_label_apply()
+    local event = label_event({ "manual-label" }, {}, {
+      claim = {
+        owner = "peer-bot",
+        source_ref = { kind = "external", ref = "owner/x#issue/42" },
+      },
+    })
+
+    local result = run_label(event, "issue-label-mismatched-assignee-owner", 42,
+      '{"assignees":[{"login":"peer-bot"}],"labels":[]}\n')
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue edit"), 0)
+  end,
 }

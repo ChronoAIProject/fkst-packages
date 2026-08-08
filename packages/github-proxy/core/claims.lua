@@ -50,15 +50,17 @@ local function claim_contract_valid(claim)
   if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
     return false
   end
+  local owner = github_author_policy.claim_owner()
+  if tostring(claim.owner) ~= owner then
+    return false
+  end
   if claim.label == nil then
     return true
   end
   if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
     return false
   end
-  local owner = github_author_policy.claim_owner()
-  return tostring(claim.owner) == owner
-    and claim.label == claim_carriers.active_label(config.claim_label_exclusive(), owner)
+  return claim.label == claim_carriers.active_label(config.claim_label_exclusive(), owner)
 end
 
 local function claim_carrier(claim)
