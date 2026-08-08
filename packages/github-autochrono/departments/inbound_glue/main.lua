@@ -5,6 +5,7 @@ local spec = {
   consumes = { "github-proxy.github_entity_changed" },
   produces = { "autochrono.issue" },
   fanout = { "github-proxy.github_entity_changed" },
+  retry = {},
   stall_window = "30s",
 }
 
