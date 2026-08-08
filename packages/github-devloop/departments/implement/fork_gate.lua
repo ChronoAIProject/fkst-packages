@@ -52,7 +52,13 @@ local function duplicate_label(repo, issue_number, ready, origin, canonical_numb
   )
 end
 
-function M.check(repo, issue_number, ready, origin, original, managed)
+function M.check(repo, issue_number, ready, current, managed)
+  local origin = forks.fork_origin_fact(core, current, managed)
+  local original = origin ~= nil and forks.rederive_issue_state(core, origin.repo, origin.issue_number) or nil
+  if original ~= nil and tostring(original.state or ""):upper() ~= "OPEN" then
+    devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "fork backing issue is closed: " .. tostring(origin.repo) .. "#" .. tostring(origin.issue_number))
+    return true
+  end
   if type(origin) ~= "table" or type(original) ~= "table" then
     return false
   end
