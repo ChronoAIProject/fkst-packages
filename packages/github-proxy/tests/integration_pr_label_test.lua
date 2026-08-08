@@ -116,7 +116,7 @@ return {
     mock_bot_env()
     mock_pr_comment_view({})
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -138,7 +138,7 @@ return {
     mock_repo_label_list({ added_label, removed_label })
     t.mock_command("gh pr edit", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -157,7 +157,7 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_current, marker_superseded })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -177,7 +177,7 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_current_timestamp, marker_newer_same_state })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -216,7 +216,7 @@ return {
     mock_repo_label_list({ "adapter-merge-ready", "adapter-reviewing" })
     t.mock_command("gh pr edit", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -255,7 +255,7 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_fix_9, marker_fix_10 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
       stderr = "",
       exit_code = 0,
     })

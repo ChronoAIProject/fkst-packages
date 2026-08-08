@@ -163,7 +163,7 @@ local function mock_runtime_and_context()
       exit_code = 0,
     })
   end
-  for _ = 1, 32 do
+  for _ = 1, 37 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
       stdout = "fkst-test-bot",
       stderr = "",
