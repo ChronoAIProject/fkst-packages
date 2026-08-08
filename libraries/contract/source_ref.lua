@@ -45,4 +45,11 @@ function R.version_order_key(version)
   return pad_numeric_runs(rest)
 end
 
+function R.same(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" then
+    return false
+  end
+  return left.kind == right.kind and left.ref == right.ref
+end
+
 return R

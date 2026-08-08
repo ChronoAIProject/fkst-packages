@@ -117,7 +117,7 @@ local function capture_first_delivery_facts(result)
   }
 end
 
-local function mock_decompose_codex(stdout)
+local function mock_decompose_codex(event, stdout)
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   author_policy.mock_env(t, {
     env = {
@@ -142,7 +142,7 @@ local function mock_decompose_codex(stdout)
     stderr = "",
     exit_code = 0,
   })
-  h.mock_decompose_context_bundle()
+  h.mock_decompose_context_bundle(event)
   t.mock_command("gh pr diff", {
     stdout = "diff --git a/file.lua b/file.lua\n+return true\n",
     stderr = "",
@@ -153,11 +153,13 @@ local function mock_decompose_codex(stdout)
     stderr = "",
     exit_code = 0,
   })
-  for _ = 1, 6 do
+  for _ = 1, 7 do
     t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })
   end
   t.mock_command("python3 -c", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("test -r", { stdout = "", stderr = "", exit_code = 0 })
+  for _ = 1, 2 do
+    t.mock_command("test -r", { stdout = "", stderr = "", exit_code = 0 })
+  end
   for _ = 1, 8 do
     t.mock_command("wc -c < ", { stdout = "1\n", stderr = "", exit_code = 0 })
   end
@@ -185,7 +187,7 @@ local function mock_first_delivery(event)
   })
   mock_pr_view(event, blocked_comments(event))
   mock_pr_view(event, blocked_comments(event))
-  mock_decompose_codex(two_issue_json)
+  mock_decompose_codex(event, two_issue_json)
   t.mock_command("gh pr comment", { stdout = "", stderr = "", exit_code = 0 })
   mock_pr_view(event, blocked_comments(event, {
     core.decomposed_comment_body(event, 2),

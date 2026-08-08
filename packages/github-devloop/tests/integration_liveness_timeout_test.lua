@@ -242,7 +242,7 @@ return {
     end
   end,
 
-  test_liveness_scan_ready_timeout_chain_redrives_not_reconciles = function()
+  test_liveness_scan_ready_timeout_without_handoff_emits_failure_without_receipt = function()
     local live_version = version .. "/timeout/ready/2"
     mock_blocked_by(42, {})
     mock_repo()
@@ -254,18 +254,17 @@ return {
     }, "2026-06-03T02:00:03Z")
     mock_empty_pr_list()
 
-    -- Owner directive (#2725): at/past the former escalation threshold a ready timeout
-    -- chain REDRIVES, climbing the next timeout-attempt marker, and NEVER produces a
-    -- terminal devloop_timeout_reconcile event; ready is never dropped to blocked. (Here
-    -- the visible markers carry no ready hand-off comment, so the redrive emits the
-    -- timeout-attempt marker without a fresh devloop_ready re-dispatch.)
+    -- A timeout is not a receipt. Without a ready hand-off the entity emits one failure
+    -- observation while the aggregate liveness tick ACKs normally.
     local scanned = run_liveness_scan("liveness-scan-ready-timeout-reconcile-chain")
     t.eq(scanned.exit_code, 0)
-    t.eq(find_raise(scanned.raises, "devloop_timeout_reconcile"), nil)
-    local attempt = find_raise(scanned.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(attempt ~= nil)
-    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-    t.is_true(attempt.payload.body:find('state="ready"', 1, true) ~= nil)
+    t.eq(find_raise(scanned.raises, "devloop_ready"), nil)
+    t.eq(find_raise(scanned.raises, "github-proxy.github_issue_comment_request"), nil)
+    local failure = find_raise(scanned.raises, ISSUE_REDRIVE_QUEUE)
+    t.is_true(failure ~= nil)
+    t.eq(failure.payload.proposal_id, proposal_id)
+    t.eq(failure.payload.failure.error_class, "timeout-redrive-stuck")
+    t.is_true(tostring(failure.payload.failure.fingerprint):match("^fp%-%d+$") ~= nil)
   end,
 
   test_liveness_scan_timeout_reconcile_no_longer_blocks_ready = function()

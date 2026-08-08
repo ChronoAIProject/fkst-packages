@@ -1,10 +1,12 @@
 local base_ids = require("devloop.base_ids")
 local child_result = require("core.child_result")
+local child_disposition_receipt = require("core.child_disposition_receipt")
+local child_transfer_chain = require("core.child_transfer_chain")
 local commands = require("devloop.commands")
+local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
 local devloop_marker_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
-local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_pr = require("devloop.parsers.pr")
 
@@ -55,7 +57,11 @@ local function pr_is_merged(current_pr)
   return type(current_pr.merged_at) == "string" and current_pr.merged_at ~= ""
 end
 
-local function production_child_status_deps(core, repo)
+local function production_child_status_deps(core, repo, opts)
+  local selected = opts or {}
+  local github = selected.github
+  local receipt_store = selected.receipt_store
+    or child_disposition_receipt.new({ git = selected.git })
   local issue_cache = {}
   local pr_cache = {}
   local impl_failure_cache = {}
@@ -63,7 +69,19 @@ local function production_child_status_deps(core, repo)
   local function issue(child_ref)
     local number = tostring(child_ref.issue_number or child_ref.number or "")
     if issue_cache[number] == nil then
-      issue_cache[number] = child_issue_view(core, repo, number)
+      if type(github) == "table" and type(github.read_issue) == "function" then
+        issue_cache[number] = github.read_issue(base_ids.issue_source_ref(repo, number), {
+          force_fresh = true,
+          consumer = "github-devloop-workflow:child-status",
+          timeout = M.ISSUE_VIEW_TIMEOUT_SECONDS,
+        })
+        issue_cache[number].repo = repo
+        issue_cache[number].number = number
+        issue_cache[number].proposal_id = base_ids.proposal_id(repo, number)
+      else
+        issue_cache[number] = child_issue_view(core, repo, number)
+        issue_cache[number].source_ref = base_ids.issue_source_ref(repo, number)
+      end
     end
     return issue_cache[number]
   end
@@ -101,7 +119,7 @@ local function production_child_status_deps(core, repo)
     return impl_failure_cache[number]
   end
 
-  return {
+  local child_deps = {
     has_merged_marker = function(child_ref)
       local link = linked_pr(child_ref)
       if link == nil then
@@ -173,6 +191,48 @@ local function production_child_status_deps(core, repo)
       return current.fact and current.fact.reason or nil
     end,
   }
+
+  local resolver = child_transfer_chain.new({
+    receipt_store = receipt_store,
+    read_issue = function(source_ref)
+      local source_repo, issue_number = devloop_base.parse_issue_source_ref(source_ref)
+      return issue({
+        kind = "issue",
+        repo = source_repo,
+        issue_number = tostring(issue_number),
+        proposal_id = base_ids.proposal_id(source_repo, issue_number),
+        source_ref = source_ref,
+      })
+    end,
+  })
+
+  local function resolved_tip(child_ref)
+    if type(child_ref.origin) ~= "string"
+      or type(child_ref.blueprint_digest) ~= "string"
+      or type(child_ref.slot) ~= "string" then
+      return child_ref
+    end
+    local chain = resolver.resolve({
+      repo = repo,
+      origin = child_ref.origin,
+      blueprint_digest = child_ref.blueprint_digest,
+      slot = child_ref.slot,
+      initial_source_ref = child_ref.source_ref,
+    })
+    local _, tip_issue = devloop_base.parse_issue_source_ref(chain.tip_source_ref)
+    return {
+      kind = "issue",
+      repo = repo,
+      issue_number = tostring(tip_issue),
+      proposal_id = base_ids.proposal_id(repo, tip_issue),
+      source_ref = chain.tip_source_ref,
+      origin = child_ref.origin,
+      blueprint_digest = child_ref.blueprint_digest,
+      slot = child_ref.slot,
+    }
+  end
+
+  return child_deps, resolved_tip
 end
 
 function M.reader(core, deps, repo)
@@ -181,9 +241,9 @@ function M.reader(core, deps, repo)
       return deps.child_status(core, child_ref)
     end
   end
-  local child_deps = production_child_status_deps(core, repo)
+  local child_deps, resolved_tip = production_child_status_deps(core, repo, deps)
   return function(child_ref)
-    return child_result.child_result_status(child_deps, child_ref)
+    return child_result.child_result_status(child_deps, resolved_tip(child_ref))
   end
 end
 

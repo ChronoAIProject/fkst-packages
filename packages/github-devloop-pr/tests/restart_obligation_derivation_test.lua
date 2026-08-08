@@ -257,7 +257,7 @@ return {
       end
     end
 
-    t.eq(participating_count, 17)
+    t.eq(participating_count, 18)
     t.eq(#result.obligations, participating_count)
     t.eq(#result.unmapped, 0)
   end,

@@ -401,7 +401,7 @@ local function make_department(ports)
   return department
 end
 
-local M = ports_seam.install(make_department, github_factory.github_options(exec_argv))
+local M = ports_seam.install(make_department, github_factory.github_options(exec_sync))
 _G.pipeline = M.pipeline
 
 return M
