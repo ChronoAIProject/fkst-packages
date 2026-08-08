@@ -264,14 +264,17 @@ return {
     local branch = devloop_base.implement_branch("owner/repo", 42, ready_payload.dedup_key)
     local run_opts = opts("observe-issue-ready-self-heal-advanced")
     local exec_ref = core.implement_exec_ref(event.proposal_id, ready_payload.dedup_key)
-    codex_status.seed_implement_codex_run(run_opts, event.proposal_id, ready_payload.dedup_key)
+    local live_run = codex_status.implement_codex_run(event.proposal_id, ready_payload.dedup_key)
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", {
       h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
       fresh_state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
     })
 
-    local observed = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }), run_opts)
+    local observed
+    codex_status.with_live_codex_runs(run_opts, { live_run }, function()
+      observed = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }), run_opts)
+    end)
     t.eq(observed.exit_code, 0)
     t.eq(find_raise(observed.raises, "devloop_ready"), nil)
     t.eq(count_calls("--json body"), 0)
