@@ -8,6 +8,7 @@
 -- made detect() throw on such a body, breaking normal implement.
 local t = fkst.test
 local bridge = require("contract.external_pr_bridge")
+local devloop_base = require("devloop.base")
 local detect_bridge = require("departments.implement.external_pr_bridge")
 
 local managed = { ["fkst-test-bot"] = true }
@@ -73,6 +74,18 @@ return {
   test_detect_returns_marker_for_complete_trusted_marker = function()
     local current = { body = complete_marker_body(), author_login = "fkst-test-bot" }
     local marker = detect_bridge.detect(current, "owner/repo", managed)
+    t.eq(marker.repo, "owner/repo")
+    t.eq(marker.pr_number, 7)
+  end,
+
+  test_detect_accepts_app_author_when_managed_set_omits_self = function()
+    devloop_base.configure_trusted_bot_login("fkst-test-bot")
+    local current = { body = complete_marker_body(), author_login = "app/fkst-test-bot" }
+    local ok, marker = pcall(detect_bridge.detect, current, "owner/repo", {})
+    devloop_base.configure_trusted_bot_login(nil)
+    if not ok then
+      error(marker, 0)
+    end
     t.eq(marker.repo, "owner/repo")
     t.eq(marker.pr_number, 7)
   end,

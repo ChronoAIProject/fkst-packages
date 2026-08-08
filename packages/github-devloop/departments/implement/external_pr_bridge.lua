@@ -3,6 +3,7 @@ local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local git_adapter = require("forge.git")
+local forge_strings = require("forge.strings")
 local m_claims = require("devloop.claims")
 local pr_safety = require("devloop.pr_safety")
 
@@ -31,7 +32,7 @@ local function trusted_issue_author(current, managed)
   local trusted = devloop_base.trusted_bot_login()
   return trusted ~= nil
     and trusted ~= ""
-    and devloop_base.strip_bot_login_suffix(author) == tostring(trusted)
+    and forge_strings.canonical_login(author) == forge_strings.canonical_login(trusted)
 end
 
 function M.detect(current, repo, managed)

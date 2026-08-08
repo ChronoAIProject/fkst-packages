@@ -1,7 +1,10 @@
 local actions = require("core.materialize.actions")
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local decompose_lib = require("devloop.decompose")
+local github_factory = require("devloop.github_factory")
 local marker = require("core.marker")
+local strings = require("contract.strings")
 local t = fkst.test
 
 local repo = "owner/repo"
@@ -216,6 +219,39 @@ return {
     local spec = actions.spec_from_created_issue(issue, origin, "d-3588118930", "implement", entry().child_dedup)
     t.eq(spec.title, "Implement the website feature")
     t.eq(spec.body, "Implement the requested page.")
+  end,
+
+  test_existing_child_search_accepts_app_authored_child = function()
+    local child_dedup = entry().child_dedup
+    local body = "Child issue body.\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
+    devloop_base.configure_trusted_bot_login("fkst-test-bot")
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_MANAGED_BOT_LOGINS"), {
+      stdout = "fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_AUTHORIZED_LOGINS"), {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    github_factory.reset_production_handle_for_tests()
+    t.mock_command("gh issue list", {
+      stdout = '[{"number":108,"title":"Child issue","state":"OPEN","author":{"login":"app/fkst-test-bot"},"body":'
+        .. strings.json_string(body) .. ',"url":"https://example.test/issues/108"}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local ok, found = pcall(actions.find_created_issue_by_dedup, repo, child_dedup)
+    github_factory.reset_production_handle_for_tests()
+    devloop_base.configure_trusted_bot_login(nil)
+    if not ok then
+      error(found, 0)
+    end
+
+    t.eq(found.number, "108")
+    t.eq(found.author_login, "fkst-test-bot")
   end,
 
   test_issue_create_preserves_highest_valid_parent_decompose_lineage = function()
