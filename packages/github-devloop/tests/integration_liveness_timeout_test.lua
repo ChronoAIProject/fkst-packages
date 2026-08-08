@@ -353,13 +353,16 @@ return {
       recent_state_comment("implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201), exec_ref),
     }
-    codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
+    local release_codex_run = codex_status.seed_implement_codex_run(
+      run_opts, event.proposal_id, event.dedup_key
+    )
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     h.mock_issue_implement({ "fkst-dev:enabled", "fkst-dev:implementing" }, stale)
     mock_empty_pr_list()
 
     local scanned = run_liveness_scan("liveness-scan-live-codex-run-drops-redrive", run_opts)
+    release_codex_run()
     t.eq(scanned.exit_code, 0)
     t.eq(find_raise(scanned.raises, "devloop_ready"), nil)
     t.eq(find_raise(scanned.raises, "devloop_timeout_reconcile"), nil)

@@ -275,13 +275,16 @@ return {
     local event = ready()
     local run_opts = opts("implement-combined-marker-redelivery")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
-    codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
+    local release_codex_run = codex_status.seed_implement_codex_run(
+      run_opts, event.proposal_id, event.dedup_key
+    )
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, now(), exec_ref),
     })
 
     local result = run_implement(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
@@ -293,7 +296,9 @@ return {
     local event = ready()
     local run_opts = opts("implement-live-run-no-marker-redelivery")
     local branch = deterministic_branch_for(event)
-    codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
+    local release_codex_run = codex_status.seed_implement_codex_run(
+      run_opts, event.proposal_id, event.dedup_key
+    )
     mock_issue_implement({ "fkst-dev:ready" }, {
       h.projected_state_comment(event.proposal_id, "ready", event.dedup_key),
     })
@@ -301,6 +306,7 @@ return {
     mock_implement_codex(0, "duplicate implementation should not spawn")
 
     local result = run_implement(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)

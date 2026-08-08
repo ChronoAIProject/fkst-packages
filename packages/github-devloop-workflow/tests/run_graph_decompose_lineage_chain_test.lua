@@ -70,7 +70,8 @@ local function mock_claim_and_reads(materialized_body, payload)
     number = 43,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author", 30)
+    labels = { "fkst-dev:blocked" },
+  }, "assignees,author,labels", 30)
   local issue_fields = {
     repo = repo,
     number = 43,
@@ -81,12 +82,13 @@ local function mock_claim_and_reads(materialized_body, payload)
   }
   entity_read_mocks.mock_issue_view_selector(t, issue_fields, "title,body,labels,comments,author")
   mock_command_times(
-    "gh issue view 43 --repo owner/repo --json 'assignees,author'",
+    "gh issue view 43 --repo owner/repo --json 'assignees,author,labels'",
     entity_read_mocks.issue_view_stdout({
       repo = repo,
       number = 43,
       assignees = { "fkst-test-bot" },
       author_login = "fkst-test-bot",
+      labels = { "fkst-dev:blocked" },
     }),
     30
   )

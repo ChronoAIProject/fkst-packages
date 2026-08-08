@@ -658,6 +658,7 @@ return {
       title = "Fix parser",
       body = "Expected behavior",
     }, nil, nil, nil, generic_implementation_result_context)
+    t.eq(require("contract.sha256").hex(prompt), "5df806db725a7eebc27aa952a212ff8b1c44f2c47ce3fce82821b43dd306794f")
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Implement EXACTLY within this", 1, true) ~= nil)
     t.is_true(prompt:find("Issue title brief:\nFix parser", 1, true) ~= nil)

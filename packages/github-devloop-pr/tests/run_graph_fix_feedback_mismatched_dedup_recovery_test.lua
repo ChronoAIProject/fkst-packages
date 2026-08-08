@@ -103,7 +103,7 @@ local function mock_replay_entry(event, branch, comments)
     number = issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author", 4)
+  }, "assignees,author,labels", 4)
 end
 
 local function initial_event()

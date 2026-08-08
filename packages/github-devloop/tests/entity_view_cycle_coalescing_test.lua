@@ -112,6 +112,7 @@ end
 return {
   test_liveness_cycle_over_k_entities_bounds_comment_stream_reads_across_departments = function()
     local run_opts = h.opts("entity-view-cycle-coalescing-k")
+    local release_codex_runs = {}
     local numbers = { 42, 43, 44 }
     local delegated_issue_number = 44
     local delegated_pr_number = 144
@@ -151,7 +152,9 @@ return {
         assignees = { "fkst-test-bot" },
         times = 2,
       })
-      codex_status.seed_role_codex_run(run_opts, "consensus", issue_proposal, version .. "-" .. tostring(number))
+      table.insert(release_codex_runs, codex_status.seed_role_codex_run(
+        run_opts, "consensus", issue_proposal, version .. "-" .. tostring(number)
+      ))
     end
     entity_read_mocks.mock_pr_read_forms(t, {
       repo = repo,
@@ -189,6 +192,9 @@ return {
       local observed = run_observe_issue(raised.payload, run_opts)
       t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
     end
+    for _, release_codex_run in ipairs(release_codex_runs) do
+      release_codex_run()
+    end
 
     t.eq(count_comment_stream_reads(), #numbers + 1)
   end,
@@ -198,7 +204,9 @@ return {
     mock_repo_env()
     mock_issue_list()
     mock_issue_state()
-    codex_status.seed_role_codex_run(run_opts, "consensus", proposal_id, version)
+    local release_codex_run = codex_status.seed_role_codex_run(
+      run_opts, "consensus", proposal_id, version
+    )
 
     local scanned = run_liveness_scan(run_opts)
     t.eq(scanned.exit_code, 0, tostring(scanned.stderr or ""))
@@ -211,6 +219,7 @@ return {
     t.eq(count_comment_stream_reads(issue_number), 1)
 
     local observed = run_observe_issue(raised.payload, run_opts)
+    release_codex_run()
     t.eq(observed.exit_code, 0, tostring(observed.stderr or ""))
     t.eq(count_comment_stream_reads(issue_number), 1)
   end,
