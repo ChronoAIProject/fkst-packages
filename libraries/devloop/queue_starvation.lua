@@ -386,7 +386,13 @@ function C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
 end
 
 function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_seconds)
-  local queue_head = merge_queue_head_entity(M, repo, now_seconds)
+  local ok, queue_head = pcall(function()
+    return merge_queue_head_entity(M, repo, now_seconds)
+  end)
+  if not ok then
+    log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=merge-queue-source-failed")
+    return { action = "no-op", reason = "merge-queue-source-failed" }
+  end
   if queue_head == nil then
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=no-stale-merge-ready")
     return { action = "no-op", reason = "no-stale-merge-ready" }
