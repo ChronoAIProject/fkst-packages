@@ -31,59 +31,13 @@ local devloop_logging = require("devloop.logging")
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local config = require("devloop.config")
+local testing = require("testkit_internal.testing")
 
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
-end
-
-local function nonce()
-  return tostring({}):gsub("[^%w._-]", "_")
-end
-
-local function json_string(value)
-  return tostring(value)
-    :gsub("\\", "\\\\")
-    :gsub('"', '\\"')
-    :gsub("\n", "\\n")
-end
-
-local function json_value(value)
-  if type(value) == "number" then
-    return tostring(value)
-  end
-  if type(value) == "boolean" then
-    return value and "true" or "false"
-  end
-  if value == nil then
-    return "null"
-  end
-  return '"' .. json_string(value) .. '"'
-end
-
-local function json_object(record)
-  local parts = {}
-  for key, value in pairs(record or {}) do
-    table.insert(parts, '"' .. json_string(key) .. '":' .. json_value(value))
-  end
-  table.sort(parts)
-  return "{" .. table.concat(parts, ",") .. "}"
-end
-
-local function seed_codex_run(run_opts, record)
-  local root = run_opts and run_opts.env and run_opts.env.FKST_RUNTIME_LOG_DIR
-  if root == nil or root == "" then
-    error("github-devloop-pr test: FKST_RUNTIME_LOG_DIR is required to seed codex status")
-  end
-  local dir = root .. "/codex"
-  os.execute("mkdir -p " .. string.format("%q", dir))
-  local path = dir .. "/" .. tostring(record.run_id or nonce()) .. ".log"
-  local file = assert(io.open(path, "a"))
-  file:write("CODEX_STATUS:" .. json_object(record) .. "\n")
-  file:close()
-  return path
 end
 
 local function live_run_timing()
@@ -96,7 +50,6 @@ end
 local function seed_role_codex_run(run_opts, role, run_proposal_id, dedup_key, extra)
   local started_at, started_at_ms, lease_expires_at_ms = live_run_timing()
   local record = {
-    run_id = nonce(),
     role = role,
     dept = role,
     proposal_id = run_proposal_id,
@@ -112,8 +65,7 @@ local function seed_role_codex_run(run_opts, role, run_proposal_id, dedup_key, e
   for key, value in pairs(extra or {}) do
     record[key] = value
   end
-  seed_codex_run(run_opts, record)
-  return record
+  return testing.seed_running_codex_status(run_opts, record)
 end
 
 local function trusted_comment(body, created_at)
@@ -499,12 +451,6 @@ return {
   repo = repo,
   proposal_id = proposal_id,
   restart_transition_row = restart_transition_row,
-  nonce = nonce,
-  json_string = json_string,
-  json_value = json_value,
-  json_object = json_object,
-  seed_codex_run = seed_codex_run,
-  live_run_timing = live_run_timing,
   seed_role_codex_run = seed_role_codex_run,
   trusted_comment = trusted_comment,
   recent_comment = recent_comment,
