@@ -34,6 +34,14 @@ local function is_ancestor_argv(maybe_ancestor_sha, descendant_sha)
   return { "git", "merge-base", "--is-ancestor", tostring(maybe_ancestor_sha), tostring(descendant_sha) }
 end
 
+local function is_ancestor_worktree_branch_argv(worktree, maybe_ancestor_sha, branch)
+  return {
+    "git", "-C", tostring(worktree), "merge-base", "--is-ancestor",
+    gitref.require_safe_sha("ancestor sha", maybe_ancestor_sha, "forge.git"),
+    "refs/heads/" .. gitref.require_safe_branch("descendant branch", branch, "forge.git"),
+  }
+end
+
 local function fetch_branch_argv(remote, branch)
   return { "git", "fetch", tostring(remote), tostring(branch) }
 end
@@ -281,6 +289,15 @@ local function reset_hard_branch_argv(worktree, branch)
   return worktree_argv(worktree, "reset", "--hard", "refs/heads/" .. tostring(branch))
 end
 
+local function reset_hard_sha_argv(worktree, sha)
+  return worktree_argv(
+    worktree,
+    "reset",
+    "--hard",
+    gitref.require_safe_sha("reset sha", sha, "forge.git")
+  )
+end
+
 local function switch_branch_argv(worktree, branch)
   return worktree_argv(worktree, "switch", tostring(branch))
 end
@@ -375,6 +392,15 @@ function M.install(handle)
 
   function handle.is_ancestor(maybe_ancestor_sha, descendant_sha, timeout)
     return exec_result(handle, is_ancestor_argv(maybe_ancestor_sha, descendant_sha), timeout, "git merge-base --is-ancestor")
+  end
+
+  function handle.is_ancestor_worktree_branch(worktree, maybe_ancestor_sha, branch, timeout)
+    return exec_result(
+      handle,
+      is_ancestor_worktree_branch_argv(worktree, maybe_ancestor_sha, branch),
+      timeout,
+      "git merge-base --is-ancestor worktree branch"
+    )
   end
 
   function handle.fetch_branch(remote, branch, timeout)
@@ -634,6 +660,10 @@ function M.install(handle)
 
   function handle.reset_hard_branch(worktree, branch, timeout)
     return exec_result(handle, reset_hard_branch_argv(worktree, branch), timeout, "git reset --hard")
+  end
+
+  function handle.reset_hard_sha(worktree, sha, timeout)
+    return exec_result(handle, reset_hard_sha_argv(worktree, sha), timeout, "git reset --hard")
   end
 
   function handle.switch_branch(worktree, branch, timeout)
