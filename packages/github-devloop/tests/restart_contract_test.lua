@@ -541,6 +541,57 @@ return {
       t.eq(classified.outcome, "arbitrary-observability-text")
   end,
 
+  test_timeout_stuck_fails_loud_without_attempt_receipt = function()
+    local row = table_by_state().thinking
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local state = {
+      state = "thinking",
+      version = version,
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local facts = {
+      proposal_id = state.proposal_id,
+      source_ref = source_ref,
+      current = { comments = {} },
+      fresh_current_state = state,
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+    }
+    local original_replay = replayer.replay_from_table_classified
+    local original_log_raise = devloop_logging.log_raise
+    local original_codex_runs = fkst.codex_runs
+    local raised = {}
+    replayer.replay_from_table_classified = function()
+      return {
+        kind = "stuck",
+        outcome = "skip-foreign(payload)",
+        reason = "cannot rebuild thinking replay proposal",
+      }
+    end
+    devloop_logging.log_raise = function(_, _, queue, payload)
+      table.insert(raised, { queue = queue, payload = payload })
+    end
+    fkst.codex_runs = function()
+      return { running = {}, recent = {} }
+    end
+
+    local ok, err = pcall(function()
+      core.maybe_timeout_redrive_from_table("liveness_scan", {
+        repo = "owner/repo",
+        number = 42,
+        source_ref = source_ref,
+      }, state, row, facts)
+    end)
+
+    replayer.replay_from_table_classified = original_replay
+    devloop_logging.log_raise = original_log_raise
+    fkst.codex_runs = original_codex_runs
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
+    t.eq(#raised, 0)
+  end,
+
   test_live_thinking_codex_run_defers_timeout_count = function()
     local row = table_by_state().thinking
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"

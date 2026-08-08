@@ -241,31 +241,16 @@ local function implementing_mismatch_is_durable(current, proposal_id, state)
     or m_facts.implementing_fact(current and current.comments, proposal_id, version) ~= nil
 end
 
-local function merge_integration_for_implementation(worktree, integration_branch, base_head)
-  local merge_result = devloop_commands.git_worktree_merge_no_edit(worktree, base_head, 120)
-  if merge_result.exit_code == 0 then return true end
-  local unmerged_result = implement_caps.git_handle.unmerged_paths(worktree, 30)
-  if unmerged_result.exit_code ~= 0 then
-    error("github-devloop: unmerged-path-check-failed: git unmerged path check failed: " .. tostring(unmerged_result.stderr))
-  end
-  if tostring(unmerged_result.stdout or "") == "" then
-    error("github-devloop: integration-merge-failed: git integration merge failed: " .. tostring(merge_result.stderr))
-  end
-  devloop_logging.log_line("info", "implement", "merge-target", "MERGE_SKEW", {
-    "integration_branch=" .. tostring(integration_branch),
-    "integration_sha=" .. tostring(base_head),
-    "reason=integration merge requires codex conflict resolution",
-  })
-  return false
-end
-
 local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key)
   local worktree = bridge_marker ~= nil and completed_result == nil
     and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
     or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local codex_started_at, exec_ref = now(), core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
-  if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil end
-  local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
+  local merge_clean = worktree_lifecycle.merge_integration(
+    implement_caps.git_handle, worktree, branches.integration, base_head)
+  completed_result = completed_result ~= nil and merge_clean
+    and result_checkpoint.reseal(implement_caps.git_handle, worktree, completed_result, ready.dedup_key) or nil
+  if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil, completed_result end
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
   cache_preparation.run(worktree)
@@ -276,7 +261,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
     repo = repo, issue_number = issue_number, ready = ready,
     receiver_state = receiver_state, lock_key = lock_key,
   })
-  return worktree, codex_started_at, exec_ref, receiver_authorization
+  return worktree, codex_started_at, exec_ref, receiver_authorization, completed_result
 end
 
 local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree,
@@ -861,7 +846,7 @@ local function process_ready_event(event)
       if attempt_plan.base_head == nil then
         attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
       end
-      worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
+      worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,

@@ -174,6 +174,29 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_waiter_reuses_binary_produced_while_lock_is_held(self) -> None:
+        h = BootstrapHarness("dev")
+        try:
+            first = h.bootstrap()
+            self.assertEqual(first.returncode, 0, first.stderr)
+            bin_path = first.stdout.strip()
+            checkout_dir = bin_path[: -len("/target/debug/fkst-framework")]
+            lock_dir = Path(checkout_dir + ".lock")
+            # Simulate a concurrent bootstrap holding the lock while the binary
+            # it produces is already on disk.
+            lock_dir.mkdir(parents=True)
+            self.log_truncate(h.log)
+
+            waiter = h.bootstrap({"FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT": "2"})
+            self.assertEqual(waiter.returncode, 0, waiter.stderr)
+            self.assertEqual(waiter.stdout.strip(), bin_path)
+            self.assertNotIn("timed out waiting for fkst-framework bootstrap lock", waiter.stderr)
+            self.assertEqual(h.calls(), "")
+            # The waiter must not steal or remove the holder's lock.
+            self.assertTrue(lock_dir.is_dir())
+        finally:
+            h.close()
+
     def test_missing_git_reports_narrow_tool_error(self) -> None:
         h = BootstrapHarness("dev")
         try:

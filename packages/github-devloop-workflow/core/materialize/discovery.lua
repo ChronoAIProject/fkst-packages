@@ -100,6 +100,13 @@ function M.read_issue(core, deps, repo, issue_number)
   if type(deps.read_issue) == "function" then
     return deps.read_issue(core, repo, issue_number)
   end
+  if type(deps.github) == "table" and type(deps.github.read_issue) == "function" then
+    return deps.github.read_issue(M.safe_source_ref(repo, issue_number), {
+      force_fresh = true,
+      consumer = "github-devloop-workflow:materialization-origin",
+      timeout = M.ISSUE_VIEW_TIMEOUT_SECONDS,
+    })
+  end
   local result = commands.gh_issue_view(
     repo,
     issue_number,

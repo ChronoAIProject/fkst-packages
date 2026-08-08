@@ -25,6 +25,7 @@ local devloop_commands = require("devloop.commands")
 local observe_pr_caps = require("observe_pr_department_caps")
 local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local payloads_builders = require("devloop.payloads.builders")
+local liveness_scan = require("devloop.liveness_scan")
 
 local M = {}
 local restart_transition_table = core.restart_transition_table
@@ -857,9 +858,14 @@ local function reconcile_pr_event(event)
   })
 end
 
+local function reconcile_liveness_pr_event(event)
+  liveness_scan.liveness_scan_fail_observe_payload(event and event.payload)
+  return reconcile_pr_event(event)
+end
+
 return saga.department(spec, { done = function() return false end, act = function(event)
   queue.dispatch_consumed_queue("observe_pr", spec, event, {
     ["github-proxy.github_entity_changed"] = reconcile_pr_event,
-    devloop_observe_pr = reconcile_pr_event,
+    devloop_observe_pr = reconcile_liveness_pr_event,
   }, "github-devloop-pr")
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_pr" })

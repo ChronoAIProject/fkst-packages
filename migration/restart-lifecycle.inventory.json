@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "artifact_sha256": "a97bea813106abb3ed59cbb5b7d18740e1b5d15839e47dd2afd6b4d1d9bd5b97",
+=======
+  "artifact_sha256": "069712d954192be63b85a2957cd48ffb4f5075d01fc2178e0f5d476b7b3637b7",
+>>>>>>> 2bc1b28c631420d7205af46870bf31ba6d567472
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -35720,14 +35724,14 @@
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "comment:pr:review-meta-result",
-            "family": "state:v1/fixing|blocked+review-meta:v1",
+            "family": "state:v1/fixing|reviewing|blocked+review-meta:v1",
             "sink_kind": "comment"
           },
           {
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "label:issue:review-meta-result",
-            "family": "state-label:fixing|blocked;dedup=review-meta/label",
+            "family": "state-label:fixing|reviewing|blocked;dedup=review-meta/label",
             "sink_kind": "label"
           },
           {

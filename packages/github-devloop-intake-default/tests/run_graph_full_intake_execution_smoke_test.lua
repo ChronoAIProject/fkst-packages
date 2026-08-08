@@ -19,6 +19,8 @@ local decision_version = devloop_base.intake_decision_dedup_key(proposal_id, {
   title = title,
   body = body,
 })
+local context_runtime_root = "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime"
+local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.full"
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 local consensus_angles = {
@@ -70,7 +72,7 @@ local function mock_env()
   end
   for _ = 1, 36 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime",
+      stdout = context_runtime_root,
       stderr = "",
       exit_code = 0,
     })
@@ -126,7 +128,7 @@ local function mock_context_bundle()
   context_fixtures.materialize_context_bundle({
     proposal_id = proposal_id,
     dedup_key = decision_version,
-  }, "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime")
+  }, context_runtime_root, context_tmp_dir)
   for _ = 1, 6 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
     t.mock_command("test -e", { stdout = "", stderr = "", exit_code = 1 })
@@ -134,7 +136,7 @@ local function mock_context_bundle()
   for _ = 1, 2 do
     t.mock_command("install -d -m 0755", ok)
     t.mock_command("mktemp -d", {
-      stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime/context/.bundle-tmp.full\n",
+      stdout = context_tmp_dir .. "\n",
       stderr = "",
       exit_code = 0,
     })
