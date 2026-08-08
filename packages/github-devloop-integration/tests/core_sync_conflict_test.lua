@@ -153,6 +153,7 @@ return {
       integration_sha = "123456abcdef",
     })
 
+    t.eq(require("contract.sha256").hex(prompt), "d2d030bca6250f11038b0a459e08aba7b8ff8380e871e98ce1d90d88f2fdf709")
     assert_actor_preamble_slots(prompt)
     t.is_nil(prompt:find("COMPLETE GitHub comment stream of the subject issue/PR", 1, true))
     t.is_nil(prompt:find("gh issue view --comments / gh pr view --comments", 1, true))
