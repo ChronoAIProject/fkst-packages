@@ -56,7 +56,15 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
 end
 
 function C.claimed_label()
-  return claim_carriers.active_label(config.claim_label_exclusive(), C.claim_owner())
+  return C.claimed_label_spec().name
+end
+
+function C.claimed_label_spec()
+  return claim_carriers.active_label_spec(config.claim_label_exclusive(), C.claim_owner())
+end
+
+function C.assert_claim_label_binding(existing, desired)
+  claim_carriers.assert_owner_binding(existing, desired)
 end
 
 local function merge_managed_bot_logins(managed, observed)

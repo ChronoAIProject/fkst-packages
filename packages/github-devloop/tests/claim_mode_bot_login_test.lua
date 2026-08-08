@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
 local h = require("tests.devloop_core_helpers")
@@ -107,8 +108,8 @@ local function ownership_json(logins, author_login, labels)
 end
 
 local bare_claimed_label = "fkst-dev:claimed"
-local derived_claimed_label = "fkst-dev:claimed:fkst-test-bot"
-local peer_claimed_label = "fkst-dev:claimed:peer-bot"
+local derived_claimed_label = claim_carriers.derived_label("fkst-test-bot")
+local peer_claimed_label = claim_carriers.derived_label("peer-bot")
 
 return {
   -- (a) [bot] normalization on BOTH sides of the author-vs-bot comparison.
