@@ -12,6 +12,7 @@ local inventories = {
   operator_reentry = require("core.restart.operator_reentry_inventory"),
 }
 local devloop_logging = require("devloop.logging")
+local devloop_commands = require("devloop.commands")
 local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
@@ -50,7 +51,7 @@ local function observe_department(run)
   local original_decide_transition = restart_effects.decide_transition
   local original_mint_grant = restart_effects.mint_grant
   local original_verify_grant = restart_effects.verify_grant
-  local original_pr_comment = core.gh_pr_comment
+  local original_pr_comment = devloop_commands.gh_pr_comment
   local original_verified_merge = core.run_verified_pr_merge
 
   restart_effects.decide_transition = function(snapshot, intent)
@@ -112,7 +113,7 @@ local function observe_department(run)
     })
     return original_merge_ready_fact(comments, proposal_id, version, pr_number, head_sha)
   end
-  core.gh_pr_comment = function(repo, pr_number, body_path, timeout)
+  devloop_commands.gh_pr_comment = function(repo, pr_number, body_path, timeout)
     table.insert(timeline, { kind = "synchronous-comment" })
     table.insert(admission_writes, {
       queue = COMMENT_EFFECT_ID,
@@ -128,7 +129,7 @@ local function observe_department(run)
 
   local ok, result = pcall(run)
   core.run_verified_pr_merge = original_verified_merge
-  core.gh_pr_comment = original_pr_comment
+  devloop_commands.gh_pr_comment = original_pr_comment
   m_facts.merge_ready_fact = original_merge_ready_fact
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.verify_grant = original_verify_grant
