@@ -19,6 +19,7 @@ import check_repo_service_locator
 import check_repo_ambient_surface
 import check_repo_core_param
 import check_repo_hidden_state
+import check_repo_gh_egress
 import check_repo_gh_handle_construction
 import check_repo_intake_default_surface
 import check_repo_intake_routing
@@ -267,6 +268,8 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         c.add(violations, "G-SAGA-SPLIT", message)
     for message in check_repo_hidden_state.repository_messages(root, config.allowlist_dir, config.is_own_repo):
         c.add(violations, "G-HIDDEN-STATE", message)
+    for message in check_repo_gh_egress.repository_messages(root):
+        c.add(violations, "G-GH-EGRESS", message)
     for message in check_repo_gh_handle_construction.repository_messages(root, enforce_base=True):
         c.add(violations, "G-GH-HANDLE-CONSTRUCTION", message)
     for message in check_repo_intake_default_surface.repository_messages(root):
