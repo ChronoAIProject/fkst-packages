@@ -118,7 +118,7 @@ end
 local function mock_claimed_issue_for_event(event)
   local entity = entity_lib.parse_entity_proposal_id(event.proposal_id)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", entity.issue_number), {
-    stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

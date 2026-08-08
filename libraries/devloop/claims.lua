@@ -4,7 +4,6 @@ local strings = require("contract.strings")
 local C = {}
 local github_handle = nil
 local github_factory = require("devloop.github_factory")
-local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
 local claim_labels = require("devloop.claim_labels")
@@ -34,7 +33,6 @@ local function github()
 end
 
 C.issue_author_login = parsers_shared.issue_author_login
-C.assignee_logins = parsers_shared.assignee_logins
 C.claim_owner = github_author_policy.claim_owner
 C.managed_bot_logins = github_author_policy.managed_bot_logins
 C.is_managed_bot_login = github_author_policy.is_managed_bot_login
@@ -68,37 +66,15 @@ local function merge_managed_bot_logins(managed, observed)
   end
 end
 
-function C.claim_mode_active()
-  return config.claim_mode()
-end
-
--- Label mode isolates the active family label while respecting managed peer assignees.
-function C.issue_claim_state(assignees, owner, labels)
-  if config.claim_mode() == "label" then
-    local managed = C.managed_bot_logins()
-    for _, login in ipairs(C.assignee_logins(assignees)) do
-      if C.is_managed_bot_login(login, managed)
-        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
-        return "other"
-      end
-    end
-    return claim_labels.classify(labels, C.claimed_label())
-  end
-  local logins = C.assignee_logins(assignees)
-  if #logins == 0 then
-    return "unassigned"
-  end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
-    return "self"
-  end
-  return "other"
+function C.issue_claim_state(labels)
+  return claim_labels.classify(labels, C.claimed_label())
 end
 
 local function issue_ownership_decision(ownership, owner)
   if type(ownership) ~= "table" then
     return { owned = false, claim_state = nil }
   end
-  local claim_state = C.issue_claim_state(ownership.assignees, owner, ownership.labels)
+  local claim_state = C.issue_claim_state(ownership.labels)
   if claim_state == "self" then
     return { owned = true, claim_state = claim_state }
   end
@@ -117,11 +93,6 @@ function C.is_self_owned_issue(ownership, owner)
   return issue_ownership_decision(ownership, owner).owned
 end
 
-function C.read_current_issue_assignees(repo, issue_number)
-  local ownership = C.read_current_issue_ownership(repo, issue_number)
-  return C.assignee_logins(ownership and ownership.assignees)
-end
-
 local function issue_labels(decoded)
   return github_view.label_names(decoded and decoded.labels)
 end
@@ -130,46 +101,21 @@ function C.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local fields = "assignees,author"
-  if config.claim_mode() == "label" then
-    fields = "assignees,author,labels"
-  end
-  local view = github().issue_view(repo, issue_number, fields, 30)
+  local view = github().issue_view(repo, issue_number, "labels,author", 30)
   local decoded = json.decode(view.stdout or "{}")
   return {
-    assignees = C.assignee_logins(decoded.assignees),
     author_login = C.issue_author_login(decoded),
     labels = issue_labels(decoded),
   }
 end
 
-function C.verify_issue_claim(repo, issue_number, owner)
+function C.verify_issue_claim(repo, issue_number)
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  return C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
+  return C.issue_claim_state(ownership and ownership.labels) == "self"
 end
 
 local function log_claim(dept, proposal_id, action, reason)
   devloop_logging.log_cas_decision(dept, proposal_id, { state = nil, version = nil }, "claim", "claim", action, reason)
-end
-
-local function log_terminal_skip(dept, proposal_id, queue, source_ref, error_class, why)
-  local fields = error_facts.error_fact_fields(error_class, queue, dept, why, {
-    source_ref = source_ref,
-    terminal = true,
-  })
-  table.insert(fields, "WHY=" .. error_facts.one_line(why))
-  devloop_logging.log_line("warn", dept, proposal_id, "SKIP", fields)
-end
-
-local function is_assign_permission_denied(err)
-  return type(err) == "table" and err.class == "gh-issue-assign-permission-denied"
-end
-
-local function issue_source_ref(repo, issue_number)
-  return {
-    kind = "external",
-    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
-  }
 end
 
 function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id)
@@ -179,15 +125,7 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local owner = C.claim_owner()
   local ownership = nil
-  local current_usable
-  if config.claim_mode() == "label" then
-    current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
-      and current_issue.assignees ~= nil
-  else
-    current_usable = type(current_issue) == "table"
-      and current_issue.assignees ~= nil
-      and C.issue_author_login(current_issue) ~= nil
-  end
+  local current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
   if current_usable then
     ownership = current_issue
   else
@@ -198,7 +136,7 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
     return decision
   end
   if decision.claim_state == "other" then
-    log_claim(dept, proposal_id, "skip-claimed-by-other", "backing issue assignee claim is held by another login")
+    log_claim(dept, proposal_id, "skip-claimed-by-other", "backing issue claim label is held by another appliance")
   else
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is not self-owned")
   end
@@ -247,7 +185,7 @@ end
 
 function C.claim_admission_inputs(current, repo, poll_key)
   local owner = C.claim_owner()
-  local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
+  local status = C.issue_claim_state(current and current.labels)
   if status == "other" then
     return {
       owner = owner,
@@ -255,7 +193,6 @@ function C.claim_admission_inputs(current, repo, poll_key)
     }
   end
 
-  local claim_mode = config.claim_mode()
   local author = C.issue_author_login(current)
   if author ~= nil and author ~= "" then
     author = devloop_base.strip_bot_login_suffix(author)
@@ -264,7 +201,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local trusted_author_policy = nil
   local peer_discovery_error = nil
   local peer_snapshot_provenance = nil
-  if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
+  if author ~= nil and author ~= "" and author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(author, managed) then
       local github_handle = github()
@@ -305,7 +242,6 @@ function C.claim_admission_inputs(current, repo, poll_key)
   return {
     owner = owner,
     status = status,
-    claim_mode = claim_mode,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -369,7 +305,6 @@ function C.claim_admission_precheck(current, inputs)
   local detail = {
     owner = inputs.owner,
     status = inputs.status,
-    claim_mode = inputs.claim_mode,
     author = author,
     managed = inputs.managed,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
@@ -380,37 +315,35 @@ function C.claim_admission_precheck(current, inputs)
     return decision, detail
   end
   if inputs.status == "other" then
-    return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
+    return settle("other", "skip-claimed-by-other", "issue claim label is held by another appliance")
   end
 
-  if inputs.claim_mode ~= "label" then
-    if author == nil or author == "" then
-      return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  if author == nil or author == "" then
+    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  end
+  if author ~= inputs.owner then
+    if not C.claim_admission_epoch_is_current(inputs) then
+      return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     end
-    if author ~= inputs.owner then
-      if not C.claim_admission_epoch_is_current(inputs) then
-        return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
+    if inputs.peer_discovery_error ~= nil then
+      return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
+    end
+    if C.is_managed_bot_login(author, inputs.managed) then
+      if inputs.status == "self" then
+        return "held", detail
       end
-      if inputs.peer_discovery_error ~= nil then
-        return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
-      end
-      if C.is_managed_bot_login(author, inputs.managed) then
-        if inputs.status == "self" then
-          return "held", detail
-        end
-        return settle(
-          "denied",
-          "skip-fork-peer-bot",
-          "other-authored unassigned issue belongs to a managed bot login"
-        )
-      end
-      if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
-        return settle(
-          "denied",
-          "skip-non-whitelisted-author",
-          "other-authored issue author is not authorized for GitHub content"
-        )
-      end
+      return settle(
+        "denied",
+        "skip-fork-peer-bot",
+        "other-authored unassigned issue belongs to a managed bot login"
+      )
+    end
+    if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
+      return settle(
+        "denied",
+        "skip-non-whitelisted-author",
+        "other-authored issue author is not authorized for GitHub content"
+      )
     end
   end
   if inputs.status == "self" then
@@ -445,16 +378,9 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     return false
   end
   local owner = detail.owner
-  local claim_mode = detail.claim_mode
   local author = detail.author
   local managed = detail.managed
-  -- Fork-and-block isolation (grace + fork of other-authored issues) is an
-  -- assignee-mode policy: it keeps an assignee-claim bot from intruding on a
-  -- human's issue. In label-mode the loop is single-tenant and explicitly
-  -- opts issues in via the fkst-dev:enabled label, so it claims directly
-  -- (matching the label-claim fork). Assignee-mode isolates only authors admitted
-  -- by the canonical GitHub content policy.
-  if claim_mode ~= "label" and author ~= owner then
+  if author ~= owner then
     local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
     if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
@@ -499,52 +425,24 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     return false
   end
 
-  if config.claim_mode() == "label" then
-    local active_label = C.claimed_label()
-    github().issue_add_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
-    if C.verify_issue_claim(repo, issue_number, owner) then
-      log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
-      return true
-    end
-
-    github().issue_remove_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
-    log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
-    return false
-  end
-
-  local assigned, assign_error = pcall(function()
-    return github().issue_assign(repo, issue_number, owner, 30)
-  end)
-  if not assigned then
-    if is_assign_permission_denied(assign_error) then
-      local why = "assign permission-denied is permanent"
-      log_terminal_skip(dept, proposal_id, "claim", issue_source_ref(repo, issue_number), "intake-skip-unclaimable", why)
-      log_claim(dept, proposal_id, "skip-claim-permission-denied", why)
-      return false
-    end
-    error(assign_error, 0)
-  end
+  local active_label = C.claimed_label()
+  github().issue_add_label(repo, issue_number, active_label, 30)
   M.invalidate_entity_after_write(repo, "issue", issue_number)
-  if C.verify_issue_claim(repo, issue_number, owner) then
-    log_claim(dept, proposal_id, "claim-won", "assignee claim verified after assign")
+  if C.verify_issue_claim(repo, issue_number) then
+    log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
     return true
   end
 
-  github().issue_unassign(repo, issue_number, owner, 30)
+  github().issue_remove_label(repo, issue_number, active_label, 30)
   M.invalidate_entity_after_write(repo, "issue", issue_number)
-  log_claim(dept, proposal_id, "claim-lost", "assignee claim lost after assign verification")
+  log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
   return false
 end
 
 function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id, reason)
-  local owner = C.claim_owner()
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
-  local claim_is_self = active_label ~= nil
-    and restart_metadata.has_label(ownership and ownership.labels, active_label)
-    or active_label == nil and C.issue_claim_state(ownership and ownership.assignees, owner) == "self"
+  local active_label = C.claimed_label()
+  local claim_is_self = restart_metadata.has_label(ownership and ownership.labels, active_label)
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
@@ -555,11 +453,7 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
     return true
   end
 
-  if active_label ~= nil then
-    github().issue_remove_label(repo, issue_number, active_label, 30)
-  else
-    github().issue_unassign(repo, issue_number, owner, 30)
-  end
+  github().issue_remove_label(repo, issue_number, active_label, 30)
   github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   log_claim(dept, proposal_id, "claim-released", tostring(reason or "capacity reconciliation"))
   return true
@@ -572,23 +466,13 @@ function C.claim_required_payload(source_ref)
     return nil
   end
   return {
-    owner = C.claim_owner(),
+    label = C.claimed_label(),
     source_ref = normalized,
   }
 end
 
 function C.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
-    return payload
-  end
-  -- github-proxy's pre-write guard verifies the attached claim against the
-  -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
-  -- active claim label but is never an assignee, so an attached assignee
-  -- claim would always read as "lost" and block every write. Ownership in
-  -- label-mode is instead verified at claim time (claim_issue_for_management),
-  -- so skip attaching the assignee claim and let github-proxy's no-claim path
-  -- proceed. Assignee-mode is unchanged.
-  if config.claim_mode() == "label" then
     return payload
   end
   payload.claim = C.claim_required_payload(source_ref or payload.source_ref)

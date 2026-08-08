@@ -195,8 +195,7 @@ local function verify_claim(core, deps, repo, issue_number, origin)
   if type(deps.verify_issue_claim) == "function" then
     return deps.verify_issue_claim(core, repo, issue_number, origin)
   end
-  local owner = devloop_claims.claim_owner()
-  return devloop_claims.verify_issue_claim(repo, issue_number, owner)
+  return devloop_claims.verify_issue_claim(repo, issue_number)
 end
 
 local function content_fetch(core, predecessor_ref, ctx)

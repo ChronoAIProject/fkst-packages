@@ -66,7 +66,7 @@ return {
     local source_ref = entity_lib.pr_source_ref("owner/repo", 7)
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -107,7 +107,7 @@ return {
     local source_ref = entity_lib.pr_source_ref("owner/repo", 7)
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
-      stdout = '{"assignees":[{"login":"human"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"labels":[{"name":"fkst-dev:claimed:human"}],"author":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })

@@ -141,7 +141,7 @@ return {
     local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
     t.eq(request.external_effect_saga, "fork-and-block")
     t.eq(request.external_effect_step, "create-fork")
-    t.eq(request.assignees[1], "fkst-test-bot")
+    t.eq(request.labels[1], "fkst-dev:claimed:fkst-test-bot")
     t.eq(request.parent_comment_target.issue_number, 42)
     t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
     t.eq(request.post_create_blocked_by.external_effect_saga, "fork-and-block")

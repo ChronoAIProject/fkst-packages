@@ -96,15 +96,15 @@ function M.new(deps)
     entity_read_mocks.mock_issue_read_forms(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      assignees = { "fkst-test-bot" },
+      labels = { "fkst-dev:claimed:fkst-test-bot" },
       author_login = "fkst-test-bot",
     })
     entity_read_mocks.mock_issue_view_selector(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      assignees = { "fkst-test-bot" },
+      labels = { "fkst-dev:claimed:fkst-test-bot" },
       author_login = "fkst-test-bot",
-    }, "assignees,author", 30)
+    }, "labels,author", 30)
   end
 
   local function encoded_comment_json(comment_id, body, author_login)

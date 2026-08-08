@@ -61,11 +61,6 @@ local function mock_env()
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = context_runtime_root,
       stderr = "",

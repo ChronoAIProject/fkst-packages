@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "bce6a03ef446277a458531e9a3e0d2d7d52316a7dc0e29410ddb7fb6da913f87",
+  "artifact_sha256": "4220bb93239d006c0fa2dc6caa809a0378eedc2df71c181f4716413aa4ab1686",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -159,7 +159,7 @@
             "payload": {
               "body": "github-devloop thinking: consensus started\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"thinking\" version=\"intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"100\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000100\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -183,7 +183,7 @@
                 "fkst-dev:thinking"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -746,7 +746,7 @@
             "payload": {
               "body": "github-devloop ready split canonicalized\n\nReason: waiting-on-dependency\n\n<!-- fkst:github-devloop:ready-split-canonicalized:v1 proposal=\"github-devloop/issue/owner/repo/42\" from_version=\"consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" to_version=\"consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1\" derived_state=\"dependency_wait\" reason=\"waiting-on-dependency\" -->\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"dependency_wait\" version=\"consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1\" stage_rank=\"500\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000001/000000000500\" effects=\"ready-split-canonicalized\" -->\n<!-- fkst:github-devloop:dependency-wait:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1\" hold_kind=\"waiting\" reason=\"waiting-on-dependency\" unmet=\"53\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -761,7 +761,7 @@
                     "fkst-dev:blocked-on-dependency"
                   ],
                   "claim": {
-                    "owner": "fkst-test-bot",
+                    "label": "fkst-dev:claimed:fkst-test-bot",
                     "source_ref": {
                       "kind": "external",
                       "ref": "owner/repo#issue/42"
@@ -1078,7 +1078,7 @@
             "payload": {
               "body": "Duplicate fork for owner/repo#618; canonical fork is #41\n\n<!-- fkst:github-devloop:duplicate-fork:v1 original_issue=\"618\" canonical=\"41\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -1102,7 +1102,7 @@
                 "fkst:duplicate-fork"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -1236,7 +1236,7 @@
             "payload": {
               "body": "Duplicate migration slice for entry_key=1111111111111111111111111111111111111111111111111111111111111111; canonical is #41\n\n<!-- fkst:github-devloop:duplicate-slice:v1 entry_key=\"1111111111111111111111111111111111111111111111111111111111111111\" canonical=\"41\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -1260,7 +1260,7 @@
                 "fkst:duplicate-slice"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -1548,12 +1548,13 @@
         ],
         "current_fact": {
           "assignees": [
-            "other-login"
+            "fkst-test-bot"
           ],
           "issue_state": "OPEN",
           "labels": [
             "fkst-dev:enabled",
-            "fkst-dev:ready"
+            "fkst-dev:ready",
+            "fkst-dev:claimed:other-appliance"
           ]
         },
         "handoff_reference": null,
@@ -2398,7 +2399,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -2702,7 +2703,7 @@
                 "fkst-dev:merge-ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -3009,7 +3010,7 @@
                 "fkst-dev:review-meta"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -3921,7 +3922,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -5907,7 +5908,7 @@
             "payload": {
               "body": "github-devloop merged PR #9708\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merged\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"900\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000900\" -->\n<!-- fkst:github-devloop:merged:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"9708\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"def456\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -5931,7 +5932,7 @@
                 "fkst-dev:merged"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -13544,7 +13545,7 @@
             "payload": {
               "body": "github-devloop reconcile action: drop\n\nReason:\nno-semantic-progress-after-3-rounds\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000003/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000800\" -->\n<!-- fkst:github-devloop:reconcile:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3\" round=\"3\" action=\"drop\" terminal_cause=\"no-semantic-progress\" dedup=\"reconcile:consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -13568,7 +13569,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14067,7 +14068,7 @@
             "payload": {
               "body": "github-devloop convergence round 0 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n<!-- fkst:github-devloop:converge-round:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" source_ref=\"sr-28-3638089812\" round=\"0\" dedup=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" question=\"q-56-1699914648\" verdicts=\"v-15-1770440510\" angles=\"a-33-3663728815\" narrowed_question=\"Which source-verifiable fact resolves the remaining gap?\" angle_digests=\"minimal|abstain|same-evidence-gap\" findings_record=\"\" essence_stall=\"false\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14191,7 +14192,7 @@
             "payload": {
               "body": "github-devloop convergence round 1 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n<!-- fkst:github-devloop:converge-round:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" source_ref=\"sr-28-3638089812\" round=\"1\" dedup=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1\" question=\"q-56-1699914648\" verdicts=\"v-15-1770440510\" angles=\"a-33-3663728815\" narrowed_question=\"Which source-verifiable fact resolves the remaining gap?\" angle_digests=\"minimal|abstain|same-evidence-gap\" findings_record=\"open:%0Asecond resolvable finding\" essence_stall=\"false\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14288,7 +14289,7 @@
             "payload": {
               "body": "github-devloop convergence round 0 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n<!-- fkst:github-devloop:converge-round:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" source_ref=\"sr-28-3638089812\" round=\"0\" dedup=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" question=\"q-56-1699914648\" verdicts=\"v-15-1770440510\" angles=\"a-33-3663728815\" narrowed_question=\"Which source-verifiable fact resolves the remaining gap?\" angle_digests=\"minimal|abstain|same-evidence-gap\" findings_record=\"open:%0Ano source-verifiable evidence remains\" essence_stall=\"true\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14422,7 +14423,7 @@
             "payload": {
               "body": "github-devloop convergence round 2 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n<!-- fkst:github-devloop:converge-round:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" source_ref=\"sr-28-3638089812\" round=\"2\" dedup=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2\" question=\"q-56-1699914648\" verdicts=\"v-15-1770440510\" angles=\"a-33-3663728815\" narrowed_question=\"Which source-verifiable fact resolves the remaining gap?\" angle_digests=\"minimal|abstain|same-evidence-gap\" findings_record=\"\" essence_stall=\"false\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14519,7 +14520,7 @@
             "payload": {
               "body": "github-devloop convergence round 0 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -14627,7 +14628,7 @@
             "payload": {
               "body": "github-devloop convergence round 3 - no consensus across angles; narrowing\n\nNarrowed question: Which source-verifiable fact resolves the remaining gap?\n\nAngle stances:\n- minimal: abstain — same-evidence-gap\n\n\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -15226,7 +15227,7 @@
             "payload": {
               "body": "github-devloop thinking: consensus started\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"thinking\" version=\"github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"100\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000100\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -15250,7 +15251,7 @@
                 "fkst-dev:thinking"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -15424,7 +15425,7 @@
           "ref": "owner/repo#issue/42004"
         }
       ],
-      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-assignee-claim-error/thinking/error/assignee-claim-error-propagated/none",
+      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-label-claim-error/thinking/error/label-claim-error-propagated/none",
       "old_inputs": {
         "caller_from_states": [
           "unmanaged"
@@ -15443,7 +15444,7 @@
         "emitted_effects": [],
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
-        "reason_code": "assignee-claim-error-propagated",
+        "reason_code": "label-claim-error-propagated",
         "status": "error",
         "timeout_evidence_source": null
       },
@@ -15489,7 +15490,7 @@
           "ref": "owner/repo#issue/42003"
         }
       ],
-      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-assignee-claim-lost/thinking/guard-return/assignee-claim-lost-after-verification/none",
+      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-label-claim-lost/thinking/guard-return/label-claim-lost-after-verification/none",
       "old_inputs": {
         "caller_from_states": [
           "unmanaged"
@@ -15508,7 +15509,7 @@
         "emitted_effects": [],
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
-        "reason_code": "assignee-claim-lost-after-verification",
+        "reason_code": "label-claim-lost-after-verification",
         "status": "guard-return",
         "timeout_evidence_source": null
       },
@@ -15554,7 +15555,7 @@
           "ref": "owner/repo#issue/42002"
         }
       ],
-      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-assignee-claim-permission-denied/thinking/guard-return/assignee-claim-permission-denied/none",
+      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-label-claim-permission-error/thinking/error/label-claim-error-propagated/none",
       "old_inputs": {
         "caller_from_states": [
           "unmanaged"
@@ -15569,12 +15570,12 @@
         "target_version": null
       },
       "old_outcome": {
-        "cas_outcome": "skip-claim-permission-denied",
+        "cas_outcome": "error(gh-command-failed)",
         "emitted_effects": [],
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
-        "reason_code": "assignee-claim-permission-denied",
-        "status": "guard-return",
+        "reason_code": "label-claim-error-propagated",
+        "status": "error",
         "timeout_evidence_source": null
       },
       "owner": "github-devloop",
@@ -15749,7 +15750,7 @@
           "ref": "owner/repo#issue/42"
         }
       ],
-      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-foreign-assignee/thinking/guard-return/claim-held-by-other/none",
+      "observation_id": "writer:github-devloop:observe-issue-unmanaged-thinking/unmanaged-foreign-claim-label/thinking/guard-return/claim-held-by-other/none",
       "old_inputs": {
         "caller_from_states": [
           "unmanaged"
@@ -16238,7 +16239,7 @@
             "payload": {
               "body": "github-devloop thinking: consensus started\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"thinking\" version=\"github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"100\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000100\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -16262,7 +16263,7 @@
                 "fkst-dev:thinking"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -16866,7 +16867,7 @@
             "payload": {
               "body": "github-devloop canonicalized delegated PR handoff after child merge\n\nDelegated PR: #9708\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"awaiting-pr\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"625\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000625\" -->\n<!-- fkst:github-devloop:pr-delegation:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr_proposal=\"github-devloop/pr/owner/repo/9708\" pr=\"9708\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" delegation=\"g1\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -16890,7 +16891,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17499,7 +17500,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9813\nChild state: blocked\nReason: child-pr-blocked\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17523,7 +17524,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17671,7 +17672,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9811\nChild state: closed-unmerged\nReason: child-pr-closed-unmerged\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"ready\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1\" stage_rank=\"500\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000500\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17705,7 +17706,7 @@
                 "fkst-dev:ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17853,7 +17854,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9810\nChild state: merged\nReason: child-pr-merged\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merged\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"900\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000900\" -->\n<!-- fkst:github-devloop:merged:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"9810\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"0123456789abcdef0123456789abcdef01234567\" autonomy_result=\"v1\" repo=\"owner/repo\" issue=\"42\" task_class=\"L1\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pending\" post_merge_probe_green=\"pending\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->\n<!-- fkst:github-devloop:autonomy-result:v1 proposal=\"github-devloop/issue/owner/repo/42\" repo=\"owner/repo\" issue=\"42\" pr=\"9810\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"0123456789abcdef0123456789abcdef01234567\" task_class=\"L1\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pending\" post_merge_probe_green=\"pending\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -17877,7 +17878,7 @@
                 "fkst-dev:merged"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -18427,7 +18428,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9812\nChild state: closed-unmerged\nReason: replacement-budget-exhausted\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -18451,7 +18452,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -21802,7 +21803,7 @@
             "payload": {
               "body": "github-devloop ready split canonicalized\n\nReason: satisfied\n\n<!-- fkst:github-devloop:ready-split-canonicalized:v1 proposal=\"github-devloop/issue/owner/repo/42\" from_version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" to_version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1\" derived_state=\"ready\" reason=\"satisfied\" -->\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"ready\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1\" stage_rank=\"500\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000001/000000000500\" effects=\"result-marker,ready-label,devloop-ready\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -21816,7 +21817,7 @@
                     "fkst-dev:ready"
                   ],
                   "claim": {
-                    "owner": "fkst-test-bot",
+                    "label": "fkst-dev:claimed:fkst-test-bot",
                     "source_ref": {
                       "kind": "external",
                       "ref": "owner/repo#issue/42"
@@ -21900,7 +21901,7 @@
             "payload": {
               "body": "github-devloop dependency release: satisfied\n\nReason: satisfied\n\n<!-- fkst:github-devloop:dependency-release:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -22721,7 +22722,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9813\nChild state: blocked\nReason: child-pr-blocked\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -22745,7 +22746,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -22899,7 +22900,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9811\nChild state: closed-unmerged\nReason: child-pr-closed-unmerged\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"ready\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1\" stage_rank=\"500\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000500\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -22933,7 +22934,7 @@
                 "fkst-dev:ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -23087,7 +23088,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9810\nChild state: merged\nReason: child-pr-merged\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merged\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"900\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000900\" -->\n<!-- fkst:github-devloop:merged:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"9810\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"0123456789abcdef0123456789abcdef01234567\" autonomy_result=\"v1\" repo=\"owner/repo\" issue=\"42\" task_class=\"L1\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pending\" post_merge_probe_green=\"pending\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->\n<!-- fkst:github-devloop:autonomy-result:v1 proposal=\"github-devloop/issue/owner/repo/42\" repo=\"owner/repo\" issue=\"42\" pr=\"9810\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"0123456789abcdef0123456789abcdef01234567\" task_class=\"L1\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pending\" post_merge_probe_green=\"pending\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -23111,7 +23112,7 @@
                 "fkst-dev:merged"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -23703,7 +23704,7 @@
             "payload": {
               "body": "github-devloop resumed parent issue from delegated PR child state\n\nChild PR: #9812\nChild state: closed-unmerged\nReason: replacement-budget-exhausted\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -23727,7 +23728,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -24815,7 +24816,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -31685,7 +31686,7 @@
                 "fkst-dev:merge-ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -31862,7 +31863,7 @@
                 "fkst-dev:merge-ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -32177,7 +32178,7 @@
                 "fkst-dev:merge-ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -32355,7 +32356,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -32533,7 +32534,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -32711,7 +32712,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -34078,7 +34079,7 @@
                 "fkst-dev:merge-ready"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -34186,7 +34187,7 @@
       "old_inputs": {
         "caller_from_states": [],
         "current_fact": {
-          "record_count": 81
+          "record_count": 79
         },
         "handoff_reference": null,
         "incoming_version": "source-snapshot:v1",
@@ -34270,22 +34271,8 @@
           {
             "authority_class": "grantless-non-lifecycle",
             "department": "observe_issue",
-            "effect_id": "adapter:github.issue-assign",
-            "family": "assignee-claim/assign/self",
-            "sink_kind": "adapter"
-          },
-          {
-            "authority_class": "grantless-non-lifecycle",
-            "department": "observe_issue",
             "effect_id": "adapter:github.issue-create-fork",
             "family": "fork-issue-create:v1;dedup=fork/original",
-            "sink_kind": "adapter"
-          },
-          {
-            "authority_class": "grantless-non-lifecycle",
-            "department": "observe_issue",
-            "effect_id": "adapter:github.issue-unassign",
-            "family": "assignee-claim/unassign/self",
             "sink_kind": "adapter"
           },
           {
@@ -34896,7 +34883,7 @@
         "caller_from_states": [],
         "current_fact": {
           "authority_class_prefix": "grantless-",
-          "record_count": 24
+          "record_count": 22
         },
         "handoff_reference": null,
         "incoming_version": "source-snapshot:v1",
@@ -34980,22 +34967,8 @@
           {
             "authority_class": "grantless-non-lifecycle",
             "department": "observe_issue",
-            "effect_id": "adapter:github.issue-assign",
-            "family": "assignee-claim/assign/self",
-            "sink_kind": "adapter"
-          },
-          {
-            "authority_class": "grantless-non-lifecycle",
-            "department": "observe_issue",
             "effect_id": "adapter:github.issue-create-fork",
             "family": "fork-issue-create:v1;dedup=fork/original",
-            "sink_kind": "adapter"
-          },
-          {
-            "authority_class": "grantless-non-lifecycle",
-            "department": "observe_issue",
-            "effect_id": "adapter:github.issue-unassign",
-            "family": "assignee-claim/unassign/self",
             "sink_kind": "adapter"
           },
           {
@@ -36176,7 +36149,7 @@
             "payload": {
               "body": "github-devloop implementation worktree ready\n\nWorktree: /tmp/fkst-packages-test/github-devloop/implement-enter\nBranch: devloop/issue/owner/repo/42/ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z-2737874363\nBase branch: dev\nBase head: 1111111111111111111111111111111111111111\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"implementing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2\" stage_rank=\"600\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000002/000000000000/000000000000/000000000000/000000000000/000000000000/000000000600\" -->\n<!-- fkst:github-devloop:implement-attempt:v1 proposal=\"github-devloop/issue/owner/repo/42\" dedup=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2\" attempt=\"2\" started_at=\"1784396944\" exec_ref=\"implement-exec/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2/implement\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -36200,7 +36173,7 @@
                 "fkst-dev:implementing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -36382,7 +36355,7 @@
             "payload": {
               "body": "github-devloop implementation worktree ready\n\nWorktree: /tmp/fkst-packages-test/github-devloop/implement-enter\nBranch: devloop/issue/owner/repo/42/ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z-2737874363\nBase branch: dev\nBase head: 1111111111111111111111111111111111111111\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"implementing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"600\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000600\" -->\n<!-- fkst:github-devloop:implement-attempt:v1 proposal=\"github-devloop/issue/owner/repo/42\" dedup=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" attempt=\"1\" started_at=\"1784396944\" exec_ref=\"implement-exec/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/implement\" -->",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -36406,7 +36379,7 @@
                 "fkst-dev:implementing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -41794,7 +41767,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -46323,7 +46296,7 @@
             "payload": {
               "body": "github-devloop decompose output obligation exhausted\n\nStructured WHY:\nreason_class=decompose-output-obligation-timeout\nfrom_state=blocked\nfrom_version=ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/blocked\nattempt=3\n\n<!-- fkst:github-devloop:decompose-exhausted:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/blocked\" round=\"3\" reason_class=\"decompose-output-obligation-timeout\"\" source_ref_kind=\"external\" source_ref=\"owner/repo#issue/42\" -->\n⟦AI:FKST⟧",
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -46529,7 +46502,7 @@
                 "fkst-dev:blocked"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -47533,7 +47506,7 @@
                 "fkst-dev:fixing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"
@@ -47784,7 +47757,7 @@
                 "fkst-dev:reviewing"
               ],
               "claim": {
-                "owner": "fkst-test-bot",
+                "label": "fkst-dev:claimed:fkst-test-bot",
                 "source_ref": {
                   "kind": "external",
                   "ref": "owner/repo#issue/42"

@@ -16,6 +16,7 @@ local REPO = "owner/repo"
 local ISSUE_NUMBER = 2275
 local PR_NUMBER = 2281
 local BOT = "fkst-test-bot"
+local ACTIVE_CLAIM_LABEL = "fkst-dev:claimed:" .. BOT
 local INTEGRATION_BRANCH = "integration/dev"
 local INTEGRATION_SHA = "1111111111111111111111111111111111111111"
 local PR_HEAD_SHA = "2222222222222222222222222222222222222222"
@@ -140,7 +141,7 @@ local function baseline(overrides)
       body = "Issue body",
       state = fields.parent_state or "OPEN",
       updated_at = "2026-07-14T01:03:02Z",
-      labels = fields.parent_labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+      labels = fields.parent_labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr", ACTIVE_CLAIM_LABEL },
       comments = current_parent_comments,
       assignees = fields.assignees or { BOT },
       author_login = BOT,
@@ -290,7 +291,7 @@ local function make_github(fixture)
           comment(core.state_marker(PROPOSAL_ID, "blocked", ROOT_VERSION .. "/blocked/concurrent"), "2026-07-14T01:05:00Z"),
         }
       elseif fixture.final_mutation == "claim" then
-        model.issues[source_ref.ref].assignees = { "another-bot" }
+        model.issues[source_ref.ref].labels = { "fkst-dev:claimed:another-bot" }
       end
     end
     record(model, "issue_read", { source_ref = copy(source_ref), opts = copy(opts), read = parent_reads })
@@ -557,7 +558,7 @@ return {
           },
         },
       },
-      { name = "lost-claim", fields = { assignees = { "another-bot" } } },
+      { name = "lost-claim", fields = { parent_labels = { "fkst-dev:claimed:another-bot" } } },
       { name = "unknown-pr-state", fields = { pr_state = "UNKNOWN" } },
     }
     for _, case in ipairs(cases) do

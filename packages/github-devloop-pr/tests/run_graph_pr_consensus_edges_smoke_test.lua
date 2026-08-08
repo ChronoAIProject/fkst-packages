@@ -89,7 +89,7 @@ local function seed_pr_and_issue_reads(state, extra_comments)
     number = issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author")
+  }, "labels,author")
   h.mock_issue_review(
     { "fkst-dev:reviewing" },
     { state_marker(state or "reviewing") },

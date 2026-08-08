@@ -21,13 +21,13 @@ local function origin_marker(version)
   )
 end
 
-local function claim(issue_number, assignees, author_login)
+local function claim(issue_number, holders, author_login)
   local rendered = {}
-  for _, login in ipairs(assignees or {}) do
-    table.insert(rendered, '{"login":"' .. h.json_string(login) .. '"}')
+  for _, login in ipairs(holders or {}) do
+    table.insert(rendered, '{"name":"fkst-dev:claimed:' .. h.json_string(login) .. '"}')
   end
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", issue_number or 42), {
-    stdout = '{"assignees":[' .. table.concat(rendered, ",") .. '],"author":{"login":"' .. h.json_string(author_login or "fkst-test-bot") .. '"}}\n',
+    stdout = '{"labels":[' .. table.concat(rendered, ",") .. '],"author":{"login":"' .. h.json_string(author_login or "fkst-test-bot") .. '"}}\n',
     stderr = "",
     exit_code = 0,
   })

@@ -91,7 +91,7 @@ local function mock_env()
     FKST_GITHUB_WRITE = "1",
     FKST_GITHUB_BOT_LOGIN = BOT,
     FKST_GITHUB_REPO = REPO,
-    FKST_GITHUB_CLAIM_MODE = "",
+    FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
     FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
     FKST_DEVLOOP_INTEGRATION_BRANCH = INTEGRATION_BRANCH,
     FKST_DEVLOOP_MANAGED_BOT_LOGINS = "",
@@ -113,7 +113,7 @@ local function mock_parent_claim()
     number = ISSUE_NUMBER,
     assignees = { BOT },
     author_login = BOT,
-  }, "assignees,author", 30)
+  }, "labels,author", 30)
 end
 
 local function mock_parent_claim_api()

@@ -112,11 +112,11 @@ return {
     assert_source_ref(payload)
   end,
 
-  test_golden_admission_claim_skip_known_state_hold_and_foreign_assignee = function()
+  test_golden_admission_claim_skip_known_state_hold_and_foreign_label = function()
     local cases = {
       { name = "known-state", view = { labels = { "fkst-dev:thinking" } } },
       { name = "hold", view = { labels = { "fkst-dev:hold" } } },
-      { name = "foreign-assignee", view = { labels = {}, assignees = { "other-bot" } } },
+      { name = "foreign-label", view = { labels = { "fkst-dev:claimed:other-bot" } } },
     }
     for _, case in ipairs(cases) do
       h.mock_bot_env()

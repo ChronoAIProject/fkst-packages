@@ -1,4 +1,5 @@
 local core = require("core")
+local claim_labels = require("devloop.claim_labels")
 local strings = require("contract.strings")
 local t = fkst.test
 
@@ -35,7 +36,7 @@ local function production_pr(signer, branch, base_branch)
         created_at = "2026-06-19T01:02:03Z",
       },
     },
-    assignees = {},
+    labels = {},
   }
 end
 
@@ -49,6 +50,10 @@ local function pr_json(pr)
   local assignees = {}
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. strings.json_string(login) .. "}")
+  end
+  local labels = {}
+  for _, label in ipairs(pr.labels or {}) do
+    table.insert(labels, '{"name":' .. strings.json_string(label) .. "}")
   end
   -- Head-repository provenance is REQUIRED by core.lua's admission check; without it the PR is
   -- rejected as `pr-provenance-unavailable` before any origin-comment logic runs. These
@@ -68,7 +73,8 @@ local function pr_json(pr)
     .. ',"updatedAt":' .. strings.json_string(pr.updated_at)
     .. ',"author":{"login":' .. strings.json_string(pr.author_login)
     .. '},"comments":[' .. table.concat(comments, ",")
-    .. '],"assignees":[' .. table.concat(assignees, ",") .. "]}"
+    .. '],"assignees":[' .. table.concat(assignees, ",")
+    .. '],"labels":[' .. table.concat(labels, ",") .. "]}"
 end
 
 local function fake_github(pr, authorized_login)
@@ -107,15 +113,15 @@ local function fake_github(pr, authorized_login)
     return { stdout = "[]", stderr = "", exit_code = 0 }
   end
 
-  function handle.issue_assign(repo, issue_number, login, timeout)
+  function handle.issue_add_label(repo, issue_number, label, timeout)
     table.insert(operations, {
-      kind = "issue_assign",
+      kind = "issue_add_label",
       repo = repo,
       issue_number = issue_number,
-      login = login,
+      label = label,
       timeout = timeout,
     })
-    pr.assignees = { login }
+    pr.labels = { label }
     return { stdout = "", stderr = "", exit_code = 0 }
   end
 
@@ -207,7 +213,14 @@ local function run_event(github, event, write_enabled)
   end
 
   local ok, err = pcall(function()
-    load_department().make_department({ github = github }).pipeline(event)
+    load_department().make_department({ github = github }, {
+      claimed_label = function()
+        return "fkst-dev:claimed:fkst-test-bot"
+      end,
+      issue_claim_state = function(labels)
+        return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+      end,
+    }).pipeline(event)
   end)
 
   file = old_file
@@ -292,7 +305,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(scan_raises[1].payload.source_ref.ref, "owner/repo#pr/7")
   t.is_nil(scan_raises[1].payload.comments)
   t.is_nil(scan_raises[1].payload.pr_origin)
-  t.eq(count_kind(scan_github.operations, "issue_assign"), 0)
+  t.eq(count_kind(scan_github.operations, "issue_add_label"), 0)
   t.eq(count_kind(scan_github.operations, "issue_create"), 0)
   t.eq(count_kind(scan_github.operations, "pr_comment"), 0)
   t.eq(count_kind(scan_github.operations, "issue_close"), 0)
@@ -304,16 +317,16 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   local candidate_logs, candidate_raises = run_event(candidate_github, candidate_event(), true)
 
   t.eq(#candidate_raises, 0)
-  t.eq(count_kind(candidate_github.operations, "issue_assign"), 1)
+  t.eq(count_kind(candidate_github.operations, "issue_add_label"), 1)
   t.eq(count_kind(candidate_github.operations, "issue_create"), 1)
   t.eq(count_kind(candidate_github.operations, "pr_comment"), 1)
   t.eq(count_kind(candidate_github.operations, "issue_close"), 0)
 
-  local assign = first_kind(candidate_github.operations, "issue_assign")
-  t.eq(assign.repo, "owner/repo")
-  t.eq(assign.issue_number, 7)
-  t.eq(assign.login, "fkst-test-bot")
-  t.eq(assign.timeout, 30)
+  local claim = first_kind(candidate_github.operations, "issue_add_label")
+  t.eq(claim.repo, "owner/repo")
+  t.eq(claim.issue_number, 7)
+  t.eq(claim.label, "fkst-dev:claimed:fkst-test-bot")
+  t.eq(claim.timeout, 30)
 
   local create = first_kind(candidate_github.operations, "issue_create")
   t.eq(create.repo, "owner/repo")
@@ -393,7 +406,7 @@ return {
     t.eq(raises[1].payload.repo, "owner/repo")
     t.eq(raises[1].payload.number, 7)
     t.eq(raises[1].payload.source_ref.ref, "owner/repo#pr/7")
-    t.eq(count_kind(github.operations, "issue_assign"), 0)
+    t.eq(count_kind(github.operations, "issue_add_label"), 0)
     t.eq(count_kind(github.operations, "issue_create"), 0)
     t.eq(count_kind(github.operations, "pr_comment"), 0)
     t.eq(logs_contain(logs, "action=skip-"), false)

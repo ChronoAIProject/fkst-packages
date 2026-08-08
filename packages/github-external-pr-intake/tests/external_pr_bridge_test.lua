@@ -33,7 +33,8 @@ return {
     local created = write_of_kind(writes, "issue_create")
     local marker = write_of_kind(writes, "pr_comment")
 
-    t.eq(count_kind(writes, "issue_assign"), 1)
+    t.eq(count_kind(writes, "issue_add_label"), 1)
+    t.eq(write_of_kind(writes, "issue_add_label").label, "fkst-dev:claimed:fkst-test-bot")
     t.eq(count_kind(writes, "issue_create"), 1)
     t.eq(count_kind(writes, "pr_comment"), 1)
     t.eq(count_kind(writes, "issue_close"), 0)
@@ -181,8 +182,17 @@ return {
     local ok, err = pcall(function()
       local first_module = load_department()
       local second_module = load_department()
-      local first_dept = first_module.make_department({ github = github })
-      local second_dept = second_module.make_department({ github = github })
+      local claim_labels = require("devloop.claim_labels")
+      local claims = {
+        claimed_label = function()
+          return "fkst-dev:claimed:fkst-test-bot"
+        end,
+        issue_claim_state = function(labels)
+          return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+        end,
+      }
+      local first_dept = first_module.make_department({ github = github }, claims)
+      local second_dept = second_module.make_department({ github = github }, claims)
       local first = coroutine.create(function()
         first_dept.pipeline(candidate_event(7))
       end)

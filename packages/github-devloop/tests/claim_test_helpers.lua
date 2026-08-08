@@ -17,6 +17,13 @@ function M.mock_bot(login, write_mode, write_reads)
     exit_code = 0,
   })
   for _ = 1, write_reads or 2 do
+    fkst.test.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, write_reads or 2 do
     fkst.test.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
       stdout = write_mode or "",
       stderr = "",

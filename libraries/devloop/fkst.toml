@@ -158,6 +158,7 @@ allow = [
   "github-devloop-ops",
   "github-devloop-pr",
   "github-devloop-workflow",
+  "github-external-pr-intake",
   "fkst-substrate-ref-maintainer",
   "github-proxy",
   "github-devloop-worktree-gc",

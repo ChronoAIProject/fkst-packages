@@ -195,7 +195,7 @@ local function desired_allocation(repo, owner, max_inflight, grant, snapshot, ca
   for _, number in ipairs(grant and grant.holders or {}) do
     local normalized = tonumber(number)
     local current = normalized and snapshot[normalized] or nil
-    local ownership = current and claims.issue_claim_state(current.assignees, owner, current.labels) or "other"
+    local ownership = current and claims.issue_claim_state(current.labels) or "other"
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
@@ -208,7 +208,7 @@ local function desired_allocation(repo, owner, max_inflight, grant, snapshot, ca
 
   local candidates = {}
   for number, current in pairs(snapshot) do
-    local ownership = claims.issue_claim_state(current.assignees, owner, current.labels)
+    local ownership = claims.issue_claim_state(current.labels)
     local is_current_candidate = tonumber(candidate_number) == number
     if not selected[number]
       and issue_occupies_capacity(repo, current)
@@ -233,7 +233,7 @@ local function converge_claims(ports, repo, owner, holders, snapshot)
   local releases = {}
   for number, current in pairs(snapshot) do
     if not contains(holders, number)
-      and claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
+      and claims.issue_claim_state(current.labels) == "self" then
       table.insert(releases, {
         number = number,
         active = issue_occupies_capacity(repo, current),
@@ -483,7 +483,7 @@ function C.production(_M)
       )
       local numbers = {}
       for _, current in ipairs(parsers_issue.parse_issue_list_intake(nil, listed.stdout)) do
-        if claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
+        if claims.issue_claim_state(current.labels) == "self" then
           table.insert(numbers, current.number)
         end
       end

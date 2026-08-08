@@ -281,18 +281,6 @@ local function label_names(record)
   return labels
 end
 
-local function assignee_logins(pr)
-  local logins = {}
-  for _, assignee in ipairs(pr.assignees or {}) do
-    if type(assignee) == "table" and assignee.login ~= nil then
-      table.insert(logins, tostring(assignee.login))
-    elseif type(assignee) == "string" then
-      table.insert(logins, assignee)
-    end
-  end
-  return logins
-end
-
 local function comments(pr)
   local result = {}
   for _, comment in ipairs(pr.comments or {}) do
@@ -390,7 +378,7 @@ function M.normalize_pr(pr, repo)
     is_cross_repository = is_cross_repository,
     base_ref_name = base,
     comments = comments(pr),
-    assignees = assignee_logins(pr),
+    labels = label_names(pr),
   }
 end
 

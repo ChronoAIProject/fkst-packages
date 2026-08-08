@@ -8,6 +8,7 @@ local marker_builders = require("devloop.markers.builders")
 
 local REPO = "owner/repo"
 local OWNER = "fkst-test-bot"
+local CLAIM_LABEL = "fkst-dev:claimed:fkst-test-bot"
 
 local function copy(value)
   if type(value) ~= "table" then
@@ -92,7 +93,7 @@ local function new_world(max_inflight)
   function world:active_claim_count()
     local count = 0
     for _, current in pairs(self.issues) do
-      if claims.issue_claim_state(current.assignees, OWNER, current.labels) == "self"
+      if claims.issue_claim_state(current.labels) == "self"
         and active_issue(current) then
         count = count + 1
       end
@@ -102,7 +103,7 @@ local function new_world(max_inflight)
 
   function world:claim(number)
     local current = assert(self.issues[tonumber(number)])
-    current.assignees = { OWNER }
+    current.labels = { CLAIM_LABEL }
     table.insert(self.writes, { kind = "claim", issue_number = tonumber(number) })
     t.is_true(self:active_claim_count() <= self.max_inflight)
   end
@@ -125,7 +126,7 @@ local function new_world(max_inflight)
         local numbers = {}
         for number, current in pairs(self.issues) do
           if tostring(current.state or ""):upper() == "OPEN"
-            and claims.issue_claim_state(current.assignees, OWNER, current.labels) == "self" then
+            and claims.issue_claim_state(current.labels) == "self" then
             table.insert(numbers, number)
           end
         end
@@ -185,10 +186,10 @@ local function new_world(max_inflight)
         t.eq(repo, REPO)
         t.eq(owner, OWNER)
         local current = assert(self.issues[tonumber(number)])
-        if claims.issue_claim_state(current.assignees, OWNER, current.labels) ~= "self" then
+        if claims.issue_claim_state(current.labels) ~= "self" then
           return false
         end
-        current.assignees = {}
+        current.labels = {}
         table.insert(self.writes, {
           kind = "release",
           issue_number = tonumber(number),
@@ -284,15 +285,15 @@ return {
     h.mock_bot_env()
     local world = new_world(1)
     world:add(issue(1, {
-      assignees = { OWNER },
+      labels = { CLAIM_LABEL },
       comments = { decision_comment(1, "enable"), state_comment(1, "thinking") },
     }))
     world:add(issue(2, {
-      assignees = { OWNER },
+      labels = { CLAIM_LABEL },
       comments = { decision_comment(2, "decline") },
     }))
     world:add(issue(3, {
-      assignees = { OWNER },
+      labels = { CLAIM_LABEL },
       comments = { decision_comment(3, "enable"), state_comment(3, "thinking") },
     }))
     world:add(issue(4))
@@ -303,9 +304,9 @@ return {
     t.eq(candidate_granted, false)
     t.eq(world.grant.holders[1], 1)
     t.eq(world:active_claim_count(), 1)
-    t.eq(claims.issue_claim_state(world.issues[1].assignees, OWNER), "self")
-    t.eq(claims.issue_claim_state(world.issues[2].assignees, OWNER), "unassigned")
-    t.eq(claims.issue_claim_state(world.issues[3].assignees, OWNER), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[1].labels), "self")
+    t.eq(claims.issue_claim_state(world.issues[2].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[3].labels), "unassigned")
     t.eq(world:release_order()[1], 3)
     t.eq(world:release_order()[2], 2)
   end,
@@ -330,8 +331,8 @@ return {
 
     t.eq(next_granted, true)
     t.eq(world.grant.holders[1], 72)
-    t.eq(claims.issue_claim_state(world.issues[71].assignees, OWNER), "unassigned")
-    t.eq(claims.issue_claim_state(world.issues[72].assignees, OWNER), "self")
+    t.eq(claims.issue_claim_state(world.issues[71].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[72].labels), "self")
     t.eq(world:active_claim_count(), 1)
   end,
 
@@ -339,7 +340,7 @@ return {
     h.mock_bot_env()
     local world = new_world(1)
     world:add(issue(73, {
-      assignees = { OWNER },
+      labels = { CLAIM_LABEL },
       comments = {
         decision_comment(73, "enable"),
         state_comment(73, "declined"),
@@ -353,8 +354,8 @@ return {
 
     t.eq(next_granted, true)
     t.eq(world.grant.holders[1], 74)
-    t.eq(claims.issue_claim_state(world.issues[73].assignees, OWNER), "unassigned")
-    t.eq(claims.issue_claim_state(world.issues[74].assignees, OWNER), "self")
+    t.eq(claims.issue_claim_state(world.issues[73].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[74].labels), "self")
     t.eq(world:active_claim_count(), 1)
   end,
 

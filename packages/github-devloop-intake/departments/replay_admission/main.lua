@@ -31,11 +31,6 @@ local function act_issue_observed(context, event)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  local claim_mode_allowed, claim_mode_reason = replay_authorization.claim_mode_precondition()
-  if not claim_mode_allowed then
-    devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(claim_mode_reason), "intake replay is unavailable in the active claim mode")
-    return
-  end
   devloop_base.assert_trusted_bot_configured()
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)

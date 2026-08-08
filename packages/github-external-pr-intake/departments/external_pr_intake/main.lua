@@ -1,4 +1,5 @@
 local core = require("core")
+local devloop_claims = require("devloop.claims")
 local ports_seam = require("forge.ports")
 local saga = require("workflow.saga")
 
@@ -12,7 +13,7 @@ local spec = {
   stall_window = "30s",
 }
 
-local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,assignees,headRepository,headRepositoryOwner,isCrossRepository"
+local pr_view_fields = "title,headRefName,baseRefName,state,createdAt,updatedAt,author,comments,labels,headRepository,headRepositoryOwner,isCrossRepository"
 local bridge_issue_view_fields = "number,title,state,url,labels,comments,author"
 local github_author_policy_env = {
   bot_login_env = "FKST_GITHUB_BOT_LOGIN",
@@ -149,34 +150,21 @@ local function reconcile_created_bridge_issue(github, repo, pr_number, managed, 
   return canonical
 end
 
-local function self_only_claim(pr, self_login)
-  if self_login == nil or self_login == "" then
-    return false
-  end
-  local seen = false
-  for _, assignee in ipairs(pr.assignees or {}) do
-    local login = core.strip_bot_login_suffix(assignee)
-    if login == self_login then
-      seen = true
-    elseif login ~= nil and login ~= "" then
-      return false
-    end
-  end
-  return seen
-end
-
-local function ensure_claim(github, repo, pr, self_login)
-  if self_only_claim(pr, self_login) then
+local function ensure_claim(github, repo, pr, claims)
+  local state = claims.issue_claim_state(pr.labels)
+  if state == "self" then
     return true, pr
   end
-  if #(pr.assignees or {}) > 0 then
+  if state == "other" then
     return false, pr
   end
-  github.issue_assign(repo, pr.number, self_login, 30)
+  local active_label = claims.claimed_label()
+  github.issue_add_label(repo, pr.number, active_label, 30)
   local fresh = read_pr(github, repo, pr.number)
-  if self_only_claim(fresh, self_login) then
+  if claims.issue_claim_state(fresh.labels) == "self" then
     return true, fresh
   end
+  github.issue_remove_label(repo, pr.number, active_label, 30)
   return false, fresh
 end
 
@@ -185,15 +173,16 @@ local function existing_bridge(github, repo, pr, managed)
     or search_bridge_issues(github, repo, pr.number, managed)
 end
 
-local function maybe_record_missing_pr_marker(github, repo, pr, bridge, managed, self_login)
+local function maybe_record_missing_pr_marker(github, repo, pr, bridge, managed, claims)
   if bridge == nil or bridge.issue_number == nil or bridge.source == "pr-marker" then
     return
   end
-  if core.find_pr_bridge_marker(pr.comments, repo, pr.number, managed) ~= nil then
+  local fresh = read_pr(github, repo, pr.number)
+  if core.find_pr_bridge_marker(fresh.comments, repo, fresh.number, managed) ~= nil then
     return
   end
-  if core.write_enabled() and self_only_claim(pr, self_login) then
-    write_comment(github, repo, pr.number, pr, bridge.issue_number)
+  if core.write_enabled() and claims.issue_claim_state(fresh.labels) == "self" then
+    write_comment(github, repo, fresh.number, fresh, bridge.issue_number)
   end
 end
 
@@ -253,7 +242,7 @@ local function maybe_acknowledge_bridge_from_scan(github, repo, pr, managed)
   return nil
 end
 
-local function handle_candidate(github, payload)
+local function handle_candidate(github, payload, claims)
   local source_repo, source_pr = core.parse_source_ref(payload and payload.source_ref)
   local repo = tostring(payload.repo or source_repo)
   local pr_number = core.safe_number(payload.number or source_pr, "candidate pr")
@@ -283,9 +272,8 @@ local function handle_candidate(github, payload)
       return
     end
 
-    local self_login = core.current_bot_login()
     local claimed
-    claimed, pr = ensure_claim(github, repo, pr, self_login)
+    claimed, pr = ensure_claim(github, repo, pr, claims)
     if not claimed then
       action = "skip-claimed-by-other"
       return
@@ -298,13 +286,14 @@ local function handle_candidate(github, payload)
     end
     bridge = existing_bridge(github, repo, pr, managed)
     if bridge ~= nil then
-      maybe_record_missing_pr_marker(github, repo, pr, bridge, managed, self_login)
+      maybe_record_missing_pr_marker(github, repo, pr, bridge, managed, claims)
       action = maybe_acknowledge_existing_bridge(github, repo, pr, bridge, managed)
         or ("deduped-after-claim-" .. tostring(bridge.source))
       return
     end
 
-    if not self_only_claim(pr, self_login) then
+    pr = read_pr(github, repo, pr_number)
+    if claims.issue_claim_state(pr.labels) ~= "self" then
       action = "skip-lost-claim"
       return
     end
@@ -315,7 +304,7 @@ local function handle_candidate(github, payload)
       action = "created-bridge-marker-already-present"
       return
     end
-    if not self_only_claim(pr, self_login) then
+    if claims.issue_claim_state(pr.labels) ~= "self" then
       action = "created-bridge-marker-deferred-lost-claim"
       return
     end
@@ -363,7 +352,8 @@ local function handle_scan(github, event)
   end
 end
 
-local function make_department(ports)
+local function make_department(ports, claims)
+  local claim_contract = claims or devloop_claims
   local function done(_event)
     return false
   end
@@ -378,7 +368,7 @@ local function make_department(ports)
       if type(event and event.payload) ~= "table" then
         error("github-external-pr-intake: invalid-payload: external_pr_candidate payload must be a table")
       end
-      return handle_candidate(ports.github, event.payload)
+      return handle_candidate(ports.github, event.payload, claim_contract)
     end
     error("github-external-pr-intake: unsupported-queue: " .. tostring(event and event.queue))
   end

@@ -408,7 +408,7 @@ local function read_matching_parent(github, source_repo, pr_number, origin)
     or tonumber(delegation.pr_number) ~= tonumber(pr_number) then
     return nil, "fail-closed(parent-delegation)", "parent no longer currently awaits this exact managed PR generation"
   end
-  if m_claims.issue_claim_state(parent.assignees, m_claims.claim_owner(), parent.labels) ~= "self" then
+  if m_claims.issue_claim_state(parent.labels) ~= "self" then
     return nil, "fail-closed(parent-claim)", "parent issue is not held by the current self-only claim"
   end
   return parent, nil, nil

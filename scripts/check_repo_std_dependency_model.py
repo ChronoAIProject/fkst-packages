@@ -43,6 +43,7 @@ DEVLOOP_FAMILY = {
     "github-devloop-pr",
     "github-proxy",
     "github-devloop-worktree-gc",
+    "github-external-pr-intake",
 }
 HOST_LIBRARY_SURFACES = {
     "workflow": {

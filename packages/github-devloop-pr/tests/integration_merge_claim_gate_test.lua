@@ -149,14 +149,14 @@ local function mock_merged_pr_view(event)
   })
 end
 
-local function mock_issue_claim(issue_number, assignees, author_login)
+local function mock_issue_claim(issue_number, holders, author_login)
   local rendered = {}
-  for _, assignee in ipairs(assignees or {}) do
-    table.insert(rendered, string.format('{"login":"%s"}', json_string(assignee)))
+  for _, holder in ipairs(holders or {}) do
+    table.insert(rendered, string.format('{"name":"fkst-dev:claimed:%s"}', json_string(holder)))
   end
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", issue_number), {
     stdout = string.format(
-      '{"assignees":[%s],"author":{"login":"%s"}}\n',
+      '{"labels":[%s],"author":{"login":"%s"}}\n',
       table.concat(rendered, ","),
       json_string(author_login or "fkst-test-bot")
     ),

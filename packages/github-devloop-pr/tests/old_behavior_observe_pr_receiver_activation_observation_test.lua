@@ -187,7 +187,7 @@ local function capture(fixture)
   end, restorations)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function(dept, _, _, _, proposal_id)
     if fixture.claim == false then
-      devloop_logging.log_cas_decision(dept, proposal_id, { state = nil, version = nil }, "claim", "claim", "skip-claimed-by-other", "backing issue assignee claim is held by another login")
+      devloop_logging.log_cas_decision(dept, proposal_id, { state = nil, version = nil }, "claim", "claim", "skip-claimed-by-other", "backing issue claim label is held by another appliance")
       return false
     end
     return true

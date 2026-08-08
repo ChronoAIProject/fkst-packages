@@ -190,7 +190,7 @@ package require is introduced.
 | `github.edit_comment(comment_ref, body_text_or_file)` | comment table | command mechanics only; stale-target classification belongs to adapter, retry policy to package |
 | `github.reconcile_labels(target_ref, add, remove)` | `bool` | ensures repo labels exist; S3 decides whether the label write is still allowed |
 | `github.add_blocked_by(blocked_ref, blocker_ref)` | `bool` | GraphQL `addBlockedBy`; #660's `issueId` fix stays in the adapter mechanics |
-| `github.assign_issue(issue_ref, login)` / `github.unassign_issue(issue_ref, login)` | `bool` | assignee claim policy remains package-owned |
+| `github.assign_issue(issue_ref, login)` / `github.unassign_issue(issue_ref, login)` | `bool` | generic assignee mechanics only; claim ownership uses claim labels |
 | `github.create_pr(request)` | PR table | adapter push/create mechanics only; S3 validates state/head/claim first |
 | `github.merge_pr(pr_ref, opts)` | merge result table | `gh pr merge --merge --match-head-commit`; merge authorization remains S3 |
 | `github.close_issue(issue_ref)` | `bool` | command execution only |

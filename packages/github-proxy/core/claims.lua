@@ -1,12 +1,7 @@
-local content_filter = require("forge.github.content_filter")
+local claim_labels = require("devloop.claim_labels")
+local github_view = require("forge.github_view")
 
 local S = {}
-
-local function same_login(left, right)
-  local canonical_left = content_filter.canon_login(left)
-  local canonical_right = content_filter.canon_login(right)
-  return canonical_left ~= nil and canonical_right ~= nil and canonical_left == canonical_right
-end
 
 function S.install(M)
 local function assignee_login(assignee)
@@ -37,27 +32,18 @@ function M.assignee_logins(value)
   return logins
 end
 
-function M.gh_issue_view_assignees_cmd(repo, issue_number)
+function M.gh_issue_view_claim_labels_cmd(repo, issue_number)
   return M.gh_issue_rest_view_cmd(repo, issue_number)
 end
 
-function M.github_issue_assign(repo, issue_number, login, timeout)
-  return M.github().issue_assign(repo, issue_number, login, timeout or 30)
-end
-
-function M.github_issue_unassign(repo, issue_number, login, timeout)
-  return M.github().issue_unassign(repo, issue_number, login, timeout or 30)
-end
-
-function M.parse_issue_assignees(stdout)
+function M.parse_issue_claim_labels(stdout)
   local decoded = json.decode(stdout or "{}")
-  return M.assignee_logins(decoded.assignees)
+  return github_view.label_names(decoded.labels)
 end
 
-function M.issue_claim_held_by_self(repo, issue_number, login)
-  local view = M.gh_exec(M.gh_issue_view_assignees_cmd(repo, issue_number), 30, "GitHub issue REST assignees")
-  local logins = M.parse_issue_assignees(view.stdout)
-  return #logins == 1 and same_login(logins[1], login)
+function M.issue_claim_held_by_label(repo, issue_number, active_label)
+  local view = M.gh_exec(M.gh_issue_view_claim_labels_cmd(repo, issue_number), 30, "GitHub issue REST labels")
+  return claim_labels.classify(M.parse_issue_claim_labels(view.stdout), active_label) == "self"
 end
 
 local function claim_source_ref_matches(payload, repo, issue_number)
@@ -69,50 +55,59 @@ local function claim_source_ref_matches(payload, repo, issue_number)
   return tostring(source_ref.ref or "") == tostring(repo) .. "#issue/" .. tostring(issue_number)
 end
 
-local function verify_claim_log(dept, reason, repo, issue_number, owner)
+local function verify_claim_log(dept, reason, repo, issue_number, active_label)
   local fields = {
     "outcome=lost",
     "reason=" .. tostring(reason),
     "repo=" .. tostring(repo),
     "issue=" .. tostring(issue_number),
   }
-  if owner ~= nil and tostring(owner) ~= "" then
-    table.insert(fields, "owner=" .. tostring(owner))
+  if active_label ~= nil and tostring(active_label) ~= "" then
+    table.insert(fields, "label=" .. tostring(active_label))
   end
   M.log_line("info", dept, "CLAIM", fields)
 end
 
 function M.verify_issue_claim_before_write(payload, repo, issue_number, dept)
   local claim = payload and payload.claim
-  if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
+  if claim == nil then
     return true
   end
-  if not claim_source_ref_matches(payload, repo, issue_number) then
-    verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
+  local active_label = type(claim) == "table" and claim.label or nil
+  if type(active_label) ~= "string" or active_label == "" or not claim_labels.is_claim_family(active_label) then
+    verify_claim_log(dept, "claim-label-invalid", repo, issue_number, active_label)
     return false
   end
-  local owner = tostring(claim.owner)
-  if M.issue_claim_held_by_self(repo, issue_number, owner) then
+  if not claim_source_ref_matches(payload, repo, issue_number) then
+    verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, active_label)
+    return false
+  end
+  if M.issue_claim_held_by_label(repo, issue_number, active_label) then
     return true
   end
-  verify_claim_log(dept, "assignee-claim-lost", repo, issue_number, owner)
+  verify_claim_log(dept, "claim-label-lost", repo, issue_number, active_label)
   return false
 end
 
 function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
   local claim = payload and payload.claim
-  if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
+  if claim == nil then
     return true
   end
-  if not claim_source_ref_matches(payload, repo, issue_number) then
-    verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
+  local active_label = type(claim) == "table" and claim.label or nil
+  if type(active_label) ~= "string" or active_label == "" or not claim_labels.is_claim_family(active_label) then
+    verify_claim_log(dept, "claim-label-invalid", repo, issue_number, active_label)
     return false
   end
-  local logins = M.assignee_logins(issue and issue.assignees)
-  if #logins == 1 and same_login(logins[1], claim.owner) then
+  if not claim_source_ref_matches(payload, repo, issue_number) then
+    verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, active_label)
+    return false
+  end
+  local labels = github_view.label_names(issue and issue.labels)
+  if claim_labels.classify(labels, active_label) == "self" then
     return true
   end
-  verify_claim_log(dept, "assignee-claim-lost", repo, issue_number, claim.owner)
+  verify_claim_log(dept, "claim-label-lost", repo, issue_number, active_label)
   return false
 end
 

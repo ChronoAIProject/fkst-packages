@@ -1,4 +1,5 @@
 local strings = require("contract.strings")
+local claim_labels = require("devloop.claim_labels")
 local t = fkst.test
 
 local package_root = "packages/github-external-pr-intake"
@@ -77,6 +78,10 @@ local function pr_json(pr)
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. json_string(login) .. "}")
   end
+  local labels = {}
+  for _, label in ipairs(pr.labels or {}) do
+    table.insert(labels, '{"name":' .. json_string(label) .. "}")
+  end
   local is_cross_repository = pr.is_cross_repository
   if is_cross_repository == nil then
     is_cross_repository = true
@@ -91,7 +96,8 @@ local function pr_json(pr)
     .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"author":{"login":' .. json_string(pr.author_login or "contributor")
     .. '},"comments":[' .. table.concat(comments, ",")
-    .. '],"assignees":[' .. table.concat(assignees, ",") .. "]}\n"
+    .. '],"assignees":[' .. table.concat(assignees, ",")
+    .. '],"labels":[' .. table.concat(labels, ",") .. "]}\n"
 end
 
 local function pr_list_json(prs)
@@ -140,6 +146,7 @@ local function new_fake_github(opts)
         state = "OPEN",
         comments = {},
         assignees = {},
+        labels = {},
       },
     },
     list = options.list,
@@ -150,6 +157,8 @@ local function new_fake_github(opts)
     hidden_comments_until_creates = options.hidden_comments_until_creates or 0,
     issue_create_yield = options.issue_create_yield,
     fail_pr_cli_view_once = options.fail_pr_cli_view_once,
+    pr_read_mutator = options.pr_read_mutator,
+    pr_view_count = 0,
     created_count = 0,
   }
   local handle = { _model = model, is_authorized_author = function(_login) return true end }
@@ -166,6 +175,10 @@ local function new_fake_github(opts)
     local pr = model.prs[pr_number]
     if pr == nil then
       error("fake: unknown PR " .. tostring(pr_number))
+    end
+    model.pr_view_count = model.pr_view_count + 1
+    if type(model.pr_read_mutator) == "function" then
+      model.pr_read_mutator(model, pr, model.pr_view_count)
     end
     if model.created_count < model.hidden_comments_until_creates then
       local hidden = {}
@@ -201,19 +214,28 @@ local function new_fake_github(opts)
     end
     error("fake: unknown issue " .. tostring(issue_number))
   end
-  function handle.issue_assign(repo, issue_number, login, timeout)
-    table.insert(model.writes, { kind = "issue_assign", repo = repo, issue_number = issue_number, login = login, timeout = timeout })
+  function handle.issue_add_label(repo, issue_number, label, timeout)
+    table.insert(model.writes, { kind = "issue_add_label", repo = repo, issue_number = issue_number, label = label, timeout = timeout })
     local pr = model.prs[issue_number]
-    pr.assignees = pr.assignees or {}
-    local present = false
-    for _, assignee in ipairs(pr.assignees) do
-      if assignee == login then
-        present = true
+    pr.labels = pr.labels or {}
+    for _, existing in ipairs(pr.labels) do
+      if existing == label then
+        return { stdout = "", stderr = "", exit_code = 0 }
       end
     end
-    if not present then
-      table.insert(pr.assignees, login)
+    table.insert(pr.labels, label)
+    return { stdout = "", stderr = "", exit_code = 0 }
+  end
+  function handle.issue_remove_label(repo, issue_number, label, timeout)
+    table.insert(model.writes, { kind = "issue_remove_label", repo = repo, issue_number = issue_number, label = label, timeout = timeout })
+    local pr = model.prs[issue_number]
+    local kept = {}
+    for _, existing in ipairs(pr.labels or {}) do
+      if existing ~= label then
+        table.insert(kept, existing)
+      end
     end
+    pr.labels = kept
     return { stdout = "", stderr = "", exit_code = 0 }
   end
   function handle.issue_create(repo, title, body_file, labels, assignees, timeout)
@@ -289,7 +311,16 @@ local function run_pipeline(opts)
   end
 
   local module = load_department()
-  local dept = module.make_department({ github = github })
+  local claim_label = "fkst-dev:claimed:fkst-test-bot"
+  local claims = {
+    claimed_label = function()
+      return claim_label
+    end,
+    issue_claim_state = function(labels)
+      return claim_labels.classify(labels, claim_label)
+    end,
+  }
+  local dept = module.make_department({ github = github }, claims)
   local core = require("core")
   local old_read = core.read_env
   local env = options.env or {

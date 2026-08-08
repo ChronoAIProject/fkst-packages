@@ -4,11 +4,12 @@ local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local active_label = "fkst-dev:claimed:fkst-test-bot"
 
 local function mock_bot_env()
   for _ = 1, 6 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
-    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
   end
 end
@@ -76,7 +77,7 @@ end
 local function run_admission(number)
   return t.run_department("departments/admission/main.lua", event(number), {
     env = {
-      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop-intake/intake-admission-claim-permission-denied",
+      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop-intake/intake-admission-label-write-failure",
       FKST_GITHUB_REPO = "owner/repo",
       FKST_GITHUB_WRITE = "1",
     },
@@ -94,12 +95,12 @@ local function candidate_for(result, number)
 end
 
 return {
-  test_permission_denied_claim_skips_issue_and_later_event_can_admit_next_issue = function()
+  test_label_claim_write_failure_is_exposed_and_later_event_can_admit_next_issue = function()
     mock_bot_env()
     mock_repo_env()
     mock_write_mode_reads(6)
     mock_admission_view(42)
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. active_label .. "'", {
       stdout = "",
       stderr = "GraphQL: Resource not accessible by integration (permission-denied)\n",
       exit_code = 1,
@@ -107,17 +108,17 @@ return {
 
     local denied = run_admission(42)
 
-    t.eq(denied.exit_code, 0)
+    t.eq(denied.exit_code, 1)
     t.eq(candidate_for(denied, 42), nil)
 
     mock_admission_view(43)
-    t.mock_command("gh issue edit '43' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
+    t.mock_command("gh issue edit 43 --repo owner/repo --add-label '" .. active_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", "43"), {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"labels":[{"name":"' .. active_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -126,7 +127,6 @@ return {
 
     t.eq(admitted.exit_code, 0)
     t.is_true(candidate_for(admitted, 43) ~= nil)
-    t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 2)
-    t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
+    t.eq(count_calls("--remove-label " .. active_label), 0)
   end,
 }

@@ -436,7 +436,7 @@ return {
     }), "standard")
   end,
 
-  test_golden_judge_skip_foreign_hold_and_foreign_assignee = function()
+  test_golden_judge_skip_foreign_hold_and_foreign_label = function()
     local unsupported = run_judge({ schema = "foreign.v1" }, opts("golden-judge-skip-foreign-payload"))
     t.eq(unsupported.exit_code, 0)
     t.eq(#unsupported.raises, 0)
@@ -456,8 +456,8 @@ return {
     assert_no_codex_or_issue_edit()
 
     h.mock_bot_env()
-    mock_intake_judge_view({}, {}, { assignees_json = '{"login":"other-bot"}' })
-    local claimed = run_judge(candidate(), opts("golden-judge-skip-foreign-assignee"))
+    mock_intake_judge_view({ "fkst-dev:claimed:other-bot" }, {})
+    local claimed = run_judge(candidate(), opts("golden-judge-skip-foreign-label"))
     t.eq(claimed.exit_code, 0)
     t.eq(#claimed.raises, 0)
     assert_no_codex_or_issue_edit()

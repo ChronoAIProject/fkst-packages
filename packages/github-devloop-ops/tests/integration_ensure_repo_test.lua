@@ -38,7 +38,7 @@ local function label_json(label)
   )
 end
 
-local function mock_env(write_mode, integration)
+local function mock_env(write_mode, integration, exclusive)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
     stdout = "dev",
     stderr = "",
@@ -72,22 +72,12 @@ local function mock_env(write_mode, integration)
       stderr = "",
       exit_code = 0,
     })
-  end
-end
-
-local function mock_claim_label_env(exclusive)
-  for _ = 1, 2 do
-    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
-      stdout = "label",
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = exclusive or "",
       stderr = "",
       exit_code = 0,
     })
   end
-  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
-    stdout = exclusive or "",
-    stderr = "",
-    exit_code = 0,
-  })
 end
 
 local function labels_list_command()
@@ -196,6 +186,20 @@ local function canonical_labels_with_dashboard()
   return labels
 end
 
+local function claim_label(exclusive)
+  return {
+    name = exclusive == "1" and "fkst-dev:claimed" or "fkst-dev:claimed:fkst-test-bot",
+    color = "0E8A16",
+    description = "fkst-dev-label-ownership-claim",
+  }
+end
+
+local function canonical_labels_with_management(exclusive)
+  local labels = canonical_labels_with_dashboard()
+  table.insert(labels, claim_label(exclusive))
+  return labels
+end
+
 return {
   test_dry_run_empty_repo_renders_management_plane_diff_without_writes = function()
     mock_env("")
@@ -230,6 +234,7 @@ return {
       color = "ededed",
       description = "fkst observability dashboard singleton",
     })
+    table.insert(labels, claim_label())
     mock_env("1")
     mock_labels(labels)
     mock_dashboard_anchor(true, false)
@@ -268,6 +273,17 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    local active_claim = claim_label()
+    t.mock_command(core.gh_repo_label_create_cmd(
+      "owner/repo",
+      active_claim.name,
+      active_claim.color,
+      active_claim.description
+    ), {
+      stdout = '{"name":"' .. active_claim.name .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("gh api --method POST 'repos/owner/repo/issues' --input '/tmp/fkst-github-devloop-dashboard-anchor-owner-repo.json'", {
       stdout = '{"number":268}\n',
       stderr = "",
@@ -277,7 +293,7 @@ return {
     local result = run_ensure(opts("ensure-partial-real", { FKST_GITHUB_WRITE = "1" }))
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh api --method POST 'repos/owner/repo/labels'"), #canonical_labels() - 2 + 1)
+    t.eq(count_calls("gh api --method POST 'repos/owner/repo/labels'"), #canonical_labels() - 2 + 2)
     t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 1)
     local written = file.read(dashboard_anchor_input_path())
     t.is_true(written:find('"title":"fkst-dev board"', 1, true) ~= nil)
@@ -302,6 +318,7 @@ return {
       color = "ededed",
       description = "fkst observability dashboard singleton",
     })
+    table.insert(labels, claim_label())
     mock_env("1")
     mock_labels(labels)
     mock_dashboard_anchor(true)
@@ -322,7 +339,7 @@ return {
   end,
 
   test_fully_converged_repo_performs_zero_writes = function()
-    local labels = canonical_labels_with_dashboard()
+    local labels = canonical_labels_with_management()
     mock_env("1")
     mock_labels(labels)
     mock_dashboard_anchor(true)
@@ -337,16 +354,15 @@ return {
     t.eq(count_calls(dashboard_issue_list_command()), 1)
   end,
 
-  test_label_mode_provisions_derived_active_claim_label = function()
+  test_ensure_repo_provisions_derived_active_claim_label = function()
     local claim_label = "fkst-dev:claimed:fkst-test-bot"
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
       claim_label,
       "0E8A16",
-      "fkst-dev-label-mode-ownership-claim"
+      "fkst-dev-label-ownership-claim"
     )
     mock_env("1")
-    mock_claim_label_env("")
     mock_labels(canonical_labels_with_dashboard())
     mock_dashboard_anchor(true)
     mock_topology(0)
@@ -358,7 +374,6 @@ return {
 
     local result = run_ensure(opts("ensure-derived-claim-label", {
       FKST_GITHUB_WRITE = "1",
-      FKST_GITHUB_CLAIM_MODE = "label",
       FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
     }))
 
@@ -367,16 +382,15 @@ return {
     t.eq(count_calls(claim_command), 1)
   end,
 
-  test_label_mode_provisions_bare_claim_label_in_exclusive_posture = function()
+  test_ensure_repo_provisions_bare_claim_label_in_exclusive_posture = function()
     local claim_label = "fkst-dev:claimed"
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
       claim_label,
       "0E8A16",
-      "fkst-dev-label-mode-ownership-claim"
+      "fkst-dev-label-ownership-claim"
     )
-    mock_env("1")
-    mock_claim_label_env("1")
+    mock_env("1", nil, "1")
     mock_labels(canonical_labels_with_dashboard())
     mock_dashboard_anchor(true)
     mock_topology(0)
@@ -388,7 +402,6 @@ return {
 
     local result = run_ensure(opts("ensure-exclusive-claim-label", {
       FKST_GITHUB_WRITE = "1",
-      FKST_GITHUB_CLAIM_MODE = "label",
       FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "1",
     }))
 

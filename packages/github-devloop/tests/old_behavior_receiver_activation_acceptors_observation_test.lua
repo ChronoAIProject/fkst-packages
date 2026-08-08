@@ -36,6 +36,7 @@ local SLICE_LEDGER_REF = "refs/fkst/migration-slices/" .. SLICE_ENTRY_KEY
 local SLICE_LEDGER_SHA = string.rep("a", 40)
 local CANONICAL_ISSUE_NUMBER = 41
 local FORK_BACKING_ISSUE_NUMBER = 618
+local FOREIGN_CLAIM_LABEL = "fkst-dev:claimed:other-appliance"
 
 local SITES = {
   observe_issue = {
@@ -147,8 +148,7 @@ local OBSERVE_FIXTURES = json_array({
   },
   {
     disposition = "claim-not-acquired",
-    labels = { "fkst-dev:enabled", "fkst-dev:ready" },
-    assignees = { "other-login" },
+    labels = { "fkst-dev:enabled", "fkst-dev:ready", FOREIGN_CLAIM_LABEL },
     status = "rejected",
     reason = "claim-not-acquired",
     cas = "skip-claim-lost",

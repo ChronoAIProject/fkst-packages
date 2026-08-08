@@ -140,7 +140,7 @@ local function mock_issue_result_view(labels, comments)
     labels = labels,
     comments = comments,
   }, "labels,comments")
-  entity_read_mocks.mock_issue_view_selector(t, {}, "assignees,author")
+  entity_read_mocks.mock_issue_view_selector(t, {}, "labels,author")
 end
 
 local function mock_branch_config_env()
@@ -159,7 +159,7 @@ end
 local function run_observe_pr(name)
   mock_branch_config_env()
   t.mock_command(core.gh_issue_view_claim_cmd(repo, issue_number), {
-    stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

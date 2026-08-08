@@ -4,6 +4,8 @@ local github_author_policy = require("devloop.github_author_policy")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local base_ids = require("devloop.base_ids")
+local claim_labels = require("devloop.claim_labels")
+local config = require("devloop.config")
 
 local F = {}
 
@@ -221,7 +223,9 @@ function F.build_fork_issue_create_request(core, repo, issue_number, current, so
     repo = tostring(repo),
     title = F.fork_issue_title(issue_number, current and current.title),
     body = F.fork_issue_body(repo, issue_number, author_login, normalized),
-    assignees = { github_author_policy.claim_owner() },
+    labels = {
+      claim_labels.active_label(config.claim_label_exclusive(), github_author_policy.claim_owner()),
+    },
     dedup_key = dedup_key,
     external_effect_saga = "fork-and-block",
     external_effect_step = "create-fork",

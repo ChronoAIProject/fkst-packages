@@ -9,68 +9,53 @@ local core = {
   end,
 }
 
-local function deps_with_assignees(assignees, writes)
+local function release_deps(result, calls)
   return {
-    read_current_issue_ownership = function()
-      return {
-        assignees = assignees,
-        author_login = "fkst-test-bot",
-        labels = {},
-      }
-    end,
-    write_enabled = function()
-      return true
-    end,
-    issue_unassign = function(repo, issue_number, login, timeout)
-      writes[#writes + 1] = {
+    release_issue_claim_if_self = function(core_arg, dept, repo, issue_number, proposal_id, reason)
+      calls[#calls + 1] = {
+        core = core_arg,
+        dept = dept,
         repo = repo,
         issue_number = issue_number,
-        login = login,
-        timeout = timeout,
+        proposal_id = proposal_id,
+        reason = reason,
       }
+      return result
     end,
   }
 end
 
 local tests = {
-  test_done_release_removes_only_self_assignee = function()
-    local writes = {}
+  test_done_release_delegates_to_shared_label_claim_owner = function()
+    local calls = {}
     local ok = lease.release_done_claim(
       core,
-      deps_with_assignees({ "fkst-test-bot" }, writes),
+      release_deps(true, calls),
       "owner/repo",
       42,
       "github-devloop/issue/owner/repo/42"
     )
     t.is_true(ok)
-    t.eq(#writes, 1)
-    t.eq(writes[1].repo, "owner/repo")
-    t.eq(writes[1].issue_number, 42)
-    t.eq(writes[1].login, "fkst-test-bot")
+    t.eq(#calls, 1)
+    t.eq(calls[1].core, core)
+    t.eq(calls[1].dept, "workflow_materialize_next")
+    t.eq(calls[1].repo, "owner/repo")
+    t.eq(calls[1].issue_number, 42)
+    t.eq(calls[1].proposal_id, "github-devloop/issue/owner/repo/42")
+    t.eq(calls[1].reason, "workflow terminal done")
   end,
 
-  test_done_release_does_not_touch_non_self_assignee = function()
-    local writes = {}
+  test_done_release_propagates_shared_claim_rejection = function()
+    local calls = {}
     local ok = lease.release_done_claim(
       core,
-      deps_with_assignees({ "human" }, writes),
+      release_deps(false, calls),
       "owner/repo",
       42,
       "github-devloop/issue/owner/repo/42"
     )
     t.eq(ok, false)
-    t.eq(#writes, 0)
-  end,
-
-  test_done_release_dry_run_logs_without_write = function()
-    local writes = {}
-    local deps = deps_with_assignees({ "fkst-test-bot" }, writes)
-    deps.write_enabled = function()
-      return false
-    end
-    local ok = lease.release_done_claim(core, deps, "owner/repo", 42, "github-devloop/issue/owner/repo/42")
-    t.is_true(ok)
-    t.eq(#writes, 0)
+    t.eq(#calls, 1)
   end,
 
   -- A "done" terminal (every slot merged) closes the completed origin idea issue.

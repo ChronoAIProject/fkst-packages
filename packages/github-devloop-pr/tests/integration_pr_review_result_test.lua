@@ -18,14 +18,14 @@ local find_causal_raise = h.find_causal_raise
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local verdict_summary_label = "Verdicts: "
 
-local function mock_issue_claim(assignees, author_login)
+local function mock_issue_claim(holders, author_login)
   local rendered = {}
-  for _, assignee in ipairs(assignees or {}) do
-    table.insert(rendered, string.format('{"login":"%s"}', h.json_string(assignee)))
+  for _, holder in ipairs(holders or {}) do
+    table.insert(rendered, string.format('{"name":"fkst-dev:claimed:%s"}', h.json_string(holder)))
   end
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
     stdout = string.format(
-      '{"assignees":[%s],"author":{"login":"%s"}}\n',
+      '{"labels":[%s],"author":{"login":"%s"}}\n',
       table.concat(rendered, ","),
       h.json_string(author_login or "fkst-test-bot")
     ),

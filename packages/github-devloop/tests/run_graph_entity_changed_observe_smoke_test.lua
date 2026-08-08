@@ -67,7 +67,7 @@ local function mock_runtime_and_context()
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), {
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"), {
       stdout = "",
       stderr = "",
       exit_code = 0,

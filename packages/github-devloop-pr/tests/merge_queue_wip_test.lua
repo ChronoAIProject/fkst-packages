@@ -203,7 +203,7 @@ return {
     mock_queue_list({ 7 })
     mock_queue_pr(current, "2026-06-03T02:00:00Z")
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
-      stdout = '{"assignees":[{"login":"human"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"labels":[{"name":"fkst-dev:claimed:human"}],"author":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })

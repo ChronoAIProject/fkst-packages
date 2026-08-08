@@ -32,6 +32,11 @@ local function mock_bot(login)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function mock_authorized_login(login, managed_bot_logins, opts)
@@ -92,7 +97,6 @@ local function direct_discovery_admission(handle, policy, poll_key)
   return m_claims.claim_admission_precheck(current_issue("trusted-human", {}), {
     owner = "fkst-test-bot",
     status = "unassigned",
-    claim_mode = "assignee",
     managed = observed or {},
     trusted_author_policy = policy,
     peer_discovery_error = observed == nil and unavailable_reason or nil,
@@ -400,7 +404,7 @@ return {
     mock_bot("fkst-test-bot")
     mock_authorized_login("trusted-human")
     local current = current_issue("trusted-human", {})
-    current.assignees = { { login = "fkst-test-bot" } }
+    current.labels = { "fkst-dev:claimed:fkst-test-bot" }
 
     local admission = admission_for(current, repo)
 
@@ -528,7 +532,6 @@ return {
     local admission, detail = m_claims.claim_admission_precheck(current_issue("ghost-peer", {}), {
       owner = "fkst-test-bot",
       status = "unassigned",
-      claim_mode = "assignee",
       managed = observed or {},
       trusted_author_policy = policy,
       peer_discovery_error = observed == nil and unavailable_reason or nil,

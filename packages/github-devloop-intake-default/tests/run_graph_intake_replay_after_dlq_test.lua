@@ -18,6 +18,7 @@ local updated_at = "2026-06-03T01:02:03Z"
 local title = "Recover intake after terminal DLQ"
 local body = "Exercise safe replay after the intake judge exhausted retries."
 local owner = "fkst-test-bot"
+local active_label = "fkst-dev:claimed:" .. owner
 local proposal_id = base_ids.proposal_id(repo, issue_number)
 local decision_version = devloop_base.intake_decision_dedup_key(proposal_id, {
   title = title,
@@ -108,7 +109,6 @@ local function mock_base_env(times)
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), { stdout = repo, stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), { stdout = owner, stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), { stdout = "1", stderr = "", exit_code = 0 })
-    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_FORK_GRACE_HOURS"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_PROXY_POLL_LABEL_PREFIX"', { stdout = "fkst-dev:,fkst-class:", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_PROXY_REPLAY_BUDGET"', { stdout = "1", stderr = "", exit_code = 0 })
@@ -170,13 +170,13 @@ local function mock_claim_verify()
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = repo,
     number = issue_number,
-    assignees = { owner },
+    labels = { active_label },
     author_login = owner,
-  }, "assignees,author")
+  }, "labels,author")
 end
 
 local function mock_claim_write()
-  t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
+  t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. active_label .. "'", {
     stdout = "",
     stderr = "",
     exit_code = 0,

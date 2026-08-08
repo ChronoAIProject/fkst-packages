@@ -37,7 +37,7 @@ local env_command_contract = {
     result = { stdout = "", stderr = "", exit_code = 0 },
   },
   {
-    command = devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"),
+    command = devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"),
     count = 6,
     result = { stdout = "", stderr = "", exit_code = 0 },
   },

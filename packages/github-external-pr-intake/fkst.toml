@@ -6,4 +6,4 @@ persistence_class = "stateless_adapter"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "forge"]
+libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "forge", "devloop"]

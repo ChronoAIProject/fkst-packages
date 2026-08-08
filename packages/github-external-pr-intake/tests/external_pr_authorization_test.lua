@@ -1,4 +1,5 @@
 local content_filter = require("forge.github.content_filter")
+local claim_labels = require("devloop.claim_labels")
 local core = require("core")
 local strings = require("contract.strings")
 local t = fkst.test
@@ -13,7 +14,7 @@ end
 local function pr_json(model)
   model.read_count = model.read_count + 1
   local author = model.authors[math.min(model.read_count, #model.authors)]
-  local assignees = model.claimed and '[{"login":"fkst-test-bot"}]' or "[]"
+  local labels = model.claimed and '[{"name":"fkst-dev:claimed:fkst-test-bot"}]' or "[]"
   local provenance = ""
   if not model.omit_provenance then
     local is_cross_repository = model.is_cross_repository
@@ -30,8 +31,8 @@ local function pr_json(model)
     provenance,
     ',"author":{"login":',
     strings.json_string(author),
-    '},"comments":[],"assignees":',
-    assignees,
+    '},"comments":[],"assignees":[],"labels":',
+    labels,
     "}\n",
   })
 end
@@ -81,13 +82,13 @@ local function fake_github(opts)
     return { stdout = "[]\n", stderr = "", exit_code = 0 }
   end
 
-  function handle.issue_assign(repo, issue_number, login, timeout)
+  function handle.issue_add_label(repo, issue_number, label, timeout)
     model.claimed = true
     table.insert(model.writes, {
-      kind = "issue_assign",
+      kind = "issue_add_label",
       repo = repo,
       issue_number = issue_number,
-      login = login,
+      label = label,
       timeout = timeout,
     })
     return { stdout = "", stderr = "", exit_code = 0 }
@@ -196,7 +197,14 @@ local function run_event(github, event, options)
   end
 
   local ok, err = pcall(function()
-    load_department().make_department({ github = github }).pipeline(event)
+    load_department().make_department({ github = github }, {
+      claimed_label = function()
+        return "fkst-dev:claimed:fkst-test-bot"
+      end,
+      issue_claim_state = function(labels)
+        return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+      end,
+    }).pipeline(event)
   end)
 
   file = old_file
@@ -396,7 +404,7 @@ return {
     local logs = run_candidate(github)
 
     t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
     t.is_true(logs_contain(logs, "action=skip-non-authorized-author"))
@@ -411,7 +419,7 @@ return {
     local logs = run_candidate(github)
 
     t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
     t.is_true(logs_contain(logs, "action=skip-not-external"))
@@ -427,7 +435,7 @@ return {
 
     t.eq(ok, false)
     t.eq(#raises, 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
     t.is_true(tostring(err):find("pr-provenance-unavailable", 1, true) ~= nil)
@@ -456,7 +464,7 @@ return {
     local logs = run_candidate(github)
 
     t.eq(count_kind(github._model.writes, "pr_cli_view"), 2)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 1)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 1)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.is_true(logs_contain(logs, "action=skip-non-authorized-author-after-claim"))
   end,

@@ -44,7 +44,7 @@ return {
 
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_search"), 1)
   end,
 
@@ -59,7 +59,7 @@ return {
           is_cross_repository = false,
           state = "OPEN",
           comments = {},
-          assignees = {},
+          labels = {},
         },
       },
     })
@@ -69,7 +69,7 @@ return {
     })
 
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_search"), 0)
   end,
 
@@ -83,7 +83,7 @@ return {
           head_ref_name = "devloop/owner-repo-7",
           state = "OPEN",
           comments = {},
-          assignees = {},
+          labels = {},
         },
       },
     })
@@ -93,11 +93,11 @@ return {
     })
 
     t.eq(count_kind(github._model.writes, "issue_create"), 1)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 1)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 1)
     t.eq(count_kind(github._model.writes, "pr_comment"), 1)
   end,
 
-  test_other_assignee_claim_blocks_writes = function()
+  test_foreign_claim_label_blocks_writes = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -107,7 +107,7 @@ return {
           head_ref_name = "feature/contrib",
           state = "OPEN",
           comments = {},
-          assignees = { "other-bot" },
+          labels = { "fkst-dev:claimed:other-bot" },
         },
       },
     })
@@ -118,7 +118,42 @@ return {
 
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
+  end,
+
+  test_lost_claim_before_create_blocks_bridge_writes = function()
+    local github = new_fake_github({
+      pr_read_mutator = function(_model, pr, read_count)
+        if read_count == 3 then
+          pr.labels = { "fkst-dev:claimed:other-bot" }
+        end
+      end,
+    })
+    run_pipeline({
+      github = github,
+      event = candidate_event(7),
+    })
+
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 1)
+    t.eq(count_kind(github._model.writes, "issue_create"), 0)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 0)
+  end,
+
+  test_lost_claim_before_comment_defers_bridge_marker = function()
+    local github = new_fake_github({
+      pr_read_mutator = function(_model, pr, read_count)
+        if read_count == 4 then
+          pr.labels = { "fkst-dev:claimed:other-bot" }
+        end
+      end,
+    })
+    run_pipeline({
+      github = github,
+      event = candidate_event(7),
+    })
+
+    t.eq(count_kind(github._model.writes, "issue_create"), 1)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 0)
   end,
 
   test_dry_run_does_not_claim_or_write = function()
@@ -136,7 +171,7 @@ return {
 
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
     t.eq(count_kind(github._model.writes, "pr_comment"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
+    t.eq(count_kind(github._model.writes, "issue_add_label"), 0)
     t.eq(count_kind(github._model.writes, "issue_search"), 1)
   end,
 }

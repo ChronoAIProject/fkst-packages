@@ -13,7 +13,6 @@ local allowed_env = {
   FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS = true,
   FKST_GITHUB_AUTHORIZE_ORG_MEMBERS = true,
   FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = true,
-  FKST_GITHUB_CLAIM_MODE = true,
   FKST_GITHUB_REPO = true,
   FKST_GITHUB_WRITE = true,
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
@@ -87,24 +86,8 @@ function C.write_mode(exec)
   return C.read_env("FKST_GITHUB_WRITE", exec) == "1" and "real" or "dry-run"
 end
 
--- Claim mode is opt-in and additive: the default (unset/empty/unknown) is
--- "assignee", which is byte-for-byte today's behavior. "label" opts into
--- holding ownership via an active claim label, which a GitHub App can set
--- even though an App cannot be an issue assignee.
-function C.claim_mode(exec)
-  local raw = C.read_env("FKST_GITHUB_CLAIM_MODE", exec)
-  raw = strings.trim(raw or "")
-  if raw == "label" then
-    return "label"
-  end
-  return "assignee"
-end
-
--- Claim-label exclusivity is opt-in and additive: the default
--- (unset/anything-but-"1") keeps per-owner derived labels.
--- Existing bare-label deployments must either set FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE=1
--- to keep bare labels unchanged or clear stale bare claim labels before using the
--- derived default. Under the derived posture, a bare label is a foreign peer lock by design.
+-- Claim-label exclusivity is opt-in: the default keeps per-owner derived labels,
+-- while "1" selects the bare label. Every other claim-family label is foreign.
 function C.claim_label_exclusive(exec)
   return strings.trim(C.read_env("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE", exec) or "") == "1"
 end

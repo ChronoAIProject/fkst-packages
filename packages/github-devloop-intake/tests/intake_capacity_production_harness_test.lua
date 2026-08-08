@@ -242,9 +242,9 @@ local function issue(number)
     title = "Fixture issue " .. tostring(number),
     body = "Production-shaped intake capacity fixture",
     state = state,
-    labels = {},
+    labels = current_owner ~= "" and { "fkst-dev:claimed:" .. current_owner } or {},
     comments = comments,
-    assignees = current_owner ~= "" and { current_owner } or {},
+    assignees = {},
     author_login = configured_owner,
     updated_at = assert(os.getenv("FKST_CAPACITY_UPDATED_AT")),
   }
@@ -301,7 +301,7 @@ function M.new()
       for _, number in ipairs(issue_numbers()) do
         local current = issue(number)
         if current.state == "OPEN"
-          and claims.issue_claim_state(current.assignees, configured_owner, current.labels) == "self" then
+          and claims.issue_claim_state(current.labels) == "self" then
           table.insert(numbers, number)
         end
       end
@@ -314,7 +314,7 @@ function M.new()
     compare_and_swap_grant = grant_adapter.compare_and_swap_grant,
     release_claim_if_self = function(_repo, number, configured_owner, _reason)
       local current = issue(number)
-      if claims.issue_claim_state(current.assignees, configured_owner, current.labels) ~= "self" then
+      if claims.issue_claim_state(current.labels) ~= "self" then
         return false
       end
       write(owner_path(number), "")
@@ -325,7 +325,7 @@ function M.new()
   local claim_ports = setmetatable({
     claim_issue_for_management = function(_core, _dept, _repo, number)
       local current = issue(number)
-      local claim_state = claims.issue_claim_state(current.assignees, claims.claim_owner(), current.labels)
+      local claim_state = claims.issue_claim_state(current.labels)
       if claim_state == "self" then
         return true
       end
@@ -334,7 +334,7 @@ function M.new()
       end
       write(owner_path(number), claims.claim_owner() .. "\n")
       local fresh = issue(number)
-      if claims.issue_claim_state(fresh.assignees, claims.claim_owner(), fresh.labels) ~= "self" then
+      if claims.issue_claim_state(fresh.labels) ~= "self" then
         error("capacity fixture claim did not become visible")
       end
       if tostring(os.getenv("FKST_CAPACITY_CRASH_AFTER_CLAIM") or "") == tostring(number) then
@@ -519,7 +519,6 @@ local function start_supervise(args)
     "FKST_GITHUB_REPO=" .. shell_quote(args.repo),
     "FKST_GITHUB_BOT_LOGIN=" .. shell_quote(owner),
     "FKST_GITHUB_WRITE=1",
-    "FKST_GITHUB_CLAIM_MODE=assignee",
     "FKST_DEVLOOP_MAX_INFLIGHT=1",
     "FKST_CAPACITY_CASE_ROOT=" .. shell_quote(args.case),
     "FKST_CAPACITY_ISSUES=" .. shell_quote(args.issues),
