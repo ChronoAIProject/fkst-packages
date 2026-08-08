@@ -11,9 +11,12 @@ local mock_issue_reviewing = h.mock_issue_reviewing
 local merge_comments = h.merge_comments
 local mock_pr_normal_risk_diff_name_only = h.mock_pr_normal_risk_diff_name_only
 local run_observe_pr = h.run_observe_pr
+local run_review_pr = h.run_review_pr
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 local count_calls = h.count_calls
+local mock_issue_review = h.mock_issue_review
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function handoff_state(handoff)
   if handoff.kind == "github-devloop.merge_ready" then
@@ -93,6 +96,25 @@ local function mock_resolution_delta(exit_code)
 end
 
 return {
+  test_head_advanced_review_round_outranks_merge_ready_without_changing_stale_ordering = function()
+    local event = h.merge_ready()
+    local tied = merge_comments(event)
+    table.insert(tied, core.state_marker(event.proposal_id, "reviewing", event.version))
+    t.eq(core.current_state(tied, event.proposal_id).state, "merge-ready")
+
+    local next_review_version = core.next_review_loop_version(event.version)
+    t.eq(next_review_version, event.version .. "/review-loop/1")
+    local advanced = merge_comments(event)
+    table.insert(advanced, core.state_marker(event.proposal_id, "reviewing", next_review_version))
+    t.eq(core.current_state(advanced, event.proposal_id).state, "reviewing")
+
+    local stale = {
+      core.state_marker(event.proposal_id, "reviewing", next_review_version),
+      core.state_marker(event.proposal_id, "merge-ready", core.next_review_loop_version(next_review_version)),
+    }
+    t.eq(core.current_state(stale, event.proposal_id).state, "merge-ready")
+  end,
+
   test_observe_pr_carries_over_approved_head_for_empty_resolution_delta = function()
     local event = h.merge_ready()
     local old_head = event.reviewed_head_sha
@@ -190,10 +212,25 @@ return {
   test_observe_pr_non_empty_resolution_delta_falls_back_to_full_review = function()
     local event = h.merge_ready()
     local new_head = "feedface"
-    mock_pr_origin({
-      m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
-    }, "devloop-owner-repo-42-01HY", new_head)
+    local origin = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    local review_version = core.next_review_loop_version(event.version)
+    local comments = merge_comments(event)
+    table.insert(comments, core.state_marker(event.proposal_id, "reviewing", review_version))
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
+    h.take_pr_phase_comments()
+    local observed_comments = merge_comments(event)
+    table.insert(observed_comments, 1, origin)
+    entity_read_mocks.mock_pr_read_forms(t, {
+      repo = "owner/repo",
+      number = 7,
+      comments = observed_comments,
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = new_head,
+      state = "OPEN",
+      base_branch = "dev",
+      labels = {},
+      times = 1,
+    })
     mock_base_fetch("ba5e1234")
     mock_resolution_delta(1)
 
@@ -202,8 +239,24 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
-    t.eq(reviewing_raise.payload.version, event.version)
+    t.eq(reviewing_raise.payload.version, review_version)
     t.eq(count_calls("git merge-tree --write-tree"), 1)
+
+    local current = core.current_state(comments, event.proposal_id)
+    t.eq(current.state, "reviewing")
+    t.eq(current.version, review_version)
+
+    mock_issue_review({ "fkst-dev:reviewing" }, comments, {
+      title = "Implement decision recorder",
+      body = "Issue context",
+    })
+    mock_pr_origin({ origin }, "devloop-owner-repo-42-01HY", new_head)
+    local review = run_review_pr(reviewing_raise.payload, opts("review-carry-over-head-advanced-rereview"))
+    t.eq(review.exit_code, 0)
+    local proposal = find_raise(review.raises, "devloop_review_request")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.proposal_id,
+      devloop_base.pr_review_proposal_id("owner/repo", event.pr_number, review_version, new_head))
   end,
 
   test_observe_pr_carry_over_is_idempotent_when_new_review_result_visible = function()
