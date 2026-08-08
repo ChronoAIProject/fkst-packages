@@ -108,16 +108,18 @@ end
 return {
   test_unknown_diff_name_risk_never_accepts_evidence = function()
     local evidence_checked = false
-    local fake_core = {
-      gh_pr_diff_name_only = function()
-        return { stdout = "", stderr = "diff unavailable", exit_code = 1 }
-      end,
+    local fake_caps = {
+      commands = {
+        gh_pr_diff_name_only = function()
+          return { stdout = "", stderr = "diff unavailable", exit_code = 1 }
+        end,
+      },
       high_risk_review_evidence_fact = function()
         evidence_checked = true
         return { verdict = "approve" }
       end,
     }
-    local ok, reason = high_risk_merge_gate.require_evidence(fake_core, "owner/repo", {}, merge_ready())
+    local ok, reason = high_risk_merge_gate.require_evidence(fake_caps, "owner/repo", {}, merge_ready())
     t.eq(ok, false)
     t.eq(evidence_checked, false)
     t.is_true(tostring(reason):find("retry%-pending%(high%-risk%-review%-evidence:diff%-name%-only%-failed%)") ~= nil)
