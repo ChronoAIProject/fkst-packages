@@ -77,6 +77,7 @@ return {
       body = "x",
       comments = {},
     })
+    t.eq(require("contract.sha256").hex(prompt), "2eb948407b297ded9991b680828c40e9c7e0588d22c62c88905e5bbcc2dd69dc")
     t.is_true(prompt:find("Decline only when", 1, true) ~= nil)
     t.is_true(prompt:find("Recurrence check is mandatory", 1, true) ~= nil)
     t.is_true(prompt:find("escalate-to-class", 1, true) ~= nil)
