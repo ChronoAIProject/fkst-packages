@@ -1,4 +1,123 @@
 local M = {}
+local strings = require("contract.strings")
+
+local codex_run_counter = 0
+local ulid_alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+local ulid_prefix = "01ARZ3NDEKTSV4RRFFQ6"
+
+local function shell_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function ulid_suffix(value)
+  local encoded = {}
+  for index = 6, 1, -1 do
+    local offset = (value % 32) + 1
+    encoded[index] = ulid_alphabet:sub(offset, offset)
+    value = math.floor(value / 32)
+  end
+  return table.concat(encoded)
+end
+
+local function next_codex_run_id()
+  codex_run_counter = codex_run_counter + 1
+  return "codex-" .. ulid_prefix .. ulid_suffix(codex_run_counter)
+end
+
+local function json_value(value)
+  if type(value) == "number" then
+    return tostring(value)
+  end
+  if type(value) == "boolean" then
+    return value and "true" or "false"
+  end
+  if value == nil then
+    return "null"
+  end
+  if type(value) ~= "string" then
+    error("testkit-internal: codex-status-value-invalid: fixture records require scalar values")
+  end
+  return strings.json_string(value)
+end
+
+local function json_object(record)
+  local parts = {}
+  for key, value in pairs(record or {}) do
+    table.insert(parts, strings.json_string(key) .. ":" .. json_value(value))
+  end
+  table.sort(parts)
+  return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function write_file(path, body)
+  local handle = assert(io.open(path, "w"))
+  handle:write(body)
+  handle:close()
+end
+
+function M.seed_running_codex_status(run_opts, source_record)
+  local root = run_opts and run_opts.env and run_opts.env.FKST_RUNTIME_LOG_DIR
+  if root == nil or root == "" then
+    error("testkit-internal: codex-status-log-dir-missing: FKST_RUNTIME_LOG_DIR is required")
+  end
+
+  local record = {}
+  for key, value in pairs(source_record or {}) do
+    record[key] = value
+  end
+  record.run_id = next_codex_run_id()
+
+  local dir = root .. "/codex"
+  local path = dir .. "/fixture-" .. record.run_id .. ".log"
+  local release_path = path .. ".release"
+  os.remove(release_path)
+
+  local script = [[
+import fcntl
+import pathlib
+import sys
+import time
+
+log_path, release_path = sys.argv[1:3]
+pathlib.Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+with open(log_path, "a+", encoding="utf-8") as handle:
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    print("ready", flush=True)
+    while not pathlib.Path(release_path).exists():
+        try:
+            print(".", end="", flush=True)
+        except BrokenPipeError:
+            break
+        time.sleep(0.1)
+]]
+  local command = "python3 -c " .. shell_quote(script)
+    .. " " .. shell_quote(path)
+    .. " " .. shell_quote(release_path)
+  local process = assert(io.popen(command, "r"))
+  if process:read("*l") ~= "ready" then
+    process:close()
+    error("testkit-internal: codex-status-witness-start-failed: lock witness did not become ready")
+  end
+
+  local file = assert(io.open(path, "a"))
+  file:write("CODEX_STATUS:" .. json_object(record) .. "\n")
+  file:close()
+
+  local released = false
+  return function()
+    if released then
+      return
+    end
+    released = true
+    write_file(release_path, "release\n")
+    local ok, reason, code = process:close()
+    os.remove(release_path)
+    if ok ~= true then
+      error("testkit-internal: codex-status-witness-stop-failed: "
+        .. tostring(reason) .. " " .. tostring(code))
+    end
+  end
+end
 
 local function capture_raises(fn)
   local old_raise = raise

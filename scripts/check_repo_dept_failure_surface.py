@@ -1,20 +1,19 @@
-"""Shrink-only ratchet: a department that throws must at least emit an error fact.
+"""Shrink-only ratchet: a department must declare a package-owned failure surface.
 
-Three tiers, and this ratchet enforces only the boundary between the first and the rest:
+The pinned engine supplies reliable retry by default. An omitted `M.spec.retry` and an explicit
+`retry = {}` both materialize the host-resolved retry defaults; `retry = false` is the explicit
+opt-out. `wrap_pipeline_failure` is independent: it emits a structured package log fact and
+rethrows, after which the materialized engine retry policy still applies.
 
-  tier 1  neither mechanism            -- no error fact, no dead letter. SILENT. <- enforced here
-  tier 2  `wrap_pipeline_failure` only -- error fact in the log, but NO dead letter
-  tier 3  `retry` policy               -- error fact AND dead letter
+This ratchet deliberately requires one of two package-visible surfaces:
 
-`wrap_pipeline_failure` (libraries/devloop/logging.lua:44-58) pcalls, emits a structured
-`log_error_fact`, then RETHROWS. The rethrow still reaches the engine, and with no `retry`
-policy the engine ACKs it as `dropped_no_retry_policy` and returns before `store.retry(...)`
-(fkst-substrate crates/fkst-framework/src/supervise/consumer.rs:702-710). So tier 2 is
-greppable but never dead-lettered -- do NOT read a passing check as "reaches the DLQ".
+  * an enabled `retry = { ... }` table makes the engine policy explicit in the Department spec;
+  * `wrap_pipeline_failure` makes the package-owned structured log fact explicit.
 
-Reaching the DLQ requires `retry`. Tier 2 is tracked as follow-up work, not by this ratchet;
-tightening to retry-only would move ~27 further departments into the allowlist and is a
-separate decision. See #2996.
+Therefore an allowlist entry means the package leaves both accepted surfaces implicit. It does
+NOT mean an omitted retry is disabled, dropped, or unable to dead-letter. The detection remains
+a source-level formalization ratchet, not a claim that the engine lacks a runtime failure path.
+See #2996.
 
 Two roles are STRUCTURALLY exempt, derived from the department's role rather than a name
 list that rots:
@@ -30,7 +29,7 @@ from pathlib import Path
 
 ALLOWLIST = "migration/dept-failure-surface.allowlist"
 
-# `retry = {` at spec indentation, and the structured failure wrapper.
+# An enabled retry table at spec indentation, and the structured failure wrapper.
 RETRY_RE = re.compile(r"^\s*retry\s*=\s*\{", re.MULTILINE)
 WRAP_RE = re.compile(r"\bwrap_pipeline_failure\b")
 
@@ -55,7 +54,7 @@ def has_failure_surface(source: str) -> bool:
 
 
 def exposed_departments(sources: dict[str, str]) -> set[str]:
-    """Departments that can throw but cannot report it."""
+    """Departments outside both package-owned surfaces accepted by this ratchet."""
     exposed: set[str] = set()
     for rel_path, source in sources.items():
         dept = dept_id(rel_path)
@@ -96,16 +95,18 @@ def ratchet_messages(
 
     for dept in sorted(current - allowlist):
         messages.append(
-            f"department `{dept}` declares neither a `retry` policy nor "
-            "`wrap_pipeline_failure`, so a thrown error produces NO error fact at all and is ACKed as "
-            "`dropped_no_retry_policy` (see #2996). Declare one. Note `wrap_pipeline_failure` alone "
-            "emits a log fact but still does NOT reach the DLQ -- only `retry` does. Or add a "
+            f"department `{dept}` uses neither an enabled `retry` table nor "
+            "`wrap_pipeline_failure`, so neither package-owned failure surface accepted by this "
+            "ratchet is explicit (see #2996). An omitted `retry` inherits the engine's reliable "
+            "host defaults, equivalent to `retry = {}`; `retry = false` explicitly disables retry. "
+            "Declare `retry = {}` to formalize the inherited policy, use "
+            "`wrap_pipeline_failure` for a structured package log fact, or add a "
             f"shrink-only allowlist entry in {ALLOWLIST} with an issue link and a reason."
         )
 
     for dept in sorted(allowlist - current):
         messages.append(
-            f"`{dept}` is listed in {ALLOWLIST} but now has a failure surface "
+            f"`{dept}` is listed in {ALLOWLIST} but now uses an accepted failure surface "
             "(or no longer exists). Remove the stale allowlist entry so the ratchet keeps shrinking."
         )
 
@@ -113,7 +114,7 @@ def ratchet_messages(
         for dept in sorted(allowlist - base_allowlist):
             messages.append(
                 f"{ALLOWLIST} grew by `{dept}`; this inventory is shrink-only. "
-                "Give the new department a `retry` policy or `wrap_pipeline_failure` instead."
+                "Give the new department an enabled `retry` table or `wrap_pipeline_failure` instead."
             )
 
     return messages

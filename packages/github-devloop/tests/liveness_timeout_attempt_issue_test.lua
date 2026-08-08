@@ -177,7 +177,9 @@ return {
     local event = h.ready()
     local live_opts = opts("liveness-live-implement-codex-run-no-timeout-count")
     local live_exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
-    local live_run = codex_status.implement_codex_run(event.proposal_id, event.dedup_key)
+    local release_codex_run = codex_status.seed_implement_codex_run(
+      live_opts, event.proposal_id, event.dedup_key
+    )
     local comments = {
       recent_state_comment("implementing", event.dedup_key),
       issue_comment(core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201), live_exec_ref)),
@@ -187,10 +189,8 @@ return {
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, comments)
     mock_empty_pr_list()
 
-    local scanned
-    codex_status.with_live_codex_runs(live_opts, { live_run }, function()
-      scanned = run_liveness_scan("liveness-live-implement-codex-run-no-timeout-count", live_opts)
-    end)
+    local scanned = run_liveness_scan("liveness-live-implement-codex-run-no-timeout-count", live_opts)
+    release_codex_run()
     t.eq(scanned.exit_code, 0)
     assert_no_timeout_progress(scanned)
 
