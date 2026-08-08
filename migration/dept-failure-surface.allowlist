@@ -10,14 +10,6 @@
 # scripts/check_repo_dept_failure_surface.py.
 #
 # `dead_letter` and `test_*` departments are structurally exempt by role and are not listed.
-github-devloop.liveness_scan|issue=#2996|why=liveness sweep drives every stuck-state redrive; its package-owned failure surface remains implicit. Highest priority to remove.
 archaudit.audit|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-fkst-substrate-ref-maintainer.substrate_ref_scan|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-autochrono.inbound_glue|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-autochrono.outbound_glue|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-devloop-integration.pr_freshness_scan|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
 github-devloop-ops.ensure_repo|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-devloop-workflow.workflow_materialize_next|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-devloop-workflow.workflow_select|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
 integration-coverage-producer.produce|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-marketing-radar.ingest|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.

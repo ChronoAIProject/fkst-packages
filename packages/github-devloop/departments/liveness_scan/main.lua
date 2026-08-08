@@ -28,6 +28,7 @@ local spec = {
     "devloop_timeout_reconcile",
   },
   fanout = { "devloop_liveness_tick" },
+  retry = {},
   stall_window = "30s",
 }
 
