@@ -10,7 +10,6 @@ local config = require("devloop.config")
 local claim_carriers = require("devloop.claim_carriers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
-local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local parsers_shared = require("devloop.parsers.shared")
@@ -113,7 +112,7 @@ function C.read_current_issue_assignees(repo, issue_number)
 end
 
 local function issue_labels(decoded)
-  return github_view.label_names(decoded and decoded.labels)
+  return parsers_shared.label_names(decoded and decoded.labels)
 end
 
 function C.read_current_issue_ownership(repo, issue_number)
