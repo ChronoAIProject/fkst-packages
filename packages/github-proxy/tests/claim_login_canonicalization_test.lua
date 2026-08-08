@@ -18,8 +18,19 @@ local function claim_payload(owner, label)
   }
 end
 
-local function mock_ownership(assignees, labels, exclusive)
+local function mock_claim_mode(mode, times)
+  for _ = 1, times or 1 do
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
+      stdout = mode or "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
+local function mock_ownership(assignees, labels, exclusive, mode)
   author_policy.mock_env(t, nil, { times = 2 })
+  mock_claim_mode(mode, 2)
   for _ = 1, 2 do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
       stdout = exclusive or "",
@@ -46,6 +57,7 @@ return {
     local payload = claim_payload("fkst-test-bot")
     local issue = { assignees = { { login = "FKST-Test-Bot" } }, labels = {} }
     author_policy.mock_env(t)
+    mock_claim_mode()
 
     t.is_true(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"))
   end,
@@ -61,6 +73,7 @@ return {
     local payload = claim_payload("fkst-test-bot")
     local issue = { assignees = { { login = "FKST-Test-Bot[bot]" } }, labels = {} }
     author_policy.mock_env(t)
+    mock_claim_mode()
 
     t.is_true(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"))
   end,
@@ -125,7 +138,7 @@ return {
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
   end,
 
-  test_label_claim_verification_accepts_own_label_with_human_assignee = function()
+  test_assignee_mode_refuses_label_claim_carrier = function()
     local label = "fkst-dev:claimed:fkst-test-bot"
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
@@ -133,6 +146,31 @@ return {
       labels = { { name = label } },
     }
     mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]')
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
+  end,
+
+  test_label_mode_refuses_assignee_claim_carrier = function()
+    local payload = claim_payload("fkst-test-bot")
+    local issue = {
+      assignees = { { login = "FKST-Test-Bot" } },
+      labels = {},
+    }
+    mock_ownership('[{"login":"FKST-Test-Bot"}]', nil, nil, "label")
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
+  end,
+
+  test_label_claim_verification_accepts_own_label_with_human_assignee = function()
+    local label = "fkst-dev:claimed:fkst-test-bot"
+    local payload = claim_payload("fkst-test-bot", label)
+    local issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = label } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', nil, "label")
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), true)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), true)
@@ -145,7 +183,7 @@ return {
       assignees = { { login = "human" } },
       labels = { { name = label } },
     }
-    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]')
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', nil, "label")
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
@@ -158,7 +196,7 @@ return {
       assignees = { { login = "human" } },
       labels = { { name = label } },
     }
-    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', "1")
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', "1", "label")
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
@@ -171,7 +209,7 @@ return {
       assignees = { { login = "ElonSG" } },
       labels = { { name = label } },
     }
-    mock_ownership('[{"login":"ElonSG"}]', '[{"name":"' .. label .. '"}]')
+    mock_ownership('[{"login":"ElonSG"}]', '[{"name":"' .. label .. '"}]', nil, "label")
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)

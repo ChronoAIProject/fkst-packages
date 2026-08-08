@@ -46,34 +46,33 @@ function M.github_issue_unassign(repo, issue_number, login, timeout)
   return M.github().issue_unassign(repo, issue_number, login, timeout or 30)
 end
 
-local function claim_contract_valid(claim)
+local function claim_contract_carrier(claim)
   if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
-    return false
+    return nil
   end
   local owner = github_author_policy.claim_owner()
   if tostring(claim.owner) ~= owner then
-    return false
+    return nil
   end
-  if claim.label == nil then
-    return true
+  local carrier = config.claim_mode()
+  if carrier == "assignee" then
+    return claim.label == nil and carrier or nil
   end
   if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
-    return false
+    return nil
   end
-  return claim.label == claim_carriers.active_label(config.claim_label_exclusive(), owner)
+  if claim.label ~= claim_carriers.active_label(config.claim_label_exclusive(), owner) then
+    return nil
+  end
+  return carrier
 end
 
-local function claim_carrier(claim)
-  return claim.label == nil and "assignee" or "label"
-end
-
-local function issue_claim_held_in_issue(issue, claim)
+local function issue_claim_held_in_issue(issue, claim, carrier)
   if type(issue) ~= "table"
     or type(issue.assignees) ~= "table"
     or type(issue.labels) ~= "table" then
     return false
   end
-  local carrier = claim_carrier(claim)
   return claim_carriers.classify(
     carrier,
     M.assignee_logins(issue.assignees),
@@ -84,10 +83,10 @@ local function issue_claim_held_in_issue(issue, claim)
   ) == "self"
 end
 
-function M.issue_claim_held_by_self(repo, issue_number, claim)
+function M.issue_claim_held_by_self(repo, issue_number, claim, carrier)
   local view = M.gh_exec(M.gh_issue_view_ownership_cmd(repo, issue_number), 30, "GitHub issue REST ownership")
   local issue = json.decode(view.stdout or "{}")
-  return issue_claim_held_in_issue(issue, claim)
+  return issue_claim_held_in_issue(issue, claim, carrier)
 end
 
 local function claim_source_ref_matches(payload, repo, issue_number)
@@ -117,7 +116,8 @@ function M.verify_issue_claim_before_write(payload, repo, issue_number, dept)
   if claim == nil then
     return true
   end
-  if not claim_contract_valid(claim) then
+  local carrier = claim_contract_carrier(claim)
+  if carrier == nil then
     verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
     return false
   end
@@ -125,7 +125,7 @@ function M.verify_issue_claim_before_write(payload, repo, issue_number, dept)
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
     return false
   end
-  if M.issue_claim_held_by_self(repo, issue_number, claim) then
+  if M.issue_claim_held_by_self(repo, issue_number, claim, carrier) then
     return true
   end
   verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
@@ -137,7 +137,8 @@ function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
   if claim == nil then
     return true
   end
-  if not claim_contract_valid(claim) then
+  local carrier = claim_contract_carrier(claim)
+  if carrier == nil then
     verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
     return false
   end
@@ -145,7 +146,7 @@ function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
     return false
   end
-  if issue_claim_held_in_issue(issue, claim) then
+  if issue_claim_held_in_issue(issue, claim, carrier) then
     return true
   end
   verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
