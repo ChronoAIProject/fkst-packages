@@ -2,6 +2,7 @@ local identity = require("contract.convergence_identity")
 local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
 local t = fkst.test
+local testing = require("testkit_internal.testing")
 local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
 
@@ -530,7 +531,9 @@ return {
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
+    local release_codex_run = testing.seed_running_codex_status(
+      run_opts, running_codex_record(run_identity)
+    )
 
     for _ = 1, 13 do
       local result = run_decide(proposal(), run_opts)
@@ -538,6 +541,7 @@ return {
       t.eq(#result.raises, 0)
     end
     t.eq(#codex_calls(), 0)
+    release_codex_run()
   end,
 
   test_live_run_drop_preserves_fresh_redrive_after_run_disappears = function()
@@ -548,11 +552,15 @@ return {
 
     local run_opts = opts("defer-then-redrive")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
+    local release_codex_run = testing.seed_running_codex_status(
+      run_opts, running_codex_record(run_identity)
+    )
     local deferred = run_decide(proposal(), run_opts)
     t.eq(deferred.exit_code, 0)
     t.eq(#deferred.raises, 0)
     t.eq(#codex_calls(), 0)
+    -- releasing the witness is what "the run disappears" means
+    release_codex_run()
 
     local retried = run_decide(proposal(), opts("redrive-after-live-run-missing"))
     t.eq(retried.exit_code, 0)
