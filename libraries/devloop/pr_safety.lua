@@ -19,5 +19,33 @@ function C.is_safe_pr_number(pr_number)
   return forge_validators.is_positive_pr_number(pr_number)
 end
 
+function C.origin_matches_pr(origin, current_pr, repo, integration_branch, require_issue_backing)
+  if origin.repo ~= repo then
+    return false, "repo"
+  end
+  if require_issue_backing and origin.issue_number == nil then
+    return false, "issue"
+  end
+  if tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
+    return false, "head"
+  end
+  if tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch) then
+    return false, "base"
+  end
+  if origin.base_branch ~= nil
+    and tostring(origin.base_branch or "") ~= tostring(integration_branch) then
+    return false, "base"
+  end
+  return true, "ok"
+end
+
+function C.origin_base_matches_current_pr(origin, current_pr)
+  return tostring(current_pr.base_ref_name or "") == tostring(origin.base_branch)
+end
+
+function C.origin_base_matches_integration(origin, integration_branch)
+  return origin.base_branch ~= nil
+    and tostring(origin.base_branch or "") == tostring(integration_branch)
+end
 
 return C

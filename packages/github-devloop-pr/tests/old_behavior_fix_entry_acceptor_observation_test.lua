@@ -378,9 +378,15 @@ local function capture(fixture)
   function ports.git.worktree_list() return git_result("worktree_list", nil,
     "worktree " .. WORKTREE .. "\nbranch refs/heads/" .. BRANCH .. "\n\n") end
   function ports.git.fetch_branch(_, branch) return git_result("fetch_branch", { branch = branch }) end
-  function ports.git.remote_branch_head() return git_result("remote_branch_head", nil, "abc123\n") end
+  function ports.git.remote_branch_head() return git_result("remote_branch_head", nil, HEAD_SHA .. "\n") end
+  function ports.git.is_ancestor_worktree_branch()
+    return git_result("is_ancestor_worktree_branch")
+  end
   function ports.git.reset_hard_branch(_, branch)
     return git_result("reset_hard_branch", { branch = branch })
+  end
+  function ports.git.reset_hard_sha(_, sha)
+    return git_result("reset_hard_sha", { sha = sha })
   end
   function ports.git.clean_fd() return git_result("clean_fd") end
   function ports.git.merge_no_edit() return git_result("merge_no_edit") end
@@ -463,7 +469,8 @@ local function capture(fixture)
   if fixture.worktree_owner_role ~= nil then
     local destructive_calls = 0
     for _, write in ipairs(ports.git_model.writes) do
-      if write.kind == "reset_hard_branch" or write.kind == "clean_fd"
+      if write.kind == "reset_hard_branch" or write.kind == "reset_hard_sha"
+        or write.kind == "clean_fd"
         or write.kind == "merge_no_edit" then
         destructive_calls = destructive_calls + 1
       end

@@ -53,7 +53,11 @@ class DogfoodBoardHarness:
                 fi
                 case "$2" in
                   rate_limit)
-                    printf '%s\\n' 5000
+                    case "$4" in
+                      *remaining*limit*) printf '%s\\n' '4321/10000' ;;
+                      *remaining*) printf '%s\\n' 4321 ;;
+                      *) printf 'unexpected rate-limit query: %s\\n' "$4" >&2; exit 2 ;;
+                    esac
                     ;;
                   repos/ChronoAIProject/fkst-packages/pulls?state=open*)
                     # Two different --jq queries hit this URL: openpr (.head.ref, for
@@ -194,13 +198,25 @@ JSON
         self.tmp.cleanup()
 
     def run_board(self) -> subprocess.CompletedProcess[str]:
+        return self.run_dogfood("board", "packages", "6")
+
+    def run_doctor(self) -> subprocess.CompletedProcess[str]:
+        return self.run_dogfood("doctor", "packages")
+
+    def run_dogfood(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["DOGFOOD_CONFIG"] = str(self.config)
         env["FKST_GITHUB_BOT_LOGIN"] = "loning"
         env["FKST_DEVLOOP_MANAGED_BOT_LOGINS"] = "loning,ElonSG"
+        env["DOGFOOD_LOGDIR"] = str(self.root / "logs")
+        env["DOGFOOD_REAP_DRYRUN"] = "1"
+        env["DOGFOOD_RECEIPT_SWEEP_DRYRUN"] = "1"
+        env["DOGFOOD_RECEIPT_SWEEP_ROOT"] = str(self.root)
+        env["SUBSTRATE_SRC"] = str(self.root / "substrate")
+        env["BIN"] = "/bin/true"
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         return subprocess.run(
-            ["/bin/bash", ".claude/skills/dogfood-github-devloop/dogfood.sh", "board", "packages", "6"],
+            ["/bin/bash", ".claude/skills/dogfood-github-devloop/dogfood.sh", *args],
             cwd=REPO_ROOT,
             env=env,
             text=True,
@@ -211,6 +227,19 @@ JSON
 
 
 class DogfoodBoardTest(unittest.TestCase):
+    def test_graphql_quota_uses_provider_limit_in_board_and_doctor(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            board = h.run_board()
+            self.assertEqual(board.returncode, 0, board.stderr + board.stdout)
+            self.assertIn("graphql 4321/10000", board.stdout)
+
+            doctor = h.run_doctor()
+            self.assertEqual(doctor.returncode, 0, doctor.stderr + doctor.stdout)
+            self.assertIn("graphql: 4321/10000", doctor.stdout)
+        finally:
+            h.close()
+
     def test_issue_age_warnings_are_invariant_to_updated_at_comments(self) -> None:
         h = DogfoodBoardHarness()
         try:

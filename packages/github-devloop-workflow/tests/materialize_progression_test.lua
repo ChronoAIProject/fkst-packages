@@ -1,6 +1,7 @@
 local fixtures = require("tests.materialize_reconcile_helpers")
 local base_ids = fixtures.base_ids
 local core = fixtures.core
+local decompose_lib = require("devloop.decompose")
 local digest = fixtures.digest
 local materialization = fixtures.materialization
 local materialize_reconcile = fixtures.materialize_reconcile
@@ -93,6 +94,21 @@ return {
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) == nil)
+  end,
+
+  test_static_frontier_preserves_origin_decompose_lineage = function()
+    local root = "github-devloop/issue/owner/repo/7"
+    local raised = run_with({
+      current = issue({ comment(blueprint_marker()) }, {
+        body = "Run the workflow.\n\n" .. decompose_lib.decompose_lineage_marker(root, 1),
+      }),
+    })
+
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
+    local lineage = decompose_lib.decompose_lineage(raised[1].payload.body)
+    t.eq(lineage.root, root)
+    t.eq(lineage.depth, 1)
   end,
 
   test_unsatisfied_origin_dependency_holds_before_child_materialization = function()
