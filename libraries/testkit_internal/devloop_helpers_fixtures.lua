@@ -104,7 +104,7 @@ function M.new(deps)
       number = selected_number,
       assignees = { "fkst-test-bot" },
       author_login = "fkst-test-bot",
-    }, "assignees,author", 30)
+    }, "assignees,author,labels", 30)
   end
 
   local function encoded_comment_json(comment_id, body, author_login)

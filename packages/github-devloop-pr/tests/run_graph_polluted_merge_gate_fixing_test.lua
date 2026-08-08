@@ -129,7 +129,7 @@ local function mock_replay_entry(event, comments)
     number = 42,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author", 4)
+  }, "assignees,author,labels", 4)
 end
 
 local function mock_comment_handoff(event, comments)

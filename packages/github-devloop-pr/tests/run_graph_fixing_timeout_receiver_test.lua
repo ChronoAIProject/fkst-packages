@@ -237,7 +237,7 @@ local function mock_frozen_pr(fixing, feedback_body, fields)
     number = selected_issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author", 8)
+  }, "assignees,author,labels", 8)
   if selected.own_ci == true then
     h.mock_required_check_runs_for(current_head, "failure", selected_repo)
     h.mock_required_check_runs_for(current_head, "failure", selected_repo)

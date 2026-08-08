@@ -7,7 +7,7 @@ local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
@@ -56,7 +56,7 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
 end
 
 function C.claimed_label()
-  return claim_labels.active_label(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label(config.claim_label_exclusive(), C.claim_owner())
 end
 
 local function merge_managed_bot_logins(managed, observed)
@@ -71,26 +71,16 @@ function C.claim_mode_active()
   return config.claim_mode()
 end
 
--- Label mode isolates the active family label while respecting managed peer assignees.
 function C.issue_claim_state(assignees, owner, labels)
-  if config.claim_mode() == "label" then
-    local managed = C.managed_bot_logins()
-    for _, login in ipairs(C.assignee_logins(assignees)) do
-      if C.is_managed_bot_login(login, managed)
-        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
-        return "other"
-      end
-    end
-    return claim_labels.classify(labels, C.claimed_label())
-  end
-  local logins = C.assignee_logins(assignees)
-  if #logins == 0 then
-    return "unassigned"
-  end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
-    return "self"
-  end
-  return "other"
+  local mode = config.claim_mode()
+  return claim_carriers.classify(
+    mode,
+    C.assignee_logins(assignees),
+    owner,
+    labels,
+    mode == "label" and C.claimed_label() or nil,
+    mode == "label" and C.managed_bot_logins() or nil
+  )
 end
 
 local function issue_ownership_decision(ownership, owner)
@@ -129,10 +119,7 @@ function C.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local fields = "assignees,author"
-  if config.claim_mode() == "label" then
-    fields = "assignees,author,labels"
-  end
+  local fields = "assignees,author,labels"
   local view = github().issue_view(repo, issue_number, fields, 30)
   local decoded = json.decode(view.stdout or "{}")
   return {
@@ -178,14 +165,12 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local owner = C.claim_owner()
   local ownership = nil
-  local current_usable
-  if config.claim_mode() == "label" then
-    current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
-      and current_issue.assignees ~= nil
-  else
-    current_usable = type(current_issue) == "table"
-      and current_issue.assignees ~= nil
-      and C.issue_author_login(current_issue) ~= nil
+  local mode = config.claim_mode()
+  local current_usable = type(current_issue) == "table"
+    and type(current_issue.assignees) == "table"
+    and type(current_issue.labels) == "table"
+  if mode ~= "label" then
+    current_usable = current_usable and C.issue_author_login(current_issue) ~= nil
   end
   if current_usable then
     ownership = current_issue
@@ -543,7 +528,8 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
   local claim_is_self = active_label ~= nil
     and restart_metadata.has_label(ownership and ownership.labels, active_label)
-    or active_label == nil and C.issue_claim_state(ownership and ownership.assignees, owner) == "self"
+    or active_label == nil
+      and claim_carriers.classify_assignees(C.assignee_logins(ownership and ownership.assignees), owner) == "self"
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
@@ -570,24 +556,18 @@ function C.claim_required_payload(source_ref)
   if repo == nil or issue_number == nil then
     return nil
   end
-  return {
+  local claim = {
     owner = C.claim_owner(),
     source_ref = normalized,
   }
+  if config.claim_mode() == "label" then
+    claim.label = C.claimed_label()
+  end
+  return claim
 end
 
 function C.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
-    return payload
-  end
-  -- github-proxy's pre-write guard verifies the attached claim against the
-  -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
-  -- active claim label but is never an assignee, so an attached assignee
-  -- claim would always read as "lost" and block every write. Ownership in
-  -- label-mode is instead verified at claim time (claim_issue_for_management),
-  -- so skip attaching the assignee claim and let github-proxy's no-claim path
-  -- proceed. Assignee-mode is unchanged.
-  if config.claim_mode() == "label" then
     return payload
   end
   payload.claim = C.claim_required_payload(source_ref or payload.source_ref)
