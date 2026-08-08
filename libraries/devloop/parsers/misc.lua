@@ -2,7 +2,6 @@ local devloop_base = require("devloop.base")
 local error_facts = require("contract.error_facts")
 local check_runs = require("forge.github.check_runs")
 local shared = require("devloop.parsers.shared")
-local strings = require("forge.strings")
 local C = {}
 
 function C.comments_from_json(comments_json)
@@ -125,7 +124,10 @@ local function trusted_marker_comments(comments, trust_set)
 end
 
 function C.comment_body(comment)
-  return strings.comment_body(comment)
+  if type(comment) == "table" then
+    return tostring(comment.body or "")
+  end
+  return tostring(comment or "")
 end
 
 function C.comment_author_login(comment)
