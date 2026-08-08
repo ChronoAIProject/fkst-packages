@@ -467,6 +467,37 @@ class LifecycleBoardFactTest(unittest.TestCase):
         )
         self.assertEqual(unavailable.returncode, 2, unavailable.stderr + unavailable.stdout)
 
+    def test_pr_projection_ignores_noncanonical_marker_whitespace(self) -> None:
+        comments = json.dumps(
+            [
+                {
+                    "user": {"login": "loning"},
+                    "created_at": "2026-06-27T00:00:00Z",
+                    "body": (
+                        '<!-- fkst:github-devloop:pr-origin:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" -->\n'
+                        '<!-- fkst:github-devloop:state:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                        'state="fixing" version="2026-06-27T00-00-00Z/fixing" '
+                        'marker_order_key="2026-06-27T00-00-00Z/0000000200" -->'
+                    ),
+                },
+                {
+                    "user": {"login": "loning"},
+                    "created_at": "2099-01-01T00:00:00Z",
+                    "body": (
+                        '<!--  fkst:github-devloop:state:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                        'state="fixing" version="2099-01-01T00-00-00Z/fixing" '
+                        'marker_order_key="2099-01-01T00-00-00Z/0000000200" -->'
+                    ),
+                },
+            ]
+        )
+        result = self.run_pr_tool(comments)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)["condition_started_at"], "2026-06-27T00:00:00Z")
+
     def test_lifecycle_projector_uses_trusted_marker_order_key(self) -> None:
         comments = textwrap.dedent(
             """\

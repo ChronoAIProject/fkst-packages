@@ -16,8 +16,8 @@ MAX_VERSION_BYTES = 512
 MAX_ORDER_KEY_BYTES = 768
 TERMINAL_STATES = {"blocked", "impl-failed", "merged", "declined"}
 
-MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop:state:v1\b(.*?)-->")
-PR_ORIGIN_RE = re.compile(r"<!--\s*fkst:github-devloop:pr-origin:v1\b(.*?)-->")
+MARKER_RE = re.compile(r"<!-- fkst:github-devloop:state:v1\b(.*?)-->")
+PR_ORIGIN_RE = re.compile(r"<!-- fkst:github-devloop:pr-origin:v1\b(.*?)-->")
 ATTR_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"')
 UPDATED_AT_RE = re.compile(r"\d\d\d\d-\d\d-\d\dT\d\d[-:]\d\d[-:]\d\dZ")
 ISO_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
