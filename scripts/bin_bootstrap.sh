@@ -131,9 +131,19 @@ resolve_bin_contract() {
   return 0
 }
 
+# Single flight: exactly one process builds the pinned binary; every other
+# process reuses the artifact it produces. Returns 0 holding the lock, or
+# BOOTSTRAP_LOCK_ARTIFACT_READY when the holder finished and "$bin_path" is
+# usable — waiting out the whole timeout and dying would discard a binary that
+# already exists.
+BOOTSTRAP_LOCK_ARTIFACT_READY=2
+
 bootstrap_with_lock() {
-  local lock_dir="$1" timeout="${FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT:-600}" waited=0
+  local lock_dir="$1" bin_path="$2" timeout="${FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT:-600}" waited=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
+    if [ -x "$bin_path" ]; then
+      return "$BOOTSTRAP_LOCK_ARTIFACT_READY"
+    fi
     if [ "$waited" -ge "$timeout" ]; then
       bootstrap_die "timed out waiting for fkst-framework bootstrap lock: $lock_dir"
     fi
@@ -175,7 +185,16 @@ bootstrap_bin_on_total_miss() {
   mkdir -p "$parent_dir"
   lock_dir="$checkout_dir.lock"
 
-  bootstrap_with_lock "$lock_dir"
+  local lock_rc=0
+  bootstrap_with_lock "$lock_dir" "$bin_path" || lock_rc=$?
+  if [ "$lock_rc" -eq "$BOOTSTRAP_LOCK_ARTIFACT_READY" ]; then
+    printf '%s\n' "$bin_path"
+    return 0
+  fi
+  if [ "$lock_rc" -ne 0 ]; then
+    return "$lock_rc"
+  fi
+
   if (
     repo_url="https://github.com/$owner/$repo.git"
     if [ -d "$checkout_dir/.git" ]; then

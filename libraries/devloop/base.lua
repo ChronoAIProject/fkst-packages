@@ -131,6 +131,7 @@ end
 
 local function is_review_meta_action(value)
   return value == "fix"
+    or value == "no-actionable-gap"
     or value == "block"
     or value == "spec-amendment"
     or value == "continue"

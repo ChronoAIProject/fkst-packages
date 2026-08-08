@@ -30,6 +30,16 @@ local raise_capture = fixtures.raise_capture
 local run_with = fixtures.run_with
 local only_queue = fixtures.only_queue
 
+local function first_generated_entry(spec)
+  return materialization.write_generated_entry(
+    origin,
+    digest.blueprint_digest(blueprint()),
+    blueprint().steps[1],
+    materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+    spec
+  )
+end
+
 return {
   test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
     local changed_blueprint = blueprint()
@@ -353,13 +363,7 @@ return {
 
   test_existing_child_search_records_created_without_second_create = function()
     local existing_spec = generated_spec("first")
-    local generated_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local generated_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -396,13 +400,7 @@ return {
 
   test_parent_issue_created_marker_before_generator_records_created_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -440,13 +438,7 @@ return {
 
   test_parent_issue_created_marker_unreadable_waits_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -471,13 +463,7 @@ return {
 
   test_parent_issue_create_intent_waits_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local search_calls = 0
     local raised = run_with({

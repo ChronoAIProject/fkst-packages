@@ -91,6 +91,9 @@ function M.child_ref_for_entry(repo, entry)
     issue_number = tostring(issue_number),
     proposal_id = base_ids.proposal_id(repo, issue_number),
     source_ref = safe_source_ref(repo, issue_number),
+    origin = entry.origin,
+    blueprint_digest = entry.blueprint_digest,
+    slot = entry.slot,
   }
 end
 

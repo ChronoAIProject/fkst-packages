@@ -129,7 +129,7 @@ blocked_comments = function(event, extra)
   return comments
 end
 
-local function mock_decompose_codex(stdout)
+local function mock_decompose_codex(event, stdout)
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   author_policy.mock_env(t, {
     env = {
@@ -154,7 +154,7 @@ local function mock_decompose_codex(stdout)
     stderr = "",
     exit_code = 0,
   })
-  h.mock_decompose_context_bundle()
+  h.mock_decompose_context_bundle(event)
   t.mock_command("gh pr diff", {
     stdout = "diff --git a/file.lua b/file.lua\n+return true\n",
     stderr = "",
@@ -165,7 +165,7 @@ local function mock_decompose_codex(stdout)
     stderr = "",
     exit_code = 0,
   })
-  for _ = 1, 6 do
+  for _ = 1, 7 do
     t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })
   end
   t.mock_command("python3 -c", {
@@ -232,7 +232,7 @@ return {
       title = "Original large issue",
       body = "Original body that describes too much scope.",
     })
-    mock_decompose_codex(two_issue_json)
+    mock_decompose_codex(event, two_issue_json)
     mock_pr_comment_write(0)
     mock_child_issue_list(event, {})
 
@@ -298,7 +298,7 @@ return {
       issue_created_marker(stale_dedup, "101"),
     }))
     mock_child_issue_list_repeated(event, {}, 4)
-    mock_decompose_codex(two_issue_json)
+    mock_decompose_codex(event, two_issue_json)
 
     local result = run_decompose(event, opts("decompose-idempotent-heal-zero"))
 
@@ -325,7 +325,7 @@ return {
       decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 3),
     }))
     mock_child_issue_list_repeated(event, { 1, 3 }, 3)
-    mock_decompose_codex([[{"issues":[{"title":"One","body":"Smaller scope: one.\nNon-goals: none.\nAcceptance: one."},{"title":"Two","body":"Smaller scope: two.\nNon-goals: none.\nAcceptance: two."},{"title":"Three","body":"Smaller scope: three.\nNon-goals: none.\nAcceptance: three."}]}]])
+    mock_decompose_codex(event, [[{"issues":[{"title":"One","body":"Smaller scope: one.\nNon-goals: none.\nAcceptance: one."},{"title":"Two","body":"Smaller scope: two.\nNon-goals: none.\nAcceptance: two."},{"title":"Three","body":"Smaller scope: three.\nNon-goals: none.\nAcceptance: three."}]}]])
 
     local result = run_decompose(event, opts("decompose-idempotent-heal-partial"))
 
@@ -346,7 +346,7 @@ return {
       body = "Original body that describes too much scope.",
     })
     mock_pr_view(event, blocked_comments(event))
-    mock_decompose_codex(two_issue_json)
+    mock_decompose_codex(event, two_issue_json)
     mock_pr_comment_write(1)
 
     local result = run_decompose(event, opts("decompose-marker-write-fails"))
@@ -366,7 +366,7 @@ return {
       title = "Original large issue",
       body = "Original body that describes too much scope.",
     })
-    mock_decompose_codex(two_issue_json)
+    mock_decompose_codex(event, two_issue_json)
     mock_pr_comment_write(0)
     mock_child_issue_list_repeated(event, {}, 2)
 
@@ -422,7 +422,7 @@ return {
     mock_write_env_real()
     mock_issue_decompose({ "fkst-dev:blocked" }, blocked_comments(event))
     h.take_pr_phase_comments()
-    mock_decompose_codex("not json")
+    mock_decompose_codex(event, "not json")
     mock_pr_view(event, blocked_comments(event))
     mock_pr_view(event, blocked_comments(event))
 
@@ -437,7 +437,7 @@ return {
     mock_bot_env()
     mock_write_env_real()
     mock_issue_decompose({ "fkst-dev:blocked" }, blocked_comments(event))
-    mock_decompose_codex("not json")
+    mock_decompose_codex(event, "not json")
     mock_pr_comment_write(0)
     mock_child_issue_list(event, {})
 
@@ -455,7 +455,7 @@ return {
     mock_write_env_real()
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event))
     mock_issue_decompose({ "fkst-dev:blocked" }, blocked_comments(event))
-    mock_decompose_codex([[{"issues":[{"title":"One","body":"Smaller scope: one.\nNon-goals: no extra.\nAcceptance: one."},{"title":"Two","body":"Smaller scope: two.\nNon-goals: no extra.\nAcceptance: two."},{"title":"Three","body":"Smaller scope: three.\nNon-goals: no extra.\nAcceptance: three."},{"title":"Four","body":"Smaller scope: four.\nNon-goals: no extra.\nAcceptance: four."}]}]])
+    mock_decompose_codex(event, [[{"issues":[{"title":"One","body":"Smaller scope: one.\nNon-goals: no extra.\nAcceptance: one."},{"title":"Two","body":"Smaller scope: two.\nNon-goals: no extra.\nAcceptance: two."},{"title":"Three","body":"Smaller scope: three.\nNon-goals: no extra.\nAcceptance: three."},{"title":"Four","body":"Smaller scope: four.\nNon-goals: no extra.\nAcceptance: four."}]}]])
     mock_pr_comment_write(0)
     mock_child_issue_list_repeated(event, {}, 3)
 

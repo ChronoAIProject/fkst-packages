@@ -33,6 +33,7 @@ local expected_bytes = table.concat({
   "pr-open->reviewing",
   "review-meta->blocked",
   "review-meta->fixing",
+  "review-meta->reviewing",
   "reviewing->fixing",
   "reviewing->merge-ready",
   "reviewing->review-meta",
@@ -58,6 +59,7 @@ local pending_order_goldens = {
   ["github-devloop-pr/fixing/autonomous/revision_failed"] = yes("fixing"),
   ["github-devloop-pr/fixing/autonomous/fix_budget_exhausted"] = no,
   ["github-devloop-pr/review-meta/autonomous/fix"] = yes("review-meta"),
+  ["github-devloop-pr/review-meta/autonomous/no-actionable-gap"] = yes("review-meta"),
   ["github-devloop-pr/review-meta/autonomous/block"] = yes("review-meta"),
   ["github-devloop-pr/pr-open/guard_boundary/pr_base_unmanaged"] = yes("pr-open"),
   ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/approval_stale"] = no,
@@ -101,8 +103,8 @@ local function assert_pending_order_goldens(edges)
     if edge.pending_order.participates then participating = participating + 1 end
   end
   for id in pairs(pending_order_goldens) do t.eq(seen[id], true) end
-  t.eq(#edges, 43)
-  t.eq(participating, 17)
+  t.eq(#edges, 44)
+  t.eq(participating, 18)
 end
 
 return {

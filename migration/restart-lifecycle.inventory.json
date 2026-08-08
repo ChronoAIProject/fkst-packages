@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "c50a80ebb2b93c0ca3043911fb99ad444ac788fd1d385727a13d6f4aa9b631f0",
+  "artifact_sha256": "069712d954192be63b85a2957cd48ffb4f5075d01fc2178e0f5d476b7b3637b7",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -35640,14 +35640,14 @@
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "comment:pr:review-meta-result",
-            "family": "state:v1/fixing|blocked+review-meta:v1",
+            "family": "state:v1/fixing|reviewing|blocked+review-meta:v1",
             "sink_kind": "comment"
           },
           {
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "label:issue:review-meta-result",
-            "family": "state-label:fixing|blocked;dedup=review-meta/label",
+            "family": "state-label:fixing|reviewing|blocked;dedup=review-meta/label",
             "sink_kind": "label"
           },
           {
