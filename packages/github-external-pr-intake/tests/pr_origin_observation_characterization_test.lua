@@ -354,7 +354,7 @@ local function with_env(values, fn)
 end
 
 return {
-  test_external_login_comparison_treats_mixed_case_managed_bot_as_external = function()
+  test_external_login_comparison_canonicalizes_mixed_case_managed_bot = function()
     with_env({
       FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "managed-bot",
@@ -364,7 +364,7 @@ return {
       t.eq(managed["managed-bot"], true)
       t.eq(core.strip_bot_login_suffix("Managed-Bot[bot]"), "Managed-Bot")
       t.eq(core.is_managed_bot_login("managed-bot[bot]", managed), true)
-      t.eq(core.is_managed_bot_login("Managed-Bot[bot]", managed), false)
+      t.eq(core.is_managed_bot_login("Managed-Bot[bot]", managed), true)
       t.eq(core.is_external_candidate({
         number = 7,
         state = "OPEN",

@@ -90,6 +90,10 @@ return {
     end
   end,
 
+  test_trusted_author_accepts_app_spelling_for_managed_bot = function()
+    t.eq(core.trusted_author({ author_login = "app/fkst-test-bot" }, managed), true)
+  end,
+
   test_read_env_command_allows_external_pr_min_age_parameter = function()
     t.eq(
       core.read_env_command("FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"),

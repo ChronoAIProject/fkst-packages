@@ -71,7 +71,7 @@ return {
       issues = {
         {
           number = 88,
-          author_login = "fkst-test-bot",
+          author_login = "app/fkst-test-bot",
           state = "OPEN",
           body = core.bridge_marker("owner/repo", 7),
         },

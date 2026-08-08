@@ -143,7 +143,7 @@ function M.external_pr_bridge_min_age_seconds()
 end
 
 function M.is_managed_bot_login(login, managed)
-  local normalized = M.strip_bot_login_suffix(login)
+  local normalized = forge_strings.canonical_login(login)
   return normalized ~= nil and normalized ~= "" and managed[normalized] == true
 end
 
