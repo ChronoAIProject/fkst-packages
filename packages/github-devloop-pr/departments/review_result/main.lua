@@ -51,15 +51,23 @@ return saga.department(spec, { done = function() return false end, act = functio
       .. tostring(event and event.queue))
   end
   local proposal = type(event.payload) == "table" and event.payload or {}
+  local proposal_id = type(proposal.proposal_id) == "string" and proposal.proposal_id or "unknown"
+  local dedup_key = devloop_logging.payload_field(proposal, "dedup_key")
+  devloop_logging.log_entry("review_result", event, proposal_id, dedup_key)
   local reached = consensus_call.reach(proposal)
   if reached == nil then
+    devloop_logging.log_line("info", "review_result", proposal_id, "OUTCOME", {
+      "queue=devloop_review_request",
+      "outcome=no-result",
+      "reason=consensus-call-returned-nil",
+      "dedup_key=" .. tostring(dedup_key or ""),
+    })
     return
   end
   if reached.status == "converge" then
     if not v_pr_review_unresolved.is_supported_pr_review_unresolved(reached) then
       error("github-devloop: review-continuation-invalid: library result violates the caller contract")
     end
-    devloop_logging.log_entry("review_result", event, reached.proposal_id, reached.dedup_key)
     devloop_logging.log_apply("review_result", reached.proposal_id, nil, nil,
       { add = {}, remove = {} }, { "devloop_review_continue" })
     devloop_logging.log_raise("review_result", reached.proposal_id, "devloop_review_continue", reached)
@@ -69,7 +77,6 @@ return saga.department(spec, { done = function() return false end, act = functio
   if reached.schema ~= "consensus.consensus_reached.v1"
     or type(reached.proposal_id) ~= "string"
     or reached.proposal_id:match("^github%-devloop/pr%-review/") == nil then
-    devloop_logging.log_entry("review_result", event, "unknown", devloop_logging.payload_field(reached, "dedup_key"))
     devloop_logging.log_cas_decision("review_result", "unknown", { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
   end
@@ -85,7 +92,6 @@ return saga.department(spec, { done = function() return false end, act = functio
     error("github-devloop: review-result-invalid: owned review result violates the consumer contract")
   end
 
-  devloop_logging.log_entry("review_result", event, reached.proposal_id, reached.dedup_key)
   local repo, pr_number = devloop_base.parse_pr_source_ref(reached.source_ref)
   if devloop_base.safe_pr_review_repo_segment(repo) ~= review_repo
     or tostring(pr_number) ~= tostring(proposal_pr_number) then
