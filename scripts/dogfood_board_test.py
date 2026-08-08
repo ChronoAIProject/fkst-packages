@@ -64,18 +64,51 @@ class DogfoodBoardHarness:
                     # issue<->PR linkage) and pr_rows (number/sha/updated/base/title TSV).
                     # Emulate each query's post-jq output. PR#50 is old (=> CI+age would
                     # flag ⚠ STUCK) but its authoritative marker is terminal-blocked.
+                    # PRs #51-#56 have fresh entity metadata. PR#54 is managed but its
+                    # lifecycle fact is unavailable; PR#55 is genuinely unmanaged;
+                    # PR#56 has no label hint and lifecycle-fact acquisition fails.
                     case "$4" in
                       *head.ref*) ;;
-                      *) printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR' ;;
+                      *)
+                        printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration 'Old condition fresh metadata'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration 'Condition onset unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration 'Independent CI failure'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 54 nofact 2026-06-27T11:00:00Z integration 'Managed fact unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 55 unmanaged 2026-06-27T11:00:00Z integration 'Unmanaged PR'
+                        printf '%s\t%s\t%s\t%s\t%s\n' 56 fetcherr 2026-06-27T11:00:00Z integration 'Lifecycle fetch unavailable'
+                        ;;
                     esac
                     ;;
-                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*)
+                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*|repos/ChronoAIProject/fkst-packages/commits/oldstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/noonset/check-runs*|repos/ChronoAIProject/fkst-packages/commits/nofact/check-runs*|repos/ChronoAIProject/fkst-packages/commits/unmanaged/check-runs*|repos/ChronoAIProject/fkst-packages/commits/fetcherr/check-runs*)
                     printf '%s\n' success
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/commits/redstate/check-runs*)
+                    printf '%s\n' failure
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/50/comments?per_page=100)
                     cat <<'JSON'
 [{"user":{"login":"loning"},"body":"github-devloop child workflow terminal.\\n\\n<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"blocked\\\" version=\\\"ready/2026-06-27T00-00-00Z/blocked/child-pr-blocked/1\\\" stage_rank=\\\"800\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\\\" -->"}]
 JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/51/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/53/comments?per_page=100)
+                    num=${2#*/issues/}; num=${num%%/*}
+                    cat <<JSON
+[{"user":{"login":"loning"},"created_at":"2026-06-27T00:00:00Z","body":"<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"fixing\\\" version=\\\"2026-06-27T00-00-00Z/fixing/$num\\\" stage_rank=\\\"200\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000200\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/52/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"fixing\\\" version=\\\"2026-06-27T00-00-00Z/fixing/52\\\" stage_rank=\\\"200\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000200\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/54/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"<!-- fkst:github-devloop:pr-origin:v1 proposal=\"github-devloop/issue/ChronoAIProject/fkst-packages/49\" issue=\"49\" branch=\"feature\" impl_version=\"ready/49\" base_branch=\"integration\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/55/comments?per_page=100)
+                    printf '[]\n'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
                     old=2026-06-27T00:00:00Z
@@ -310,6 +343,66 @@ class DogfoodBoardTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_pr_condition_age_is_invariant_to_fresh_entity_updated_at(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#51\b.*⚠ STUCK 12h")
+            self.assertNotRegex(result.stdout, r"PR#51\b.*✓ flowing 1h")
+        finally:
+            h.close()
+
+    def test_pr_without_condition_onset_fails_visibly(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#52\b.*⚠ CONDITION-ONSET-UNAVAILABLE fixing")
+            self.assertNotRegex(result.stdout, r"PR#52\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_managed_pr_without_lifecycle_fact_fails_visibly(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#54\b.*⚠ CONDITION-ONSET-UNAVAILABLE unknown")
+            self.assertNotRegex(result.stdout, r"PR#54\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_unmanaged_pr_without_lifecycle_fact_keeps_entity_age(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#55\b.*✓ flowing 1h")
+            self.assertNotRegex(result.stdout, r"PR#55\b.*CONDITION-ONSET-UNAVAILABLE")
+        finally:
+            h.close()
+
+    def test_pr_lifecycle_fact_acquisition_failure_fails_visibly(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#56\b.*⚠ CONDITION-ONSET-UNAVAILABLE unknown")
+            self.assertNotRegex(result.stdout, r"PR#56\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_pr_ci_verdict_remains_independent_of_condition_age(self) -> None:
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#53\b.*⚠ CI-RED")
+            self.assertNotRegex(result.stdout, r"PR#53\b.*⚠ STUCK")
+        finally:
+            h.close()
+
 
 class LifecycleBoardFactTest(unittest.TestCase):
     def run_tool(self, comments: str) -> subprocess.CompletedProcess[str]:
@@ -332,6 +425,78 @@ class LifecycleBoardFactTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             check=False,
         )
+
+    def run_pr_tool(self, comments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "python3",
+                "-B",
+                str(LIFECYCLE_TOOL),
+                "--discover-pr-origin",
+                "--bot-login",
+                "loning",
+                "--managed-bot-logins",
+                "loning,ElonSG",
+            ],
+            input=comments,
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    def test_pr_projection_distinguishes_unmanaged_from_unavailable(self) -> None:
+        unmanaged = self.run_pr_tool("[]")
+        self.assertEqual(unmanaged.returncode, 1, unmanaged.stderr + unmanaged.stdout)
+
+        unavailable = self.run_pr_tool(
+            json.dumps(
+                [
+                    {
+                        "user": {"login": "loning"},
+                        "body": (
+                            '<!-- fkst:github-devloop:pr-origin:v1 '
+                            'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                            'issue="43" branch="feature" impl_version="ready/43" '
+                            'base_branch="integration" -->'
+                        ),
+                    }
+                ]
+            )
+        )
+        self.assertEqual(unavailable.returncode, 2, unavailable.stderr + unavailable.stdout)
+
+    def test_pr_projection_ignores_noncanonical_marker_whitespace(self) -> None:
+        comments = json.dumps(
+            [
+                {
+                    "user": {"login": "loning"},
+                    "created_at": "2026-06-27T00:00:00Z",
+                    "body": (
+                        '<!-- fkst:github-devloop:pr-origin:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" -->\n'
+                        '<!-- fkst:github-devloop:state:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                        'state="fixing" version="2026-06-27T00-00-00Z/fixing" '
+                        'marker_order_key="2026-06-27T00-00-00Z/0000000200" -->'
+                    ),
+                },
+                {
+                    "user": {"login": "loning"},
+                    "created_at": "2099-01-01T00:00:00Z",
+                    "body": (
+                        '<!--  fkst:github-devloop:state:v1 '
+                        'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/43" '
+                        'state="fixing" version="2099-01-01T00-00-00Z/fixing" '
+                        'marker_order_key="2099-01-01T00-00-00Z/0000000200" -->'
+                    ),
+                },
+            ]
+        )
+        result = self.run_pr_tool(comments)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)["condition_started_at"], "2026-06-27T00:00:00Z")
 
     def test_lifecycle_projector_uses_trusted_marker_order_key(self) -> None:
         comments = textwrap.dedent(

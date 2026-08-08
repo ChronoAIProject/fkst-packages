@@ -292,7 +292,9 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    mock_existing_fix_worktree(branch, "beadface")
+    mock_existing_fix_worktree(branch, "beadface", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
+    })
     mock_implement_codex(0, "added another repair")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("feedface", branch)
@@ -466,6 +468,7 @@ return {
       exit_code = 0,
     })
     local worktree = mock_existing_fix_worktree(branch, "feedface", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
       candidate_diff_stdout = "IMPLEMENT_REPORT.md:8: leftover conflict marker\n",
       candidate_diff_stderr = "range diff check details\n",
       candidate_diff_exit_code = 2,
