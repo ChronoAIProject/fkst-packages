@@ -26,9 +26,11 @@ local github = require("devloop.github_factory").production_handle
 local config = require("devloop.config")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local devloop_commands = require("devloop.commands")
 local merge_queue_tick_factory = require("core.merge_queue_tick")
 local restart_sink_grants = require("restart_sink_grants")
 local with_current_classification = ci_verdict.with_current_classification
+local high_risk_caps = { commands = devloop_commands }
 
 -- merge_executor is loaded while core is still assembling, so owner capabilities
 -- are resolved only after the department pipeline is running.
@@ -282,7 +284,7 @@ local function ensure_pr_ready_for_merge(repo, merge_ready, current_pr)
   if current_pr.is_draft ~= true then
     return current_pr
   end
-  local ready_result = core.gh_pr_ready(repo, merge_ready.pr_number, 60)
+  local ready_result = devloop_commands.gh_pr_ready(repo, merge_ready.pr_number, 60)
   if ready_result.exit_code ~= 0 then
     error("github-devloop: pr-ready-failed: PR ready failed: " .. tostring(ready_result.stderr))
   end
@@ -306,7 +308,7 @@ local function write_merging_marker(repo, merge_ready, comments, grant, snapshot
   if not restart_effects.verify_grant(grant, "github-proxy.github_pr_comment_request", snapshot) then
     error("github-devloop: restart-effect-grant-invalid: merging marker comment grant was rejected")
   end
-  local result = core.gh_pr_comment(repo, merge_ready.pr_number, path, 30)
+  local result = devloop_commands.gh_pr_comment(repo, merge_ready.pr_number, path, 30)
   if result.exit_code ~= 0 then
     error("github-devloop: pr-merging-marker-comment-failed: PR merging marker comment failed: " .. tostring(result.stderr))
   end
@@ -359,7 +361,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     raise("github-proxy.github_pr_comment_request", comment_request)
   end
   local current_pr = read_merge_pr(repo, merge_ready.pr_number, "gh-pr-merge-view-failed: PR merge view failed")
-  core.log_forged_markers("merge", merge_ready.proposal_id, current_pr.comments)
+  devloop_logging.log_forged_markers("merge", merge_ready.proposal_id, current_pr.comments)
   local state = require("devloop.entity").current_entity_state(current_pr.comments, merge_ready.proposal_id)
   if state.state == "merged" and m_facts.has_merged_marker(current_pr.comments, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha) then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merged", "skip-idempotent(already at to_state)", "merged marker already visible")
@@ -544,7 +546,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
   if not require_consensus_review_approve(current_pr.comments, merge_ready) then
     return
   end
-  high_risk_merge_gate.assert_evidence(core, log_gate, repo, current_pr.comments, merge_ready)
+  high_risk_merge_gate.assert_evidence(high_risk_caps, log_gate, repo, current_pr.comments, merge_ready)
   log_gate(merge_ready, "write-ready", "FKST_GITHUB_WRITE=1 and trusted review-result approve")
   current_pr = ensure_pr_ready_for_merge(repo, merge_ready, current_pr)
   local ready_ok, ready_reason = assert_merge_pr_authority(merge_ready, current_pr, repo, issue_number, origin, branches)
@@ -691,7 +693,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
         or tostring(origin.base_branch) ~= tostring(branches.integration) then
         return false, "pr-origin-changed"
       end
-      local evidence_ok, evidence_reason = high_risk_merge_gate.require_evidence(core, repo, rechecked_pr.comments, merge_ready)
+      local evidence_ok, evidence_reason = high_risk_merge_gate.require_evidence(high_risk_caps, repo, rechecked_pr.comments, merge_ready)
       if not evidence_ok then
         return false, evidence_reason
       end
@@ -807,7 +809,7 @@ local process_merge_queue_tick = merge_queue_tick.process_merge_queue_tick
 local function process_merge_ready_event(event)
   local merge_ready = type(event and event.payload) == "table" and event.payload or {}
   if not v_merge_ready.is_supported_merge_ready(merge_ready) then
-    devloop_logging.log_entry("merge", event, "unknown", core.payload_field(merge_ready, "dedup_key"))
+    devloop_logging.log_entry("merge", event, "unknown", devloop_logging.payload_field(merge_ready, "dedup_key"))
     devloop_logging.log_cas_decision("merge", "unknown", { state = nil, version = nil }, "merge-ready", "merged|fixing", "skip-foreign(payload)", "unsupported event payload")
     return
   end
