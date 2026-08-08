@@ -6,6 +6,8 @@ local entity_read_mocks = fixtures.entity_read_mocks
 local gh_argv = fixtures.gh_argv
 local decompose_lib = fixtures.decompose_lib
 local m_builders = fixtures.m_builders
+local queue_starvation = require("devloop.queue_starvation")
+local config = require("devloop.config")
 local opts = fixtures.opts
 local run_observability = fixtures.run_observability
 local mock_env = fixtures.mock_env
@@ -154,6 +156,37 @@ return {
     t.is_true(logs:find("state=merge-ready", 1, true) ~= nil)
     t.is_true(logs:find("marker_source=pr-comment", 1, true) ~= nil)
     t.is_true(logs:find("pr=8", 1, true) ~= nil)
+  end,
+
+  test_queue_starvation_does_not_fallback_to_aged_observability_sample = function()
+    local proposal_id = "github-devloop/issue/owner/repo/43"
+    local observed_reads = 0
+    local old_branch_config = config.branch_config
+    config.branch_config = function()
+      return { upstream = "dev", integration = "integration/dev" }
+    end
+    local ok, result = pcall(function()
+      return queue_starvation.observe_queue_starvation({
+        gh_pr_list_merge_queue = function()
+          return { exit_code = 1, stderr = "queue unavailable" }
+        end,
+        stall_suspect_age_minutes = function()
+          observed_reads = observed_reads + 1
+          return 120
+        end,
+      }, "owner/repo", {
+        {
+          proposal_id = proposal_id,
+          state = { state = "merge-ready", version = version_minutes_ago(120) },
+        },
+      }, core.observability_limits(), nil, now())
+    end)
+    config.branch_config = old_branch_config
+
+    if not ok then error(result) end
+    t.eq(result.action, "no-op")
+    t.eq(result.reason, "merge-queue-source-failed")
+    t.eq(observed_reads, 0)
   end,
 
   test_stall_suspect_logs_once_when_entity_exceeds_state_threshold = function()
