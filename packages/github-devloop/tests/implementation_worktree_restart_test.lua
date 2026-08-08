@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
 local harvest = require("departments.implement.harvest")
+local result_checkpoint = require("departments.implement.result_checkpoint")
 local worktree_lifecycle = require("departments.implement.worktree")
 local h = require("tests.devloop_helpers")
 local t = h.t
@@ -328,6 +329,77 @@ return {
       t.eq(outcome.kind, "implementing")
       t.eq(outcome.worktree, worktree)
       t.eq(outcome.head_sha, committed_head)
+    end)
+    remove_fixture(root)
+    if not ok then
+      error(err)
+    end
+  end,
+
+  test_completed_result_reconcile_preserves_work_and_reseals_merged_head = function()
+    local root = read_command("mktemp -d "
+      .. shell_quote("/tmp/fkst-implementation-worktree-restart.XXXXXX")):gsub("%s+$", "")
+    root = read_command("cd " .. shell_quote(root) .. " && pwd -P"):gsub("%s+$", "")
+    local ok, err = pcall(function()
+      local repo = root .. "/repo"
+      local worktree = root .. "/implementation"
+      local version = "ready/consensus/github-devloop/issue/owner/repo/42/intake/123"
+
+      run_command("git init -b main " .. shell_quote(repo))
+      run_command("git -C " .. shell_quote(repo) .. " config user.name " .. shell_quote("FKST Test"))
+      run_command("git -C " .. shell_quote(repo) .. " config user.email " .. shell_quote("fkst@example.invalid"))
+      file.write(repo .. "/base.txt", "base B0\n")
+      run_command("git -C " .. shell_quote(repo) .. " add base.txt")
+      run_command("git -C " .. shell_quote(repo) .. " commit -m " .. shell_quote("base B0"))
+      run_command("git -C " .. shell_quote(repo) .. " worktree add -b implementation "
+        .. shell_quote(worktree) .. " HEAD")
+
+      file.write(worktree .. "/completed.txt", "completed work\n")
+      run_command("git -C " .. shell_quote(worktree) .. " add completed.txt")
+      run_command("git -C " .. shell_quote(worktree) .. " commit -m " .. shell_quote("completed work"))
+      run_command("git -C " .. shell_quote(worktree) .. " commit --allow-empty -m "
+        .. shell_quote(result_checkpoint.subject(version)))
+      local original_receipt = read_command("git -C " .. shell_quote(worktree)
+        .. " rev-parse HEAD"):gsub("%s+$", "")
+
+      file.write(repo .. "/base-b1.txt", "base B1\n")
+      run_command("git -C " .. shell_quote(repo) .. " add base-b1.txt")
+      run_command("git -C " .. shell_quote(repo) .. " commit -m " .. shell_quote("base B1"))
+      local base_b1 = read_command("git -C " .. shell_quote(repo) .. " rev-parse HEAD"):gsub("%s+$", "")
+      run_command("git -C " .. shell_quote(worktree) .. " merge --no-edit " .. shell_quote(base_b1))
+
+      t.eq(read_command("git -C " .. shell_quote(worktree) .. " show HEAD:completed.txt"), "completed work\n")
+      t.eq(read_command("git -C " .. shell_quote(worktree) .. " show HEAD:base-b1.txt"), "base B1\n")
+      local git = {
+        git_head_sha = function(path)
+          return {
+            stdout = read_command("git -C " .. shell_quote(path) .. " rev-parse HEAD"),
+            stderr = "",
+            exit_code = 0,
+          }
+        end,
+        git_empty_commit = function(path, message)
+          run_command("git -C " .. shell_quote(path) .. " commit --allow-empty -m " .. shell_quote(message))
+          return { stdout = "", stderr = "", exit_code = 0 }
+        end,
+        is_ancestor = function(ancestor, descendant)
+          run_command("git -C " .. shell_quote(worktree) .. " merge-base --is-ancestor "
+            .. shell_quote(ancestor) .. " " .. shell_quote(descendant))
+          return { stdout = "", stderr = "", exit_code = 0 }
+        end,
+      }
+      local resealed = result_checkpoint.reseal(git, worktree, {
+        branch = "implementation",
+        base_branch = "main",
+        head_sha = original_receipt,
+      }, version)
+
+      t.is_true(resealed.head_sha ~= original_receipt)
+      run_command("git -C " .. shell_quote(worktree) .. " merge-base --is-ancestor "
+        .. shell_quote(original_receipt) .. " " .. shell_quote(resealed.head_sha))
+      local subject = read_command("git -C " .. shell_quote(worktree)
+        .. " show -s --format=%s " .. shell_quote(resealed.head_sha)):gsub("%s+$", "")
+      t.eq(subject, result_checkpoint.subject(version))
     end)
     remove_fixture(root)
     if not ok then

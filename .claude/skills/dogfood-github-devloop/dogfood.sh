@@ -150,6 +150,10 @@ wait_supervise_ready() { # $1 pid, $2 log
   return 2
 }
 expand() { [ "${1:-all}" = all ] && echo "$DOGFOOD_REPOS" || echo "$1"; }
+graphql_rate_limit() {
+  gh api rate_limit --jq '.resources.graphql | "\(.remaining)/\(.limit)"' 2>/dev/null \
+    || printf '%s\n' '?/?'
+}
 
 . "$_self_dir/dogfood_board.sh"
 
@@ -716,7 +720,7 @@ cmd_doctor() {
   echo "stale /tmp receipt sweep (cheap symptom patrol):"; sweep_stale_tmp_receipts
   echo "upstream($UPSTREAM_BRANCH) CI:"; for n in $(expand "${1:-all}"); do upstream_ci_one "$n"; done
   echo "durable (redb delivery state):"; for n in $(expand "${1:-all}"); do durable_health_one "$n"; done
-  echo "graphql: $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
+  echo "graphql: $(graphql_rate_limit)"
 }
 
 # upstream_ci_one <name>: report the latest `ci` conclusion on UPSTREAM_BRANCH (dev) for the

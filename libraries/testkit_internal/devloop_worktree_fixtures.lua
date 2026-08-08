@@ -68,14 +68,14 @@ function M.new(deps)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = root, stderr = "", exit_code = 0 })
   end
 
-  local function mock_dev_base_head()
+  local function mock_dev_base_head(head_sha)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = "abc123\n",
+      stdout = tostring(head_sha or "abc123") .. "\n",
       stderr = "",
       exit_code = 0,
     })
@@ -200,13 +200,14 @@ function M.new(deps)
     }
   end
 
-  local function mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
+  local function mock_substrate_pin_refresh(worktree, base_pin, branch_pin, base_head)
     if not enable_substrate_pin_refresh then
       return
     end
     local pin = base_pin or "2222222222222222222222222222222222222222"
     local stale = branch_pin or "1111111111111111111111111111111111111111"
-    t.mock_command("git show abc123:.fkst/substrate-ref", git_show_pin_result(pin))
+    t.mock_command("git show " .. tostring(base_head or "abc123") .. ":.fkst/substrate-ref",
+      git_show_pin_result(pin))
     t.mock_command("git show", git_show_pin_result(stale))
     if worktree ~= nil then
       ensure_dir(tostring(worktree):gsub("/+$", "") .. "/.fkst")
@@ -373,11 +374,14 @@ function M.new(deps)
   end
 
   local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
-    local durable = path or default_durable_root
+    local durable, opts = worktree_options(path)
+    local base_head = opts.base_head or "abc123"
+    branch = opts.branch or branch
+    ahead_count = opts.ahead_count or ahead_count
     local stable_root = devloop_base.implementation_worktree_root(durable)
-    local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, {})
+    local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, opts)
       or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY")
-    mock_dev_base_head()
+    mock_dev_base_head(base_head)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -395,12 +399,20 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
+    local merge = opts.merge or {}
+    t.mock_command("merge --no-edit '" .. tostring(base_head) .. "'", {
+      stdout = merge.stdout or "Already up to date.\n",
+      stderr = merge.stderr or "",
+      exit_code = merge.exit_code or 0,
     })
-    mock_substrate_pin_refresh(worktree)
+    if merge.exit_code ~= nil and merge.exit_code ~= 0 then
+      t.mock_command("ls-files -u", {
+        stdout = merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
+        stderr = merge.unmerged_stderr or "",
+        exit_code = merge.unmerged_exit_code or 0,
+      })
+    end
+    mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin, base_head)
     mock_harvest_worktree(worktree, branch)
     return worktree
   end
@@ -569,9 +581,18 @@ function M.new(deps)
     })
   end
 
-  local function mock_fix_worktree_precondition(branch)
-    t.mock_command("reset --hard refs/heads/" .. tostring(branch), {
-      stdout = "HEAD is now at def456 reviewed head\n",
+  local function mock_fix_worktree_precondition(branch, reviewed_head_sha, local_contains_reviewed)
+    t.mock_command("merge-base --is-ancestor", {
+      stdout = "",
+      stderr = "",
+      exit_code = local_contains_reviewed == false and 1 or 0,
+    })
+    local reset_target = "refs/heads/" .. tostring(branch)
+    if local_contains_reviewed == false then
+      reset_target = tostring(reviewed_head_sha)
+    end
+    t.mock_command("reset --hard " .. reset_target, {
+      stdout = "HEAD is now at " .. tostring(reviewed_head_sha) .. " reviewed head\n",
       stderr = "",
       exit_code = 0,
     })
@@ -583,6 +604,7 @@ function M.new(deps)
   end
 
   local function mock_existing_fix_worktree(branch, head, path, merge)
+    local reviewed_head_sha = merge and merge.reviewed_head_sha or head or "def456"
     local stable_root = devloop_base.implementation_worktree_root(default_durable_root)
     local worktree = path or devloop_base.implement_worktree_path(
       stable_root,
@@ -591,6 +613,16 @@ function M.new(deps)
       default_ready_version
     )
     mock_durable_root(default_durable_root)
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
         .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
@@ -602,7 +634,8 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(
+      branch, reviewed_head_sha, merge and merge.local_contains_reviewed)
     t.mock_command("git fetch 'origin' 'dev'", {
       stdout = "",
       stderr = "",
@@ -639,6 +672,7 @@ function M.new(deps)
   end
 
   local function mock_missing_fix_worktree(branch, head, path)
+    local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/missing/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
@@ -662,13 +696,18 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add --force -B", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
@@ -681,6 +720,7 @@ function M.new(deps)
   end
 
   local function mock_outside_stable_root_fix_worktree(branch, head, path)
+    local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
@@ -704,13 +744,18 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
+      stdout = tostring(reviewed_head_sha) .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add --force -B", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    mock_fix_worktree_precondition(branch)
+    mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",

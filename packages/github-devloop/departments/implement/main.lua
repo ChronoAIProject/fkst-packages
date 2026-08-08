@@ -13,7 +13,6 @@ local convergence_identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
 local refusal_publication = require("departments.implement.refusal_publication")
-local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
 local cache_preparation = require("departments.implement.cache_preparation")
@@ -245,9 +244,11 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
     and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
     or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local codex_started_at, exec_ref = now(), core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
-  if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil end
   local merge_clean = worktree_lifecycle.merge_integration(
     implement_caps.git_handle, worktree, branches.integration, base_head)
+  completed_result = completed_result ~= nil and merge_clean
+    and result_checkpoint.reseal(implement_caps.git_handle, worktree, completed_result, ready.dedup_key) or nil
+  if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil, completed_result end
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
   cache_preparation.run(worktree)
@@ -258,7 +259,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
     repo = repo, issue_number = issue_number, ready = ready,
     receiver_state = receiver_state, lock_key = lock_key,
   })
-  return worktree, codex_started_at, exec_ref, receiver_authorization
+  return worktree, codex_started_at, exec_ref, receiver_authorization, completed_result
 end
 
 local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree,
@@ -492,14 +493,6 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
   return state, current, snapshot, decision
 end
 
-local function backing_original(current, managed)
-  local origin = forks.fork_origin_fact(core, current, managed)
-  if origin == nil then
-    return nil, nil
-  end
-  return origin, forks.rederive_issue_state(core, origin.repo, origin.issue_number)
-end
-
 local function checkpoint_matches_progress(checkpoint, progress)
   return checkpoint ~= nil
     and progress ~= nil
@@ -561,12 +554,7 @@ local function process_ready_event(event)
     if slice_gate.check(repo, issue_number, ready, current) then
       return
     end
-    local origin, original = backing_original(current, managed)
-    if original ~= nil and tostring(original.state or ""):upper() ~= "OPEN" then
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "fork backing issue is closed: " .. tostring(origin.repo) .. "#" .. tostring(origin.issue_number))
-      return
-    end
-    if fork_gate.check(repo, issue_number, ready, origin, original, managed) then
+    if fork_gate.check(repo, issue_number, ready, current, managed) then
       return
     end
     local state = devloop_state.current_state(current.comments, ready.proposal_id)
@@ -834,7 +822,7 @@ local function process_ready_event(event)
       if attempt_plan.base_head == nil then
         attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
       end
-      worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
+      worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,

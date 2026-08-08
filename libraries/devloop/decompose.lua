@@ -252,9 +252,17 @@ function C.decompose_child_marker(proposal_id, version, pr_number, index)
     .. '" -->'
 end
 
+local function normalized_decompose_lineage_depth(value)
+  local n = tonumber(value)
+  if n == nil or n < 0 or n >= math.huge or n % 1 ~= 0 then
+    return nil
+  end
+  return n
+end
+
 function C.decompose_lineage_marker(root_proposal_id, depth)
-  local n = tonumber(depth)
-  if n == nil or n < 0 or n % 1 ~= 0 then
+  local n = normalized_decompose_lineage_depth(depth)
+  if n == nil then
     error("github-devloop: decompose-lineage-depth-invalid: invalid decompose lineage depth")
   end
   return '<!-- fkst:github-devloop:decompose-lineage:v1 root="' .. tostring(root_proposal_id)
@@ -262,17 +270,55 @@ function C.decompose_lineage_marker(root_proposal_id, depth)
     .. '" -->'
 end
 
-function C.decompose_lineage_depth(body)
+local decompose_lineage_marker_pattern = "<!%-%- fkst:github%-devloop:decompose%-lineage:v1.-%-%->"
+local workflow_lineage_marker_pattern = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
+
+local function decompose_lineage_fact(marker)
+  local root = marker:match('root="([^"]+)"')
+  local depth = normalized_decompose_lineage_depth(marker:match('depth="(%d+)"'))
+  if root == nil or depth == nil then
+    return nil
+  end
+  return {
+    root = root,
+    depth = depth,
+  }
+end
+
+function C.decompose_lineage(body)
   local text = tostring(body or "")
-  local marker_pattern = "<!%-%- fkst:github%-devloop:decompose%-lineage:v1.-%-%->"
-  local max_depth = 0
-  for marker in text:gmatch(marker_pattern) do
-    local depth = tonumber(marker:match('depth="(%d+)"'))
-    if depth ~= nil and depth > max_depth then
-      max_depth = depth
+  local _, marker_end, marker = text:find("^%s*(" .. decompose_lineage_marker_pattern .. ")")
+  if marker ~= nil and text:sub(marker_end + 1):find("^%s*" .. workflow_lineage_marker_pattern) ~= nil then
+    return decompose_lineage_fact(marker)
+  end
+  if text:find("^%s*" .. workflow_lineage_marker_pattern) ~= nil then
+    return nil
+  end
+
+  local best = nil
+  for lineage_marker in text:gmatch(decompose_lineage_marker_pattern) do
+    local fact = decompose_lineage_fact(lineage_marker)
+    if fact ~= nil and (best == nil
+      or fact.depth > best.depth
+      or (fact.depth == best.depth and fact.root < best.root)) then
+      best = fact
     end
   end
-  return max_depth
+  return best
+end
+
+function C.strip_decompose_lineage_header(body)
+  local text = tostring(body or "")
+  local _, marker_end, marker = text:find("^%s*(" .. decompose_lineage_marker_pattern .. ")")
+  if marker == nil or decompose_lineage_fact(marker) == nil then
+    return text
+  end
+  return (text:sub(marker_end + 1):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+function C.decompose_lineage_depth(body)
+  local lineage = C.decompose_lineage(body)
+  return lineage and lineage.depth or 0
 end
 
 function C.max_decompose_issues()

@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "069712d954192be63b85a2957cd48ffb4f5075d01fc2178e0f5d476b7b3637b7",
+  "artifact_sha256": "bce6a03ef446277a458531e9a3e0d2d7d52316a7dc0e29410ddb7fb6da913f87",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -38534,7 +38534,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -38577,7 +38577,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },
@@ -39344,7 +39344,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -39387,7 +39387,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },

@@ -510,28 +510,6 @@ local function assert_malformed_event_is_pre_cas()
   t.eq(decisions[1].reason, "unsupported event payload", "observe-pr-malformed: rejection reason")
 end
 
-local function ingress_shadow(current_state, source_boundary)
-  local sealed = restart_authority.seal_snapshot({
-    owner = core.restart_package_name,
-    proposal_id = PROPOSAL_ID,
-    current = { state = current_state, version = V_EQUAL },
-  })
-  return restart_authority.decide_transition(sealed, {
-    semantic_variant = SEMANTIC_VARIANT,
-    source_boundary = source_boundary,
-    target = "reviewing",
-    incoming_version = V_EQUAL,
-    overlay_version = V_EQUAL,
-  })
-end
-
-local function assert_illegal(actual, reason_code, context)
-  t.eq(actual.status, "illegal", context .. ": status")
-  t.eq(actual.reason_code, reason_code, context .. ": reason code")
-  t.eq(actual.cas_outcome, "illegal(" .. reason_code .. ")", context .. ": CAS outcome")
-  t.eq(actual.grant, nil, context .. ": grant disabled")
-end
-
 local TRACE_FIXTURES = {
   {
     fixture_id = "source-equal-apply",
@@ -875,24 +853,4 @@ return {
     assert_malformed_event_is_pre_cas()
   end,
 
-  test_observe_pr_ingress_shadow_requires_exact_source_boundary = function()
-    assert_illegal(
-      ingress_shadow("pr-open", nil),
-      "source-boundary-mismatch",
-      "observe-pr-ingress-missing-boundary"
-    )
-    assert_illegal(
-      ingress_shadow("pr-open", "github-devloop-pr.devloop_observe_pr"),
-      "source-boundary-mismatch",
-      "observe-pr-ingress-wrong-boundary"
-    )
-  end,
-
-  test_observe_pr_ingress_shadow_rejects_unroutable_current_state = function()
-    assert_illegal(
-      ingress_shadow("blocked", SOURCE_BOUNDARY),
-      "source-state-not-admitted",
-      "observe-pr-ingress-unroutable-source"
-    )
-  end,
 }

@@ -173,7 +173,7 @@ board_one() { # $1 name, $2 stale_hours
   local stale="$2" now; now=$(date +%s)
   echo "════════════════════════════════════════ $REPO"
   local p; p=$(pidof_df)
-  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
+  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" || echo 'NOT RUNNING locally') | graphql $(graphql_rate_limit)"
   local openpr; openpr=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|.head.ref' 2>/dev/null | grep -oE '/[0-9]+/' | tr -d '/' | sort -u)
   echo "── PRs (active work · CI · recency) ──"
   # Capture + check gh's exit status so a REST failure (e.g. the HTML 503 page GitHub serves
