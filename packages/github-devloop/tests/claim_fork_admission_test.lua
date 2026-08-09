@@ -92,6 +92,7 @@ local function self_current(extra)
   local fields = extra or {}
   return {
     assignees = fields.assignees or {},
+    labels = fields.labels or {},
     title = fields.title or "Implement fork isolation",
     state = fields.state or "OPEN",
     author_login = fields.author_login or "fkst-test-bot",
@@ -396,7 +397,7 @@ return {
         "claim_contract",
         "owner/repo",
         42,
-        { assignees = {}, title = "Unknown author", comments = {} },
+        { assignees = {}, labels = {}, title = "Unknown author", comments = {} },
         "github-devloop/issue/owner/repo/42"
       )
     end)

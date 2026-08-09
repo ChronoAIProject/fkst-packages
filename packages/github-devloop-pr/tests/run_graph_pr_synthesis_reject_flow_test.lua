@@ -137,7 +137,11 @@ local function mock_review_result_reads()
     number = issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
+<<<<<<< HEAD
   }, "labels,author")
+=======
+  }, "assignees,author,labels")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   h.mock_issue_review({ "fkst-dev:reviewing" }, { state_marker() }, {
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",

@@ -125,7 +125,11 @@ local function prepare_fixture(fixture)
     number = fixture.issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
+<<<<<<< HEAD
   }, "labels,author", 3)
+=======
+  }, "assignees,author,labels", 3)
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function capture_runtime(fixture)

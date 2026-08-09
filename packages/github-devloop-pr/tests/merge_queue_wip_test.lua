@@ -184,6 +184,7 @@ return {
     mock_queue_pr(current, "2026-06-03T02:00:00Z")
     mock_claimed_issue_for_event(current, 1)
     mock_pr_merge(merge_comments_with_origin(current, origin_marker))
+    mock_queue_list({})
 
     local result = run_starvation_merge_queue_tick(current, opts("merge-queue-starvation-redrive", {
       FKST_GITHUB_REPO = "owner/repo",
@@ -194,6 +195,27 @@ return {
     local reconcile = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(reconcile.payload.body:find("fkst:github-devloop:queue-starvation-reconcile:v1", 1, true) ~= nil)
     t.is_true(reconcile.payload.body:find('outcome="head-redriven"', 1, true) ~= nil)
+  end,
+
+  test_queue_starvation_redrive_revalidates_fifo_head_before_merge = function()
+    local current = merge_ready()
+    local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aaa111")
+    local origin_marker = m_builders.pr_origin_marker(current.proposal_id, "42", "devloop-owner-repo-42-01HY", current.version, "dev")
+    mock_bot_env()
+    mock_repo_env()
+    mock_queue_list({ 7 })
+    mock_queue_pr(current, "2026-06-03T02:00:00Z")
+    mock_claimed_issue_for_event(current, 1)
+    mock_pr_merge(merge_comments_with_origin(current, origin_marker))
+    mock_queue_list({ 9 })
+    mock_queue_pr(older, "2026-06-03T01:00:00Z")
+
+    local result = run_starvation_merge_queue_tick(current, opts("merge-queue-starvation-revalidate-head", {
+      FKST_GITHUB_REPO = "owner/repo",
+    }))
+
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(count_calls("gh pr merge"), 0)
   end,
 
   test_merge_queue_poll_skips_other_owned_head_before_pr_work = function()

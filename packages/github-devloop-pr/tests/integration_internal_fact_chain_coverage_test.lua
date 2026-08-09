@@ -79,7 +79,11 @@ local function mock_issue_result_view(labels, comments, extra)
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = fields.repo,
     number = fields.number,
+<<<<<<< HEAD
   }, "labels,author")
+=======
+  }, "assignees,author,labels")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function mock_decompose_child_issue_list(event, indexes)

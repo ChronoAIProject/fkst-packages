@@ -104,7 +104,11 @@ function M.new(deps)
       number = selected_number,
       labels = { "fkst-dev:claimed:fkst-test-bot" },
       author_login = "fkst-test-bot",
+<<<<<<< HEAD
     }, "labels,author", 30)
+=======
+    }, "assignees,author,labels", 30)
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   end
 
   local function encoded_comment_json(comment_id, body, author_login)

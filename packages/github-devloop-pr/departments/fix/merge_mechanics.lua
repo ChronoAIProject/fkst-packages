@@ -8,7 +8,23 @@ local M = {}
 
 function M.make(core)
   local git = git_adapter.production_handle
-  local function branch_worktree(repo, issue_number, version, branch)
+  local function branch_worktree(repo, issue_number, version, branch, reviewed_head_sha)
+    if not require("devloop.pr_safety").is_safe_head_sha(reviewed_head_sha) then
+      error("github-devloop: reviewed-head-unsafe: unsafe reviewed head sha")
+    end
+    local fetch_result = devloop_commands.git_fetch_branch("origin", branch, 60)
+    if fetch_result.exit_code ~= 0 then
+      error("github-devloop: git-pr-head-branch-fetch-failed: git PR head branch fetch failed: " .. tostring(fetch_result.stderr))
+    end
+    local remote_head_result = devloop_commands.git_remote_branch_head("origin", branch, 30)
+    if remote_head_result.exit_code ~= 0 then
+      error("github-devloop: git-pr-head-branch-read-failed: git PR head branch read failed: " .. tostring(remote_head_result.stderr))
+    end
+    local remote_head_sha = tostring(remote_head_result.stdout or ""):gsub("%s+$", "")
+    if remote_head_sha ~= tostring(reviewed_head_sha) then
+      error("github-devloop: git-pr-head-branch-mismatch: fetched PR branch does not match reviewed head")
+    end
+
     local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
     if durable_result.exit_code ~= 0 then
       error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
@@ -41,10 +57,6 @@ function M.make(core)
       end
     end
 
-    local fetch_result = devloop_commands.git_fetch_branch("origin", branch, 60)
-    if fetch_result.exit_code ~= 0 then
-      error("github-devloop: git-pr-head-branch-fetch-failed: git PR head branch fetch failed: " .. tostring(fetch_result.stderr))
-    end
     local add_result = devloop_commands.git_worktree_add_remote_branch(worktree, "origin", branch, existing ~= nil, 60)
     if add_result.exit_code ~= 0 then
       error("github-devloop: git-worktree-add-failed: git worktree add failed: " .. tostring(add_result.stderr))

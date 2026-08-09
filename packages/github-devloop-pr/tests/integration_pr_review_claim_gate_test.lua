@@ -167,6 +167,7 @@ return {
     mock_bot_env()
     local ok = m_claims.verify_pr_review_issue_claim("claim-test", "owner/repo", 42, {
       assignees = {},
+      labels = {},
       author_login = "fkst-test-bot",
     }, "github-devloop/issue/owner/repo/42")
     t.eq(ok, true)

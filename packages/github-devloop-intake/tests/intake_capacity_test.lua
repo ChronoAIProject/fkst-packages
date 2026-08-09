@@ -304,9 +304,15 @@ return {
     t.eq(candidate_granted, false)
     t.eq(world.grant.holders[1], 1)
     t.eq(world:active_claim_count(), 1)
+<<<<<<< HEAD
     t.eq(claims.issue_claim_state(world.issues[1].labels), "self")
     t.eq(claims.issue_claim_state(world.issues[2].labels), "unassigned")
     t.eq(claims.issue_claim_state(world.issues[3].labels), "unassigned")
+=======
+    t.eq(claims.issue_claim_state(world.issues[1].assignees, OWNER, world.issues[1].labels), "self")
+    t.eq(claims.issue_claim_state(world.issues[2].assignees, OWNER, world.issues[2].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[3].assignees, OWNER, world.issues[3].labels), "unassigned")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
     t.eq(world:release_order()[1], 3)
     t.eq(world:release_order()[2], 2)
   end,
@@ -331,8 +337,13 @@ return {
 
     t.eq(next_granted, true)
     t.eq(world.grant.holders[1], 72)
+<<<<<<< HEAD
     t.eq(claims.issue_claim_state(world.issues[71].labels), "unassigned")
     t.eq(claims.issue_claim_state(world.issues[72].labels), "self")
+=======
+    t.eq(claims.issue_claim_state(world.issues[71].assignees, OWNER, world.issues[71].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[72].assignees, OWNER, world.issues[72].labels), "self")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
     t.eq(world:active_claim_count(), 1)
   end,
 
@@ -354,8 +365,13 @@ return {
 
     t.eq(next_granted, true)
     t.eq(world.grant.holders[1], 74)
+<<<<<<< HEAD
     t.eq(claims.issue_claim_state(world.issues[73].labels), "unassigned")
     t.eq(claims.issue_claim_state(world.issues[74].labels), "self")
+=======
+    t.eq(claims.issue_claim_state(world.issues[73].assignees, OWNER, world.issues[73].labels), "unassigned")
+    t.eq(claims.issue_claim_state(world.issues[74].assignees, OWNER, world.issues[74].labels), "self")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
     t.eq(world:active_claim_count(), 1)
   end,
 

@@ -6,10 +6,9 @@ local github_handle = nil
 local github_factory = require("devloop.github_factory")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
-local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local parsers_shared = require("devloop.parsers.shared")
@@ -55,7 +54,7 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
 end
 
 function C.claimed_label()
-  return claim_labels.active_label(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label(config.claim_label_exclusive(), C.claim_owner())
 end
 
 local function merge_managed_bot_logins(managed, observed)
@@ -66,8 +65,25 @@ local function merge_managed_bot_logins(managed, observed)
   end
 end
 
+<<<<<<< HEAD
 function C.issue_claim_state(labels)
   return claim_labels.classify(labels, C.claimed_label())
+=======
+function C.claim_mode_active()
+  return config.claim_mode()
+end
+
+function C.issue_claim_state(assignees, owner, labels)
+  local mode = config.claim_mode()
+  return claim_carriers.classify(
+    mode,
+    C.assignee_logins(assignees),
+    owner,
+    labels,
+    mode == "label" and C.claimed_label() or nil,
+    mode == "label" and C.managed_bot_logins() or nil
+  )
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function issue_ownership_decision(ownership, owner)
@@ -94,14 +110,19 @@ function C.is_self_owned_issue(ownership, owner)
 end
 
 local function issue_labels(decoded)
-  return github_view.label_names(decoded and decoded.labels)
+  return parsers_shared.label_names(decoded and decoded.labels)
 end
 
 function C.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
+<<<<<<< HEAD
   local view = github().issue_view(repo, issue_number, "labels,author", 30)
+=======
+  local fields = "assignees,author,labels"
+  local view = github().issue_view(repo, issue_number, fields, 30)
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   local decoded = json.decode(view.stdout or "{}")
   return {
     author_login = C.issue_author_login(decoded),
@@ -125,7 +146,17 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local owner = C.claim_owner()
   local ownership = nil
+<<<<<<< HEAD
   local current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
+=======
+  local mode = config.claim_mode()
+  local current_usable = type(current_issue) == "table"
+    and type(current_issue.assignees) == "table"
+    and type(current_issue.labels) == "table"
+  if mode ~= "label" then
+    current_usable = current_usable and C.issue_author_login(current_issue) ~= nil
+  end
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   if current_usable then
     ownership = current_issue
   else
@@ -441,8 +472,16 @@ end
 
 function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id, reason)
   local ownership = C.read_current_issue_ownership(repo, issue_number)
+<<<<<<< HEAD
   local active_label = C.claimed_label()
   local claim_is_self = restart_metadata.has_label(ownership and ownership.labels, active_label)
+=======
+  local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
+  local claim_is_self = active_label ~= nil
+    and restart_metadata.has_label(ownership and ownership.labels, active_label)
+    or active_label == nil
+      and claim_carriers.classify_assignees(C.assignee_logins(ownership and ownership.assignees), owner) == "self"
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
@@ -465,10 +504,19 @@ function C.claim_required_payload(source_ref)
   if repo == nil or issue_number == nil then
     return nil
   end
+<<<<<<< HEAD
   return {
     label = C.claimed_label(),
+=======
+  local claim = {
+    owner = C.claim_owner(),
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
     source_ref = normalized,
   }
+  if config.claim_mode() == "label" then
+    claim.label = C.claimed_label()
+  end
+  return claim
 end
 
 function C.attach_issue_claim(payload, source_ref)

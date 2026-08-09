@@ -140,7 +140,11 @@ local function mock_issue_result_view(labels, comments)
     labels = labels,
     comments = comments,
   }, "labels,comments")
+<<<<<<< HEAD
   entity_read_mocks.mock_issue_view_selector(t, {}, "labels,author")
+=======
+  entity_read_mocks.mock_issue_view_selector(t, {}, "assignees,author,labels")
+>>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function mock_branch_config_env()
