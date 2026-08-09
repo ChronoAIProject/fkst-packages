@@ -73,7 +73,7 @@ local function issue_claim_held_in_issue(issue, claim, carrier)
     or type(issue.labels) ~= "table" then
     return false
   end
-  return claim_carriers.classify(
+  local held = claim_carriers.classify(
     carrier,
     M.assignee_logins(issue.assignees),
     claim.owner,
@@ -81,6 +81,21 @@ local function issue_claim_held_in_issue(issue, claim, carrier)
     carrier == "label" and claim.label or nil,
     carrier == "label" and github_author_policy.managed_bot_logins() or nil
   ) == "self"
+  if held and carrier == "label" then
+    local desired = claim_carriers.active_label_spec(config.claim_label_exclusive(), claim.owner)
+    if desired.owner ~= nil then
+      local existing = nil
+      for _, label in ipairs(issue.labels) do
+        local name = type(label) == "table" and label.name or label
+        if tostring(name or "") == desired.name then
+          existing = type(label) == "table" and label or { name = name }
+          break
+        end
+      end
+      claim_carriers.assert_owner_binding(existing, desired)
+    end
+  end
+  return held
 end
 
 function M.issue_claim_held_by_self(repo, issue_number, claim, carrier)

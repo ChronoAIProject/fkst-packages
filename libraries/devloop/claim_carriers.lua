@@ -1,24 +1,53 @@
 local devloop_base = require("devloop.base")
+local sha256 = require("contract.sha256")
 
 local C = {}
 
 C.bare_label = "fkst-dev:claimed"
 
-local max_label_length = 50
+local claim_description = "fkst-dev-label-mode-ownership-claim"
+-- A 128-bit SHA-256 prefix keeps the complete label at 49 characters.
+local owner_digest_hex_length = 32
+
+local function canonical_owner(owner)
+  local canonical = devloop_base.strip_bot_login_suffix(owner)
+  if canonical == nil or canonical == "" then
+    error("devloop.claim_carriers: claim-owner-missing: claim owner must be non-empty")
+  end
+  return canonical
+end
 
 function C.derived_label(owner)
-  local label = C.bare_label .. ":" .. owner
-  if #label > max_label_length then
-    error("devloop.claim_carriers: claim-label-too-long: derived claim label exceeds 50 characters")
+  local digest = sha256.hex(canonical_owner(owner))
+  return C.bare_label .. ":" .. digest:sub(1, owner_digest_hex_length)
+end
+
+function C.active_label_spec(exclusive, owner)
+  if exclusive == true then
+    return {
+      name = C.bare_label,
+      description = claim_description,
+    }
   end
-  return label
+  local canonical = canonical_owner(owner)
+  return {
+    name = C.derived_label(canonical),
+    description = claim_description .. " owner=" .. canonical,
+    owner = canonical,
+  }
+end
+
+function C.assert_owner_binding(existing, desired)
+  if existing == nil or desired.owner == nil or tostring(existing.name or "") ~= desired.name then
+    return
+  end
+  if tostring(existing.description or "") ~= desired.description then
+    error("devloop.claim_carriers: claim-label-owner-collision: derived claim label is bound to another owner")
+  end
 end
 
 function C.active_label(exclusive, owner)
-  if exclusive == true then
-    return C.bare_label
-  end
-  return C.derived_label(owner)
+  return C.active_label_spec(exclusive, owner).name
 end
 
 function C.is_claim_family(name)
