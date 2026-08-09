@@ -15,13 +15,14 @@ local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local review_meta_caps = require("review_meta_department_caps").production()
 local restart_sink_grants = require("restart_sink_grants")
+local restart_policy = review_meta_caps.restart_policy
 
 local dispatch_liveness = {
   restart_transition_table = function(...)
-    return core.restart_transition_table(...)
+    return restart_policy.restart_transition_table(...)
   end,
   restart_row_receiver_liveness = function(...)
-    return core.restart_row_receiver_liveness(...)
+    return restart_policy.restart_row_receiver_liveness(...)
   end,
 }
 
