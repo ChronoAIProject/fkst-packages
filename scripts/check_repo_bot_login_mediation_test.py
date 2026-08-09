@@ -80,6 +80,40 @@ return canonical_author == trusted_login
         self.assertIn("raw-login-comparison", self.kinds(reassigned))
         self.assertIn("raw-login-comparison", self.kinds(lookalike_helper))
 
+    def test_detects_raw_identity_comparisons_through_neutral_aliases(self) -> None:
+        source = """
+local left = author_login
+local right = bot_login
+local indirect = left
+return indirect == right
+"""
+
+        self.assertIn("raw-login-comparison", self.kinds(source))
+
+    def test_inner_canonical_bindings_do_not_canonicalize_outer_raw_bindings(self) -> None:
+        source = """
+local canonical_author = author_login
+local normalized_owner = bot_login
+if false then
+  local canonical_author = forge_strings.canonical_login(author_login)
+  local normalized_owner = forge_strings.canonical_login(bot_login)
+end
+return canonical_author == normalized_owner
+"""
+
+        self.assertIn("raw-login-comparison", self.kinds(source))
+
+    def test_function_parameters_shadow_outer_canonical_bindings(self) -> None:
+        source = """
+local canonical_author = forge_strings.canonical_login(author_login)
+local normalized_owner = forge_strings.canonical_login(bot_login)
+local function raw_comparison(canonical_author, normalized_owner)
+  return canonical_author == normalized_owner
+end
+"""
+
+        self.assertIn("raw-login-comparison", self.kinds(source))
+
     def test_accepts_canonical_whitelist_membership(self) -> None:
         source = """
 local canonical = forge_strings.canonical_login(author)

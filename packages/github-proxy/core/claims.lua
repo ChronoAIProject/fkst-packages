@@ -2,6 +2,7 @@ local github_view = require("forge.github_view")
 local claim_carriers = require("devloop.claim_carriers")
 local config = require("devloop.config")
 local github_author_policy = require("devloop.github_author_policy")
+local forge_strings = require("forge.strings")
 
 local S = {}
 
@@ -51,7 +52,7 @@ local function claim_contract_carrier(claim)
     return nil
   end
   local owner = github_author_policy.claim_owner()
-  if tostring(claim.owner) ~= owner then
+  if forge_strings.canonical_login(claim.owner) ~= forge_strings.canonical_login(owner) then
     return nil
   end
   local carrier = config.claim_mode()

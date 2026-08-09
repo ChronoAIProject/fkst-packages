@@ -2,9 +2,10 @@
 """Zero-bypass ratchet for recognizable bot-login trust decisions.
 
 This checker intentionally covers legacy normalizer references, direct Lua
-equality comparisons whose operands have recognizable identity names, and
-recognizable trust-set membership reads. It is a source-syntax detector, not a
-proof of semantic identity mediation.
+equality comparisons whose operands have recognizable identity provenance,
+and recognizable trust-set membership reads. It follows simple assignments
+through lexical Lua scopes. It is a source-syntax detector, not a proof of
+semantic identity mediation.
 """
 
 from __future__ import annotations
@@ -24,10 +25,10 @@ COMPARISON_RE = re.compile(r"==|~=")
 OPERAND_RE = re.compile(
     r"(?:[A-Za-z_][A-Za-z0-9_.]*\s*\([^()]*\)|[A-Za-z_][A-Za-z0-9_.]*)"
 )
-SIMPLE_ASSIGNMENT_RE = re.compile(
-    r"(?m)^[ \t]*(?P<local>local[ \t]+)?"
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*=(?!=)[ \t]*"
-    r"(?P<callee>[A-Za-z_][A-Za-z0-9_.]*)?"
+BINDING_ASSIGNMENT_RE = re.compile(
+    r"(?m)(?<![A-Za-z0-9_.])(?P<local>local[ \t]+)?"
+    r"(?P<names>[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*,[ \t]*[A-Za-z_][A-Za-z0-9_]*)*)"
+    r"[ \t]*=(?!=)[ \t]*(?P<values>[^;\n]*)"
 )
 TRUST_MEMBERSHIP_RE = re.compile(
     r"(?P<table>[A-Za-z_][A-Za-z0-9_.]*)\s*\[\s*"
@@ -61,6 +62,10 @@ LUA_KEYWORDS = frozenset({
     "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then",
     "true", "until", "while",
 })
+STRUCTURE_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\.\.\.|[=(),]")
+CANONICAL_BINDING = "canonical"
+RAW_BINDING = "raw"
+UNKNOWN_BINDING = "unknown"
 
 
 @dataclass(frozen=True, order=True)
@@ -91,6 +96,14 @@ class BotLoginSite:
 
     def label(self) -> str:
         return f"{self.path}:{self.line} {self.kind} {self.surface}"
+
+
+@dataclass(frozen=True)
+class BindingAssignment:
+    position: int
+    local: bool
+    names: tuple[str, ...]
+    operands: tuple[str | None, ...]
 
 
 def _is_test_path(path: str) -> bool:
@@ -162,11 +175,31 @@ def _name(operand: str) -> str:
     return operand.split("(", 1)[0]
 
 
-def _binding_assignments(code: str) -> tuple[tuple[int, str, bool], ...]:
-    assignments: list[tuple[int, str, bool]] = []
+def _value_operand_starts(code: str, start: int, end: int) -> tuple[int, ...]:
+    starts: list[int] = []
+    cursor = start
+    depth = 0
+    expect_value = True
+    while cursor < end:
+        char = code[cursor]
+        if expect_value and not char.isspace():
+            starts.append(cursor)
+            expect_value = False
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            expect_value = True
+        cursor += 1
+    return tuple(starts)
+
+
+def _binding_assignments(code: str) -> tuple[BindingAssignment, ...]:
+    assignments: list[BindingAssignment] = []
     brace_depth = 0
     scan_cursor = 0
-    for match in SIMPLE_ASSIGNMENT_RE.finditer(code):
+    for match in BINDING_ASSIGNMENT_RE.finditer(code):
         for char in code[scan_cursor:match.start()]:
             if char == "{":
                 brace_depth += 1
@@ -175,39 +208,148 @@ def _binding_assignments(code: str) -> tuple[tuple[int, str, bool], ...]:
         scan_cursor = match.start()
         if match.group("local") is None and brace_depth > 0:
             continue
-        callee = match.group("callee")
-        followed_by_call = (
-            callee is not None
-            and re.match(r"[ \t]*\(", code[match.end("callee"):]) is not None
-        )
-        assignments.append((
-            match.start(),
-            match.group("name"),
-            followed_by_call and callee in CANONICAL_HELPERS,
+        names = tuple(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", match.group("names")))
+        value_starts = _value_operand_starts(code, match.start("values"), match.end("values"))
+        operands = tuple(_operand_after(code, position) for position in value_starts)
+        assignments.append(BindingAssignment(
+            position=match.end(),
+            local=match.group("local") is not None,
+            names=names,
+            operands=operands,
         ))
     return tuple(assignments)
 
 
-def _canonical_bindings_before(
-    assignments: tuple[tuple[int, str, bool], ...],
-    index: int,
-) -> set[str]:
-    bindings: set[str] = set()
-    for position, name, canonical in assignments:
-        if position >= index:
-            break
-        if canonical:
-            bindings.add(name)
-        else:
-            bindings.discard(name)
-    return bindings
+def _function_parameters(tokens: list[re.Match[str]], function_index: int) -> tuple[str, ...]:
+    open_index = function_index + 1
+    while open_index < len(tokens) and tokens[open_index].group(0) != "(":
+        open_index += 1
+    if open_index >= len(tokens):
+        return ()
+    depth = 1
+    parameters: list[str] = []
+    cursor = open_index + 1
+    while cursor < len(tokens) and depth > 0:
+        token = tokens[cursor].group(0)
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+        elif depth == 1 and token not in LUA_KEYWORDS and token != "...":
+            parameters.append(token)
+        cursor += 1
+    return tuple(parameters)
 
 
-def _is_canonical(operand: str, bindings: set[str]) -> bool:
+def _scope_events(code: str) -> list[tuple[int, int, str, tuple[str, ...]]]:
+    tokens = list(STRUCTURE_TOKEN_RE.finditer(code))
+    events: list[tuple[int, int, str, tuple[str, ...]]] = []
+    for index, token_match in enumerate(tokens):
+        token = token_match.group(0)
+        if token == "function":
+            events.append((token_match.start(), 1, "push", ()))
+            parameters = _function_parameters(tokens, index)
+            if parameters:
+                events.append((token_match.end(), 2, "parameters", parameters))
+        elif token in {"then", "do", "repeat"}:
+            events.append((token_match.start(), 1, "push", ()))
+        elif token == "else":
+            events.append((token_match.start(), 0, "replace", ()))
+        elif token == "elseif":
+            events.append((token_match.start(), 0, "pop", ()))
+        elif token == "end":
+            events.append((token_match.start(), 0, "pop", ()))
+        elif token == "until":
+            newline = code.find("\n", token_match.end())
+            events.append((len(code) if newline == -1 else newline, 0, "pop", ()))
+    return events
+
+
+def _visible_bindings(scopes: list[dict[str, str]]) -> dict[str, str]:
+    visible: dict[str, str] = {}
+    for scope in scopes:
+        visible.update(scope)
+    return visible
+
+
+def _name_binding_state(name: str) -> str:
+    if (
+        STRONG_IDENTITY_NAME_RE.search(name) is not None
+        or CANONICAL_IDENTITY_NAME_RE.fullmatch(name.split(".")[-1]) is not None
+    ):
+        return RAW_BINDING
+    return UNKNOWN_BINDING
+
+
+def _operand_binding_state(operand: str | None, bindings: dict[str, str]) -> str:
+    if operand is None:
+        return UNKNOWN_BINDING
+    name = _name(operand)
+    if "(" in operand and name in CANONICAL_HELPERS:
+        return CANONICAL_BINDING
+    if "(" not in operand and name in bindings:
+        return bindings[name]
+    return _name_binding_state(name)
+
+
+def _assign_binding(
+    scopes: list[dict[str, str]],
+    name: str,
+    state: str,
+    local: bool,
+) -> None:
+    if local:
+        scopes[-1][name] = state
+        return
+    for scope in reversed(scopes):
+        if name in scope:
+            scope[name] = state
+            return
+    scopes[0][name] = state
+
+
+def _binding_states_before(code: str, indexes: set[int]) -> dict[int, dict[str, str]]:
+    events = _scope_events(code)
+    for assignment in _binding_assignments(code):
+        events.append((assignment.position, 2, "assignment", (assignment,)))
+    events.sort(key=lambda event: (event[0], event[1]))
+
+    scopes: list[dict[str, str]] = [{}]
+    snapshots: dict[int, dict[str, str]] = {}
+    event_index = 0
+    for index in sorted(indexes):
+        while event_index < len(events) and events[event_index][0] < index:
+            _, _, action, payload = events[event_index]
+            if action == "push":
+                scopes.append({})
+            elif action == "pop":
+                if len(scopes) > 1:
+                    scopes.pop()
+            elif action == "replace":
+                if len(scopes) > 1:
+                    scopes.pop()
+                scopes.append({})
+            elif action == "parameters":
+                for name in payload:
+                    scopes[-1][name] = _name_binding_state(name)
+            elif action == "assignment":
+                assignment = payload[0]
+                assert isinstance(assignment, BindingAssignment)
+                visible = _visible_bindings(scopes)
+                for offset, name in enumerate(assignment.names):
+                    operand = assignment.operands[offset] if offset < len(assignment.operands) else None
+                    state = _operand_binding_state(operand, visible)
+                    _assign_binding(scopes, name, state, assignment.local)
+            event_index += 1
+        snapshots[index] = _visible_bindings(scopes)
+    return snapshots
+
+
+def _is_canonical(operand: str, bindings: dict[str, str]) -> bool:
     name = _name(operand)
     if "(" in operand:
         return name in CANONICAL_HELPERS
-    return name in bindings
+    return bindings.get(name) == CANONICAL_BINDING
 
 
 def _looks_canonical_identity(operand: str) -> bool:
@@ -247,7 +389,12 @@ def source_sites(path: str, source: str) -> set[BotLoginSite]:
     if _is_test_path(path) or path == CANONICAL_HELPER_PATH:
         return set()
     code = check_repo_lua.code_mask(source)
-    assignments = _binding_assignments(code)
+    comparison_matches = tuple(COMPARISON_RE.finditer(code))
+    membership_matches = tuple(TRUST_MEMBERSHIP_RE.finditer(code))
+    binding_states = _binding_states_before(
+        code,
+        {match.start() for match in comparison_matches + membership_matches},
+    )
     sites: set[BotLoginSite] = set()
     for match in LEGACY_NORMALIZER_RE.finditer(code):
         sites.add(BotLoginSite(
@@ -256,18 +403,20 @@ def source_sites(path: str, source: str) -> set[BotLoginSite]:
             surface=match.group(0),
             line=source.count("\n", 0, match.start()) + 1,
         ))
-    for match in COMPARISON_RE.finditer(code):
+    for match in comparison_matches:
         left = _operand_before(code, match.start())
         right = _operand_after(code, match.end())
         if left is None or right is None:
             continue
         if CONSTANT_RE.fullmatch(left) is not None or CONSTANT_RE.fullmatch(right) is not None:
             continue
-        bindings = _canonical_bindings_before(assignments, match.start())
+        bindings = binding_states[match.start()]
         if _is_canonical(left, bindings) and _is_canonical(right, bindings):
             continue
         if not (
-            _is_strong_identity(left)
+            _operand_binding_state(left, bindings) != UNKNOWN_BINDING
+            or _operand_binding_state(right, bindings) != UNKNOWN_BINDING
+            or _is_strong_identity(left)
             or _is_strong_identity(right)
             or _is_author_owner_pair(left, right)
             or _looks_canonical_identity(left)
@@ -280,15 +429,18 @@ def source_sites(path: str, source: str) -> set[BotLoginSite]:
             surface=_comparison_surface(left, match.group(0), right),
             line=source.count("\n", 0, match.start()) + 1,
         ))
-    for match in TRUST_MEMBERSHIP_RE.finditer(code):
+    for match in membership_matches:
         table = match.group("table")
         key = match.group("key").replace(" ", "")
         if not _is_trust_set(table):
             continue
         if re.match(r"[ \t]*=(?!=)", code[match.end():]) is not None:
             continue
-        bindings = _canonical_bindings_before(assignments, match.start())
-        if _is_canonical(key, bindings) or not _is_membership_identity(key):
+        bindings = binding_states[match.start()]
+        key_state = _operand_binding_state(key, bindings)
+        if _is_canonical(key, bindings) or (
+            key_state == UNKNOWN_BINDING and not _is_membership_identity(key)
+        ):
             continue
         sites.add(BotLoginSite(
             kind="raw-login-membership",
