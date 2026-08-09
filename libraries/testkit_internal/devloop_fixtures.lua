@@ -31,6 +31,8 @@ function M.new(deps)
   local entity_read_mocks = deps.entity_read_mocks
     or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
   local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.devloop_base is required")
+  local parsers_misc = deps.parsers_misc
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.parsers_misc is required")
   local payloads_builders = deps.payloads_builders
     or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.payloads_builders is required")
   local conv_reconcile = deps.conv_reconcile
@@ -48,7 +50,7 @@ function M.new(deps)
   local mock_merge_pr_diff_name_only = deps.mock_merge_pr_diff_name_only == true
 
   gh_argv.install(t, core)
-  devloop_base.configure_trusted_bot_login("fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login("fkst-test-bot")
 
   local ctx = {
     t = t,
@@ -391,7 +393,7 @@ function M.new(deps)
 
   local function install_author_policy_env(run_opts)
     return author_policy.mock_env(t, run_opts, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
       times = 8,
     })
   end
@@ -731,7 +733,7 @@ function M.new(deps)
     merge_ready = merge_ready,
     run_observe = run_observe,
     run_department = run_department,
-    mock_author_policy_configure = devloop_base.configure_trusted_bot_login,
+    mock_author_policy_configure = parsers_misc.configure_trusted_bot_login,
     run_result = run_result,
     run_result_expecting_failure = run_result_expecting_failure,
     mark_result_read_failure = mark_result_read_failure,

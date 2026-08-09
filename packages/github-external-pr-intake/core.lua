@@ -30,7 +30,6 @@ end
 
 M.read_env_command = read_env_command
 M.read_env = env.read_env(read_env_command)
-M.strip_bot_login_suffix = forge_strings.strip_bot_login_suffix
 M.trim = strings.trim
 M.json_string = strings.json_string
 M.sanitize_key = strings.sanitize_key
@@ -49,11 +48,11 @@ function M.required_repo()
 end
 
 function M.current_bot_login()
-  local login = M.strip_bot_login_suffix(M.trim(M.read_env("FKST_GITHUB_BOT_LOGIN") or ""))
-  if M.write_enabled() and login == "" then
+  local login = forge_strings.canonical_login(M.read_env("FKST_GITHUB_BOT_LOGIN"))
+  if M.write_enabled() and login == nil then
     error("github-external-pr-intake: bot-login-required: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
   end
-  return login
+  return login or ""
 end
 
 function M.managed_bot_logins()
@@ -63,8 +62,8 @@ function M.managed_bot_logins()
     logins[current] = true
   end
   for entry in tostring(M.read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS") or ""):gmatch("[^,%s]+") do
-    local login = M.strip_bot_login_suffix(M.trim(entry))
-    if login ~= nil and login ~= "" then
+    local login = forge_strings.canonical_login(entry)
+    if login ~= nil then
       logins[login] = true
     end
   end
@@ -143,8 +142,8 @@ function M.external_pr_bridge_min_age_seconds()
 end
 
 function M.is_managed_bot_login(login, managed)
-  local normalized = M.strip_bot_login_suffix(login)
-  return normalized ~= nil and normalized ~= "" and managed[normalized] == true
+  local normalized = forge_strings.canonical_login(login)
+  return normalized ~= nil and managed[normalized] == true
 end
 
 function M.trusted_author(record, managed)
@@ -520,7 +519,7 @@ function M.bridge_issue_body(repo, pr)
 end
 
 function M.bridge_issue_title(pr)
-  local author = content_filter.canon_login(type(pr) == "table" and pr.author_login or nil)
+  local author = forge_strings.canonical_login(type(pr) == "table" and pr.author_login or nil)
   if author == nil then
     error("github-external-pr-intake: bridge-title-author-required: bridge issue author is required")
   end

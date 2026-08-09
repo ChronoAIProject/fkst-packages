@@ -170,7 +170,7 @@ local function pipeline_review(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
@@ -314,7 +314,7 @@ local function pipeline_fix(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local apply_current = function(current, classification)
       if classification ~= nil then
@@ -480,7 +480,7 @@ local function pipeline_timeout(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local comments
     local current_pr

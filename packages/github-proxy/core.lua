@@ -5,19 +5,12 @@ local forge_strings = require("forge.strings")
 require("core.error_facts").install(M)
 
 
--- A GitHub App's author login is "<slug>[bot]" via the REST API but bare
--- "<slug>" via GraphQL. Strip the suffix so callers comparing against a
--- configured bot login match regardless of which API populated the field.
--- No-op for ordinary user logins (which never end in "[bot]").
-M.strip_bot_login_suffix = forge_strings.strip_bot_login_suffix
-
 function M.is_positive_integer(value)
   local n = tonumber(value)
   return n ~= nil and n >= 1 and n % 1 == 0 and n <= 2147483647
 end
 
 local shared_helpers = {
-  strip_bot_login_suffix = M.strip_bot_login_suffix,
   is_positive_integer = M.is_positive_integer,
   github = function()
     return M.github()
@@ -192,7 +185,7 @@ function M.configure_trusted_bot_login(login)
     trusted_bot_login = nil
     return nil
   end
-  trusted_bot_login = M.strip_bot_login_suffix(login)
+  trusted_bot_login = forge_strings.canonical_login(login)
   return trusted_bot_login
 end
 

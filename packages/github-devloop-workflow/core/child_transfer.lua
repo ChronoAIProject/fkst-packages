@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_logging = require("devloop.logging")
 local discovery = require("core.materialize.discovery")
 local marker = require("core.marker")
@@ -248,7 +249,7 @@ function M.new(deps)
       })
       return "dry-run"
     end
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     return with_lock(chain_lock_key(identity), function()
       local origin_current = read_fresh(github, identity.source_ref, M.DEPT .. ":origin")

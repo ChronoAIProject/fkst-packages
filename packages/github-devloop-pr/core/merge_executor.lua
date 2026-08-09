@@ -800,6 +800,7 @@ local merge_queue_tick = merge_queue_tick_factory.make(core, {
   entity_lib = entity_lib,
   merge_batch = merge_batch,
   merge_queue = m_mq,
+  parsers_misc = parsers_misc,
   merge_ready_validator = v_merge_ready,
   payloads_builders = payloads_builders,
   process_merge_ready_locked = process_merge_ready_locked,
@@ -829,7 +830,7 @@ local function process_merge_ready_event(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     process_merge_ready_locked(repo, issue_number, merge_ready, branches)
   end)

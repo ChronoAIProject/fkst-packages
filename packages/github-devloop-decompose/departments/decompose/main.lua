@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
@@ -317,7 +318,7 @@ local function decomposed_done(event)
   end
   local done = false
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local current_pr = read_current_pr(context.repo, context.decompose.pr_number)
     devloop_logging.log_forged_markers("decompose",
       context.decompose.proposal_id,
@@ -362,7 +363,7 @@ local function act_decompose(event)
   local repo = context.repo
   local issue_number = context.issue_number
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local current_pr = read_current_pr(repo, decompose.pr_number)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)

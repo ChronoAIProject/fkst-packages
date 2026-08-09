@@ -87,7 +87,7 @@ return {
     }, {
       {
         body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 3),
-        author_login = "fkst-test-bot",
+        author_login = "app/fkst-test-bot",
         state = "OPEN",
       },
       {

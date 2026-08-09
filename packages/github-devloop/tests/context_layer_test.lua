@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
@@ -145,7 +146,7 @@ local function find_raise(raises, queue)
 end
 
 local function run_probe(payload, opts)
-  devloop_base.configure_trusted_bot_login("fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login("fkst-test-bot")
   t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), {
     stdout = "fkst-test-bot",
     stderr = "",

@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_logging = require("devloop.logging")
 local github_fake = require("forge.github_fake")
 local git_fake = require("forge.git_fake")
@@ -275,7 +276,7 @@ local function mock_write_env()
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', result("1"))
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', result(BOT))
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', result("1"))
-  devloop_base.configure_trusted_bot_login(BOT)
+  parsers_misc.configure_trusted_bot_login(BOT)
 end
 
 local function run_transfer(state, expecting_failure, payload)

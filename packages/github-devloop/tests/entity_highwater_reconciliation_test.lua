@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local base_ids = require("devloop.base_ids")
 local entity_highwater = require("devloop.entity_highwater")
@@ -95,10 +96,10 @@ return {
     local reads = 0
     cache_set(highwater_key, "")
 
-    local original_assert = devloop_base.assert_trusted_bot_configured
+    local original_assert = parsers_misc.assert_trusted_bot_configured
     local original_fetch = devloop_entity_view.fetch_issue_view_state
     local original_parse = parsers_issue.parse_issue_view_state
-    devloop_base.assert_trusted_bot_configured = function() end
+    parsers_misc.assert_trusted_bot_configured = function() end
     devloop_entity_view.fetch_issue_view_state = function()
       reads = reads + 1
       return { stdout = "{}", stderr = "", exit_code = 0 }
@@ -115,7 +116,7 @@ return {
     end)
     parsers_issue.parse_issue_view_state = original_parse
     devloop_entity_view.fetch_issue_view_state = original_fetch
-    devloop_base.assert_trusted_bot_configured = original_assert
+    parsers_misc.assert_trusted_bot_configured = original_assert
     if not ok then
       error(err, 0)
     end
@@ -152,11 +153,11 @@ return {
     t.eq(count_pr_rest_reads(pr_number), 0, "the test precondition must be a matching cached V1")
     local issue_reads = 0
 
-    local original_assert = devloop_base.assert_trusted_bot_configured
+    local original_assert = parsers_misc.assert_trusted_bot_configured
     local original_fetch_issue = devloop_entity_view.fetch_issue_view_state
     local original_origin = m_facts.pr_origin_fact
     local original_parse_issue = parsers_issue.parse_issue_view_state
-    devloop_base.assert_trusted_bot_configured = function() end
+    parsers_misc.assert_trusted_bot_configured = function() end
     devloop_entity_view.fetch_issue_view_state = function()
       issue_reads = issue_reads + 1
       return { stdout = "{}", stderr = "", exit_code = 0 }
@@ -186,7 +187,7 @@ return {
     m_facts.pr_origin_fact = original_origin
     parsers_issue.parse_issue_view_state = original_parse_issue
     devloop_entity_view.fetch_issue_view_state = original_fetch_issue
-    devloop_base.assert_trusted_bot_configured = original_assert
+    parsers_misc.assert_trusted_bot_configured = original_assert
     if not ok then
       error(err, 0)
     end

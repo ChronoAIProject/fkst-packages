@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_claims = require("devloop.claims")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
@@ -61,6 +62,13 @@ return {
     t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
     t.eq(m_claims.is_self_owned_issue({ assignees = { "human" }, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), false)
     t.eq(select("#", m_claims.is_self_owned_issue(nil, "fkst-test-bot")), 1)
+  end,
+
+  test_app_actor_has_bare_login_claim_ownership_parity = function()
+    t.eq(m_claims.issue_claim_state({ { login = "app/fkst-test-bot" } }, "fkst-test-bot", {}), "self")
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "app/fkst-test-bot" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "app/other-bot" }, "fkst-test-bot"), false)
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "app/" }, "fkst-test-bot"), false)
   end,
 
   test_dry_run_claim_proceeds_without_assigning = function()
@@ -232,7 +240,7 @@ return {
     local other_owned = m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
       assignees = { "fkst-test-bot" }, labels = {}, author_login = "human",
     }, "github-devloop/issue/owner/repo/42")
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
 
     t.eq(self_owned, true)
     t.eq(other_owned, false)
