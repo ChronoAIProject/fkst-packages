@@ -279,7 +279,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local trusted_author_policy = nil
   local peer_discovery_error = nil
   local peer_snapshot_provenance = nil
-  if claim_mode ~= "label" and canonical_author ~= nil and canonical_author ~= owner then
+  if canonical_author ~= nil and canonical_author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(canonical_author, managed) then
       local github_handle = github()
@@ -402,41 +402,36 @@ function C.claim_admission_precheck(current, inputs)
     return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
   end
 
-  if inputs.claim_mode ~= "label" then
-    if canonical_author == nil then
-      return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  if canonical_author == nil then
+    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  end
+  if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
+    if not C.claim_admission_epoch_is_current(inputs) then
+      return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     end
-    if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
-      if not C.claim_admission_epoch_is_current(inputs) then
-        return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
+    if inputs.peer_discovery_error ~= nil then
+      return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
+    end
+    if C.is_managed_bot_login(canonical_author, inputs.managed) then
+      if inputs.status == "self" then
+        return "held", detail
       end
-      if inputs.peer_discovery_error ~= nil then
-        return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
-      end
-      if C.is_managed_bot_login(canonical_author, inputs.managed) then
-        if inputs.status == "self" then
-          return "held", detail
-        end
-        return settle(
-          "denied",
-          "skip-fork-peer-bot",
-          "other-authored unassigned issue belongs to a managed bot login"
-        )
-      end
-      if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
-        return settle(
-          "denied",
-          "skip-non-whitelisted-author",
-          "other-authored issue author is not authorized for GitHub content"
-        )
-      end
+      return settle(
+        "denied",
+        "skip-fork-peer-bot",
+        "other-authored unassigned issue belongs to a managed bot login"
+      )
+    end
+    if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
+      return settle(
+        "denied",
+        "skip-non-whitelisted-author",
+        "other-authored issue author is not authorized for GitHub content"
+      )
     end
   end
   if inputs.status == "self" then
     return "held", detail
-  end
-  if canonical_author == nil then
-    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
   return "needs-claim", detail
 end
