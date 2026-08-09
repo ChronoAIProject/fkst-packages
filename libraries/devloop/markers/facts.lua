@@ -676,10 +676,13 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
   return best
 end
 
-function C.pr_link_fact(comments, proposal_id)
+function C.pr_link_fact(comments, proposal_id, version_lineage)
   if type(comments) ~= "table" then
     return nil
   end
+  local expected_lineage = version_lineage ~= nil
+    and transition_version.strip_suffixes(version_lineage)
+    or nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
@@ -689,6 +692,8 @@ function C.pr_link_fact(comments, proposal_id)
       local marker_impl_version = marker:match('impl_version="([^"]*)"')
       local marker_base_branch = marker:match('base_branch="([^"]+)"')
       if marker_proposal == proposal_id
+        and (expected_lineage == nil
+          or transition_version.strip_suffixes(marker_impl_version) == expected_lineage)
         and forge_validators.is_positive_pr_number(marker_pr)
         and forge_validators.is_git_ref_safe(marker_branch)
         and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
