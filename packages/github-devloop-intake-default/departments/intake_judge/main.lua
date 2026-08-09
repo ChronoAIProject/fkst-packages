@@ -2,6 +2,7 @@ local core = require("core")
 local default_intake = require("devloop.intake.default")
 local devloop_logging = require("devloop.logging")
 local saga = require("workflow.saga")
+local prompts = require("devloop.prompts").new({ prompts = { intake = default_intake.prompt } }, { intake = true, intake_parser = true })
 
 local spec = {
   consumes = { "github-devloop-intake.devloop_intake_candidate" },
@@ -22,6 +23,7 @@ end
 local function act_intake_judge(event)
   return default_intake.act(core, event, {
     dept = "intake_judge",
+    prompts = prompts,
   })
 end
 

@@ -1,11 +1,12 @@
 local W = {}
+local devloop_prompts = require("devloop.prompts")
 
 function W.prompts()
-  return {
+  return devloop_prompts.new({
     prompts = {
       decompose = require("prompts.decompose"),
     },
-  }
+  }, { decompose = true })
 end
 
 return W

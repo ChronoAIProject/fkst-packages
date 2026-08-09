@@ -16,7 +16,7 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local workflow_codex = require("workflow_internal.codex")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
-
+local prompts = require("devloop.prompts").new({ prompts = { decompose = require("prompts.decompose") } }, { decompose = true })
 local spec = {
   consumes = { "devloop_decompose" }, published_seam = { "devloop_decompose" },
   produces = { "github-proxy.github_issue_create_request", "github-proxy.github_pr_comment_request" },
@@ -45,7 +45,7 @@ local function parse_failure_key(decompose)
 end
 
 local function decompose_plan(decompose, current_issue, content_fetch)
-  local prompt = core.build_decompose_prompt(decompose, current_issue, content_fetch)
+  local prompt = prompts.build_decompose_prompt(decompose, current_issue, content_fetch)
   local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("decompose", workflow_codex.judgment_codex_opts(
     prompt,
     devloop_base.judgment_worktree_with_exec(exec_sync, "decompose", decompose.dedup_key)
