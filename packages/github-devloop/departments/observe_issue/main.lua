@@ -320,6 +320,58 @@ local function implementing_timeout_reimplement_fact(current, proposal_id, state
   return fact
 end
 
+local function committed_reimplement_attempt(command, comments, proposal_id, state)
+  local current_version = state and state.version
+  if command.created_at == nil or current_version == nil then
+    return nil
+  end
+  local reached, witness = devloop_state.reached(comments, proposal_id, "implementing", {
+    domain = "github-devloop",
+    lineage_base = current_version,
+    exact_milestone = true,
+    witness_created_at_on_or_after = command.created_at,
+    witness_version_at_or_before = current_version,
+  })
+  if not reached then
+    return nil
+  end
+  local attempt = core.implementation_retry_attempt(witness.version)
+  if attempt == nil then
+    return nil
+  end
+  return { attempt = attempt, version = witness.version }
+end
+
+local function maybe_acknowledge_committed_reimplement_command(issue, proposal_id, current, state,
+    command, claim_verified)
+  if command == nil or operator_commands.has_operator_command_response(current.comments, command) then
+    return false
+  end
+  local committed = committed_reimplement_attempt(command, current.comments, proposal_id, state)
+  if committed == nil then
+    return false
+  end
+  if not claim_verified and not ensure_managed_issue_claim(issue, proposal_id, current, state) then
+    return true
+  end
+  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
+    issue.number,
+    command,
+    committed.attempt,
+    issue.source_ref
+  )
+  devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
+    "implementing", state.state, "applied(operator-reimplement)",
+    "durable same-lineage implementing state fact confirms implementation retry")
+  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version,
+    { add = {}, remove = {} }, {
+      "github-proxy.github_issue_comment_request",
+    })
+  devloop_logging.log_raise("observe_issue", proposal_id,
+    "github-proxy.github_issue_comment_request", comment_request)
+  return true
+end
+
 local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot)
   local command = operator_commands.operator_command_fact(current.comments, "reimplement")
   if command == nil then
@@ -328,6 +380,10 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   if operator_commands.has_operator_command_response(current.comments, command) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
+  end
+  if maybe_acknowledge_committed_reimplement_command(
+    issue, proposal_id, current, state, command, true) then
+    return true
   end
   local link = m_facts.pr_link_fact(current.comments, proposal_id)
   local blocked_open_pr_reentry = state.state == "blocked" and linked_open_pr(snapshot, link and link.pr_number) ~= nil
@@ -404,18 +460,10 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     }
   end
   local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
-  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
-    issue.number,
-    command,
-    attempt,
-    issue.source_ref
-  )
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "applied(operator-reimplement)", "trusted operator command requested implementation retry")
+  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "deferred(operator-reimplement-awaiting-implementing-fact)", "operator response waits for durable implementing state fact")
   devloop_logging.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
-    "github-proxy.github_issue_comment_request",
     "devloop_ready",
   })
-  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   devloop_logging.log_raise("observe_issue", proposal_id, "devloop_ready", payload)
   return true
 end
@@ -464,6 +512,11 @@ local function reconcile_issue_event(event, opts)
       return
     end
     if issue.source == "pr-entity-change" then
+      local reimplement_command = operator_commands.operator_command_fact(current.comments, "reimplement")
+      if maybe_acknowledge_committed_reimplement_command(
+        issue, proposal_id, current, issue_state, reimplement_command, false) then
+        return
+      end
       if issue_state.state ~= "awaiting-pr" then
         local current_delegation = m_facts.pr_delegation_fact(current.comments, proposal_id)
         local claim_verified = false

@@ -73,8 +73,8 @@ local function observe_reimplement(event, ready_version, command, earlier_commen
     return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
   end)
   t.is_true(ready ~= nil, name .. ": reimplement did not raise devloop_ready")
-  t.is_true(response ~= nil, name .. ": reimplement did not raise an applied response")
-  return ready.payload, response.payload
+  t.eq(response, nil, name .. ": reimplement acknowledged before implementing became durable")
+  return ready.payload
 end
 
 local function admit_reimplementation(event, ready, name)
@@ -102,6 +102,121 @@ local function admit_reimplementation(event, ready, name)
 end
 
 return {
+  test_reimplement_response_waits_for_durable_implementing_fact = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local command = trusted_command("IC_reimplement_commit_before_ack")
+    local comments = impl_failed_comments(event, ready_version, command)
+
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      comments = comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local first = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-reimplement-before-implementing-fact")
+    )
+    t.eq(first.exit_code, 0)
+    local first_ready = find_raise(first.raises, "devloop_ready")
+    local first_response = find_raise(first.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+    end)
+    t.is_true(first_ready ~= nil)
+    t.eq(first_response, nil)
+
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      comments = comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local replay = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-reimplement-replay-without-implementing-fact")
+    )
+    t.eq(replay.exit_code, 0)
+    local replay_ready = find_raise(replay.raises, "devloop_ready")
+    t.is_true(replay_ready ~= nil)
+    t.eq(replay_ready.payload.dedup_key, first_ready.payload.dedup_key)
+
+    local implementing_version = core.implementation_attempt_version(
+      first_ready.payload.implementation_version,
+      first_ready.payload.impl_retry_attempt
+    )
+    local committed_comments = impl_failed_comments(event, ready_version, command, {
+      {
+        id = "IC_reimplement_commit_before_ack_state",
+        body = core.state_marker(event.proposal_id, "implementing", implementing_version),
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T01:01:00Z",
+      },
+    })
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
+      comments = committed_comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local committed = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }),
+      opts("observe-reimplement-after-implementing-fact")
+    )
+    t.eq(committed.exit_code, 0)
+    t.eq(find_raise(committed.raises, "devloop_ready"), nil)
+    local applied = find_raise(committed.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+    end)
+    t.is_true(applied ~= nil)
+    t.is_true(tostring(applied.payload.body):find('outcome="applied"', 1, true) ~= nil)
+  end,
+
+  test_reimplement_response_survives_same_lineage_impl_failed_advance = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local command = trusted_command("IC_reimplement_commit_then_fail")
+    local implementing_version = core.implementation_attempt_version(ready_version, 3)
+    local comments = impl_failed_comments(event, ready_version, command, {
+      {
+        id = "IC_reimplement_commit_then_fail_implementing",
+        body = core.state_marker(event.proposal_id, "implementing", implementing_version),
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T01:01:00Z",
+      },
+      {
+        id = "IC_reimplement_commit_then_fail_failed",
+        body = core.state_marker(event.proposal_id, "impl-failed", implementing_version)
+          .. "\n" .. core.impl_failure_marker(
+            event.proposal_id,
+            implementing_version,
+            "codex-failed",
+            3,
+            "UNKNOWN",
+            true
+          ),
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T01:02:00Z",
+      },
+    })
+
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      comments = comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local result = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-reimplement-after-same-lineage-impl-failed")
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local applied = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+    end)
+    t.is_true(applied ~= nil)
+    t.is_true(tostring(applied.payload.body):find('outcome="applied"', 1, true) ~= nil)
+    t.is_true(tostring(applied.payload.body):find("Retry attempt: 3", 1, true) ~= nil)
+  end,
+
   test_operator_reimplement_delivery_identity_is_replay_stable_and_command_distinct = function()
     local event = reached()
     local normal_ready = payloads_builders.build_devloop_ready_payload(core, event)
@@ -134,7 +249,7 @@ return {
     local first_command = trusted_command("IC_reimplement_delivery_first", "2026-08-01T01:00:00Z")
     local second_command = trusted_command("IC_reimplement_delivery_second", "2026-08-01T01:02:00Z")
 
-    local first, first_response = observe_reimplement(
+    local first = observe_reimplement(
       event,
       ready_version,
       first_command,
@@ -143,12 +258,6 @@ return {
     )
     local second = observe_reimplement(event, ready_version, second_command, {
       first_command,
-      {
-        id = "IC_reimplement_delivery_first_response",
-        body = first_response.body,
-        author_login = "fkst-test-bot",
-        created_at = "2026-08-01T01:01:00Z",
-      },
     }, "observe-reimplement-second-command")
 
     t.eq(first.impl_retry_attempt, 3)

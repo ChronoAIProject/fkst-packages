@@ -17,6 +17,7 @@ local t = h.t
 
 local owner = "github-devloop"
 local proposal_id = "github-devloop/issue/owner/repo/42"
+local issue_state_selector = "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
 local structural_fields = {
   "id",
   "owner",
@@ -245,7 +246,11 @@ end
 local function run_reimplement_case(case)
   local source = core.current_state(case.comments, proposal_id)
   t.eq(source.state, case.source_state)
-  h.mock_issue_state(case.labels, "OPEN", case.comments)
+  entity_read_mocks.mock_issue_view_selector(t, {
+    labels = case.labels,
+    comments = case.comments,
+    state = "OPEN",
+  }, issue_state_selector, 1)
   if case.before_run ~= nil then
     case.before_run()
   end
@@ -255,7 +260,7 @@ local function run_reimplement_case(case)
   local ready = h.find_raise(result.raises, "devloop_ready")
   local response = find_issue_comment(result.raises, "operator command accepted: reimplement")
   t.is_true(ready ~= nil, case.name .. ": devloop_ready was not emitted")
-  t.is_true(response ~= nil, case.name .. ": applied response was not emitted")
+  t.eq(response, nil, case.name .. ": applied response preceded durable implementing state")
 
   local target_row = row_by_state("implementing")
   t.is_true(target_row ~= nil, case.name .. ": implementing restart row is missing")
@@ -278,6 +283,33 @@ local function run_reimplement_case(case)
   else
     t.eq(reentry, nil)
   end
+
+  local implementing_version = core.implementation_attempt_version(
+    ready.payload.implementation_version,
+    ready.payload.impl_retry_attempt
+  )
+  local committed_comments = append_comment(case.comments, trusted_comment(
+    core.state_marker(proposal_id, "implementing", implementing_version),
+    "IC_implementing_" .. case.name,
+    "2026-06-04T03:01:00Z"
+  ))
+  entity_read_mocks.mock_issue_view_selector(t, {
+    labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
+    comments = committed_comments,
+    state = "OPEN",
+  }, issue_state_selector, 1)
+  if case.before_run ~= nil then
+    case.before_run()
+  end
+  local committed = h.run_observe(
+    h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }),
+    h.opts(case.name .. "-applied")
+  )
+  assert_department_ok(committed, case.name .. "-applied")
+  t.eq(h.find_raise(committed.raises, "devloop_ready"), nil,
+    case.name .. ": committed implementing state re-raised devloop_ready")
+  response = find_issue_comment(committed.raises, "operator command accepted: reimplement")
+  t.is_true(response ~= nil, case.name .. ": durable implementing state did not publish applied response")
 
   return {
     owner = owner,

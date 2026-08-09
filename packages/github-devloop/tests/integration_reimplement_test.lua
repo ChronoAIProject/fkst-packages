@@ -333,8 +333,7 @@ return {
     t.is_true(ready.payload.dedup_key ~= ready_version)
     t.eq(ready.payload.impl_retry_attempt, 3)
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
-    t.is_true(response.payload.body:find('command="reimplement"', 1, true) ~= nil)
+    t.eq(response, nil)
   end,
 
   test_forged_reimplement_command_is_ignored = function()
@@ -374,7 +373,7 @@ return {
     t.eq(ready.payload.operator_reentry.impl_version, ready_version)
     t.eq(ready.payload.operator_reentry.pr_number, 7)
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
+    t.eq(response, nil)
   end,
 
   test_reimplement_command_refuses_blocked_without_open_linked_pr = function()
