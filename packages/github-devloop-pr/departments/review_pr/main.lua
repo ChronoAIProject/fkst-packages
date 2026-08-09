@@ -29,7 +29,7 @@ local spec = {
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   local reviewing = event.payload or {}
-  if not v_reviewing.is_supported_reviewing(core, reviewing) then
+  if not v_reviewing.is_supported_reviewing(reviewing) then
     devloop_logging.log_entry("review_pr", event, "unknown", devloop_logging.payload_field(reviewing, "dedup_key"))
     devloop_logging.log_cas_decision("review_pr", "unknown", { state = nil, version = nil }, "reviewing", "review-proposal", "skip-foreign(payload)", "unsupported event payload")
     return
@@ -160,7 +160,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-view-failed: gh issue review view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_review(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_review(issue_view.stdout)
     end
     if not m_claims.verify_pr_review_issue_claim("review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
       return

@@ -112,16 +112,16 @@ return {
       core.gh_pr_list_head_base_cmd("owner/repo", "integration/dev", "dev"),
       "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&per_page=100&base=dev'"
     )
-    local intake = parsers_issue.parse_issue_list_intake(core, '[[{"number":42,"title":"Fix","updated_at":"2026-06-03T01:02:03Z","labels":[{"name":"bug"}]}]]')
+    local intake = parsers_issue.parse_issue_list_intake('[[{"number":42,"title":"Fix","updated_at":"2026-06-03T01:02:03Z","labels":[{"name":"bug"}]}]]')
     t.eq(intake[1].number, 42)
     t.eq(intake[1].body, "")
     t.eq(intake[1].created_at, nil)
     t.eq(intake[1].updated_at, "2026-06-03T01:02:03Z")
     t.eq(intake[1].labels[1], "bug")
-    local mixed = parsers_issue.parse_issue_list_intake(core, '[[{"number":1,"pull_request":{"url":"https://api.example.test/pulls/1"}}],[{"number":2,"title":"Issue","updated_at":"2026-06-03T01:02:04Z","labels":[]}]]', 1)
+    local mixed = parsers_issue.parse_issue_list_intake('[[{"number":1,"pull_request":{"url":"https://api.example.test/pulls/1"}}],[{"number":2,"title":"Issue","updated_at":"2026-06-03T01:02:04Z","labels":[]}]]', 1)
     t.eq(#mixed, 1)
     t.eq(mixed[1].number, 2)
-    t.eq(#parsers_issue.parse_issue_list_intake(core, "[[]]"), 0)
+    t.eq(#parsers_issue.parse_issue_list_intake("[[]]"), 0)
     t.eq(#parsers_issue.parse_issue_list_observe("[[]]"), 0)
     t.eq(#parsers_pr.parse_pr_list_observe("[[]]"), 0)
     t.eq(#parsers_pr.parse_pr_list_head_base("[[]]"), 0)
@@ -152,7 +152,7 @@ return {
       "gh issue view '42' --repo 'owner/repo' --json labels,comments"
     )
 
-    local state = parsers_issue.parse_issue_view_state(core, '{"createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"body":"hello","author":{"login":"fkst-test-bot"}}]}')
+    local state = parsers_issue.parse_issue_view_state('{"createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"body":"hello","author":{"login":"fkst-test-bot"}}]}')
     t.eq(state.state, "OPEN")
     t.eq(state.created_at, "2026-06-03T01:00:00Z")
     t.eq(state.updated_at, "2026-06-03T01:02:03Z")
@@ -163,7 +163,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local decision = "approve"
     local dedup_key = "consensus:github-devloop/issue/owner/repo/42/v1"
-    local result = parsers_issue.parse_issue_view_result(core,
+    local result = parsers_issue.parse_issue_view_result(
       '{"labels":["fkst-dev:ready"],"comments":[{"body":"'
         .. m_builders.result_marker(proposal_id, decision, dedup_key):gsub('"', '\\"')
         .. '","author":{"login":"fkst-test-bot"}}]}'
@@ -256,7 +256,7 @@ return {
   end,
   test_intake_judge_parse_keeps_full_issue_body = function()
     local long_body = string.rep("body-line-", core.max_body_len() + 1) .. "FULL_BODY_TAIL"
-    local parsed = parsers_issue.parse_issue_view_intake_judge(core,
+    local parsed = parsers_issue.parse_issue_view_intake_judge(
       '{"title":"Long intake","body":"' .. long_body .. '","createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"bug"}],"comments":[]}'
     )
 
@@ -271,7 +271,7 @@ return {
   end,
   test_meta_parse_omits_issue_body_snapshot = function()
     local long_body = string.rep("body-line-", core.max_body_len() + 1) .. "FULL_BODY_TAIL"
-    local parsed = parsers_issue.parse_issue_view_meta(core,
+    local parsed = parsers_issue.parse_issue_view_meta(
       '{"title":"Long meta","body":"' .. long_body .. '","labels":[{"name":"bug"}],"comments":[]}'
     )
 
@@ -281,7 +281,7 @@ return {
   end,
   test_decompose_parse_keeps_full_issue_body_for_lineage_only = function()
     local long_body = string.rep("body-line-", core.max_body_len() + 1) .. "FULL_BODY_TAIL"
-    local parsed = parsers_issue.parse_issue_view_decompose(core,
+    local parsed = parsers_issue.parse_issue_view_decompose(
       '{"title":"Long decompose","body":"' .. long_body .. '","labels":[{"name":"bug"}],"comments":[]}'
     )
 

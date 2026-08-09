@@ -442,7 +442,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: issue-read-failed: gh issue state view failed: " .. tostring(state_view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+    local current = parsers_issue.parse_issue_view_state(state_view.stdout)
     local authoritative_updated_at = current.updated_at
     current.updated_at = current.updated_at or issue.updated_at
     record_authoritative_version(authoritative_updated_at)

@@ -131,7 +131,7 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue intake judge view failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(package_core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers(dept, candidate.proposal_id, current.comments)
   if current.state ~= "OPEN" then

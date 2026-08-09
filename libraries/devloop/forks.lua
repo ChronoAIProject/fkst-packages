@@ -185,7 +185,7 @@ function F.rederive_issue_state(core, repo, issue_number)
   if view.exit_code ~= 0 then
     error("github-devloop: fork-source-state-read-failed: gh issue source_ref state recheck failed: " .. tostring(view.stderr))
   end
-  return parsers_issue.parse_issue_view_state(core, view.stdout)
+  return parsers_issue.parse_issue_view_state(view.stdout)
 end
 
 function F.rederive_issue_is_open(core, repo, issue_number)

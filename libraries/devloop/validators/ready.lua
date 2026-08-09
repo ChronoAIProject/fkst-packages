@@ -5,6 +5,7 @@ local source_refs = require("contract.source_ref")
 
 local payloads_predicates = require("devloop.payloads.predicates")
 local payloads_shared = require("devloop.payloads.shared")
+local impl_failure = require("devloop.impl_failure")
 local C = {}
 
 local function is_supported_delivery_identity(payload)
@@ -54,7 +55,7 @@ local function is_supported_blocked_reimplement(payload)
   return reentry.terminal_reason == nil and forge_validators.is_positive_pr_number(reentry.pr_number)
 end
 
-function C.is_supported_ready(M, payload)
+function C.is_supported_ready(payload)
   return type(payload) == "table"
     and payload.schema == "github-devloop.ready.v1"
     and devloop_base.is_safe_proposal_ref(payload.proposal_id, payload.dedup_key)
@@ -63,7 +64,7 @@ function C.is_supported_ready(M, payload)
       payload.implementation_version or payload.dedup_key
     )
     and is_supported_delivery_identity(payload)
-    and (payload.framing == nil or strings.is_bounded_string(payload.framing, M._max_framing_len))
+    and (payload.framing == nil or strings.is_bounded_string(payload.framing, devloop_base._max_framing_len))
     and (payload.operator_reentry == nil or is_supported_blocked_reimplement(payload))
     and (payload.ready_hand_off == nil
       or (payload.impl_retry_attempt == nil
@@ -77,8 +78,8 @@ function C.is_supported_ready(M, payload)
       or (tonumber(payload.impl_retry_attempt) ~= nil
         and tonumber(payload.impl_retry_attempt) >= 1
         and tonumber(payload.impl_retry_attempt) == math.floor(tonumber(payload.impl_retry_attempt))
-        and tonumber(payload.impl_retry_attempt) <= M._max_impl_retry_attempts))
-    and source_refs.has_bounded_source_ref(payload.source_ref, M._max_key_len)
+        and tonumber(payload.impl_retry_attempt) <= impl_failure.MAX_RETRY_ATTEMPTS))
+    and source_refs.has_bounded_source_ref(payload.source_ref, devloop_base._max_key_len)
 end
 
 return C

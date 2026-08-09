@@ -783,7 +783,7 @@ return {
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     devloop_base.configure_trusted_bot_login(nil)
-    local parsed = parsers_issue.parse_issue_view_state(core, '{"comments":[{"body":"'
+    local parsed = parsers_issue.parse_issue_view_state('{"comments":[{"body":"'
       .. h.projected_state_comment(proposal_id, "ready", "v2"):gsub('"', '\\"')
       .. '","author":null},{"body":"'
       .. core.state_marker(proposal_id, "thinking", "v1"):gsub('"', '\\"')

@@ -141,7 +141,7 @@ function M.fetch_recent_closed_intake_class_issues(repo)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
   end
-  return parsers_issue.parse_issue_list_intake(M, listed.stdout)
+  return parsers_issue.parse_issue_list_intake(listed.stdout)
 end
 
 function M.intake_class_carrier_marker(class_key)
@@ -168,7 +168,7 @@ function M.find_open_intake_class_carrier(repo, issue_number, current, class_key
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class lookup failed: " .. tostring(listed.stderr))
   end
-  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(M, listed.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
     if tostring(issue.number) ~= tostring(issue_number)
       and (tostring(issue.body or ""):find(wanted_marker, 1, true) ~= nil
         or tostring(issue.title or "") == wanted_title
@@ -198,7 +198,7 @@ function M.build_intake_class_followup_comment_request(repo, issue_number, candi
   local marker = M.intake_class_followup_marker(candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(M, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(M.output_language, "no_reason_provided")
   end
   if #safe_reason > M._max_meta_reason_len then
     safe_reason = base_ids.truncate_utf8(safe_reason, M._max_meta_reason_len)
