@@ -18,6 +18,7 @@ local observe_pr_module = require("departments.observe_pr.main")
 
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
 local PR_NUMBER = 7
@@ -197,7 +198,7 @@ local function capture(fixture)
     return true, "mergeable"
   end, restorations)
   ra.replace(check_runs, "is_not_mergeable_reason", function(reason) return reason == "merge-state-dirty" end, restorations)
-  ra.replace(core, "fixing_replay_feedback_fact", function() return nil end, restorations)
+  ra.replace(restart_policy, "fixing_replay_feedback_fact", function() return nil end, restorations)
   ra.replace(replay, "replay_from_table", function() return true end, restorations)
   if fixture.active_review then
     ra.replace(require("devloop.convergence.rounds"), "is_true_stall", function() return false end, restorations)

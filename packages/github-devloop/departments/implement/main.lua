@@ -30,13 +30,14 @@ local m_mq = require("devloop.merge_queue")
 local external_pr_bridge = require("departments.implement.external_pr_bridge")
 local implement_caps = require("implement_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
+local restart_policy = implement_caps.restart_policy
 
 local dispatch_liveness = {
   restart_transition_table = function(...)
-    return core.restart_transition_table(...)
+    return restart_policy.restart_transition_table(...)
   end,
   restart_row_receiver_liveness = function(...)
-    return core.restart_row_receiver_liveness(...)
+    return restart_policy.restart_row_receiver_liveness(...)
   end,
 }
 
