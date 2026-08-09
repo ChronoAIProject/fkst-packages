@@ -76,20 +76,6 @@ local function entry_age_minutes(entry, now_seconds)
   return math.floor((current_seconds - marker_seconds) / 60)
 end
 
-local function compare_starvation_age(left, right)
-  local left_age = tonumber(left and left.age_minutes)
-  local right_age = tonumber(right and right.age_minutes)
-  if left_age ~= right_age then
-    return left_age > right_age
-  end
-  local left_created = tostring(left and left.entry and left.entry.merge_ready_created_at or "")
-  local right_created = tostring(right and right.entry and right.entry.merge_ready_created_at or "")
-  if left_created ~= "" and right_created ~= "" and left_created ~= right_created then
-    return left_created < right_created
-  end
-  return tonumber(left and left.entry and left.entry.pr_number or 0) < tonumber(right and right.entry and right.entry.pr_number or 0)
-end
-
 local function predecessor_identity(entry)
   return "pr" .. tostring(entry.pr_number)
     .. "-" .. transition_version.safe_version_segment(entry.proposal_id)
@@ -235,20 +221,14 @@ function C.merge_queue_starvation_candidate(entries, threshold_minutes, now_seco
   if threshold == nil or threshold < 0 then
     return nil
   end
-  local selected = nil
-  for _, entry in ipairs(entries or {}) do
-    local age = entry_age_minutes(entry, current_seconds)
-    if entry.state == "merge-ready" and age ~= nil and age > threshold then
-      local candidate = {
-        entry = entry,
-        age_minutes = age,
-      }
-      if selected == nil or compare_starvation_age(candidate, selected) then
-        selected = candidate
-      end
+  local head = type(entries) == "table" and entries[1] or nil
+  if head ~= nil then
+    local age = entry_age_minutes(head, current_seconds)
+    if head.state == "merge-ready" and age ~= nil and age > threshold then
+      return head, age
     end
   end
-  return selected and selected.entry or nil, selected and selected.age_minutes or nil
+  return nil
 end
 
 function C.merge_queue_predecessors(M, repo, base_branch, current)

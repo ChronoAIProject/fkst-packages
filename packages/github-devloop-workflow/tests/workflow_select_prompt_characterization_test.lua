@@ -1,5 +1,6 @@
 local devloop_prompts = require("devloop.prompts")
 local workflow_select = require("workflow_select")
+local core = require("core")
 local t = fkst.test
 
 local source_phrase = "Judge only from the issue data and offered workflow catalog entries provided in this prompt."
@@ -55,9 +56,15 @@ return {
   end,
 
   test_shared_execution_boundary_clause_matches_literal = function()
-    local shared_prompts = {}
-    devloop_prompts.install(shared_prompts, {}, {})
+    t.eq(devloop_prompts.execution_boundary_clause(source_phrase), expected_boundary)
+  end,
 
-    t.eq(shared_prompts.execution_boundary_clause(source_phrase), expected_boundary)
+  test_workflow_intake_prompt_bytes = function()
+    local prompt = core.build_intake_prompt("github-devloop/issue/owner/repo/42", {
+      title = "Select a workflow",
+      body = "Choose the matching workflow.",
+      comments = {},
+    })
+    t.eq(require("contract.sha256").hex(prompt), "63c005d7a03be403c0e192819b35e79afe3c1f47a8135ad66a401ee484df4ad5")
   end,
 }

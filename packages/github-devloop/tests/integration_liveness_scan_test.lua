@@ -87,6 +87,7 @@ return {
     local expected = {}
     local live_defer = {}
     local terminal = {}
+    local release_codex_runs = {}
     local number = 100
     local run_opts = opts("liveness-scan-non-terminal-issue-marker-conformance")
     for _, row in ipairs(core.restart_transition_table()) do
@@ -107,7 +108,9 @@ return {
           and row.liveness_contract.real_execution
           and row.liveness_contract.real_execution.primitive == "fkst.codex_runs" then
           live_defer[number] = state
-          codex_status.seed_role_codex_run(run_opts, row.liveness_contract.real_execution.match.role, proposal, fresh_version)
+          table.insert(release_codex_runs, codex_status.seed_role_codex_run(
+            run_opts, row.liveness_contract.real_execution.match.role, proposal, fresh_version
+          ))
         else
           expected[number] = state
         end
@@ -120,6 +123,9 @@ return {
     mock_empty_pr_list()
 
     local result = run_liveness_scan("liveness-scan-non-terminal-issue-marker-conformance", run_opts)
+    for _, release_codex_run in ipairs(release_codex_runs) do
+      release_codex_run()
+    end
     t.eq(result.exit_code, 0)
     for issue_number, state in pairs(expected) do
       t.eq(has_liveness_action_for_proposal(result, base_ids.proposal_id(repo, issue_number)), true, "non-terminal issue marker state not sweep-reachable: " .. tostring(state))

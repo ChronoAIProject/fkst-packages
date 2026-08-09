@@ -189,9 +189,10 @@ end
 
 local function run_fix_attempt(plan)
   local worktree = branch_worktree(
-    plan.repo, plan.issue_number, plan.impl_version, plan.branch)
+    plan.repo, plan.issue_number, plan.impl_version, plan.branch,
+    plan.fix.reviewed_head_sha)
   local established, owner = worktree_precondition.establish(
-    worktree, plan.branch, plan.fix.proposal_id)
+    worktree, plan.branch, plan.fix.reviewed_head_sha, plan.fix.proposal_id)
   if not established then
     devloop_logging.log_line("info", "fix", plan.fix.proposal_id, "WORKTREE_PRECONDITION", {
       "outcome=deferred-live-owner",
@@ -259,7 +260,7 @@ local function run_fix_attempt(plan)
   local result = workflow_codex.dispatch(convergence_identity.from_parts("fix", plan.fix.proposal_id, plan.fix.work_unit_key, {
     angle_lane = "worker",
   }), {
-    prompt = core.build_fix_prompt(plan.fix, plan.current_issue, plan.feedback_reason, plan.fix.framing, content_fetch, merge_context),
+    prompt = fix_caps.prompts.build_fix_prompt(plan.fix, plan.current_issue, plan.feedback_reason, plan.fix.framing, content_fetch, merge_context),
     worktree = worktree,
     sync = true,
   })

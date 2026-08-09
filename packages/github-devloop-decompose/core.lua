@@ -1,6 +1,7 @@
 local saga_conformance = require("devloop.saga_conformance")
 local M
 local wiring = require("core.devloop_wiring")
+local devloop_prompts = require("devloop.prompts")
 
 -- fkst.toml conformance hook: function = "core.saga_conformance_errors" (delegates to typed devloop.saga_conformance.errors)
 local function saga_conformance_errors()
@@ -72,8 +73,21 @@ M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("devloop.logging").install(M)
 require("devloop.state").install(M)
+<<<<<<< HEAD
 local prompts = require("devloop.prompts")
 prompts.install(M, wiring.prompts(), { decompose = true, implementation_decompose = true })
+=======
+local prompt_surface = wiring.prompts()
+M.output_language = devloop_prompts.output_language
+M.prompt_preamble = devloop_prompts.prompt_preamble
+M.judge_harness_clause = devloop_prompts.judge_harness_clause
+M.actor_harness_clause = devloop_prompts.actor_harness_clause
+M.review_observation_boundary_clause = devloop_prompts.review_observation_boundary_clause
+M.short_review_observation_boundary_clause = devloop_prompts.short_review_observation_boundary_clause
+M.execution_boundary_clause = devloop_prompts.execution_boundary_clause
+M.render_prompt_template = devloop_prompts.render_prompt_template
+M.build_decompose_prompt = prompt_surface.build_decompose_prompt
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 require("core.saga").install(M)

@@ -1,12 +1,9 @@
-local content_filter = require("forge.github.content_filter")
+local github_view = require("forge.github_view")
+local claim_carriers = require("devloop.claim_carriers")
+local config = require("devloop.config")
+local github_author_policy = require("devloop.github_author_policy")
 
 local S = {}
-
-local function same_login(left, right)
-  local canonical_left = content_filter.canon_login(left)
-  local canonical_right = content_filter.canon_login(right)
-  return canonical_left ~= nil and canonical_right ~= nil and canonical_left == canonical_right
-end
 
 function S.install(M)
 local function assignee_login(assignee)
@@ -37,7 +34,7 @@ function M.assignee_logins(value)
   return logins
 end
 
-function M.gh_issue_view_assignees_cmd(repo, issue_number)
+function M.gh_issue_view_ownership_cmd(repo, issue_number)
   return M.gh_issue_rest_view_cmd(repo, issue_number)
 end
 
@@ -49,15 +46,62 @@ function M.github_issue_unassign(repo, issue_number, login, timeout)
   return M.github().issue_unassign(repo, issue_number, login, timeout or 30)
 end
 
-function M.parse_issue_assignees(stdout)
-  local decoded = json.decode(stdout or "{}")
-  return M.assignee_logins(decoded.assignees)
+local function claim_contract_carrier(claim)
+  if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
+    return nil
+  end
+  local owner = github_author_policy.claim_owner()
+  if tostring(claim.owner) ~= owner then
+    return nil
+  end
+  local carrier = config.claim_mode()
+  if carrier == "assignee" then
+    return claim.label == nil and carrier or nil
+  end
+  if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
+    return nil
+  end
+  if claim.label ~= claim_carriers.active_label(config.claim_label_exclusive(), owner) then
+    return nil
+  end
+  return carrier
 end
 
-function M.issue_claim_held_by_self(repo, issue_number, login)
-  local view = M.gh_exec(M.gh_issue_view_assignees_cmd(repo, issue_number), 30, "GitHub issue REST assignees")
-  local logins = M.parse_issue_assignees(view.stdout)
-  return #logins == 1 and same_login(logins[1], login)
+local function issue_claim_held_in_issue(issue, claim, carrier)
+  if type(issue) ~= "table"
+    or type(issue.assignees) ~= "table"
+    or type(issue.labels) ~= "table" then
+    return false
+  end
+  local held = claim_carriers.classify(
+    carrier,
+    M.assignee_logins(issue.assignees),
+    claim.owner,
+    github_view.label_names(issue.labels),
+    carrier == "label" and claim.label or nil,
+    carrier == "label" and github_author_policy.managed_bot_logins() or nil
+  ) == "self"
+  if held and carrier == "label" then
+    local desired = claim_carriers.active_label_spec(config.claim_label_exclusive(), claim.owner)
+    if desired.owner ~= nil then
+      local existing = nil
+      for _, label in ipairs(issue.labels) do
+        local name = type(label) == "table" and label.name or label
+        if tostring(name or "") == desired.name then
+          existing = type(label) == "table" and label or { name = name }
+          break
+        end
+      end
+      claim_carriers.assert_owner_binding(existing, desired)
+    end
+  end
+  return held
+end
+
+function M.issue_claim_held_by_self(repo, issue_number, claim, carrier)
+  local view = M.gh_exec(M.gh_issue_view_ownership_cmd(repo, issue_number), 30, "GitHub issue REST ownership")
+  local issue = json.decode(view.stdout or "{}")
+  return issue_claim_held_in_issue(issue, claim, carrier)
 end
 
 local function claim_source_ref_matches(payload, repo, issue_number)
@@ -84,35 +128,43 @@ end
 
 function M.verify_issue_claim_before_write(payload, repo, issue_number, dept)
   local claim = payload and payload.claim
-  if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
+  if claim == nil then
     return true
+  end
+  local carrier = claim_contract_carrier(claim)
+  if carrier == nil then
+    verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
+    return false
   end
   if not claim_source_ref_matches(payload, repo, issue_number) then
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
     return false
   end
-  local owner = tostring(claim.owner)
-  if M.issue_claim_held_by_self(repo, issue_number, owner) then
+  if M.issue_claim_held_by_self(repo, issue_number, claim, carrier) then
     return true
   end
-  verify_claim_log(dept, "assignee-claim-lost", repo, issue_number, owner)
+  verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
   return false
 end
 
 function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
   local claim = payload and payload.claim
-  if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
+  if claim == nil then
     return true
+  end
+  local carrier = claim_contract_carrier(claim)
+  if carrier == nil then
+    verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
+    return false
   end
   if not claim_source_ref_matches(payload, repo, issue_number) then
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
     return false
   end
-  local logins = M.assignee_logins(issue and issue.assignees)
-  if #logins == 1 and same_login(logins[1], claim.owner) then
+  if issue_claim_held_in_issue(issue, claim, carrier) then
     return true
   end
-  verify_claim_log(dept, "assignee-claim-lost", repo, issue_number, claim.owner)
+  verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
   return false
 end
 

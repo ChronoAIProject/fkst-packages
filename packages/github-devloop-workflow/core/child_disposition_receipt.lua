@@ -154,7 +154,6 @@ local receipt_fields = {
   slot = true,
   child_issue = true,
   disposition = true,
-  reason_code = true,
   successor_source_ref = true,
 }
 
@@ -188,6 +187,9 @@ local function normalize_receipt(value)
   if type(value) ~= "table" then
     fail("receipt-invalid", "receipt value must be a table")
   end
+  if value.disposition ~= "transferred" then
+    fail("receipt-disposition-invalid", "disposition must be transferred")
+  end
   for key in pairs(value) do
     if receipt_fields[key] ~= true then
       fail("receipt-invalid", "receipt contains an unsupported field")
@@ -205,28 +207,9 @@ local function normalize_receipt(value)
     blueprint_digest = identity.blueprint_digest,
     slot = identity.slot,
     child_issue = identity.child_issue,
-    disposition = value.disposition,
+    disposition = "transferred",
+    successor_source_ref = normalize_successor_source_ref(value.successor_source_ref, identity),
   }
-  if value.disposition == "satisfied" then
-    if value.reason_code ~= nil or value.successor_source_ref ~= nil then
-      fail("receipt-outcome-invalid", "satisfied forbids outcome-specific fields")
-    end
-  elseif value.disposition == "undeliverable" then
-    if not strings.is_path_safe_key(value.reason_code, marker.MAX_TERMINAL_REASON_CODE_BYTES) then
-      fail("receipt-outcome-invalid", "undeliverable requires a bounded path-safe reason_code")
-    end
-    if value.successor_source_ref ~= nil then
-      fail("receipt-outcome-invalid", "undeliverable forbids successor_source_ref")
-    end
-    normalized.reason_code = value.reason_code
-  elseif value.disposition == "transferred" then
-    if value.reason_code ~= nil then
-      fail("receipt-outcome-invalid", "transferred forbids reason_code")
-    end
-    normalized.successor_source_ref = normalize_successor_source_ref(value.successor_source_ref, identity)
-  else
-    fail("receipt-disposition-invalid", "disposition must be satisfied, undeliverable, or transferred")
-  end
   return normalized
 end
 
@@ -239,15 +222,10 @@ local function encode_receipt(value)
     .. ',"slot":' .. strings.json_string(value.slot)
     .. ',"child_issue":' .. strings.json_string(value.child_issue)
     .. ',"disposition":' .. strings.json_string(value.disposition)
-  if value.reason_code ~= nil then
-    encoded = encoded .. ',"reason_code":' .. strings.json_string(value.reason_code)
-  elseif value.successor_source_ref ~= nil then
-    encoded = encoded
-      .. ',"successor_source_ref":{"kind":' .. strings.json_string(value.successor_source_ref.kind)
-      .. ',"ref":' .. strings.json_string(value.successor_source_ref.ref)
-      .. "}"
-  end
-  return encoded .. "}"
+    .. ',"successor_source_ref":{"kind":' .. strings.json_string(value.successor_source_ref.kind)
+    .. ',"ref":' .. strings.json_string(value.successor_source_ref.ref)
+    .. "}}"
+  return encoded
 end
 
 local function matching_receipt(expected, committed)

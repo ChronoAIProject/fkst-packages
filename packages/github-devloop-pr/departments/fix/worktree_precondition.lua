@@ -56,15 +56,30 @@ function M.make(deps)
     return live_owner(snapshot.running, proposal_id, now_value * 1000)
   end
 
-  local function establish(worktree, branch, proposal_id)
+  local function establish(worktree, branch, reviewed_head_sha, proposal_id)
     local owner = current_owner(proposal_id)
     if owner ~= nil then
       return false, owner
     end
 
     local handle = git or git_adapter.production_handle("github-devloop")
-    local reset_result = handle.reset_hard_branch(
-      worktree, branch, CLEANUP_TIMEOUT_SECONDS)
+    local ancestry_result = handle.is_ancestor_worktree_branch(
+      worktree, reviewed_head_sha, branch, CLEANUP_TIMEOUT_SECONDS)
+    if type(ancestry_result) ~= "table"
+      or (ancestry_result.exit_code ~= 0 and ancestry_result.exit_code ~= 1) then
+      error("github-devloop: fix-worktree-ancestry-check-failed: git merge-base --is-ancestor failed: exit_code="
+        .. tostring(ancestry_result and ancestry_result.exit_code)
+        .. " stderr=" .. tostring(ancestry_result and ancestry_result.stderr), 0)
+    end
+
+    local reset_result
+    if ancestry_result.exit_code == 0 then
+      reset_result = handle.reset_hard_branch(
+        worktree, branch, CLEANUP_TIMEOUT_SECONDS)
+    else
+      reset_result = handle.reset_hard_sha(
+        worktree, reviewed_head_sha, CLEANUP_TIMEOUT_SECONDS)
+    end
     if type(reset_result) ~= "table" or reset_result.exit_code ~= 0 then
       error("github-devloop: fix-worktree-reset-failed: git reset --hard failed: exit_code="
         .. tostring(reset_result and reset_result.exit_code)

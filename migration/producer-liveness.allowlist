@@ -3,14 +3,6 @@
 # New entries fail CI after this ratchet lands. Remove entries only when the
 # package has a trace-asserting fire_raiser("<raiser>") test that inspects
 # consumer_result, source_payload, or raised.
-# fkst-substrate-ref-maintainer.substrate_ref_poll why=packages/fkst-substrate-ref-maintainer/core/substrate_ref.lua:653-660 returns no-substrate-pin before any raise; the pinned graph target passed with raised=0 and still passed when substrate_ref_scan returned before its positive work.
-fkst-substrate-ref-maintainer.substrate_ref_poll
-# github-devloop-integration.branch_poll why=packages/github-devloop-integration/departments/pr_freshness_scan/main.lua:289-291, packages/github-devloop-integration/departments/rollup_scan/main.lua:114-116, and packages/github-devloop-integration/departments/sync_scan/main.lua:190-192 all return when integration equals upstream; the pinned graph target passed with raised=0 and still passed when sync_scan returned before its positive work.
-github-devloop-integration.branch_poll
-# github-devloop-pr.merge_queue_poll why=packages/github-devloop-pr/core/merge_queue_tick.lua:101-108 returns when the mocked merge queue is empty; the pinned graph target passed with raised=0 and still passed when merge_queue returned before its positive work.
-github-devloop-pr.merge_queue_poll
-# github-devloop.liveness_poll why=packages/github-devloop/departments/liveness_scan/main.lua:128-133 can act only on listed issue activations; the pinned empty-list graph target passed with raised=0 and still passed when liveness_scan returned before its positive work.
-github-devloop.liveness_poll
 # github-ratchet-migration-slicer.ratchet_migration_slicer why=packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua:9-12 declares produces={}, so a real raised queue/schema/payload would require a forbidden product change; the pinned composed target was baseline red on namespaced producer identity.
 github-ratchet-migration-slicer.ratchet_migration_slicer
 # idle-detector.idle_poll why=fkst-substrate/crates/fkst-framework/src/test_fire_raiser.rs:14-15,115-124,301-315 fixes cron slot/event.ts to 0 and exposes only file-watch fixture input; fkst-substrate/crates/fkst-framework/src/supervise/source_runner.rs:68-90 emits raiser-only payload, while packages/idle-detector/departments/idle_gate/main.lua:60-62,84-87,113-117 terminal-skips the non-ISO slot. The pinned probe raised 0 events.

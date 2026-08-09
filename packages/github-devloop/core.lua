@@ -1,5 +1,6 @@
 local M = {}
 local wiring = require("core.devloop_wiring")
+local devloop_prompts = require("devloop.prompts")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local workflow_ports = require("devloop.adapters.workflow_ports")
@@ -144,8 +145,16 @@ M.replayer_registry = {
 }
 require("core.liveness_bounds").install(M)
 require("devloop.liveness").install(M, wiring.liveness(M))
-local prompts = require("devloop.prompts")
-prompts.install(M, wiring.prompts(), { implement = true })
+local prompt_surface = wiring.prompts()
+M.output_language = devloop_prompts.output_language
+M.prompt_preamble = devloop_prompts.prompt_preamble
+M.judge_harness_clause = devloop_prompts.judge_harness_clause
+M.actor_harness_clause = devloop_prompts.actor_harness_clause
+M.review_observation_boundary_clause = devloop_prompts.review_observation_boundary_clause
+M.short_review_observation_boundary_clause = devloop_prompts.short_review_observation_boundary_clause
+M.execution_boundary_clause = devloop_prompts.execution_boundary_clause
+M.render_prompt_template = devloop_prompts.render_prompt_template
+M.build_implement_prompt = prompt_surface.build_implement_prompt
 require("core.reconcile_requests").install(M)
 M.authorize_thinking_true_stall_drop = function(args)
   return require("core.restart_effects").authorize_thinking_true_stall_drop(M, args)

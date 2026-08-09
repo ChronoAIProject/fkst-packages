@@ -1,7 +1,5 @@
 local branch_progress = require("departments.implement.branch_progress")
 local convergence_identity = require("contract.convergence_identity")
-local context_bundle = require("devloop.context_bundle")
-local core = require("core")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local harvest = require("departments.implement.harvest")
@@ -130,7 +128,7 @@ end
 
 local function dispatch_prompt(args, framing, profile, target)
   if profile ~= "lean-proof" then
-    return core.build_implement_prompt(
+    return implement_caps.prompts.build_implement_prompt(
       args.ready.proposal_id,
       args.current,
       framing,
@@ -154,7 +152,7 @@ local function dispatch_prompt(args, framing, profile, target)
       args.base_head
     ), nil
   end
-  return core.build_implement_prompt(
+  return implement_caps.prompts.build_implement_prompt(
     args.ready.proposal_id,
     args.current,
     framing,
@@ -166,7 +164,7 @@ end
 
 local function run_attempt(args)
   devloop_logging.log_codex_start("implement", args.ready.proposal_id, "implement")
-  args.content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  args.content_fetch = args.context_fetch({
     dept = "implement",
     repo = args.repo,
     issue_number = args.issue_number,

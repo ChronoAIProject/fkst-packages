@@ -4,6 +4,7 @@ local saga = require("workflow.saga")
 local spec = {
   consumes = { "autochrono.reply" },
   produces = { "github-proxy.github_issue_comment_request" },
+  retry = {},
   stall_window = "30s",
 }
 

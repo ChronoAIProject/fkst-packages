@@ -1,6 +1,7 @@
 local identity = require("contract.convergence_identity")
 local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
+local testing = require("testkit_internal.testing")
 local t = fkst.test
 local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
@@ -21,44 +22,6 @@ local function opts(name)
       FKST_RUNTIME_LOG_DIR = root .. "/logs",
     },
   }
-end
-
-local function json_string(value)
-  return tostring(value)
-    :gsub("\\", "\\\\")
-    :gsub('"', '\\"')
-    :gsub("\n", "\\n")
-end
-
-local function json_value(value)
-  if type(value) == "number" then
-    return tostring(value)
-  end
-  if type(value) == "boolean" then
-    return value and "true" or "false"
-  end
-  if value == nil then
-    return "null"
-  end
-  return '"' .. json_string(value) .. '"'
-end
-
-local function json_object(record)
-  local parts = {}
-  for key, value in pairs(record or {}) do
-    table.insert(parts, '"' .. json_string(key) .. '":' .. json_value(value))
-  end
-  table.sort(parts)
-  return "{" .. table.concat(parts, ",") .. "}"
-end
-
-local function seed_codex_run(run_opts, record)
-  local dir = run_opts.env.FKST_RUNTIME_LOG_DIR .. "/codex"
-  os.execute("mkdir -p " .. string.format("%q", dir))
-  local path = dir .. "/" .. nonce() .. ".log"
-  local handle = assert(io.open(path, "a"))
-  handle:write("CODEX_STATUS:" .. json_object(record) .. "\n")
-  handle:close()
 end
 
 local function proposal(extra)
@@ -100,7 +63,6 @@ end
 
 local function running_codex_record(run_identity)
   return {
-    run_id = nonce(),
     role = run_identity.role,
     proposal_id = run_identity.invocation_id,
     dedup_key = run_identity.dedup_key,
@@ -530,13 +492,16 @@ return {
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
+    local release_codex_run = testing.seed_running_codex_status(
+      run_opts, running_codex_record(run_identity)
+    )
 
     for _ = 1, 13 do
       local result = run_decide(proposal(), run_opts)
       t.eq(result.exit_code, 0)
       t.eq(#result.raises, 0)
     end
+    release_codex_run()
     t.eq(#codex_calls(), 0)
   end,
 
@@ -548,11 +513,14 @@ return {
 
     local run_opts = opts("defer-then-redrive")
     local run_identity = library_run_identity(proposal(), "teleology")
-    seed_codex_run(run_opts, running_codex_record(run_identity))
+    local release_codex_run = testing.seed_running_codex_status(
+      run_opts, running_codex_record(run_identity)
+    )
     local deferred = run_decide(proposal(), run_opts)
     t.eq(deferred.exit_code, 0)
     t.eq(#deferred.raises, 0)
     t.eq(#codex_calls(), 0)
+    release_codex_run()
 
     local retried = run_decide(proposal(), opts("redrive-after-live-run-missing"))
     t.eq(retried.exit_code, 0)

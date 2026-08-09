@@ -1,9 +1,13 @@
 {
 <<<<<<< HEAD
+<<<<<<< HEAD
   "artifact_sha256": "a97bea813106abb3ed59cbb5b7d18740e1b5d15839e47dd2afd6b4d1d9bd5b97",
 =======
   "artifact_sha256": "069712d954192be63b85a2957cd48ffb4f5075d01fc2178e0f5d476b7b3637b7",
 >>>>>>> 2bc1b28c631420d7205af46870bf31ba6d567472
+=======
+  "artifact_sha256": "bce6a03ef446277a458531e9a3e0d2d7d52316a7dc0e29410ddb7fb6da913f87",
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -38618,7 +38622,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -38661,7 +38665,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },
@@ -39428,7 +39432,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -39471,7 +39475,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },
