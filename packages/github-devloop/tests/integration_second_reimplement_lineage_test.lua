@@ -53,7 +53,7 @@ end
 return {
   test_next_attempt_version_derives_from_a_prior_replacement_round = function()
     local event = reached()
-    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local base_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local replacement_version = base_version .. "/reimplement/2"
 
     t.eq(core.implementation_branch_version(replacement_version, 3), base_version)
@@ -62,7 +62,7 @@ return {
 
   test_retry_lineage_accepts_only_the_current_or_immediate_next_attempt = function()
     local event = reached()
-    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local base_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local first_replacement_version = base_version .. "/reimplement/1"
     local replacement_version = base_version .. "/reimplement/2"
 
@@ -86,9 +86,9 @@ return {
 
   test_malformed_retry_lineage_records_visible_failure_instead_of_crashing = function()
     local event = reached()
-    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local base_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local first_replacement_version = base_version .. "/reimplement/1"
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.dedup_key = first_replacement_version
     ready.impl_retry_attempt = 3
     local comments = {
@@ -115,7 +115,7 @@ return {
 
   test_second_operator_reimplement_raises_next_attempt = function()
     local event = reached()
-    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local base_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local comments, replacement_version = second_round_comments(event, base_version, trusted_command())
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", comments)
 
@@ -136,9 +136,9 @@ return {
 
   test_second_reimplement_ready_event_runs_the_retry_instead_of_crashing = function()
     local event = reached()
-    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local base_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local replacement_version = base_version .. "/reimplement/2"
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.dedup_key = replacement_version
     ready.impl_retry_attempt = 3
 

@@ -269,8 +269,8 @@ local function capture_runtime(fixture)
   local original_context_fetch_ref_from_bundle = context_bundle.context_fetch_ref_from_bundle
   local dispatch_calls = json_array()
   local context_fetch_calls = json_array()
-  context_bundle.context_fetch_ref_from_bundle = function(M, args)
-    local content_fetch, high_risk, risk = original_context_fetch_ref_from_bundle(M, args)
+  context_bundle.context_fetch_ref_from_bundle = function(args)
+    local content_fetch, high_risk, risk = original_context_fetch_ref_from_bundle(args)
     table.insert(context_fetch_calls, {
       proposal_id = args and args.proposal_id,
       version = args and args.version,

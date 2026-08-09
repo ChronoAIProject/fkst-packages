@@ -232,8 +232,7 @@ local function mock_current_pr(event, fixture)
   local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
   local head_sha = event.reviewed_head_sha
   if fixture.trace_apply then
-    local reject = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
+    local reject = requests_review.build_review_result_comment_request(core.output_language,       "owner/repo",
       "42",
       event.proposal_id,
       event.version,

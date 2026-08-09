@@ -21,7 +21,7 @@ local function source_ref()
 end
 
 local function review_result_comment_request()
-  return requests_review.build_review_result_comment_request(core, repo, nil, proposal_id, version, {
+  return requests_review.build_review_result_comment_request(core.output_language, repo, nil, proposal_id, version, {
     schema = "consensus.consensus_reached.v1",
     proposal_id = review_proposal_id,
     decision = "approve",

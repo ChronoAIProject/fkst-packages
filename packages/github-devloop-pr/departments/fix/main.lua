@@ -248,7 +248,7 @@ local function run_fix_attempt(plan)
   local dispatch = function()
   local codex_started_at = now()
   devloop_logging.log_codex_start("fix", plan.fix.proposal_id, "fix")
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = "fix",
     repo = plan.repo,
     issue_number = plan.issue_number,

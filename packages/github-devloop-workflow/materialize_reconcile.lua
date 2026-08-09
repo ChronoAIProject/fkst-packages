@@ -206,7 +206,7 @@ local function content_fetch(core, predecessor_ref, ctx)
   if repo == nil then
     error("github-devloop-workflow: generated-predecessor-source-ref-invalid: generated predecessor source_ref must be an issue ref")
   end
-  return context_bundle.context_fetch_from_bundle(core, {
+  return context_bundle.context_fetch_from_bundle({
     dept = M.DEPT,
     repo = repo,
     issue_number = issue_number,

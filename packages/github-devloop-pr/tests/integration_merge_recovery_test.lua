@@ -333,7 +333,7 @@ return {
     mock_bot_env()
     mock_issue_merge({ "fkst-dev:merged" }, {
       core.state_marker(event.proposal_id, "merged", event.version),
-      m_builders.merged_marker(core, event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
+      m_builders.merged_marker(event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
     })
     mock_pr_merge({ m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev") })
     local idempotent = run_merge(event, opts("merge-idempotent"))

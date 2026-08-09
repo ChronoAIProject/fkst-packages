@@ -178,7 +178,9 @@ local function raise_dependency_release(M, dept, issue, proposal_id, state, comm
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
   end
   if release_fact == nil then
-    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_release_comment_request(M,
+    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_release_comment_request(
+      require("core.dependencies"),
+      M.output_language,
       issue.repo, issue.number, proposal_id, state.version, gate, issue.source_ref
     ))
   end
@@ -222,7 +224,7 @@ local function raise_dependency_wait_hold(M, dept, issue, proposal_id, state, cu
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
   end
   if dependency_hold == nil then
-    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_hold_comment_request(M, issue.repo, issue.number, proposal_id, state.version, gate, marker, issue.source_ref))
+    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_hold_comment_request(M.output_language, issue.repo, issue.number, proposal_id, state.version, gate, marker, issue.source_ref))
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo, issue.number, { M._blocked_on_dependency_label }, {},
       base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(state.version), tostring(gate.hold_kind) }), issue.source_ref
     ))
@@ -385,7 +387,7 @@ function M.replay_ready_state(dept, issue, state, row, facts)
     state.version,
     row
   )
-  local ready_payload = payloads_builders.build_devloop_ready_payload(M, {
+  local ready_payload = payloads_builders.build_devloop_ready_payload({
     proposal_id = fields.proposal_id,
     dedup_key = next_ready_redrive_version(state.version, redrive_round),
     source_ref = fields.source_ref,

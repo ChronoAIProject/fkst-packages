@@ -348,8 +348,7 @@ local function mock_pr_state(comments, extra)
 end
 
 local function reject_comment(event)
-  return requests_review.build_review_result_comment_request(core,
-    repo,
+  return requests_review.build_review_result_comment_request(core.output_language,     repo,
     "42",
     event.proposal_id,
     event.version,

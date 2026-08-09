@@ -538,7 +538,7 @@ return {
 
   test_implement_redrive_hand_off_uses_original_ready_marker_version = function()
     local original_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local redrive = payloads_builders.build_devloop_ready_payload(core, {
+    local redrive = payloads_builders.build_devloop_ready_payload({
       proposal_id = ready().proposal_id,
       dedup_key = original_version .. "/redrive/ready/2",
       source_ref = source_ref(),

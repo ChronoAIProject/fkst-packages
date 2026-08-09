@@ -157,8 +157,7 @@ return {
     local shadow = facade()
     local comment = shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
     local label = shadow.emit(grant, LABEL_EFFECT_ID, snapshot, args)
-    local old_comment = requests_review.build_review_result_comment_request(
-      core, args.repo, args.issue_number, args.issue_proposal_id,
+    local old_comment = requests_review.build_review_result_comment_request(core.output_language, args.repo, args.issue_number, args.issue_proposal_id,
       args.issue_version, review, args.pr_source_ref
     )
     local old_label = requests_labels.build_review_result_label_request(
@@ -178,8 +177,7 @@ return {
     local shadow = facade("pr-fix")
     local comment = shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
     local label = shadow.emit(grant, LABEL_EFFECT_ID, snapshot, args)
-    local old_comment = requests_review.build_fix_reviewing_comment_request(
-      core, args.repo, args.issue_number, args.fix, args.old_head_sha,
+    local old_comment = requests_review.build_fix_reviewing_comment_request(core.output_language, args.repo, args.issue_number, args.fix, args.old_head_sha,
       args.new_head_sha, args.new_version
     )
     local old_label = requests_labels.build_fix_reviewing_label_request(
@@ -205,8 +203,7 @@ return {
     local shadow = facade("observe-pr-fix")
     local comment = shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
     local label = shadow.emit(grant, LABEL_EFFECT_ID, snapshot, args)
-    local old_comment = requests_review.build_merge_gate_fix_comment_request(
-      core, args.repo, args.issue_number, args.comment_origin, args.fix_version,
+    local old_comment = requests_review.build_merge_gate_fix_comment_request(core.merge_gate_reason_class, core.output_language, args.repo, args.issue_number, args.comment_origin, args.fix_version,
       args.reason, nil, args.source_ref, nil, { gate_failure_excerpt = args.reason })
 
     local old_label = requests_labels.build_state_label_request(

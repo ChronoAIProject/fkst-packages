@@ -351,7 +351,7 @@ local function assert_pre_cas_merged_marker_idempotency()
   local event = h.merge_ready({ version = V_EQUAL })
   local comments = {
     core.state_marker(event.proposal_id, "merged", event.version),
-    m_builders.merged_marker(core, event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
+    m_builders.merged_marker(event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
   }
   h.mock_bot_env()
   h.mock_write_env("")

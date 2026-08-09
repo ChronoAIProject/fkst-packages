@@ -156,7 +156,7 @@ local function child_pr(core, state, child_state, branch)
     body = body .. "\n" .. devloop_state.state_marker(PR_PROPOSAL, child_state, state.version)
   end
   if child_state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(core, PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
+    body = body .. "\n" .. m_builders.merged_marker(PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
   end
   return {
     repo = REPO,

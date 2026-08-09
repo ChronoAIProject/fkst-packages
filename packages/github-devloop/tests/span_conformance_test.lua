@@ -444,7 +444,7 @@ local strings = { en = { implementation_started = "github-devloop implementation
 ]],
       ["packages/github-devloop/core/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha)
+function C.build_implementing_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready, worktree, branch, head_sha)
   return { body = comment_strings.comment_string(M.output_language, "implementation_started") .. "\nHead: " .. tostring(head_sha) }
 end
 ]],
@@ -457,7 +457,7 @@ end
     local errors = span.errors_from_sources({
       ["packages/github-devloop/core/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha)
+function C.build_implementing_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready, worktree, branch, head_sha)
   return { body = "github-devloop implementation started" .. "\nHead: " .. tostring(head_sha) }
 end
 ]],
@@ -498,7 +498,7 @@ raise_implementing_state(repo, issue_number, ready)
 ]]),
       ["packages/github-devloop/departments/implement/main.lua"] = [[
 local function raise_implementing_state(repo, issue_number, ready)
-  local request = requests_lifecycle.build_implementing_state_comment_request(core, repo, issue_number, ready)
+  local request = requests_lifecycle.build_implementing_state_comment_request(core.implement_attempt_marker, core.output_language, repo, issue_number, ready)
   raise("github-proxy.github_issue_comment_request", request)
 end
 
@@ -507,7 +507,7 @@ local result = spawn_codex_sync({ prompt = prompt })
 ]],
       ["libraries/devloop/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_state_comment_request(M, repo, issue_number, ready)
+function C.build_implementing_state_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready)
   local marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, 1, now())
   return { body = marker }
 end

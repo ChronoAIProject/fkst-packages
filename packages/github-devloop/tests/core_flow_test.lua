@@ -161,7 +161,7 @@ return {
         { angle = "delete", verdict = "abstain", digest = "Remove the risky branch." },
       },
     })
-    local round_comment = requests_lifecycle.build_converge_round_comment_request(core, "owner/repo", "42", event, 2, marker)
+    local round_comment = requests_lifecycle.build_converge_round_comment_request(core.output_language, "owner/repo", "42", event, 2, marker)
     t.eq(round_comment.schema, "github-proxy.v1")
     t.eq(round_comment.issue_number, "42")
     t.is_true(round_comment.body:find("github-devloop convergence round 2", 1, true) ~= nil)
@@ -367,7 +367,7 @@ return {
       },
     })
 
-    local comment = requests_review.build_review_converge_round_comment_request(core, "owner/repo", "42", display_event, issue_proposal_id, 2, marker)
+    local comment = requests_review.build_review_converge_round_comment_request(core.output_language, "owner/repo", "42", display_event, issue_proposal_id, 2, marker)
     t.is_true(comment.body:find("github-devloop PR review convergence round 2", 1, true) ~= nil)
     t.is_true(comment.body:find("Which review finding should narrow?", 1, true) ~= nil)
     t.is_true(comment.body:find("minimal: abstain", 1, true) ~= nil)
@@ -412,17 +412,17 @@ return {
     local source = reached({
       framing = "Only include bounded issue comments; defer raising bounds.",
     })
-    local ready = payloads_builders.build_devloop_ready_payload(core, source)
+    local ready = payloads_builders.build_devloop_ready_payload(source)
     t.eq(ready.schema, "github-devloop.ready.v1")
     t.eq(ready.proposal_id, source.proposal_id)
     t.eq(ready.framing, source.framing)
     t.eq(ready.source_ref.ref, "owner/repo#issue/42")
     t.eq(v_ready.is_supported_ready(ready), true)
-    local ready_without_framing = payloads_builders.build_devloop_ready_payload(core, reached())
+    local ready_without_framing = payloads_builders.build_devloop_ready_payload(reached())
     t.is_nil(ready_without_framing.framing)
     t.is_nil(ready_without_framing.ready_hand_off)
     t.eq(v_ready.is_supported_ready(ready_without_framing), true)
-    local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
+    local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(copy_table(reached(), {
       include_ready_hand_off = true,
       ready_comment_id = "IC_123",
     }))
@@ -437,7 +437,7 @@ return {
     ready_with_hand_off.ready_hand_off.state = "ready"
     ready_with_hand_off.ready_hand_off.event_version = "ready/other"
     t.eq(v_ready.is_supported_ready(ready_with_hand_off), false)
-    ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
+    ready_with_hand_off = payloads_builders.build_devloop_ready_payload(copy_table(reached(), {
       include_ready_hand_off = true,
       impl_retry_attempt = 2,
     }))
@@ -551,11 +551,11 @@ return {
     t.eq(#label.remove_labels, 13)
     t.is_true(#label.dedup_key <= 512)
 
-    local comment = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local comment = requests_lifecycle.build_implementing_comment_request(core.implement_attempt_marker, core.output_language, "owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(comment.body:find("Worktree: /tmp/devloop-owner-repo-42", 1, true) ~= nil)
     t.is_true(comment.body:find("Branch: devloop-owner-repo-42-01HY", 1, true) ~= nil)
     t.is_true(comment.body:find(branch_marker, 1, true) ~= nil)
-    local attempt_comment = requests_lifecycle.build_implement_attempt_comment_request(core, "owner/repo", "42", ready, 2, "123")
+    local attempt_comment = requests_lifecycle.build_implement_attempt_comment_request(core.implement_attempt_marker, "owner/repo", "42", ready, 2, "123")
     t.is_true(attempt_comment.body:find("github-devloop implementation attempt started", 1, true) ~= nil)
     t.eq(core.implement_attempt_count({ attempt_comment.body }, ready.proposal_id, ready.dedup_key), 2)
 
@@ -571,14 +571,12 @@ return {
     t.eq(failed_label.remove_labels[7], "fkst-dev:fixing")
     t.eq(#failed_label.remove_labels, 13)
 
-    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "no-changes", "No files changed.", nil, "UNKNOWN", false)
+    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "no-changes", "No files changed.", nil, "UNKNOWN", false)
     t.is_true(failure_comment.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(failure_comment.body:find("No files changed.", 1, true) ~= nil)
 
     local forged = core.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
-    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
+    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
     local current = core.current_state({ forged_failure.body }, ready.proposal_id)
@@ -805,7 +803,7 @@ return {
     t.is_true(v_validate_proposal.validate_proposal(thinking))
 
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local review = payloads_builders.build_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local review = payloads_builders.build_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge)
@@ -820,7 +818,7 @@ return {
     local function context_fetch_returns_high_risk()
       return "runtime-cache:github-devloop/context-bundle-manifest-v2/pr-review-owner-repo-7", true
     end
-    local high_risk_review = payloads_builders.build_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local high_risk_review = payloads_builders.build_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, {}, context_fetch_returns_high_risk())
@@ -828,7 +826,7 @@ return {
     t.is_true(high_risk_review.dedup_key:find("/loop/2", 1, true) ~= nil)
     t.is_true(v_validate_proposal.validate_proposal(high_risk_review))
 
-    local high_risk_board_review = payloads_builders.build_board_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local high_risk_board_review = payloads_builders.build_board_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, "2026-06-08T00:00:00Z", {}, context_fetch_returns_high_risk())
