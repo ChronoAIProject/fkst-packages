@@ -344,7 +344,7 @@ function C.review_carry_over_marker(issue_proposal_id, version, old_review_propo
     .. '" proof="merge-tree-empty-delta" -->'
 end
 
-function C.merged_marker(M, issue_proposal_id, pr_number, version, head_sha, autonomy_record)
+function C.merged_marker(issue_proposal_id, pr_number, version, head_sha, autonomy_record)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
     error("github-devloop: pr-head-identity-invalid: invalid merged marker")
   end

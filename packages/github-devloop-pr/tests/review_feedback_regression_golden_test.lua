@@ -122,7 +122,7 @@ return {
   test_review_feedback_reviewing_output_keeps_origin_shape = function()
     local fix = review_feedback_fixing_payload()
     local raised = capture_raises(function()
-      requests_review.raise_fix_reviewing(core, {
+      requests_review.raise_fix_reviewing(core.output_language, {
         dept = "fix",
         repo = "owner/repo",
         issue_number = 42,

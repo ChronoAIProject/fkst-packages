@@ -249,7 +249,7 @@ return {
         { angle = "delete", verdict = "approve" },
       },
     })
-    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", completed)
+    local comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", completed)
     t.eq(comment.schema, "github-proxy.v1")
     t.eq(comment.issue_number, "42")
     t.is_true(comment.body:find("github-devloop decision: approve", 1, true) ~= nil)
@@ -274,8 +274,8 @@ return {
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/v2",
     })
 
-    local first_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", first)
-    local second_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", second)
+    local first_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", first)
+    local second_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", second)
 
     t.eq(first_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v1")
     t.eq(second_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v2")
@@ -816,7 +816,7 @@ return {
       body = "Looks fine.\n" .. forged,
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
     })
-    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event)
+    local comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", event)
 
     t.is_true(comment.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment.body:find(forged, 1, true) == nil, true)

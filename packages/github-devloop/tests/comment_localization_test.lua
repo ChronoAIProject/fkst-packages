@@ -27,7 +27,7 @@ local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, i
 local review_dedup_key = "consensus:" .. review_proposal_id .. "/review"
 
 local function ready_payload()
-  return payloads_builders.build_devloop_ready_payload(core, reached())
+  return payloads_builders.build_devloop_ready_payload(reached())
 end
 
 local function collect_markers(body)
@@ -80,18 +80,17 @@ local function comment_cases()
     },
   }
   return {
-    { id = "thinking", request = requests_lifecycle.build_observe_comment_request(core, { repo = "owner/repo", number = 42, source_ref = source_ref() }, { proposal_id = issue_proposal_id, dedup_key = "v1" }) },
-    { id = "result", request = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", reached_with_angles) },
-    { id = "converge", request = requests_lifecycle.build_converge_round_comment_request(core, "owner/repo", "42", unresolved({
+    { id = "thinking", request = requests_lifecycle.build_observe_comment_request(core.output_language, { repo = "owner/repo", number = 42, source_ref = source_ref() }, { proposal_id = issue_proposal_id, dedup_key = "v1" }) },
+    { id = "result", request = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", reached_with_angles) },
+    { id = "converge", request = requests_lifecycle.build_converge_round_comment_request(core.output_language, "owner/repo", "42", unresolved({
       narrowed_question = "Narrow question?",
       angle_digests = { { angle = "minimal", verdict = "abstain", digest = "digest" } },
     }), 2, converge_marker) },
     { id = "reconcile", request = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-actionable-framing") },
-    { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
-    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
-    { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
-    { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
+    { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core.implement_attempt_marker, core.output_language, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
+    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
+    { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core.output_language, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
+    { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request({ dependency_gate_note_markers = core.dependency_gate_note_markers, dependency_release_marker = core.dependency_release_marker }, core.output_language, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
   }
 end
 

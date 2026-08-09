@@ -437,7 +437,7 @@ local function add_merged_evidence(state, issue_number)
   successor.comments[#successor.comments + 1] = trusted_comment(table.concat({
     core.state_marker(proposal_id, "merged", version),
     marker_builders.pr_delegation_marker(proposal_id, pr_proposal_id, pr_number, version, "g1"),
-    marker_builders.merged_marker(core, proposal_id, pr_number, version, head_sha),
+    marker_builders.merged_marker(proposal_id, pr_number, version, head_sha),
   }, "\n"))
   successor.state = "CLOSED"
 end

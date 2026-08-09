@@ -12,20 +12,19 @@ M.spec = {
 function M.run(payload)
   if payload.mode == "block" then
     return {
-      body = payloads_board.board_digest_block(core, payload.repo, payload.tick),
+      body = payloads_board.board_digest_block(payload.repo, payload.tick),
     }
   end
 
   if payload.mode == "append" then
     return {
-      proposal = payloads_board.append_board_digest_to_proposal(core, payload.proposal, payload.repo, payload.tick),
+      proposal = payloads_board.append_board_digest_to_proposal(payload.proposal, payload.repo, payload.tick),
     }
   end
 
   if payload.mode == "board_loop" then
     return {
-      proposal = payloads_builders.build_board_loop_proposal(core,
-        payload.repo,
+      proposal = payloads_builders.build_board_loop_proposal(        payload.repo,
         payload.issue_number,
         payload.current,
         payload.source_ref,
@@ -38,8 +37,7 @@ function M.run(payload)
 
   if payload.mode == "board_review" then
     return {
-      proposal = payloads_builders.build_board_pr_review_proposal(core,
-        payload.repo,
+      proposal = payloads_builders.build_board_pr_review_proposal(        payload.repo,
         payload.issue_number,
         payload.pr_number,
         payload.version,
@@ -53,8 +51,7 @@ function M.run(payload)
 
   if payload.mode == "board_review_loop" then
     return {
-      proposal = payloads_builders.build_board_pr_review_loop_proposal(core,
-        payload.repo,
+      proposal = payloads_builders.build_board_pr_review_loop_proposal(        payload.repo,
         payload.issue_number,
         payload.pr_number,
         payload.version,

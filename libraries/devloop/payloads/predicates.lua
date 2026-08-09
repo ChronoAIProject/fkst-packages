@@ -150,11 +150,11 @@ function C.is_own_state_marker_hand_off(hand_off, expected)
     and C.is_safe_comment_id(hand_off.comment_id)
 end
 
-local function state_marker_comment_verified(M, repo, hand_off)
+local function state_marker_comment_verified(repo, hand_off)
   if type(hand_off) ~= "table" or not C.is_safe_comment_id(hand_off.comment_id) then
     return false, "missing-comment-id"
   end
-  local ok_result, result = pcall(shared.github(M).comment_get, repo, hand_off.comment_id, 30)
+  local ok_result, result = pcall(shared.github(nil).comment_get, repo, hand_off.comment_id, 30)
   if not ok_result or type(result) ~= "table" then
     return false, "comment-get-failed"
   end
@@ -187,7 +187,7 @@ local function state_marker_comment_verified(M, repo, hand_off)
     if marker_proposal == hand_off.proposal_id
       and marker_state == hand_off.state
       and marker_version == hand_off.marker_version
-      and tonumber(marker_stage_rank) == M.stage_rank(hand_off.state) then
+      and tonumber(marker_stage_rank) == restart_metadata.stage_rank(hand_off.state) then
       return true, "verified"
     end
   end
@@ -197,22 +197,22 @@ local function state_marker_comment_verified(M, repo, hand_off)
   return false, "state-marker-missing"
 end
 
-function C.verify_own_state_marker_hand_off(M, repo, hand_off, expected)
+function C.verify_own_state_marker_hand_off(repo, hand_off, expected)
   if not C.is_own_state_marker_hand_off(hand_off, expected) then
     return false, "payload-mismatch"
   end
-  return state_marker_comment_verified(M, repo, hand_off)
+  return state_marker_comment_verified(repo, hand_off)
 end
 
-function C.verified_hand_off_state(M, repo, hand_off, expected)
-  local ok, reason = C.verify_own_state_marker_hand_off(M, repo, hand_off, expected)
+function C.verified_hand_off_state(repo, hand_off, expected)
+  local ok, reason = C.verify_own_state_marker_hand_off(repo, hand_off, expected)
   if not ok then
     return nil, reason
   end
   return {
     state = expected.state,
     version = expected.event_version,
-    stage_rank = M.stage_rank(expected.state),
+    stage_rank = restart_metadata.stage_rank(expected.state),
   }, reason
 end
 return C

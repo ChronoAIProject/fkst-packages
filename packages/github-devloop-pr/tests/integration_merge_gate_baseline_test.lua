@@ -207,8 +207,7 @@ return {
   test_merge_gate_marker_without_baseline_round_trips_nil = function()
     local event = merge_ready()
     local fix_version = core.fix_version_from_review_version(event.version)
-    local request = requests_review.build_merge_gate_fix_comment_request(core,
-      "owner/repo",
+    local request = requests_review.build_merge_gate_fix_comment_request(core.merge_gate_reason_class, core.output_language, "owner/repo",
       "42",
       event,
       fix_version,

@@ -144,9 +144,7 @@ local function drive_own_ci_to_fixing()
     entity_lib.pr_source_ref(ci_repo, ci_pr_number)
   )
   local fix_version = core.fix_version_from_review_version(merge_ready.version)
-  local request = requests_review.build_merge_gate_fix_comment_request(
-    core,
-    ci_repo,
+  local request = requests_review.build_merge_gate_fix_comment_request(core.merge_gate_reason_class, core.output_language, ci_repo,
     ci_issue_number,
     merge_ready,
     fix_version,

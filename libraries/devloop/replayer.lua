@@ -42,9 +42,9 @@ end
 local function thinking_caps(installed)
   local caps = {
     latest_complete_converge_round = function(...) return installed.latest_complete_converge_round(...) end,
-    context_fetch = function(...) return context_bundle.context_fetch_ref_from_bundle(installed, ...) end,
-    build_board_loop = function(...) return payloads_builders.build_board_loop_proposal(installed, ...) end,
-    build_board = function(...) return payloads_builders.build_board_proposal(installed, ...) end,
+    context_fetch = function(...) return context_bundle.context_fetch_ref_from_bundle(...) end,
+    build_board_loop = function(...) return payloads_builders.build_board_loop_proposal(...) end,
+    build_board = function(...) return payloads_builders.build_board_proposal(...) end,
     dispatch_live_run = function(...) return dispatch_live_run.dispatch_live_run_dedup(installed, ...) end,
     state_label_changes = function(...) return installed.state_label_changes(...) end,
     authorize_true_stall_drop = function(args) return authorize_thinking_true_stall_drop(installed, args) end,
@@ -57,8 +57,7 @@ end
 
 local function fixing_replay_comment_request(M, issue, pr_number, fix_payload, feedback, source_ref)
   local reason = feedback.reason or fix_payload.gate_failure_excerpt or feedback.review_reason or "fixing-replay"
-  local request = requests_review.build_merge_gate_fix_comment_request(M,
-    issue.repo,
+  local request = requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, issue.repo,
     issue.number,
     {
       proposal_id = fix_payload.proposal_id,
@@ -154,7 +153,7 @@ local function replay_implementing(M, dept, issue, state, row, facts)
   -- the "ready/" wrapper, so re-wrapping the already-wrapped state.version would
   -- double-wrap it ("ready/ready/..."). Derive lifecycle retry identity from the
   -- authoritative state version; implement-attempt.attempt is audit-only.
-  local payload = payloads_builders.build_devloop_ready_payload(M, {
+  local payload = payloads_builders.build_devloop_ready_payload({
     proposal_id = proposal_id,
     dedup_key = M.ready_payload_inner_version(state.version),
     source_ref = issue.source_ref,
@@ -182,7 +181,7 @@ local function replay_impl_failed(M, dept, issue, state, row, facts)
     proposal_id = proposal_id,
     ["impl-failure"] = failure,
   })
-  local payload = payloads_builders.build_devloop_ready_payload(M, {
+  local payload = payloads_builders.build_devloop_ready_payload({
     proposal_id = fields.proposal_id,
     dedup_key = M.ready_payload_inner_version(fields.dedup_key),
     source_ref = fields.source_ref,
@@ -218,7 +217,7 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
     reviewed_head_sha = feedback.reviewed_head_sha,
     source_ref = source_ref,
   }
-  requests_review.raise_fix_reviewing(M, {
+  requests_review.raise_fix_reviewing(M.output_language, {
     dept = dept,
     repo = issue.repo,
     issue_number = issue.number,
@@ -292,7 +291,8 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
   if dept ~= "observe_pr" then
     local new_version = M.next_fix_version(state.version)
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
-    local comment_request = requests_review.build_merge_head_reviewing_comment_request(M,
+    local comment_request = requests_review.build_merge_head_reviewing_comment_request(
+      M.output_language,
       issue.repo,
       issue.number,
       {
@@ -386,7 +386,8 @@ local function raise_reviewing_for_current_head(M, dept, issue, state, proposal_
   end
   if dept == "observe_pr" then
     local merge_ready = m_facts.merge_ready_fact(current_pr.comments, proposal_id, state.version, link.pr_number)
-    local comment_request = requests_review.build_merge_head_reviewing_comment_request(M,
+    local comment_request = requests_review.build_merge_head_reviewing_comment_request(
+      M.output_language,
       issue.repo,
       issue.number,
       {

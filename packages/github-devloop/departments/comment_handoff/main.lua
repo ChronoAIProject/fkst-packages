@@ -126,7 +126,7 @@ local function act_handoff(event)
   if handoff.kind == "github-devloop.ready" then
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
       "github-proxy.github_issue_label_request", handoff.label_request)
-    local ready = payloads_builders.build_devloop_ready_payload(core, {
+    local ready = payloads_builders.build_devloop_ready_payload({
       proposal_id = handoff.proposal_id,
       dedup_key = handoff.marker_version,
       source_ref = handoff.source_ref,

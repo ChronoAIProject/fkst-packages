@@ -65,11 +65,11 @@ local function proof_event()
     title = "Complete the bounded Lean proof",
     framing = "Complete `Proofs/Target.lean` without changing the theorem statement.",
   })
-  return payloads_builders.build_devloop_ready_payload(core, accepted), accepted
+  return payloads_builders.build_devloop_ready_payload(accepted), accepted
 end
 
 local function accepted_result_comment(accepted)
-  return requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", accepted).body
+  return requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", accepted).body
 end
 
 local function trusted_comment(body, created_at)

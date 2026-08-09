@@ -74,7 +74,7 @@ local function copy_with(payload, key, value)
 end
 
 local function ready_corpus()
-  local valid = payloads_builders.build_devloop_ready_payload(core, h.reached({
+  local valid = payloads_builders.build_devloop_ready_payload(h.reached({
     framing = "bounded framing",
     include_ready_hand_off = true,
     ready_comment_id = "IC_ready_characterization",
