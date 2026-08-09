@@ -118,5 +118,85 @@ class RunUnitsParallelTest(unittest.TestCase):
         self.assertIn("rc=1", result.stdout)
 
 
+class FailCodeSurfaceTest(unittest.TestCase):
+    """The fold must say WHICH nonzero codes it saw, not only how many units failed.
+
+    A caller cannot classify a failure it cannot see: a unit that typed itself (the conformance
+    checker's violations code) and a unit that merely died are both `fails=1`, so without this the
+    caller can only emit UNKNOWN — which the implement loop redrives forever. Units run as external
+    commands, so their status reaches the wrapper; a bare `exit` would leave the wrapper before its
+    rc is recorded (see test_fail_count_via_subshell_exit_missing_rc).
+    """
+
+    def test_reports_the_distinct_nonzero_codes(self) -> None:
+        result = _run(
+            "run_units_parallel 3 '( exit 10 )' 'true' '( exit 10 )'; "
+            'echo "rc=$?"; echo "codes=$RUN_UNITS_FAIL_CODES"'
+        )
+        self.assertIn("rc=2", result.stdout, result.stdout + result.stderr)
+        self.assertIn("codes=10", result.stdout, result.stdout + result.stderr)
+
+    def test_mixed_codes_are_all_reported(self) -> None:
+        result = _run(
+            "run_units_parallel 3 '( exit 10 )' '( exit 1 )'; "
+            'echo "codes=$RUN_UNITS_FAIL_CODES"'
+        )
+        codes = [ln for ln in result.stdout.splitlines() if ln.startswith("codes=")]
+        self.assertEqual(len(codes), 1, result.stdout + result.stderr)
+        self.assertEqual(sorted(codes[0][len("codes="):].split()), ["1", "10"])
+
+    def test_all_pass_reports_no_codes(self) -> None:
+        result = _run(
+            "run_units_parallel 2 'true' 'true'; " 'echo "codes=[$RUN_UNITS_FAIL_CODES]"'
+        )
+        self.assertIn("codes=[]", result.stdout, result.stdout + result.stderr)
+
+
+class CheckVerdictMappingTest(unittest.TestCase):
+    """cmd_check must turn the typed violations code into FAIL:SEMANTIC, not UNKNOWN.
+
+    This closes the last link of the chain: check_repo.py returns the typed code (asserted in
+    scripts/check_repo_gh_egress_test.py), run_units_parallel surfaces it (asserted above), and the
+    caller must map it. Without the mapping the verdict falls back to UNKNOWN, which the implement
+    loop redrives forever instead of reporting a defect the implementation can act on.
+    """
+
+    RUN_SH = REPO_ROOT / "scripts" / "run.sh"
+
+    def _verdict_for(self, codes: str) -> str:
+        # Replace only the executor, so the real cmd_check body decides the verdict.
+        snippet = (
+            'run_units_parallel() { RUN_UNITS_FAIL_CODES="%s"; '
+            '[ -z "$RUN_UNITS_FAIL_CODES" ] || return 1; }\n'
+            "competence_gate_base_ref() { echo HEAD; }\n"
+            "detect_pool_size() { echo 1; }\n"
+            'resolve_bin() { :; }\n'
+            "cmd_check >/dev/null 2>&1 || true\n"
+            'printf %%s "$LOCAL_ITERATION_RESULT_VERDICT:$LOCAL_ITERATION_RESULT_FAULT_CLASS"\n'
+        ) % codes
+        script = (
+            "set -uo pipefail\n"
+            'FKST_RUN_SH_SOURCE_ONLY=1\n'
+            f'. "{self.RUN_SH}" 2>/dev/null || true\n'
+            + snippet
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", script], capture_output=True, text=True, cwd=REPO_ROOT
+        ).stdout.strip()
+
+    def test_typed_violations_code_maps_to_semantic(self) -> None:
+        self.assertEqual(self._verdict_for("10"), "FAIL:SEMANTIC")
+
+    def test_bare_nonzero_leaves_the_verdict_unset(self) -> None:
+        # Attribution is genuinely indeterminate, so cmd_check must set NOTHING and let the exit
+        # trap record the honest UNKNOWN. Asserting the empty verdict (rather than merely "not
+        # SEMANTIC") is what makes this fail if cmd_check ever starts guessing.
+        self.assertEqual(self._verdict_for("1"), ":")
+
+    def test_mixed_codes_leave_the_verdict_unset(self) -> None:
+        # One unit typed itself and another did not: the run as a whole is not attributable.
+        self.assertEqual(self._verdict_for("10 1"), ":")
+
+
 if __name__ == "__main__":
     unittest.main()
