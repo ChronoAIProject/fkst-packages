@@ -7,6 +7,7 @@ local contract_time = require("contract.time")
 local m_builders = require("devloop.markers.builders")
 local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
+local restart_policy = assert(rawget(core, "restart_policy"))
 
 local function copy_value(value)
   if type(value) ~= "table" then
@@ -373,8 +374,8 @@ return {
   end,
 
   test_runtime_provenance_rejects_declared_source_drift = function()
-    local original = core.actionable_epoch_resolve
-    core.actionable_epoch_resolve = function(row, state)
+    local original = restart_policy.actionable_epoch_resolve
+    restart_policy.actionable_epoch_resolve = function(row, state)
       return {
         status = "actionable",
         epoch_ms = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at) * 1000,
@@ -385,7 +386,7 @@ return {
       }
     end
     local ok, errors = pcall(core.strict_restart_liveness_contract_errors, { rows_by_state(core.restart_transition_table()).dependency_wait })
-    core.actionable_epoch_resolve = original
+    restart_policy.actionable_epoch_resolve = original
     if not ok then
       error(errors)
     end

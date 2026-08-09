@@ -167,20 +167,9 @@ local function build_ops(ctx)
     return m_facts.merge_gate_fix_fact(comments, issue_proposal_id, issue_version)
   end
 
-  ctx.review_meta_replay_fact_from_state = ops.review_meta_replay_fact_from_state
-  ctx.review_meta_replay_fact = ops.review_meta_replay_fact
-  ctx.fixing_replay_feedback_fact = ops.fixing_replay_feedback_fact
-
   return ops
 end
 
-S.install = function(ctx)
-  local ops = build_ops(ctx)
-  return {
-    review_meta_replay_fact_from_state = ops.review_meta_replay_fact_from_state,
-    review_meta_replay_fact = ops.review_meta_replay_fact,
-    fixing_replay_feedback_fact = ops.fixing_replay_feedback_fact,
-  }
-end
+S.new = build_ops
 
 return S

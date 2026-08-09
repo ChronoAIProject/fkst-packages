@@ -8,21 +8,25 @@ local S = {}
 local contract_time = require("contract.time")
 local source_refs = require("contract.source_ref")
 local replay_fields = require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
 local devloop_logging = require("devloop.logging")
 local transition_version = require("contract.transition_version")
 
-function S.install(M, shared)
+function S.new(policy, shared, resolved)
+local K = {}
+local replayer = assert(resolved and resolved.replayer,
+  "devloop.liveness.timeout: missing replayer capability")
+assert(type(replayer.replay_from_table_classified) == "function",
+  "devloop.liveness.timeout: missing replay_from_table_classified")
 local max_timeout_attempts = shared.max_timeout_attempts
 local numeric_minutes = shared.numeric_minutes
 local row_liveness_signal = shared.row_liveness_signal
 
-function M.liveness_budget_minutes(state_name)
-  local row = replay_fields.restart_transition_row(M.restart_transition_table(), state_name)
+function K.liveness_budget_minutes(state_name)
+  local row = replay_fields.restart_transition_row(policy.restart_transition_table(), state_name)
   return row and row.budget and tonumber(row.budget.minutes) or nil
 end
 
-function M.liveness_state_age_minutes(state, now_seconds)
+function K.liveness_state_age_minutes(state, now_seconds)
   if type(state) ~= "table" then
     return nil
   end
@@ -33,38 +37,38 @@ function M.liveness_state_age_minutes(state, now_seconds)
       return math.floor((current_seconds - created_seconds) / 60)
     end
   end
-  return M.stall_suspect_age_minutes(state.version, now_seconds)
+  return policy.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
-function M.liveness_timeout_attempt(row, state, facts)
+function K.liveness_timeout_attempt(row, state, facts)
   local eval = facts and facts.actionable_epoch_eval
-  if m_rae.restart_row_has_registered_actionable_epoch(M, row) then
-    return m_rae.actionable_epoch_timeout_attempt(M, row, state, facts)
+  if m_rae.restart_row_has_registered_actionable_epoch(policy, row) then
+    return m_rae.actionable_epoch_timeout_attempt(policy, row, state, facts)
   end
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local comments = facts and facts.current and facts.current.comments or nil
   local from_state = row and row.from_state
   local version = state and state.version
-  local durable_round = conv_attempts.timeout_attempt_round(M, comments, proposal_id, version, from_state)
-  local version_round = M.version_timeout_round(version, from_state)
+  local durable_round = conv_attempts.timeout_attempt_round(policy, comments, proposal_id, version, from_state)
+  local version_round = policy.version_timeout_round(version, from_state)
   return math.max(durable_round or 0, version_round or 0)
 end
 
-function M.next_liveness_timeout_version(row, state, facts)
+function K.next_liveness_timeout_version(row, state, facts)
   local from = tostring(row.from_state)
   -- Replace, not stack, the trailing timeout segment for this state so the version
   -- stays bounded as attempts climb: V -> V/timeout/<state>/1 -> V/timeout/<state>/2.
   -- The attempt count itself is read from the full (pre-strip) version, so it keeps
   -- advancing across sweeps even though the suffix never accumulates.
-  return transition_version.timeout_at(state and state.version, from, M.liveness_timeout_attempt(row, state, facts) + 1)
+  return transition_version.timeout_at(state and state.version, from, K.liveness_timeout_attempt(row, state, facts) + 1)
 end
 
-function M.liveness_timeout_due(row, state, now_seconds)
+function K.liveness_timeout_due(row, state, now_seconds)
   if row == nil or row.terminal == true then
     return false, nil
   end
   local budget = row.budget and tonumber(row.budget.minutes) or nil
-  local age = M.liveness_state_age_minutes(state, now_seconds)
+  local age = K.liveness_state_age_minutes(state, now_seconds)
   if budget == nil or age == nil or age < budget then
     return false, age
   end
@@ -75,20 +79,20 @@ local function live_signal_max_age(row)
   return numeric_minutes(row_liveness_signal(row) and row_liveness_signal(row).max_age_minutes)
 end
 
-function M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+function K.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   if row == nil or row.terminal == true then
     return false, nil
   end
-  if m_rae.restart_row_has_registered_actionable_epoch(M, row) then
-    return m_rae.actionable_epoch_timeout_due(M, row, state, facts, now_seconds)
+  if m_rae.restart_row_has_registered_actionable_epoch(policy, row) then
+    return m_rae.actionable_epoch_timeout_due(policy, row, state, facts, now_seconds)
   end
   local contract = row.liveness_contract
   if type(contract) == "table" and contract.mode == "row-budget-bounds-receiver" then
-    return M.liveness_timeout_due(row, state, now_seconds)
+    return K.liveness_timeout_due(row, state, now_seconds)
   end
   local signal_max_age = live_signal_max_age(row)
   if signal_max_age ~= nil then
-    local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
+    local signal = policy.restart_row_liveness_signal(row, state, facts, now_seconds)
     if signal.age_minutes ~= nil then
       if signal.age_minutes < signal_max_age then
         return false, signal.age_minutes
@@ -96,7 +100,7 @@ function M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
       return true, signal.age_minutes
     end
   end
-  return M.liveness_timeout_due(row, state, now_seconds)
+  return K.liveness_timeout_due(row, state, now_seconds)
 end
 
 -- Owner directive (issue ChronoAIProject/fkst-packages#2725): a TIMEOUT — or any
@@ -114,32 +118,32 @@ end
 -- extension), but the live watchdog never produces an `escalate` decision, so those
 -- terminal edges are no longer traversed at runtime.
 local function timeout_escalation(row, state, age, facts)
-  local attempt = M.liveness_timeout_attempt(row, state, facts)
+  local attempt = K.liveness_timeout_attempt(row, state, facts)
   return {
     action = "redrive",
     attempt = attempt + 1,
     age_minutes = age,
-    version = M.next_liveness_timeout_version(row, state, facts),
+    version = K.next_liveness_timeout_version(row, state, facts),
   }
 end
 
 local function build_timeout_reconcile(row, entity, state, facts, decision)
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
-  if source_refs.has_bounded_source_ref(source_ref, M._max_key_len)
-    and strings.is_path_safe_key(proposal_id, M._max_key_len)
-    and strings.is_bounded_string(state and state.version, M._max_dedup_len) then
+  if source_refs.has_bounded_source_ref(source_ref, policy._max_key_len)
+    and strings.is_path_safe_key(proposal_id, policy._max_key_len)
+    and strings.is_bounded_string(state and state.version, policy._max_dedup_len) then
     return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, decision.attempt)
   end
   return nil, nil
 end
 
-function M.build_liveness_timeout_reconcile_payload(row, entity, state, facts, decision)
+function K.build_liveness_timeout_reconcile_payload(row, entity, state, facts, decision)
   return build_timeout_reconcile(row, entity, state, facts, decision)
 end
 
-function M.liveness_timeout_decision(row, state, now_seconds)
-  local due, age = M.liveness_timeout_due(row, state, now_seconds)
+function K.liveness_timeout_decision(row, state, now_seconds)
+  local due, age = K.liveness_timeout_due(row, state, now_seconds)
   if not due then
     return {
       action = "wait",
@@ -149,12 +153,12 @@ function M.liveness_timeout_decision(row, state, now_seconds)
   return timeout_escalation(row, state, age)
 end
 
-function M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
-  local due, age = M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+function K.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
+  local due, age = K.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
-  local heartbeat = m_rae.actionable_epoch_heartbeat_decision(M, row, state, facts, due, age, limit)
+  local heartbeat = m_rae.actionable_epoch_heartbeat_decision(policy, row, state, facts, due, age, limit)
   if heartbeat ~= nil then return heartbeat end
-  local codex_run = m_rae.actionable_epoch_codex_run_decision(M, row, state, facts, due, age)
+  local codex_run = m_rae.actionable_epoch_codex_run_decision(policy, row, state, facts, due, age)
   if codex_run ~= nil then return codex_run end
   local child_workflow = m_rae.actionable_epoch_child_workflow_decision(row, state, facts, due, age)
   if child_workflow ~= nil then return child_workflow end
@@ -196,7 +200,7 @@ local function emit_timeout_attempt_marker(dept, entity, state, row, facts, prop
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   if target ~= nil then
     local eval = facts and facts.actionable_epoch_eval
-    if m_rae.restart_row_has_registered_actionable_epoch(M, row)
+    if m_rae.restart_row_has_registered_actionable_epoch(policy, row)
       and type(eval) == "table"
       and eval.status == "actionable"
       and eval.generation_key ~= nil then
@@ -238,28 +242,28 @@ local function with_redrive_delivery_identity(facts, decision)
   return replay_facts
 end
 
-function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, facts)
-  local row = table_row or replay_fields.restart_transition_row(M.restart_transition_table(), state and state.state)
+function K.maybe_timeout_redrive_from_table(dept, entity, state, table_row, facts)
+  local row = table_row or replay_fields.restart_transition_row(policy.restart_transition_table(), state and state.state)
   if row == nil or row.terminal == true then
     return false
   end
   local comments = facts and facts.current and facts.current.comments or nil
   local proposal_id = facts and facts.proposal_id or state and state.proposal_id
-  local matches, mismatch = M.timeout_lineage_matches_current(state, facts and facts.fresh_current_state)
+  local matches, mismatch = policy.timeout_lineage_matches_current(state, facts and facts.fresh_current_state)
   if not matches then
     devloop_logging.log_cas_decision(dept, proposal_id, facts and facts.fresh_current_state or state, row.from_state, row.driving_queue, "stale_timeout_noop(" .. tostring(mismatch) .. ")", "timeout watchdog lineage no longer matches freshly derived current state")
     return true
   end
-  if row.from_state == "blocked" and conv_attempts.has_decompose_exhausted_marker(M, comments, proposal_id, state and state.version) then
+  if row.from_state == "blocked" and conv_attempts.has_decompose_exhausted_marker(policy, comments, proposal_id, state and state.version) then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "blocked", row.driving_queue, "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
     return true
   end
   if row.from_state == "implementing"
-    and M.implementing_version_mismatch_budget_exhausted(comments, proposal_id, state and state.version) then
+    and policy.implementing_version_mismatch_budget_exhausted(comments, proposal_id, state and state.version) then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", row.driving_queue, "skip-idempotent(version-mismatch-exhausted)", "implementing re-drive would hand implement a version-mismatch whose delivery budget is already exhausted (terminal fail-closed)")
     return true
   end
-  local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
+  local receiver_liveness = policy.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
   if receiver_liveness.action == "defer" then
     local signal = receiver_liveness.signal or {}
     local reason = signal.family == "codex_run:v1"
@@ -268,7 +272,7 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-timeout-count(live-signal:" .. tostring(signal.family or "unknown") .. ")", reason)
     return true
   end
-  local decision = M.liveness_timeout_decision_with_facts(row, state, facts, (facts and facts.now_seconds) or now())
+  local decision = K.liveness_timeout_decision_with_facts(row, state, facts, (facts and facts.now_seconds) or now())
   if decision.action == "wait" then
     return false
   end
@@ -299,7 +303,7 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
       return emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, decision.attempt)
     end
   end
-  local replay = replayer.replay_from_table_classified(M, dept, entity, {
+  local replay = replayer.replay_from_table_classified(dept, entity, {
     state = state.state,
     version = state.version,
     proposal_id = state.proposal_id,
@@ -321,6 +325,7 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
   return false
 end
 
+return K
 end
 
 return S

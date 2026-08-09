@@ -3,6 +3,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_issue = require("devloop.parsers.issue")
 local core, replay_fields = require("core"), require("devloop.replay_fields")
+local restart_policy = assert(rawget(core, "restart_policy"))
 local restart_owner = core.restart_package_name
 local transition_version = require("contract.transition_version")
 
@@ -243,7 +244,7 @@ local function pipeline_timeout(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
       return
     end
-    local live_row = replay_fields.restart_transition_row(core.restart_transition_table(), state.state)
+    local live_row = replay_fields.restart_transition_row(restart_policy.restart_transition_table(), state.state)
     if state.state ~= nil and live_row ~= nil and live_row.terminal == true then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(already terminal)", "current marker is already terminal")
       return
@@ -261,7 +262,7 @@ local function pipeline_timeout(event)
       return
     end
 
-    local row = replay_fields.restart_transition_row(core.restart_transition_table(), reconcile.state)
+    local row = replay_fields.restart_transition_row(restart_policy.restart_transition_table(), reconcile.state)
     local timeout_facts = {
       proposal_id = reconcile.proposal_id,
       current = current,
@@ -277,12 +278,12 @@ local function pipeline_timeout(event)
         comments = comments,
       })
     end
-    local due, age_minutes = core.liveness_timeout_due_with_facts(row, state, timeout_facts, now())
-    local decision = core.liveness_timeout_decision_with_facts(row, state, timeout_facts, now())
+    local due, age_minutes = restart_policy.liveness_timeout_due_with_facts(row, state, timeout_facts, now())
+    local decision = restart_policy.liveness_timeout_decision_with_facts(row, state, timeout_facts, now())
     if row
       and row.actionable_epoch
       and row.actionable_epoch.source == "live_defer_heartbeat:v1" then
-      local signal = core.restart_row_liveness_signal(row, state, timeout_facts, now())
+      local signal = restart_policy.restart_row_liveness_signal(row, state, timeout_facts, now())
       age_minutes = signal.age_minutes or age_minutes
     end
     local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or nil

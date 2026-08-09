@@ -34,7 +34,8 @@ local devloop_state = require("devloop.state")
 local operator_recovery_factory = require("departments.observe_issue.operator_recovery")
 local log = log
 local M = {}
-local restart_transition_table = core.restart_transition_table
+local restart_policy = observe_issue_caps.restart_policy
+local restart_transition_table = restart_policy.restart_transition_table
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
@@ -65,6 +66,7 @@ local operator_recovery = operator_recovery_factory.make({
   operator_commands = operator_commands,
   replayer = replayer,
   replay_fields = replay_fields,
+  restart_policy = restart_policy,
 })
 local maybe_apply_issue_rereview_command = operator_recovery.maybe_apply_issue_rereview_command
 local maybe_apply_issue_reready_command = operator_recovery.maybe_apply_issue_reready_command
@@ -118,10 +120,10 @@ local function issue_local_pr_bound_state_matches_link(issue_state, link)
     return transition_version.strip_suffixes(issue_state.version) == transition_version.strip_suffixes(link.impl_version)
   end
   if issue_state.state == "fixing" then
-    return core.fixing_version_matches_link(issue_state.version, link.impl_version)
+    return restart_policy.fixing_version_matches_link(issue_state.version, link.impl_version)
   end
   if issue_state.state == "review-meta" or issue_state.state == "merge-ready" or issue_state.state == "merging" then
-    return core.fixing_version_matches_link(issue_state.version, link.impl_version)
+    return restart_policy.fixing_version_matches_link(issue_state.version, link.impl_version)
   end
   return false
 end
@@ -206,24 +208,24 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     and issue_state.state == state.state
     and tostring(issue_state.version or "") == tostring(state.version or "")
   local timeout_surface = issue.source == "liveness-scan" and "issue_liveness_scan" or "issue"
-  if state_is_issue_local and core.restart_observe_timeout_due(row, timeout_surface, state, facts, now()) then
-    return core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
+  if state_is_issue_local and restart_policy.restart_observe_timeout_due(row, timeout_surface, state, facts, now()) then
+    return restart_policy.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
   end
   if issue.source ~= "liveness-scan"
     and state_is_issue_local
-    and core.restart_observe_replay_due(row, "issue", state, facts, now()) then
+    and restart_policy.restart_observe_replay_due(row, "issue", state, facts, now()) then
     local delivery = replayer.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
     if delivery ~= nil then
       facts.redrive_delivery = delivery
     end
     return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
   end
-  if core.restart_row_observable_on(row, "issue")
+  if restart_policy.restart_row_observable_on(row, "issue")
     and state_is_issue_local
     and replayer.replay_from_table(core, "observe_issue", issue, state, row, facts) then
     return true
   end
-  if core.restart_row_observable_on(row, "issue") then
+  if restart_policy.restart_row_observable_on(row, "issue") then
     return false
   end
   if issue_state == nil
@@ -231,7 +233,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     or tostring(issue_state.version or "") ~= tostring(state.version or "") then
     return false
   end
-  return core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
+  return restart_policy.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
 end
 
 local function ensure_managed_issue_claim(issue, proposal_id, current, state)
