@@ -747,6 +747,8 @@ def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list
     if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     violations.extend(saga_handler_ratchet_violations(sources, allowlist, base_allowlist))
 
+VIOLATIONS_EXIT = 10
+
 def main(argv: list[str] | None = None) -> int:
     config = check_repo_config.parse_args(argv); violations: list[str] = []; warnings: list[str] = []
     __import__("check_repo_runner").run(sys.modules[__name__], config, violations, warnings)
@@ -754,6 +756,10 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print("repository check failed:", file=sys.stderr)
         for violation in violations: print(f"  {violation}", file=sys.stderr)
-        return 1
+        # Typed outcome: the checks RAN and the repository violates a stated rule. A bare nonzero
+        # carries no domain meaning, so callers can only read it as UNKNOWN; UNKNOWN is redriven
+        # forever by the implement loop instead of failing with something an implementation can act
+        # on. An uncaught crash keeps exit 1, where attribution genuinely is indeterminate.
+        return VIOLATIONS_EXIT
     print("OK: repository checks passed"); return 0
 if __name__ == "__main__": raise SystemExit(main())

@@ -7,6 +7,7 @@ import importlib.util
 import os
 import tempfile
 import sys
+import types
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -730,6 +731,48 @@ class ProducerLivenessRatchetTest(unittest.TestCase):
         self.assertEqual(p.ratchet_messages({raiser}, {"example": set()}, {"example.poll"}, {"example.poll"}), [])
         self.assertIn("is covered; prune the stale entry", p.ratchet_messages({raiser}, {"example": {"poll"}}, {"example.poll"}, {"example.poll"})[0])
         self.assertIn("grows migration/producer-liveness.allowlist relative to dev", p.ratchet_messages({raiser}, {"example": set()}, {"example.poll"}, set())[0])
+
+
+class ViolationExitCodeTest(unittest.TestCase):
+    """`main` must distinguish "checks ran, repository violates a rule" from "the checker died".
+
+    A bare nonzero carries no domain meaning, so `scripts/run.sh` can only classify it as
+    UNKNOWN — and an UNKNOWN verification is redriven forever by the implement loop instead of
+    failing with something an implementation can act on. The typed code is what lets the caller
+    say FAIL:SEMANTIC. A crash must NOT reach that code, or a checker bug would be reported as a
+    defect in the code under test.
+    """
+
+    def _with_runner(self, run):
+        stub = types.ModuleType("check_repo_runner")
+        stub.run = run
+        original = sys.modules.get("check_repo_runner")
+        sys.modules["check_repo_runner"] = stub
+        self.addCleanup(
+            lambda: sys.modules.__setitem__("check_repo_runner", original)
+            if original is not None
+            else sys.modules.pop("check_repo_runner", None)
+        )
+
+    def test_violations_return_the_typed_code(self):
+        self._with_runner(lambda _m, _c, violations, _w: violations.append("G-TEST: seeded"))
+        self.assertEqual(check_repo.main([]), check_repo.VIOLATIONS_EXIT)
+
+    def test_clean_run_returns_zero(self):
+        self._with_runner(lambda _m, _c, _v, _w: None)
+        self.assertEqual(check_repo.main([]), 0)
+
+    def test_the_typed_code_is_distinguishable_from_a_bare_failure(self):
+        self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 0)
+        self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 1)
+
+    def test_a_checker_crash_propagates_instead_of_becoming_the_typed_code(self):
+        def boom(*_a, **_k):
+            raise RuntimeError("checker exploded")
+
+        self._with_runner(boom)
+        with self.assertRaises(RuntimeError):
+            check_repo.main([])
 
 
 if __name__ == "__main__":
