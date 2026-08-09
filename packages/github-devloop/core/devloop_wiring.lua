@@ -1,6 +1,7 @@
 local W = {}
 local registry = require("workflow_internal.registry")
 local pr_review_replay_facts = require("devloop.restart.pr_review_replay_facts")
+local devloop_prompts = require("devloop.prompts")
 
 local package_name = "github-devloop"
 
@@ -54,11 +55,11 @@ function W.liveness(M)
 end
 
 function W.prompts()
-  return {
+  return devloop_prompts.new({
     prompts = {
       implement = require("prompts.implement"),
     },
-  }
+  }, { implement = true })
 end
 
 function W.gate_sources()

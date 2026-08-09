@@ -1,4 +1,5 @@
 local h = require("tests.proxy_integration_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local devloop_state = require("devloop.state")
 local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(devloop_state)
 local t = h.t
@@ -287,7 +288,7 @@ return {
 
   test_issue_label_rejects_label_claim_after_managed_assignee_appears = function()
     mock_label_apply()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local label = claim_carriers.derived_label("fkst-test-bot")
     local event = label_event({ "manual-label" }, {}, {
       claim = {
         owner = "fkst-test-bot",
@@ -310,7 +311,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    local label = "fkst-dev:claimed:peer"
+    local label = claim_carriers.derived_label("peer")
     local event = label_event({ "manual-label" }, {}, {
       claim = {
         owner = "fkst-test-bot",
@@ -344,7 +345,7 @@ return {
 
   test_issue_label_rejects_label_carrier_in_assignee_mode = function()
     mock_label_apply()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local label = claim_carriers.derived_label("fkst-test-bot")
     local event = label_event({ "manual-label" }, {}, {
       claim = {
         owner = "fkst-test-bot",

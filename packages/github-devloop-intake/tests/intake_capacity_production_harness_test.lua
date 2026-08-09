@@ -297,6 +297,8 @@ function M.new()
       return config.write_mode() == "real"
     end,
     owner = claims.claim_owner,
+    assert_owner_binding = function(_repo)
+    end,
     list_open_claim_numbers = function(_repo, configured_owner)
       local numbers = {}
       for _, number in ipairs(issue_numbers()) do

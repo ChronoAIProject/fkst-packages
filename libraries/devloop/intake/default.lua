@@ -355,7 +355,7 @@ local function act(package_core, event, opts)
     tick = event.ts,
   })
   local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("intake", workflow_codex.judgment_codex_opts(
-    package_core.build_intake_prompt(candidate.proposal_id, gate.current, content_fetch),
+    opts.prompts.build_intake_prompt(candidate.proposal_id, gate.current, content_fetch),
     devloop_base.judgment_worktree_with_exec(exec_sync, "intake", candidate.dedup_key)
   )))
   if type(result) ~= "table" or result.exit_code ~= 0 or result.stdout == nil then
@@ -368,7 +368,7 @@ local function act(package_core, event, opts)
     error("github-devloop: intake-codex-failed: intake codex failed: " .. tostring(stderr))
   end
 
-  local parsed = package_core.parse_intake_action(result.stdout)
+  local parsed = opts.prompts.parse_intake_action(result.stdout)
   if parsed == nil then
     parsed = malformed_decision()
     parsed.service_class = m_shared.normalize_intake_service_class(nil)

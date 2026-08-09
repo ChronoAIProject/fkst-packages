@@ -3,6 +3,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local M
 local wiring = require("core.devloop_wiring")
+local devloop_prompts = require("devloop.prompts")
 
 -- fkst.toml conformance hook: function = "core.saga_conformance_errors" (delegates to typed devloop.saga_conformance.errors)
 local function saga_conformance_errors()
@@ -92,8 +93,16 @@ require("devloop.logging").install(M)
 require("devloop.state").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
-local prompts = require("devloop.prompts")
-prompts.install(M, wiring.prompts(), { sync_conflict = true })
+local prompt_surface = wiring.prompts()
+M.output_language = devloop_prompts.output_language
+M.prompt_preamble = devloop_prompts.prompt_preamble
+M.judge_harness_clause = devloop_prompts.judge_harness_clause
+M.actor_harness_clause = devloop_prompts.actor_harness_clause
+M.review_observation_boundary_clause = devloop_prompts.review_observation_boundary_clause
+M.short_review_observation_boundary_clause = devloop_prompts.short_review_observation_boundary_clause
+M.execution_boundary_clause = devloop_prompts.execution_boundary_clause
+M.render_prompt_template = devloop_prompts.render_prompt_template
+M.build_sync_conflict_prompt = prompt_surface.build_sync_conflict_prompt
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
