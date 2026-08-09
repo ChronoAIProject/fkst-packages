@@ -13,10 +13,11 @@ issue_author_ownership() { # $1 issue author login -> "peer" | "other" | "" (sel
   case ",$MANAGED_BOT_LOGINS," in
     *",$author,"*) echo peer; return 0 ;;
   esac
-  # A managed peer often files under an app login (`app/fkst-<device>`) that is absent from this
-  # host's MANAGED list; its device suffix still identifies it as another machine's automation.
+  # A managed peer often files under an app login absent from this host's MANAGED list. The two
+  # GitHub surfaces spell the same app differently — REST returns `<login>[bot]`, GraphQL returns
+  # `app/<login>` — so both spellings have to be recognised or the row warns on one surface only.
   case "$author" in
-    app/*|*-bot) echo peer; return 0 ;;
+    app/*|*\[bot\]|*-bot) echo peer; return 0 ;;
   esac
   echo other
 }
@@ -295,8 +296,11 @@ board_one() { # $1 name, $2 stale_hours
     # host's problem sends the operator to investigate work that is not theirs.
     local ownership
     if ownership=$(issue_author_ownership "$author"); then
+      # Ownership only downgrades a warning. A row that already classified as something informative
+      # — a tracked dashboard, a parked terminal — keeps that classification, which says more than
+      # who owns it.
       case "$ownership:$cls" in
-        peer:*) cls="peer-owned($author)" ;;
+        peer:⚠*) cls="peer-owned($author)" ;;
         other:⚠*) cls="$cls author=$author" ;;
       esac
     fi
