@@ -260,14 +260,16 @@ end
 function C.claim_admission_inputs(current, repo, poll_key)
   local owner = C.claim_owner()
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
+  local claim_mode = config.claim_mode()
   if status == "other" then
     return {
       owner = owner,
       status = status,
+      claim_mode = claim_mode,
+      repo = repo,
     }
   end
 
-  local claim_mode = config.claim_mode()
   local author = C.issue_author_login(current)
   if author ~= nil and author ~= "" then
     author = devloop_base.strip_bot_login_suffix(author)
@@ -318,6 +320,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
     owner = owner,
     status = status,
     claim_mode = claim_mode,
+    repo = repo,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -391,6 +394,12 @@ function C.claim_admission_precheck(current, inputs)
     detail.reason = reason
     return decision, detail
   end
+  if inputs.claim_mode == "label" and inputs.status == "self" then
+    if inputs.repo == nil or tostring(inputs.repo) == "" then
+      error("github-devloop: claim-label-binding-repo-missing: claim admission requires a repository")
+    end
+    C.assert_current_claim_label_binding(inputs.repo)
+  end
   if inputs.status == "other" then
     return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
   end
@@ -443,9 +452,6 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
   end
   if admission == "held" then
-    if (detail and detail.claim_mode or config.claim_mode()) == "label" then
-      C.assert_current_claim_label_binding(repo)
-    end
     return true
   end
   if admission == "other" or admission == "denied" then

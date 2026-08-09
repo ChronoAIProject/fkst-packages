@@ -261,6 +261,7 @@ local function validate_ports(ports)
     "max_inflight",
     "write_enabled",
     "owner",
+    "assert_owner_binding",
     "list_open_claim_numbers",
     "read_issue",
     "read_grant",
@@ -282,6 +283,7 @@ function C.new(ports)
       return true, max_inflight == nil and "wip-cap-disabled" or "wip-cap-dry-run"
     end
     local owner = ports.owner()
+    ports.assert_owner_binding(repo)
     local grant = ports.read_grant(repo, owner)
     local snapshot = build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
     local holders = desired_allocation(
@@ -475,6 +477,11 @@ function C.production(_M)
       return config.write_mode() == "real"
     end,
     owner = claims.claim_owner,
+    assert_owner_binding = function(repo)
+      if claims.claim_mode_active() == "label" then
+        claims.assert_current_claim_label_binding(repo)
+      end
+    end,
     list_open_claim_numbers = function(repo, owner)
       local listed = result_required(
         commands.gh_issue_list_observe(repo, nil, nil, false, 30),
