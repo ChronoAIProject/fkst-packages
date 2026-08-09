@@ -102,6 +102,56 @@ local function admit_reimplementation(event, ready, name)
 end
 
 return {
+  test_same_second_prior_attempt_does_not_acknowledge_new_reimplement = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local previous_version = core.implementation_attempt_version(ready_version, 3)
+    local created_at = "2026-08-01T01:00:00Z"
+    local command = trusted_command("IC_reimplement_same_second_new_command", created_at)
+    local comments = {
+      {
+        id = "IC_reimplement_same_second_previous_implementing",
+        body = core.state_marker(event.proposal_id, "implementing", previous_version),
+        author_login = "fkst-test-bot",
+        created_at = created_at,
+      },
+      {
+        id = "IC_reimplement_same_second_previous_failed",
+        body = core.state_marker(event.proposal_id, "impl-failed", previous_version)
+          .. "\n" .. core.impl_failure_marker(
+            event.proposal_id,
+            previous_version,
+            "codex-failed",
+            3,
+            "UNKNOWN",
+            true
+          ),
+        author_login = "fkst-test-bot",
+        created_at = created_at,
+      },
+      command,
+    }
+
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      comments = comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local result = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-reimplement-same-second-prior-attempt")
+    )
+
+    t.eq(result.exit_code, 0)
+    local ready = find_raise(result.raises, "devloop_ready")
+    local applied = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+    end)
+    t.is_true(ready ~= nil)
+    t.eq(ready.payload.impl_retry_attempt, 4)
+    t.eq(applied, nil)
+  end,
+
   test_reimplement_response_waits_for_durable_implementing_fact = function()
     local event = reached()
     local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
