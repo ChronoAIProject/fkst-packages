@@ -4,6 +4,7 @@ local error_facts = require("contract.error_facts")
 local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
+local forge_strings = require("forge.strings")
 local S = {}
 local config = require("devloop.config")
 
@@ -259,7 +260,8 @@ end
 
 local function ensure_dashboard_anchor(repo, mode, issues, bot_login)
   for _, issue in ipairs(issues or {}) do
-    if devloop_base.strip_bot_login_suffix(issue.author_login or "") == devloop_base.strip_bot_login_suffix(bot_login or "")
+    if forge_strings.canonical_login(issue.author_login)
+      == forge_strings.canonical_login(bot_login)
       and tostring(issue.title or "") == dashboard_title
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       local label_added = ensure_dashboard_anchor_label(repo, mode, issue)
@@ -363,7 +365,7 @@ function M.ensure_repo()
   local repo = require_repo(cfg.repo)
   local claim_mode = config.claim_mode()
   if cfg.write_mode == "real" then
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
   end
   local repo_labels = parsers_misc.parse_repo_labels(run_gh(function(timeout)
     return labels.gh_repo_labels_list(repo, timeout)

@@ -214,10 +214,9 @@ return {
     end)
   end,
 
-  test_strip_bot_login_suffix_normalizes_app_author_logins = function()
-    t.eq(core.strip_bot_login_suffix("fkst-test-bot[bot]"), "fkst-test-bot")
-    t.eq(core.strip_bot_login_suffix("fkst-test-bot"), "fkst-test-bot")
-    t.is_nil(core.strip_bot_login_suffix(nil))
+  test_core_does_not_export_an_identity_normalizer = function()
+    t.is_nil(core.strip_bot_login_suffix)
+    t.is_nil(core.canonical_login)
   end,
 
   test_is_positive_integer_accepts_only_bounded_positive_integers = function()
@@ -247,7 +246,6 @@ return {
 
   test_core_submodules_use_injected_shared_helpers = function()
     local helpers = {
-      strip_bot_login_suffix = core.strip_bot_login_suffix,
       is_positive_integer = core.is_positive_integer,
     }
 
@@ -295,7 +293,7 @@ return {
     local root = package_root
     local source = read_file(root .. "/core.lua")
 
-    t.eq(count_literal(source, "M.strip_bot_login_suffix = forge_strings.strip_bot_login_suffix"), 1)
+    t.eq(count_literal(source, "M.strip_bot_login_suffix"), 0)
     t.eq(count_literal(source, "function M.is_positive_integer("), 1)
     t.is_true(source:find('surface_proof = "forge-shared-domain-helper"', 1, true) ~= nil)
     t.is_true(source:find('forge_status = "shared-with-ratchet-migration-slicer"', 1, true) ~= nil)
@@ -577,6 +575,21 @@ return {
 
     t.eq(core.has_trusted_marker(comments, key, "fkst-test-bot"), true)
     t.eq(core.has_trusted_marker(comments, key, "other-bot"), false)
+  end,
+
+  test_trusted_comment_marker_accepts_app_actor_and_rejects_malformed_or_unrelated_apps = function()
+    local key = "owner/repo#1@app"
+    local marker = core.comment_marker(key)
+    local comments = core.parse_issue_comments(
+      '{"comments":['
+        .. '{"body":"' .. marker .. '","author":{"login":"app/fkst-test-bot"}},'
+        .. '{"body":"' .. marker .. '","author":{"login":"app/"}},'
+        .. '{"body":"' .. marker .. '","author":{"login":"app/other-bot"}}]}'
+    )
+
+    t.eq(core.has_trusted_marker(comments, key, "fkst-test-bot"), true)
+    t.eq(core.has_trusted_marker(comments, key, "other-bot"), true)
+    t.eq(core.has_trusted_marker({ comments[2] }, key, "fkst-test-bot"), false)
   end,
 
   test_configure_trusted_bot_login_normalizes_app_bot_suffix = function()

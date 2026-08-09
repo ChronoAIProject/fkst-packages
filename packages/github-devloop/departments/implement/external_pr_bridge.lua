@@ -1,8 +1,10 @@
 local bridge = require("contract.external_pr_bridge")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local git_adapter = require("forge.git")
+local forge_strings = require("forge.strings")
 local m_claims = require("devloop.claims")
 local pr_safety = require("devloop.pr_safety")
 
@@ -28,10 +30,10 @@ local function trusted_issue_author(current, managed)
   if m_claims.is_managed_bot_login(author, managed) then
     return true
   end
-  local trusted = devloop_base.trusted_bot_login()
+  local trusted = parsers_misc.trusted_bot_login()
   return trusted ~= nil
     and trusted ~= ""
-    and devloop_base.strip_bot_login_suffix(author) == tostring(trusted)
+    and forge_strings.canonical_login(author) == forge_strings.canonical_login(trusted)
 end
 
 function M.detect(current, repo, managed)

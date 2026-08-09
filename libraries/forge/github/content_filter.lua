@@ -1,4 +1,5 @@
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 
 local M = {}
 local REDACTION_REASON = "non-whitelisted-author"
@@ -367,22 +368,10 @@ local function author_login(value)
   return nil
 end
 
-function M.canon_login(login)
-  if login == nil then
-    return nil
-  end
-  local value = strings.trim(login):lower():gsub("%[bot%]$", "")
-  value = strings.trim(value)
-  if value == "" then
-    return nil
-  end
-  return value
-end
-
 function M.build_whitelist(logins)
   local set = {}
   for _, login in ipairs(logins or {}) do
-    local canonical = M.canon_login(login)
+    local canonical = forge_strings.canonical_login(login)
     if canonical ~= nil then
       set[canonical] = true
     end
@@ -419,7 +408,7 @@ function M.policy_whitelist(policy)
 end
 
 function M.is_authorized(author_login_value, whitelist)
-  local canonical = M.canon_login(author_login_value)
+  local canonical = forge_strings.canonical_login(author_login_value)
   if canonical == nil then
     return false
   end
@@ -626,7 +615,7 @@ function M.github_author_options(read_env, owner, opts)
 end
 
 function M.redaction_marker(field, author_login_value, bytes_removed)
-  local login = M.canon_login(author_login_value) or "unknown"
+  local login = forge_strings.canonical_login(author_login_value) or "unknown"
   return M.MARKER_PREFIX
     .. ' field="' .. tostring(field) .. '"'
     .. ' existed="true"'
@@ -646,7 +635,7 @@ function M.filter_cell(body, author_login_value, field, whitelist)
   local marker = M.redaction_marker(field, author_login_value)
   return marker, {
     field = field,
-    author_login = M.canon_login(author_login_value) or "unknown",
+    author_login = forge_strings.canonical_login(author_login_value) or "unknown",
     bytes_removed = bytes_removed,
     reason = REDACTION_REASON,
   }

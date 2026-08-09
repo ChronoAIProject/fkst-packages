@@ -1,5 +1,6 @@
 local S = {}
 local source_ref = require("contract.source_ref")
+local forge_strings = require("forge.strings")
 
 function S.install(M)
   local function safe_token(value)
@@ -152,7 +153,8 @@ function S.install(M)
     local current = nil
     local pattern = marker_pattern(normalized.namespace, normalized.marker, normalized.version)
     for _, comment in ipairs(comments or {}) do
-      if M._comment_author_login(comment) == bot_login then
+      if forge_strings.canonical_login(M._comment_author_login(comment))
+        == forge_strings.canonical_login(bot_login) then
         for marker in M._comment_body(comment):gmatch(pattern) do
           local attrs = marker_attrs(marker)
           if attrs_match(attrs, normalized.match)

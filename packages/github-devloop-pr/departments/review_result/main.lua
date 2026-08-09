@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
 local m_claims = require("devloop.claims")
 local requests_review = require("devloop.requests.review")
@@ -109,7 +110,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     error("github-devloop: review-result-invalid: owned reject is missing a bounded blocking_gap")
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local branches = config.branch_config()
   local lock_key = entity_lib.pr_transition_lock_key(repo, pr_number)
   with_lock(lock_key, function()

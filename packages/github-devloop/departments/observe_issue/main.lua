@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
@@ -430,7 +431,7 @@ local function reconcile_issue_event(event, opts)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
   local function process_issue_event(_, record_authoritative_version)
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,

@@ -1,6 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_claims = require("devloop.claims")
 local dependency_gate = require("devloop.dependency_gate")
 local devloop_entity = require("devloop.entity")
@@ -498,7 +499,7 @@ local function act(core, event, opts)
   end
   local deps = opts and opts.deps or {}
   devloop_logging.log_entry(M.DEPT, event, tick_proposal_id(), "tick")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local repo = discovery.read_repo(deps)
   if repo == nil then
     log_decision(tick_proposal_id(), "tick", "discover", "skip-invalid-repo", "FKST_GITHUB_REPO is missing or invalid")

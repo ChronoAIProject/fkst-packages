@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
@@ -597,7 +598,7 @@ local function act_fix(event)
 
   local attempt_plan = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
 
     local pr_view = devloop_commands.gh_pr_view_fix(repo, fix.pr_number, 30)

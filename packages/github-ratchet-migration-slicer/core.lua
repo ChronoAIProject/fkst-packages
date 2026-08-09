@@ -28,8 +28,6 @@ end
 
 M.read_env = env.read_env(read_env_command)
 
-M.strip_bot_login_suffix = forge_strings.strip_bot_login_suffix
-
 function M.iso_timestamp_epoch_seconds(timestamp)
   local year, month, day, hour, minute, second = tostring(timestamp or ""):match(
     "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z$"
