@@ -67,6 +67,19 @@ function C.assert_claim_label_binding(existing, desired)
   claim_carriers.assert_owner_binding(existing, desired)
 end
 
+function C.assert_current_claim_label_binding(repo, github_handle)
+  local desired = C.claimed_label_spec()
+  if desired.owner == nil then
+    return
+  end
+  local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
+  local existing = json.decode(response.stdout or "{}")
+  if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
+    error("github-devloop: claim-label-binding-missing: derived claim label binding is absent")
+  end
+  C.assert_claim_label_binding(existing, desired)
+end
+
 local function merge_managed_bot_logins(managed, observed)
   for login, allowed in pairs(observed) do
     if allowed == true then
@@ -139,7 +152,11 @@ end
 
 function C.verify_issue_claim(repo, issue_number, owner)
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  return C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
+  local held = C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
+  if held and config.claim_mode() == "label" then
+    C.assert_current_claim_label_binding(repo)
+  end
+  return held
 end
 
 local function log_claim(dept, proposal_id, action, reason)
@@ -187,6 +204,9 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local decision = issue_ownership_decision(ownership, owner)
   if decision.owned then
+    if mode == "label" then
+      C.assert_current_claim_label_binding(repo)
+    end
     return decision
   end
   if decision.claim_state == "other" then
@@ -423,6 +443,9 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
   end
   if admission == "held" then
+    if (detail and detail.claim_mode or config.claim_mode()) == "label" then
+      C.assert_current_claim_label_binding(repo)
+    end
     return true
   end
   if admission == "other" or admission == "denied" then
@@ -479,6 +502,10 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     log_claim(dept, proposal_id, "fork-raised", "other-authored unassigned issue is forked before management")
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_create_request", request)
     return false
+  end
+
+  if claim_mode == "label" then
+    C.assert_current_claim_label_binding(repo)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
@@ -541,6 +568,9 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
+  end
+  if active_label ~= nil then
+    C.assert_current_claim_label_binding(repo)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then

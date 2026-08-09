@@ -108,8 +108,20 @@ local function ownership_json(logins, author_login, labels)
 end
 
 local bare_claimed_label = "fkst-dev:claimed"
-local derived_claimed_label = claim_carriers.derived_label("fkst-test-bot")
+local derived_claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+local derived_claimed_label = derived_claim_spec.name
 local peer_claimed_label = claim_carriers.derived_label("peer-bot")
+
+local function mock_claim_label_binding(description, times)
+  for _ = 1, times or 1 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. derived_claimed_label, {
+      stdout = '{"name":"' .. derived_claimed_label
+        .. '","description":"' .. tostring(description or derived_claim_spec.description) .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
 
 return {
   -- (a) [bot] normalization on BOTH sides of the author-vs-bot comparison.
@@ -262,6 +274,7 @@ return {
 
   test_label_mode_claim_adds_label_then_verifies_winner = function()
     mock_env("fkst-test-bot", "label", "1")
+    mock_claim_label_binding(nil, 2)
     t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
@@ -288,8 +301,26 @@ return {
     t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 0)
   end,
 
+  test_label_mode_claim_fails_closed_before_add_when_derived_label_is_bound_to_another_owner = function()
+    mock_env("fkst-test-bot", "label", "1")
+    mock_claim_label_binding("fkst-dev-label-mode-ownership-claim owner=peer-bot")
+
+    local ok, err = pcall(m_claims.claim_issue_for_management, core,
+      "claim_mode",
+      "owner/repo",
+      42,
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot", comments = {} },
+      "github-devloop/issue/owner/repo/42"
+    )
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
+    t.eq(count_adapter_calls("--add-label", derived_claimed_label), 0)
+  end,
+
   test_label_mode_claim_race_rolls_back_only_own_label = function()
     mock_env("fkst-test-bot", "label", "1")
+    mock_claim_label_binding(nil, 2)
     t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
@@ -323,6 +354,7 @@ return {
 
   test_label_mode_self_owned_short_circuits_without_writes = function()
     mock_env("fkst-test-bot", "label", "1")
+    mock_claim_label_binding()
     local ok = m_claims.claim_issue_for_management(core,
       "claim_mode",
       "owner/repo",
@@ -336,6 +368,7 @@ return {
 
   test_label_mode_verify_issue_claim_reads_labels = function()
     mock_env("fkst-test-bot", "label", "")
+    mock_claim_label_binding()
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "fkst-test-bot", { derived_claimed_label }),
       stderr = "",
@@ -518,6 +551,7 @@ return {
 
   test_label_mode_claim_race_with_managed_assignee_rolls_back_only_own_label = function()
     mock_env("fkst-test-bot", "label", "1", 24, "", "peer-bot")
+    mock_claim_label_binding(nil, 2)
     t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. derived_claimed_label .. "'", {
       stdout = "",
       stderr = "",
@@ -629,6 +663,7 @@ return {
 
   test_label_mode_release_with_own_and_peer_removes_only_own_label = function()
     mock_env("fkst-test-bot", "label", "1")
+    mock_claim_label_binding()
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "human", { derived_claimed_label, peer_claimed_label }),
       stderr = "",
@@ -682,6 +717,7 @@ return {
 
   test_label_mode_release_with_managed_assignee_removes_only_own_label = function()
     mock_env("fkst-test-bot", "label", "1", 24, "", "peer-bot")
+    mock_claim_label_binding()
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({ "peer-bot" }, "human", { derived_claimed_label }),
       stderr = "",
