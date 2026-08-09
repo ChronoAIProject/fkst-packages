@@ -215,7 +215,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-meta-view-failed: gh issue review-meta view failed: " .. tostring(issue_view.stderr))
       end
-      local parsed_issue = parsers_issue.parse_issue_view_fix(core, issue_view.stdout)
+      local parsed_issue = parsers_issue.parse_issue_view_fix(issue_view.stdout)
       if parsed_issue.title ~= nil and parsed_issue.title ~= "" then
         current_issue.title = parsed_issue.title
       end

@@ -104,7 +104,7 @@ local function pipeline_thinking(event)
       error("github-devloop: issue-read-failed: gh issue reconcile view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
     local state = devloop_state.current_state(current.comments, reconcile.proposal_id)
     if conv_reconcile.has_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.base_version, reconcile.round) then
@@ -235,7 +235,7 @@ local function pipeline_timeout(event)
       error("github-devloop: issue-read-failed: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     local comments = current.comments or {}
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
     local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)

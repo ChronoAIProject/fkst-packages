@@ -52,7 +52,7 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     error("github-devloop: liveness-scan-issue-view-failed: " .. tostring(state_view.stderr))
   end
 
-  local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+  local current = parsers_issue.parse_issue_view_state(state_view.stdout)
   local trusted_author_policy = github_author_policy.from_handle_policy(github_factory.production_handle)
   if not github_author_policy.is_authorized(trusted_author_policy, current.author_login) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-non-whitelisted-author", "issue author is not authorized for GitHub content")

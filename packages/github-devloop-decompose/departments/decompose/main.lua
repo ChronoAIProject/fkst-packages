@@ -81,7 +81,7 @@ local function read_decompose_issue(repo, issue_number)
   if issue_view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue decompose view failed: " .. tostring(issue_view.stderr))
   end
-  return parsers_issue.parse_issue_view_decompose(core, issue_view.stdout)
+  return parsers_issue.parse_issue_view_decompose(issue_view.stdout)
 end
 
 local function read_decompose_child_issues(repo, proposal_id)

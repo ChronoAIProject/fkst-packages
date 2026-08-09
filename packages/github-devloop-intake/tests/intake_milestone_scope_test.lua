@@ -125,11 +125,11 @@ return {
   end,
 
   test_intake_parser_reads_live_milestone_number_and_rejects_malformed_objects = function()
-    local parsed = parsers_issue.parse_issue_view_intake_judge({}, issue_view_json(42, '{"number":34,"title":"M34"}', {}))
+    local parsed = parsers_issue.parse_issue_view_intake_judge(issue_view_json(42, '{"number":34,"title":"M34"}', {}))
     t.eq(parsed.milestone_number, 34)
-    t.eq(parsers_issue.parse_issue_view_intake_judge({}, issue_view_json(42, "null", {})).milestone_number, nil)
+    t.eq(parsers_issue.parse_issue_view_intake_judge(issue_view_json(42, "null", {})).milestone_number, nil)
     t.raises(function()
-      parsers_issue.parse_issue_view_intake_judge({}, issue_view_json(42, '{}', {}))
+      parsers_issue.parse_issue_view_intake_judge(issue_view_json(42, '{}', {}))
     end)
   end,
 

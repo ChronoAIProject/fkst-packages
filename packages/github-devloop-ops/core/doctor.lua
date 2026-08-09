@@ -191,7 +191,7 @@ local function fetch_issue_entity(repo, issue)
   if view.exit_code ~= 0 then
     error("github-devloop: saga-doctor-issue-view-failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_state(M, view.stdout)
+  local current = parsers_issue.parse_issue_view_state(view.stdout)
   local proposal_id = base_ids.proposal_id(repo, issue.number)
   return {
     kind = "issue",

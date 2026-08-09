@@ -71,7 +71,7 @@ require("devloop.logging").install(M)
 require("devloop.state").install(M)
 require("core.intake_service_class").install(M)
 local prompt_surface = wiring.prompts()
-M.output_language = devloop_prompts.output_language
+M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
 M.judge_harness_clause = devloop_prompts.judge_harness_clause
 M.actor_harness_clause = devloop_prompts.actor_harness_clause

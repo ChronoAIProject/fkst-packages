@@ -5,15 +5,15 @@ local payloads_predicates = require("devloop.payloads.predicates")
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local C = {}
-function C.is_supported_reviewing(M, payload)
+function C.is_supported_reviewing(payload)
   return type(payload) == "table"
     and payload.schema == "github-devloop.reviewing.v1"
     and entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
     and require("devloop.pr_safety").is_safe_pr_number(payload.pr_number)
-    and strings.is_bounded_string(payload.version, M._max_dedup_len)
+    and strings.is_bounded_string(payload.version, devloop_base._max_dedup_len)
     and (payload.review_delivery_dedup_key == nil
       or (payload.review_delivery_dedup_key == payload.dedup_key
-        and strings.is_path_safe_key(payload.review_delivery_dedup_key, M._max_dedup_len)
+        and strings.is_path_safe_key(payload.review_delivery_dedup_key, devloop_base._max_dedup_len)
         and devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(
           payload.review_delivery_dedup_key
         ) ~= nil))
@@ -24,7 +24,7 @@ function C.is_supported_reviewing(M, payload)
         marker_version = payload.version,
         event_version = payload.version,
       }))
-    and source_refs.has_bounded_source_ref(payload.source_ref, M._max_key_len)
+    and source_refs.has_bounded_source_ref(payload.source_ref, devloop_base._max_key_len)
 end
 
 return C

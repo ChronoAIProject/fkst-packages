@@ -68,7 +68,7 @@ function M.fallback_decompose_plan(decompose)
 end
 
 function M.decomposed_comment_body(decompose, count)
-  return comment_strings.comment_string(M, "decomposed_prefix") .. tostring(count) .. comment_strings.comment_string(M, "decomposed_suffix")
+  return comment_strings.comment_string(M.output_language, "decomposed_prefix") .. tostring(count) .. comment_strings.comment_string(M.output_language, "decomposed_suffix")
     .. "\n\n" .. decompose_lib.decomposed_marker(decompose.proposal_id, decompose.version, decompose.pr_number, count)
 end
 

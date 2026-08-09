@@ -60,7 +60,7 @@ mark_issue_merged_from_linked_pr = function(dept, issue, state, proposal_id, lin
   if head_sha == nil then
     return tools.log_skip(dept, proposal_id, state, state.state, "merged", "skip-foreign(head)", "merged linked PR head sha is missing")
   end
-  local merged_body = comment_strings.comment_string(M, "merged_pr_prefix") .. tostring(link.pr_number)
+  local merged_body = comment_strings.comment_string(M.output_language, "merged_pr_prefix") .. tostring(link.pr_number)
     .. "\n\n" .. devloop_state.state_marker(proposal_id, "merged", state.version)
     .. "\n" .. m_builders.merged_marker(M, proposal_id, link.pr_number, state.version, head_sha)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)

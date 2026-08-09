@@ -417,11 +417,11 @@ return {
     t.eq(ready.proposal_id, source.proposal_id)
     t.eq(ready.framing, source.framing)
     t.eq(ready.source_ref.ref, "owner/repo#issue/42")
-    t.eq(v_ready.is_supported_ready(core, ready), true)
+    t.eq(v_ready.is_supported_ready(ready), true)
     local ready_without_framing = payloads_builders.build_devloop_ready_payload(core, reached())
     t.is_nil(ready_without_framing.framing)
     t.is_nil(ready_without_framing.ready_hand_off)
-    t.eq(v_ready.is_supported_ready(core, ready_without_framing), true)
+    t.eq(v_ready.is_supported_ready(ready_without_framing), true)
     local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
       include_ready_hand_off = true,
       ready_comment_id = "IC_123",
@@ -429,20 +429,20 @@ return {
     t.eq(ready_with_hand_off.ready_hand_off.kind, "own-state-marker")
     t.eq(ready_with_hand_off.ready_hand_off.event_version, ready_with_hand_off.dedup_key)
     t.eq(ready_with_hand_off.ready_hand_off.comment_id, "IC_123")
-    t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), true)
+    t.eq(v_ready.is_supported_ready(ready_with_hand_off), true)
     ready_with_hand_off.ready_hand_off.effects = "alternate-ready-producer"
-    t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), true)
+    t.eq(v_ready.is_supported_ready(ready_with_hand_off), true)
     ready_with_hand_off.ready_hand_off.state = "reviewing"
-    t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), false)
+    t.eq(v_ready.is_supported_ready(ready_with_hand_off), false)
     ready_with_hand_off.ready_hand_off.state = "ready"
     ready_with_hand_off.ready_hand_off.event_version = "ready/other"
-    t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), false)
+    t.eq(v_ready.is_supported_ready(ready_with_hand_off), false)
     ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
       include_ready_hand_off = true,
       impl_retry_attempt = 2,
     }))
     t.is_nil(ready_with_hand_off.ready_hand_off)
-    t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), true)
+    t.eq(v_ready.is_supported_ready(ready_with_hand_off), true)
 
     t.eq(devloop_base.safe_issue_slug("owner/repo", "42"), "owner-repo-42")
     local deterministic_branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
