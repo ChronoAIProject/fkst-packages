@@ -2,6 +2,7 @@ local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local dependency_gate = require("devloop.dependency_gate")
+local context_bundle = require("devloop.context_bundle")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
@@ -279,6 +280,9 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
     attempt = attempt,
     event_ts = event_ts,
     event_queue = event_queue,
+    context_fetch = function(args)
+      return context_bundle.context_fetch_from_bundle(core, args)
+    end,
     codex_dispatch = function(identity, opts)
       return workflow_codex.dispatch(identity, opts)
     end,

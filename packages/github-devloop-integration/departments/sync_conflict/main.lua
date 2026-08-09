@@ -19,7 +19,7 @@ local github_factory = require("devloop.github_factory")
 local workflow_codex = require("workflow_internal.codex")
 local forge_validators = require("devloop.forge_validators")
 local sync_conflict_attempts = require("sync_conflict_department_caps").production()
-
+local prompts = require("devloop.prompts").new({ prompts = { sync_conflict = require("prompts.sync_conflict") } }, { sync_conflict = true })
 local spec = {
   consumes = { "devloop_sync_conflict" },
   produces = { "github-proxy.github_issue_create_request" },
@@ -591,7 +591,7 @@ local function act(event, ports)
 
       devloop_logging.log_codex_start("sync_conflict", "branch-sync", "sync-conflict")
       local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("sync-conflict", {
-        prompt = core.build_sync_conflict_prompt(active_conflict),
+        prompt = prompts.build_sync_conflict_prompt(active_conflict),
         worktree = worktree,
       }))
       if type(result) ~= "table" or result.exit_code ~= 0 then

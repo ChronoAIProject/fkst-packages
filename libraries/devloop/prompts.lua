@@ -1,5 +1,7 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local devloop_state = require("devloop.state")
+local impl_failure = require("devloop.impl_failure")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
 local S = {}
@@ -17,8 +19,7 @@ local function prompt_loader(resolved)
   end
 end
 
-local function install_shared(M)
-function M.output_language(exec)
+function S.output_language(exec)
   local lang = strings.trim(devloop_base.read_env("FKST_OUTPUT_LANG", exec))
   if lang == "zh" then
     return "zh"
@@ -26,32 +27,32 @@ function M.output_language(exec)
   return "en"
 end
 
-function M.prompt_preamble(exec)
+function S.prompt_preamble(exec)
   local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
-  if M.output_language(exec) == "zh" then
+  if S.output_language(exec) == "zh" then
     language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
   end
 
   return language_line
 end
 
-function M.judge_harness_clause()
+function S.judge_harness_clause()
   return "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty."
 end
 
-function M.actor_harness_clause()
+function S.actor_harness_clause()
   return "Before acting, identify the established theory or industry best practice governing this change and anchor the implementation in it and in the agreed framing; if the requested change would require an unjustified deviation from established practice, or if required facts or safe execution bounds are unavailable, surface that blocker explicitly instead of silently improvising or claiming success."
 end
 
-function M.review_observation_boundary_clause()
+function S.review_observation_boundary_clause()
   return "Review observation boundary: CI status, mergeability, branch protection, and head-binding are enforced by a later deterministic merge gate and are OUT OF REVIEW SCOPE. Do not demand or verify those gate-owned facts during review; judge whether the PR diff correctly addresses the named failing check, blocking gap, and agreed issue bounds."
 end
 
-function M.short_review_observation_boundary_clause()
+function S.short_review_observation_boundary_clause()
   return "Review boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review."
 end
 
-function M.execution_boundary_clause(source_phrase)
+function S.execution_boundary_clause(source_phrase)
   return table.concat({
     "Execution boundary:",
     "- You are running in a read-only checkout of the repository.",
@@ -64,37 +65,36 @@ local function github_entity_history_line()
   return "Before judging, read the local context files named below. They may be large, so read them in segments as needed. They contain the complete fetched GitHub history for this delivery; prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds. Judge what changed relative to them; do not re-litigate settled points."
 end
 
-function M.render_prompt_template(template, vars, exec, opts)
+function S.render_prompt_template(template, vars, exec, opts)
   local role = type(opts) == "table" and opts.role or "judge"
-  local lines = { M.prompt_preamble(exec) }
+  local lines = { S.prompt_preamble(exec) }
   if role == "actor" then
-    table.insert(lines, M.actor_harness_clause())
+    table.insert(lines, S.actor_harness_clause())
   else
-    table.insert(lines, M.judge_harness_clause())
+    table.insert(lines, S.judge_harness_clause())
   end
   if type(opts) == "table" and opts.entity_history == true then
     table.insert(lines, github_entity_history_line())
   end
   return table.concat(lines, "\n") .. "\n\n" .. devloop_base.render_template(template, vars)
 end
-end
 
-local function bounded_framing(M, framing)
+local function bounded_framing(framing)
   local value = devloop_base.neutralize_untrusted_prompt_text(framing)
-  if #value > M._max_framing_len then
-    value = base_ids.truncate_utf8(value, M._max_framing_len)
+  if #value > devloop_base._max_framing_len then
+    value = base_ids.truncate_utf8(value, devloop_base._max_framing_len)
   end
   return value
 end
 
-local function bounded_gap(M, gap)
+local function bounded_gap(gap)
   local value = devloop_base.neutralize_untrusted_prompt_text(gap or "")
   value = value:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
   if value == "" then
     value = "the rejected review's named blocking gap"
   end
-  if #value > M._max_blocking_gap_len then
-    value = base_ids.truncate_utf8(value, M._max_blocking_gap_len)
+  if #value > devloop_base._max_blocking_gap_len then
+    value = base_ids.truncate_utf8(value, devloop_base._max_blocking_gap_len)
   end
   return value
 end
@@ -112,7 +112,7 @@ local function repair_input_instruction(fix)
   return "This fix round is for review-feedback; address the named review blocking gap."
 end
 
-local function target_merge_context(M, merge_context)
+local function target_merge_context(merge_context)
   if type(merge_context) ~= "table" then
     return "sync_clean"
   end
@@ -133,7 +133,7 @@ local function target_merge_context(M, merge_context)
     .. " unmerged_paths=" .. paths
 end
 
-local function local_context_block(M, manifest, fallback)
+local function local_context_block(manifest, fallback)
   if manifest == nil or manifest == "" then
     return fallback or "No local context bundle is available; use only the provided prompt and worktree context."
   end
@@ -147,7 +147,7 @@ local function local_context_block(M, manifest, fallback)
   }, "\n")
 end
 
-local function issue_ref_from_proposal_id(M, proposal_id)
+local function issue_ref_from_proposal_id(P, proposal_id)
   local repo, issue_number = base_ids.parse_proposal_id(proposal_id)
   if repo ~= nil and issue_number ~= nil then
     return repo, issue_number
@@ -187,25 +187,25 @@ local function proof_phase_block(context)
   }, "\n")
 end
 
-local function install_implement(M, resolved)
+local function install_implement(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_implement_prompt(proposal_id, current, framing, content_manifest, profile, profile_context)
+function P.build_implement_prompt(proposal_id, current, framing, content_manifest, profile, profile_context)
   local prompt = load_prompt("implement")
   local local_test_command = config.local_iteration_test_command()
   local selected = profile or "generic"
   local context = profile_context or {}
   local attempt = tonumber(context.attempt)
-  if not strings.is_bounded_string(context.implementation_version, M._max_dedup_len)
+  if not strings.is_bounded_string(context.implementation_version, devloop_base._max_dedup_len)
     or attempt == nil or attempt < 1 or attempt ~= math.floor(attempt)
-    or attempt > M._max_impl_retry_attempts then
+    or attempt > impl_failure.MAX_RETRY_ATTEMPTS then
     error("devloop_prompts: implementation-result-context-invalid: invalid implementation result context")
   end
-  local rendered = M.render_prompt_template(prompt.template, {
+  local rendered = S.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
-    framing = bounded_framing(M, framing),
+    framing = bounded_framing(framing),
     title = devloop_base.neutralize_untrusted_prompt_text(current.title),
     local_test_command = local_test_command,
-    content_fetch_block = local_context_block(M, content_manifest),
+    content_fetch_block = local_context_block(content_manifest),
   }, nil, { role = "actor", entity_history = true })
   local profile_template = type(prompt.profiles) == "table" and prompt.profiles[selected] or nil
   if type(profile_template) ~= "string" then
@@ -219,7 +219,7 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
     })
   end
   local timeout_seconds = tonumber(context.timeout_seconds)
-  if not devloop_base._is_path_safe_key(context.target, M._max_key_len)
+  if not devloop_base._is_path_safe_key(context.target, devloop_base._max_key_len)
     or context.target:match("[^/]+%.lean$") == nil
     or timeout_seconds == nil or timeout_seconds <= 0 or timeout_seconds ~= math.floor(timeout_seconds)
     or attempt == nil or attempt < 1 or attempt ~= math.floor(attempt)
@@ -241,36 +241,36 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
 end
 end
 
-local function install_fix(M, resolved)
+local function install_fix(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_fix_prompt(fix, current_issue, review_reason, framing, content_manifest, merge_context)
+function P.build_fix_prompt(fix, current_issue, review_reason, framing, content_manifest, merge_context)
   local prompt = load_prompt("fix")
   local blocking_gap = fix.blocking_gap
   if blocking_gap == nil and fix.repair_input == "ci-failure" then
     blocking_gap = "terminal own-CI failure"
   end
-  return M.render_prompt_template(prompt.template, {
+  return S.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(fix.proposal_id),
     review_proposal_id = devloop_base.neutralize_untrusted_prompt_text(fix.review_proposal_id),
     reviewed_head_sha = devloop_base.neutralize_untrusted_prompt_text(fix.reviewed_head_sha),
-    framing = bounded_framing(M, framing),
-    blocking_gap = bounded_gap(M, blocking_gap),
+    framing = bounded_framing(framing),
+    blocking_gap = bounded_gap(blocking_gap),
     repair_input_instruction = repair_input_instruction(fix),
     title = devloop_base.neutralize_untrusted_prompt_text(current_issue.title),
     local_test_command = config.local_iteration_test_command(),
-    target_merge_context = target_merge_context(M, merge_context),
-    content_fetch_block = local_context_block(M, content_manifest),
+    target_merge_context = target_merge_context(merge_context),
+    content_fetch_block = local_context_block(content_manifest),
     review_feedback = devloop_base.neutralize_untrusted_prompt_text(review_reason),
-    review_observation_boundary = M.review_observation_boundary_clause(),
+    review_observation_boundary = S.review_observation_boundary_clause(),
   }, nil, { role = "actor", entity_history = true })
 end
 end
 
-local function install_sync_conflict(M, resolved)
+local function install_sync_conflict(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_sync_conflict_prompt(conflict)
+function P.build_sync_conflict_prompt(conflict)
   local prompt = load_prompt("sync_conflict")
-  return M.render_prompt_template(prompt.template, {
+  return S.render_prompt_template(prompt.template, {
     repo = devloop_base.neutralize_untrusted_prompt_text(conflict.repo),
     upstream_branch = devloop_base.neutralize_untrusted_prompt_text(conflict.upstream_branch),
     integration_branch = devloop_base.neutralize_untrusted_prompt_text(conflict.integration_branch),
@@ -280,68 +280,68 @@ function M.build_sync_conflict_prompt(conflict)
 end
 end
 
-local function install_review_meta(M, resolved)
+local function install_review_meta(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_review_meta_prompt(review_meta, current_issue, content_manifest)
+function P.build_review_meta_prompt(review_meta, current_issue, content_manifest)
   local prompt = review_meta.mode == "fix-reflection"
     and load_prompt("fix_reflection")
     or load_prompt("review_meta")
-  local comments = table.concat(M.comment_bodies(current_issue.comments), "\n\n--- comment ---\n\n")
-  if #comments > M._max_comments_len then
-    comments = base_ids.truncate_utf8(comments, M._max_comments_len)
+  local comments = table.concat(devloop_state.comment_bodies(current_issue.comments), "\n\n--- comment ---\n\n")
+  if #comments > devloop_base._max_comments_len then
+    comments = base_ids.truncate_utf8(comments, devloop_base._max_comments_len)
   end
 
-  return M.render_prompt_template(prompt.template, {
+  return S.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(review_meta.proposal_id),
     review_proposal_id = devloop_base.neutralize_untrusted_prompt_text(review_meta.review_proposal_id),
     fix_round = devloop_base.neutralize_untrusted_prompt_text(review_meta.fix_round or review_meta.n or ""),
     title = devloop_base.neutralize_untrusted_prompt_text(current_issue.title),
-    content_fetch_block = local_context_block(M, content_manifest),
+    content_fetch_block = local_context_block(content_manifest),
     comments = devloop_base.neutralize_untrusted_prompt_text(comments),
-    review_observation_boundary = M.review_observation_boundary_clause(),
-    execution_boundary = M.execution_boundary_clause("Read GitHub context only from the local files named below."),
+    review_observation_boundary = S.review_observation_boundary_clause(),
+    execution_boundary = S.execution_boundary_clause("Read GitHub context only from the local files named below."),
   }, nil, { entity_history = true })
 end
 end
 
-local function install_intake(M, resolved)
+local function install_intake(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_intake_prompt(proposal_id, current, content_manifest)
+function P.build_intake_prompt(proposal_id, current, content_manifest)
   local prompt = load_prompt("intake")
-  local comments = table.concat(M.comment_bodies(current.comments), "\n\n--- comment ---\n\n")
+  local comments = table.concat(devloop_state.comment_bodies(current.comments), "\n\n--- comment ---\n\n")
 
-  return M.render_prompt_template(prompt.template, {
+  return S.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
-    content_fetch_block = local_context_block(M, content_manifest),
-    title = M.quote_untrusted_prompt_text(current.title),
-    body = M.quote_untrusted_prompt_text(current.body),
-    comments = M.quote_untrusted_prompt_text(comments),
-    execution_boundary = M.execution_boundary_clause("Judge only from the local context files and issue data provided in this prompt."),
+    content_fetch_block = local_context_block(content_manifest),
+    title = devloop_base.quote_untrusted_prompt_text(current.title),
+    body = devloop_base.quote_untrusted_prompt_text(current.body),
+    comments = devloop_base.quote_untrusted_prompt_text(comments),
+    execution_boundary = S.execution_boundary_clause("Judge only from the local context files and issue data provided in this prompt."),
   }, nil, { entity_history = true })
 end
 end
 
-local function install_decompose(M, resolved)
+local function install_decompose(P, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_decompose_prompt(decompose, current_issue, content_manifest)
+function P.build_decompose_prompt(decompose, current_issue, content_manifest)
   local prompt = load_prompt("decompose")
-  return M.render_prompt_template(prompt.template, {
+  return S.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(decompose.proposal_id),
     pr_source_ref = devloop_base.neutralize_untrusted_prompt_text(decompose.source_ref and decompose.source_ref.ref or ""),
     round = devloop_base.neutralize_untrusted_prompt_text(decompose.round),
-    title = M.quote_untrusted_prompt_text(current_issue.title),
-    content_fetch_block = local_context_block(M, content_manifest),
-    execution_boundary = M.execution_boundary_clause("Read GitHub context only from the local files named below."),
+    title = devloop_base.quote_untrusted_prompt_text(current_issue.title),
+    content_fetch_block = local_context_block(content_manifest),
+    execution_boundary = S.execution_boundary_clause("Read GitHub context only from the local files named below."),
   }, nil, { entity_history = true })
 end
 end
 
-local function install_intake_parser(M)
+local function install_intake_parser(P)
 local function is_intake_action(value)
   return value == "enable" or value == "track" or value == "decline" or value == "escalate-to-class"
 end
 
-function M.parse_intake_action(stdout)
+function P.parse_intake_action(stdout)
   local text = tostring(stdout or "")
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -354,28 +354,28 @@ function M.parse_intake_action(stdout)
     return nil
   end
 
-  local action = lines[1]:match("^" .. M._intake_label .. " (enable)$")
-    or lines[1]:match("^" .. M._intake_label .. " (track)$")
-    or lines[1]:match("^" .. M._intake_label .. " (decline)$")
-    or lines[1]:match("^" .. M._intake_label .. " (escalate%-to%-class)$")
-  if lines[2]:match("^" .. M._class_label .. " ") == nil then
+  local action = lines[1]:match("^" .. devloop_base._intake_label .. " (enable)$")
+    or lines[1]:match("^" .. devloop_base._intake_label .. " (track)$")
+    or lines[1]:match("^" .. devloop_base._intake_label .. " (decline)$")
+    or lines[1]:match("^" .. devloop_base._intake_label .. " (escalate%-to%-class)$")
+  if lines[2]:match("^" .. devloop_base._class_label .. " ") == nil then
     return nil
   end
-  local service_class = lines[2]:match("^" .. M._class_label .. " (expedite)$")
-    or lines[2]:match("^" .. M._class_label .. " (standard)$")
-    or lines[2]:match("^" .. M._class_label .. " (background)$")
+  local service_class = lines[2]:match("^" .. devloop_base._class_label .. " (expedite)$")
+    or lines[2]:match("^" .. devloop_base._class_label .. " (standard)$")
+    or lines[2]:match("^" .. devloop_base._class_label .. " (background)$")
   if service_class == nil then
     return nil
   end
   local reason_line = lines[3]
-  local reason = reason_line:match("^" .. M._reason_label .. " (.+)$")
+  local reason = reason_line:match("^" .. devloop_base._reason_label .. " (.+)$")
   if action == nil or not is_intake_action(action) then
     return nil
   end
   if reason == nil or strings.trim(reason) == "" then
     return nil
   end
-  if not strings.is_bounded_string(reason, M._max_meta_reason_len) then
+  if not strings.is_bounded_string(reason, devloop_base._max_meta_reason_len) then
     return nil
   end
   return {
@@ -386,8 +386,8 @@ function M.parse_intake_action(stdout)
 end
 end
 
-local function install_review_meta_parser(M)
-function M.parse_review_meta_action(stdout)
+local function install_review_meta_parser(P)
+function P.parse_review_meta_action(stdout)
   local text = tostring(stdout or "")
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -399,21 +399,21 @@ function M.parse_review_meta_action(stdout)
     return nil
   end
 
-  local token = lines[1]:match("^%s*" .. M._action_label .. "%s+([%a%-]+)%s*$")
+  local token = lines[1]:match("^%s*" .. devloop_base._action_label .. "%s+([%a%-]+)%s*$")
   if token == nil then
     return nil
   end
   local action = token:lower()
-  if not M._is_review_meta_action(action) then
+  if not devloop_base._is_review_meta_action(action) then
     return nil
   end
 
-  local captured_reason = lines[2]:match("^%s*" .. M._reason_label .. "%s+(.+)$")
+  local captured_reason = lines[2]:match("^%s*" .. devloop_base._reason_label .. "%s+(.+)$")
   if captured_reason == nil or strings.trim(captured_reason) == "" then
     return nil
   end
   local reason = strings.trim(captured_reason)
-  if not strings.is_bounded_string(reason, M._max_meta_reason_len) then
+  if not strings.is_bounded_string(reason, devloop_base._max_meta_reason_len) then
     return nil
   end
 
@@ -427,7 +427,7 @@ function M.parse_review_meta_action(stdout)
       return nil
     end
     gap = strings.trim(captured_gap)
-    if not strings.is_bounded_string(gap, M._max_blocking_gap_len)
+    if not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len)
       or gap:find("%c") ~= nil
       or gap:find("<!%-%- fkst:") ~= nil
       or gap:find("&lt;!%-%- fkst:") ~= nil then
@@ -467,12 +467,12 @@ local role_order = {
   "review_meta_parser",
 }
 
-function S.install(M, resolved, roles)
+function S.new(resolved, roles)
   if type(roles) ~= "table" then
     error("devloop_prompts: role-install-options-missing: missing role install options")
   end
 
-  install_shared(M)
+  local P = {}
   for role, enabled in pairs(roles) do
     local installer = role_installers[role]
     if installer == nil then
@@ -484,9 +484,10 @@ function S.install(M, resolved, roles)
   end
   for _, role in ipairs(role_order) do
     if roles[role] == true then
-      role_installers[role](M, resolved)
+      role_installers[role](P, resolved)
     end
   end
+  return P
 end
 
 return S
