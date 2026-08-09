@@ -256,6 +256,36 @@ return {
     t.is_true(replay_comment.payload.body:find('outcome="refused"', 1, true) ~= nil)
   end,
 
+  test_issue_blocked_rereview_is_refused_and_not_advertised_as_reentry = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_blocked")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
+      core.state_marker(proposal_id, "blocked", "manual-blocked"),
+      command,
+    })
+
+    local result = run_observe(event, opts("operator-issue-rereview-blocked"))
+    t.eq(result.exit_code, 0)
+    local refusal = find_issue_comment_raise(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.payload.body:find("rereview requires thinking state", 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+
+    local blocked_row = nil
+    for _, row in ipairs(core.restart_transition_table()) do
+      if row.from_state == "blocked" then
+        blocked_row = row
+        break
+      end
+    end
+    t.is_true(blocked_row ~= nil)
+    t.eq(#blocked_row.reentry_commands, 1)
+    t.eq(blocked_row.reentry_commands[1], "reready")
+    t.eq(#blocked_row.operator_reentry.commands, 1)
+    t.eq(blocked_row.operator_reentry.commands[1], "reready")
+  end,
+
   test_issue_reready_command_rechecks_dependency_gate = function()
     local event = reached()
     local command = trusted_issue_command("reready", "IC_issue_reready_release")
