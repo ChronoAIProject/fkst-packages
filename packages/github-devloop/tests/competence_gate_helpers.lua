@@ -136,8 +136,8 @@ local function static_obligation_errors(rows, opts)
   local impl_failed = by_state["impl-failed"]
   if impl_failed ~= nil
     and (impl_failed.payload_fields == nil
-      or impl_failed.payload_fields.dedup_key ~= "marker:impl-failure.dedup") then
-    table.insert(errors, "impl-failed: ready replay dedup_key must derive from marker:impl-failure.dedup")
+      or impl_failed.payload_fields.dedup_key ~= "marker:state.version") then
+    table.insert(errors, "impl-failed: ready replay dedup_key must derive from marker:state.version")
   end
 
   for _, family in ipairs({ "dependency-wait", "dependency-cycle", "dependency-unresolvable" }) do

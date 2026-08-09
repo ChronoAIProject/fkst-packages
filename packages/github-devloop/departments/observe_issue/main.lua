@@ -348,26 +348,12 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     return true
   end
 
-  local attempt = 1
-  local failure = core.impl_failure_fact(current.comments, proposal_id, state.version)
-  if failure ~= nil then
-    attempt = tonumber(failure.attempt or 1) + 1
-  elseif refusal_reentry ~= nil then
-    attempt = tonumber(refusal_reentry.attempt or 1) + 1
-  elseif blocked_open_pr_reentry or timeout_reentry ~= nil then
-    -- Both reentry paths derive the retry attempt from a prior implementation
-    -- version; select that version once so the retry-attempt read stays single.
-    local prior_impl_version
-    if blocked_open_pr_reentry then
-      prior_impl_version = link.impl_version
-    else
-      prior_impl_version = timeout_reentry.from_version
-    end
-    attempt = (core.implementation_retry_attempt(prior_impl_version) or 1) + 1
-  end
   local retry_version = blocked_open_pr_reentry and link.impl_version
     or (timeout_reentry ~= nil and timeout_reentry.from_version
       or (refusal_reentry ~= nil and refusal_reentry.implementation_version or state.version))
+  local attempt = refusal_reentry ~= nil
+      and tonumber(refusal_reentry.attempt or 1) + 1
+    or core.next_implementation_retry_attempt(retry_version)
   local payload_source = {
     proposal_id = proposal_id,
     dedup_key = core.ready_payload_inner_version(retry_version),
