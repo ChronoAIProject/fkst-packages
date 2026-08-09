@@ -1,6 +1,7 @@
 local convergence_shared = require("devloop.convergence.shared")
 local synthesis_contract = require("consensus.synthesis_contract")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local h = require("tests.devloop_core_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
@@ -23,7 +24,7 @@ end
 local function trusted(body)
   return {
     body = body,
-    author_login = devloop_base.trusted_bot_login(),
+    author_login = parsers_misc.trusted_bot_login(),
   }
 end
 

@@ -1,5 +1,6 @@
 local core = require("core")
 local ports_seam = require("forge.ports")
+local forge_strings = require("forge.strings")
 local saga = require("workflow.saga")
 
 local M = {}
@@ -155,8 +156,8 @@ local function self_only_claim(pr, self_login)
   end
   local seen = false
   for _, assignee in ipairs(pr.assignees or {}) do
-    local login = core.strip_bot_login_suffix(assignee)
-    if login == self_login then
+    local login = forge_strings.canonical_login(assignee)
+    if forge_strings.canonical_login(login) == forge_strings.canonical_login(self_login) then
       seen = true
     elseif login ~= nil and login ~= "" then
       return false

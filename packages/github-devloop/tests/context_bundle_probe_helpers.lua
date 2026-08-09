@@ -3,6 +3,7 @@ local context_manifest_module = require("consensus.context_manifest")
 local context_bundle = require("devloop.context_bundle")
 local context_bundle_identity = require("contract.context_bundle_identity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
 local fixtures = require("tests.production_fixture_helpers")
 
@@ -114,7 +115,7 @@ end
 
 local function build_args(root, fixtures, extra)
   local fields = extra or {}
-  devloop_base.configure_trusted_bot_login("fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login("fkst-test-bot")
   return {
     repo = "owner/repo",
     issue_number = fields.issue_number or 42,

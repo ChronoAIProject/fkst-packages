@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
@@ -124,7 +125,7 @@ end
 
 local function act_liveness_scan(event)
   devloop_logging.log_entry("liveness_scan", event, "github-devloop/liveness-scan", "tick")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
 
   local repo = liveness_scan.liveness_scan_read_repo()
   if repo == nil then

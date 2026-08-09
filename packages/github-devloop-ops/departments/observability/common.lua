@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -79,7 +80,7 @@ function M.require_observe_repo(core)
 end
 
 function M.require_observe_bot(core)
-  local login = devloop_base.assert_trusted_bot_configured()
+  local login = parsers_misc.assert_trusted_bot_configured()
   if login == nil or tostring(login) == "" then
     error("github-devloop: config-missing: FKST_GITHUB_BOT_LOGIN is required for observability")
   end

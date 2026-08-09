@@ -7,6 +7,7 @@ function M.make(core, deps)
   local entity_lib = deps.entity_lib
   local merge_batch = deps.merge_batch
   local m_mq = deps.merge_queue
+  local parsers_misc = deps.parsers_misc
   local v_merge_ready = deps.merge_ready_validator
   local payloads_builders = deps.payloads_builders
   local process_merge_ready_locked = deps.process_merge_ready_locked
@@ -89,7 +90,7 @@ function M.make(core, deps)
       return
     end
     with_lock(lock_key, function()
-      devloop_base.assert_trusted_bot_configured()
+      parsers_misc.assert_trusted_bot_configured()
       local branches = config.branch_config()
       local head, entries = merge_queue_head_all(repo, branches.integration)
       if head == nil then

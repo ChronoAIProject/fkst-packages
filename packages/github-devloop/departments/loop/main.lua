@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
@@ -66,7 +67,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then

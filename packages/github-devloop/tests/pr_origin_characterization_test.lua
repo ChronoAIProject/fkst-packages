@@ -1,5 +1,7 @@
 local github_author_policy = require("devloop.github_author_policy")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
+local forge_strings = require("forge.strings")
 local m_facts = require("devloop.markers.facts")
 local t = fkst.test
 
@@ -34,10 +36,10 @@ local function production_pr(author_login)
 end
 
 local function with_trusted_bot(login, fn)
-  local previous = devloop_base.configured_trusted_bot_login()
-  devloop_base.configure_trusted_bot_login(login)
+  local previous = parsers_misc.configured_trusted_bot_login()
+  parsers_misc.configure_trusted_bot_login(login)
   local ok, result = pcall(fn)
-  devloop_base.configure_trusted_bot_login(previous)
+  parsers_misc.configure_trusted_bot_login(previous)
   if not ok then
     error(result, 0)
   end
@@ -47,9 +49,9 @@ end
 return {
   test_pr_origin_fact_accepts_stale_values_from_mixed_case_trusted_signer = function()
     with_trusted_bot("Trusted-Bot[bot]", function()
-      t.eq(devloop_base.configured_trusted_bot_login(), "trusted-bot")
-      t.eq(devloop_base.strip_bot_login_suffix("Trusted-Bot[bot]"), "trusted-bot")
-      t.eq(devloop_base.strip_bot_login_suffix("tRuStEd-BoT[bot]"), "trusted-bot")
+      t.eq(parsers_misc.configured_trusted_bot_login(), "Trusted-Bot[bot]")
+      t.eq(forge_strings.canonical_login("Trusted-Bot[bot]"), "trusted-bot")
+      t.eq(forge_strings.canonical_login("tRuStEd-BoT[bot]"), "trusted-bot")
 
       local pr = production_pr("tRuStEd-BoT[bot]")
       -- Characterize the parser's current comment-only contract, not a freshness policy.

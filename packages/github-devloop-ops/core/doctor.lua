@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -275,7 +276,7 @@ end
 function M.saga_doctor_collect(opts)
   local options = opts or {}
   local repo = options.repo or read_repo()
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local poll_key = options.poll_key
 
   local issues = options.issues or list_open_issues(repo, poll_key)

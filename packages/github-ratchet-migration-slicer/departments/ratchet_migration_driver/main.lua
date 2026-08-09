@@ -1,5 +1,6 @@
 local core = require("core")
 local ports_seam = require("forge.ports")
+local forge_strings = require("forge.strings")
 local ratchets = require("departments.ratchet_migration_driver.ratchets")
 local saga = require("workflow.saga")
 local strings = require("contract.strings")
@@ -40,13 +41,13 @@ end
 
 local function trusted_bot_logins()
   local logins = {}
-  local current = core.strip_bot_login_suffix(bot_login())
+  local current = forge_strings.canonical_login(bot_login())
   if current == nil or current == "" then
     return logins
   end
   logins[current] = true
   for entry in tostring(read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS") or ""):gmatch("[^,%s]+") do
-    local login = core.strip_bot_login_suffix(strings.trim(entry))
+    local login = forge_strings.canonical_login(entry)
     if login ~= nil and login ~= "" then
       logins[login] = true
     end
@@ -66,7 +67,7 @@ local function trusted_author(record, trusted_logins)
     return true
   end
   local author = record and (record.author_login or (type(record.author) == "table" and record.author.login))
-  author = core.strip_bot_login_suffix(author)
+  author = forge_strings.canonical_login(author)
   return author ~= nil and trusted_logins[author] == true
 end
 

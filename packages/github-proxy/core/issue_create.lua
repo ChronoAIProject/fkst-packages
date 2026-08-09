@@ -3,6 +3,7 @@ local S = {}
 function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local sha256 = require("contract.sha256")
 local issue_create_limits = require("contract.github_issue_create").limits()
 local max_repo_len = issue_create_limits.repo
@@ -82,7 +83,7 @@ local function issue_author_login(issue)
   elseif type(issue.author) == "table" and issue.author.login ~= nil then
     raw = issue.author.login
   end
-  return shared.strip_bot_login_suffix(raw)
+  return forge_strings.canonical_login(raw)
 end
 
 local function is_fork_issue_create(payload)
@@ -261,7 +262,8 @@ function M.has_trusted_issue_create_marker(issues, dedup_key, bot_login)
   end
   local marker = M.issue_create_marker(dedup_key)
   for _, issue in ipairs(issues) do
-    if issue_author_login(issue) == tostring(bot_login)
+    if forge_strings.canonical_login(issue_author_login(issue))
+      == forge_strings.canonical_login(bot_login)
       and tostring(issue.body or ""):find(marker, 1, true) ~= nil then
       return true
     end
@@ -275,7 +277,8 @@ function M.trusted_issue_create_number(issues, dedup_key, bot_login)
   end
   local marker = M.issue_create_marker(dedup_key)
   for _, issue in ipairs(issues) do
-    if issue_author_login(issue) == tostring(bot_login)
+    if forge_strings.canonical_login(issue_author_login(issue))
+      == forge_strings.canonical_login(bot_login)
       and tostring(issue.body or ""):find(marker, 1, true) ~= nil
       and shared.is_positive_integer(issue.number) then
       return tostring(math.floor(tonumber(issue.number)))
@@ -290,7 +293,8 @@ function M.has_trusted_issue_created_marker(comments, dedup_key, bot_login)
   end
   local marker_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if issue_author_login(comment) == tostring(bot_login) then
+    if forge_strings.canonical_login(issue_author_login(comment))
+      == forge_strings.canonical_login(bot_login) then
       local body = tostring(comment.body or "")
       for marker in body:gmatch(marker_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
@@ -308,7 +312,8 @@ function M.trusted_issue_created_number(comments, dedup_key, bot_login)
   end
   local marker_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if issue_author_login(comment) == tostring(bot_login) then
+    if forge_strings.canonical_login(issue_author_login(comment))
+      == forge_strings.canonical_login(bot_login) then
       local body = tostring(comment.body or "")
       for marker in body:gmatch(marker_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
@@ -329,7 +334,8 @@ function M.has_trusted_issue_create_intent_marker(comments, dedup_key, bot_login
   end
   local marker_pattern = "<!%-%- fkst:github%-proxy:issue%-create%-intent:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if issue_author_login(comment) == tostring(bot_login) then
+    if forge_strings.canonical_login(issue_author_login(comment))
+      == forge_strings.canonical_login(bot_login) then
       local body = tostring(comment.body or "")
       for marker in body:gmatch(marker_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then

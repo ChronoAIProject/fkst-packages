@@ -6,6 +6,7 @@ local m_rrc = require("devloop.restart_responsibility_contract")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_logging = require("devloop.logging")
 local core = h.core
@@ -264,16 +265,16 @@ return {
   end,
 
   test_hidden_state_conformance_isolates_host_identity_and_runtime_lock = function()
-    local previous_bot_login = devloop_base.configured_trusted_bot_login()
+    local previous_bot_login = parsers_misc.configured_trusted_bot_login()
     local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
-    devloop_base.configure_trusted_bot_login("host-configured-bot")
+    parsers_misc.configure_trusted_bot_login("host-configured-bot")
     git_mechanics.with_repo_ref_store_lock = function()
       error("host runtime lock leaked into hidden-state conformance")
     end
     local ok, errors = pcall(function()
       return hidden_state_conformance.hidden_state_conformance_errors(core)
     end)
-    devloop_base.configure_trusted_bot_login(previous_bot_login)
+    parsers_misc.configure_trusted_bot_login(previous_bot_login)
     git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
     if not ok then error(errors) end
     t.eq(#errors, 0, join_error_messages(errors))
