@@ -67,7 +67,7 @@ local function review_meta_codex_decision(plan)
   devloop_logging.log_cas_decision("review_meta", plan.review_meta.proposal_id, plan.state, "review-meta", "fixing|reviewing|blocked", "applied", "running review-meta codex decision")
   devloop_logging.log_codex_start("review_meta", plan.review_meta.proposal_id, "review-meta")
   local codex_opts = workflow_codex.judgment_codex_opts(
-    core.build_review_meta_prompt(plan.review_meta, plan.current_issue, plan.content_fetch),
+    review_meta_caps.prompts.build_review_meta_prompt(plan.review_meta, plan.current_issue, plan.content_fetch),
     devloop_base.judgment_worktree_with_exec(exec_sync, "review-meta", plan.review_meta.dedup_key)
   )
   codex_opts.sync = true
@@ -89,7 +89,7 @@ local function review_meta_codex_decision(plan)
     })
     error("github-devloop: review-meta-codex-failed: review-meta codex failed: " .. tostring(stderr))
   end
-  local parsed = core.parse_review_meta_action(result.stdout)
+  local parsed = review_meta_caps.prompts.parse_review_meta_action(result.stdout)
   if parsed == nil then
     devloop_logging.log_codex_result("review_meta", plan.review_meta.proposal_id, "review-meta", result, nil, "parse-failed", {
       queue = plan.event_queue,
