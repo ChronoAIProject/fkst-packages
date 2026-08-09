@@ -527,7 +527,7 @@ local function replay_blocked(M, dept, issue, state, row, facts)
 end
 
 local function replayer_tools(M)
-  return {
+  local tools = {
     find_linked_pr = find_linked_pr,
     log_skip = function(...)
       return log_skip(M, ...)
@@ -542,6 +542,10 @@ local function replayer_tools(M)
       return resolve_payload_fields(M, row, state, facts)
     end,
   }
+  tools.replay_review_meta_receiver = function(...)
+    return replay_review_meta(M, tools, ...)
+  end
+  return tools
 end
 
 local function restart_replayers(M)

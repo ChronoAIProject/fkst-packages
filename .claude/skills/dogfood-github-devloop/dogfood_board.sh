@@ -6,6 +6,22 @@
 # "STUCK 8h"). now=`date +%s` is already zone-independent, so only the parse side needed fixing.
 epoch_utc() { [ -z "${1:-}" ] && { echo 0; return; }; TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || echo 0; }
 
+issue_author_ownership() { # $1 issue author login -> "peer" | "other" | "" (self/unknown)
+  local author="$1"
+  [ -n "$author" ] || return 1
+  [ "$author" = "$BOT" ] && return 1
+  case ",$MANAGED_BOT_LOGINS," in
+    *",$author,"*) echo peer; return 0 ;;
+  esac
+  # A managed peer often files under an app login absent from this host's MANAGED list. The two
+  # GitHub surfaces spell the same app differently — REST returns `<login>[bot]`, GraphQL returns
+  # `app/<login>` — so both spellings have to be recognised or the row warns on one surface only.
+  case "$author" in
+    app/*|*\[bot\]|*-bot) echo peer; return 0 ;;
+  esac
+  echo other
+}
+
 issue_label_has() { # $1 comma-separated labels, $2 label
   case ",$1," in
     *",$2,"*) return 0 ;;
@@ -125,24 +141,22 @@ fetch_entity_comments() { # $1 issue-or-pr number
 
 # Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
 # symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
-# issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
-# `proposal="..."` field rather than derived from the PR number. This lets the PR
+# issue's proposal, so the origin is SELF-DISCOVERED from the PR's trusted pr-origin:v1
+# or state:v1 `proposal="..."` field rather than derived from the PR number. This lets the PR
 # classifier distinguish a genuinely-stuck PR from one that has reached a correct
 # terminal (blocked/merged/closed_unmerged) — the CI+age-only classifier cannot.
+# Exit 0 = lifecycle fact, 1 = authoritatively unmanaged, 2 = fact unavailable.
 pr_lifecycle_board_fact() { # $1 pr-number
-  local num="$1" comments origin fact tool
-  tool="$(lifecycle_board_fact_tool)" || return 1
-  [ -n "$tool" ] || return 1
-  comments=$(fetch_entity_comments "$num") || return 1
-  origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
-    | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
-    | sed -E 's/.*proposal="([^"]+)".*/\1/')
-  [ -n "$origin" ] || return 1
+  local num="$1" comments fact fact_rc tool
+  tool="$(lifecycle_board_fact_tool)" || return 2
+  [ -n "$tool" ] || return 2
+  comments=$(fetch_entity_comments "$num") || return 2
   fact=$(printf '%s' "$comments" | python3 "$tool" \
-    --origin "$origin" \
+    --discover-pr-origin \
     --bot-login "$BOT" \
-    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
-  [ -n "$fact" ] || return 1
+    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null); fact_rc=$?
+  [ "$fact_rc" -eq 0 ] || return "$fact_rc"
+  [ -n "$fact" ] || return 2
   printf '%s\n' "$fact"
 }
 
@@ -175,7 +189,7 @@ board_one() { # $1 name, $2 stale_hours
   local stale="$2" now; now=$(date +%s)
   echo "════════════════════════════════════════ $REPO"
   local p; p=$(pidof_df)
-  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
+  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" || echo 'NOT RUNNING locally') | graphql $(graphql_rate_limit)"
   local openpr; openpr=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|.head.ref' 2>/dev/null | grep -oE '/[0-9]+/' | tr -d '/' | sort -u)
   echo "── PRs (active work · CI · recency) ──"
   # Capture + check gh's exit status so a REST failure (e.g. the HTML 503 page GitHub serves
@@ -194,29 +208,31 @@ board_one() { # $1 name, $2 stale_hours
   else
   printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
     [ -z "$num" ] && continue
-    local chk a flow; chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
+    local chk a flow pr_fact="" pr_fact_rc pr_condition condition_started_at pr_state pr_override onset_missing=0
+    chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
     a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
+    pr_fact=$(pr_lifecycle_board_fact "$num"); pr_fact_rc=$?
+    if [ "$pr_fact_rc" -eq 0 ]; then
+      if pr_condition=$(lifecycle_board_condition "$pr_fact"); then
+        pr_state="${pr_condition%%$'\t'*}"
+        condition_started_at="${pr_condition#*$'\t'}"
+        a=$(( (now - $(epoch_utc "$condition_started_at")) / 3600 ))
+      else
+        onset_missing=1
+        pr_state=$(printf '%s' "$pr_fact" | jq -er '.state') || pr_state="unknown"
+      fi
+    elif [ "$pr_fact_rc" -ne 1 ]; then
+      onset_missing=1
+      pr_state="unknown"
+    fi
     if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
+    elif [ "$onset_missing" -eq 1 ];                 then flow="⚠ CONDITION-ONSET-UNAVAILABLE $pr_state"
     elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
     else flow="✓ flowing ${a}h"; fi
-    # The CI+age verdict above measures the CHECKS and the clock, never the pipeline.
-    # It is wrong in BOTH directions, so the authoritative state:v1 marker is consulted
-    # unconditionally (symmetric with the issue classifier below): terminal ->
-    # parked(state), pipeline_stuck -> ⚠ with WHY, awaiting-pr -> waiting.
-    #
-    # Gating this on a ⚠ verdict — as it was — made the marker a false-alarm suppressor
-    # only, so a PR sitting in a terminal state with green CI and any recent comment
-    # rendered "✓ flowing" and its terminal was invisible. Observed 2026-08-06: PR#2918
-    # had been in `fixing` since 07-30 and PR#2968/#2997/#2443 were `blocked`, all four
-    # displayed as flowing, while PR#2975/#2977 in the SAME blocked state displayed
-    # parked(blocked) purely because their CI happened to trip the ⚠ branch.
-    #
-    # Calling it unconditionally is safe by construction: lifecycle_board_reclassify
-    # emits an override only for pipeline_stuck / terminal / awaiting-pr and otherwise
-    # exits non-zero, leaving the CI+age verdict untouched for a healthy PR.
-    local pr_fact pr_override
-    if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
+    # CI remains independent. The trusted marker supplies condition dwell and can also
+    # reclassify terminal/pipeline-stuck states; it is not execution-liveness evidence.
+    if [ -n "$pr_fact" ] && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
       flow="${pr_override#*$'\t'}"
     fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
@@ -224,16 +240,16 @@ board_one() { # $1 name, $2 stale_hours
   fi
   echo "── issues (by fkst-dev state) ──"
   local issue_rows issue_rc
-  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
+  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.user.login)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
   if [ "$issue_rc" -ne 0 ]; then
     issue_rows=$(gh issue list --repo "$REPO" --state open --limit 200 \
-      --json number,updatedAt,labels,title \
-      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
+      --json number,updatedAt,labels,title,author \
+      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.author.login)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
   fi
   if [ "$issue_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (issues: REST and GraphQL both failed) — cross-check: gh issue list --repo $REPO --state open"
   else
-  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label title; do
+  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label author title; do
     [ -z "$num" ] && continue
     local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$created")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
@@ -273,6 +289,19 @@ board_one() { # $1 name, $2 stale_hours
             cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
           fi
           ;;
+      esac
+    fi
+    # Ownership is decided by the issue author, exactly as claims.lua does: an issue authored by
+    # another managed bot is skipped here by design (`skip-fork-peer-bot`), so flagging it as this
+    # host's problem sends the operator to investigate work that is not theirs.
+    local ownership
+    if ownership=$(issue_author_ownership "$author"); then
+      # Ownership only downgrades a warning. A row that already classified as something informative
+      # — a tracked dashboard, a parked terminal — keeps that classification, which says more than
+      # who owns it.
+      case "$ownership:$cls" in
+        peer:⚠*) cls="peer-owned($author)" ;;
+        other:⚠*) cls="$cls author=$author" ;;
       esac
     fi
     printf "  #%-4s [%-12s] %s\n" "$num" "$st" "$cls"

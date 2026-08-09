@@ -1,6 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local devloop_claims = require("devloop.claims")
+local devloop_decompose = require("devloop.decompose")
 local devloop_entity = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local requests_labels = require("devloop.requests.labels")
@@ -9,6 +10,7 @@ local marker = require("core.marker")
 local materialization = require("core.materialization")
 local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local github_factory = require("devloop.github_factory")
 
 local M = {}
@@ -25,7 +27,7 @@ end
 
 local function issue_author_login(issue)
   local login = devloop_claims.issue_author_login(issue)
-  return devloop_base.strip_bot_login_suffix(login)
+  return forge_strings.canonical_login(login)
 end
 
 local function issue_create_marker(child_dedup)
@@ -41,15 +43,19 @@ local function strip_after_marker(body, marker_text)
 end
 
 local function strip_lineage_header(body, origin, blueprint_digest, slot_id)
-  local lineage = marker.parse_lineage_header(body)
+  local stripped = devloop_decompose.strip_decompose_lineage_header(body)
+  local lineage = marker.parse_lineage_header(stripped)
   if lineage == nil
     or lineage.origin ~= tostring(origin)
     or lineage.blueprint_digest ~= tostring(blueprint_digest)
     or lineage.slot ~= tostring(slot_id) then
     return nil
   end
-  local stripped = tostring(body or ""):gsub("^%s*<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->%s*", "", 1)
-  return stripped:gsub("^%s+", ""):gsub("%s+$", "")
+  local content, count = stripped:gsub("^%s*<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->%s*", "", 1)
+  if count ~= 1 then
+    return nil
+  end
+  return content:gsub("^%s+", ""):gsub("%s+$", "")
 end
 
 local function issue_number_or_nil(value)
@@ -86,6 +92,9 @@ function M.child_ref_for_entry(repo, entry)
     issue_number = tostring(issue_number),
     proposal_id = base_ids.proposal_id(repo, issue_number),
     source_ref = safe_source_ref(repo, issue_number),
+    origin = entry.origin,
+    blueprint_digest = entry.blueprint_digest,
+    slot = entry.slot,
   }
 end
 
@@ -311,16 +320,25 @@ local function workflow_step_source_ref(repo, origin_issue_number, slot_id)
   }
 end
 
-function M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot_id, entry, generated_spec)
+function M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot_id, entry, generated_spec, parent_body)
   local lineage, err = marker.build_lineage_header(origin, blueprint_digest, slot_id)
   if lineage == nil then
     error("github-devloop-workflow: lineage-marker-build-failed: lineage marker build failed: " .. tostring(err and err.code or "unknown"))
   end
+  local headers = {}
+  local decompose_lineage = devloop_decompose.decompose_lineage(parent_body)
+  if decompose_lineage ~= nil then
+    headers[#headers + 1] = devloop_decompose.decompose_lineage_marker(
+      decompose_lineage.root,
+      decompose_lineage.depth
+    )
+  end
+  headers[#headers + 1] = lineage
   return {
     schema = "github-proxy.issue-create.v1",
     repo = repo,
     title = generated_spec.title,
-    body = lineage .. "\n\n" .. generated_spec.body,
+    body = table.concat(headers, "\n\n") .. "\n\n" .. generated_spec.body,
     dedup_key = entry.child_dedup,
     source_ref = workflow_step_source_ref(repo, issue_number, slot_id),
     parent = tonumber(issue_number),
@@ -409,11 +427,12 @@ function M.find_created_issue_by_dedup(repo, child_dedup, deps)
   if not ok or type(decoded) ~= "table" then
     error("github-devloop-workflow: materialization-child-search-malformed: child issue search returned malformed JSON")
   end
-  local trusted = devloop_base.trusted_bot_login()
+  local trusted = parsers_misc.trusted_bot_login()
   for _, issue in ipairs(decoded) do
     local number = searched_issue_number(issue)
     if number ~= nil
-      and issue_author_login(issue) == trusted
+      and forge_strings.canonical_login(issue_author_login(issue))
+        == forge_strings.canonical_login(trusted)
       and tostring(issue.body or ""):find(issue_create_marker(child_dedup), 1, true) ~= nil then
       return {
         number = number,
@@ -624,7 +643,7 @@ function M.record_created_or_raise_create(core, deps, repo, issue_number, origin
   raise_request(
     origin,
     "github-proxy.github_issue_create_request",
-    M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot.id, entry, generated_spec)
+    M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot.id, entry, generated_spec, current and current.body)
   )
   return true, nil
 end

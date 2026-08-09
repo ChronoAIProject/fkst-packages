@@ -16,7 +16,8 @@ MAX_VERSION_BYTES = 512
 MAX_ORDER_KEY_BYTES = 768
 TERMINAL_STATES = {"blocked", "impl-failed", "merged", "declined"}
 
-MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop:state:v1\b(.*?)-->")
+MARKER_RE = re.compile(r"<!-- fkst:github-devloop:state:v1\b(.*?)-->")
+PR_ORIGIN_RE = re.compile(r"<!-- fkst:github-devloop:pr-origin:v1\b(.*?)-->")
 ATTR_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"')
 UPDATED_AT_RE = re.compile(r"\d\d\d\d-\d\d-\d\dT\d\d[-:]\d\d[-:]\d\dZ")
 ISO_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -24,7 +25,13 @@ ISO_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--origin", required=True, help="Origin proposal id.")
+    mode = result.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--origin", help="Origin proposal id.")
+    mode.add_argument(
+        "--discover-pr-origin",
+        action="store_true",
+        help="Discover a PR's origin from trusted lifecycle markers.",
+    )
     result.add_argument("--bot-login", required=True, help="Trusted lifecycle marker author login.")
     result.add_argument("--managed-bot-logins", default="", help="Accepted for parity with board fact tools.")
     return result
@@ -117,6 +124,25 @@ def collect_state_facts(comments: list[dict[str, Any]], origin: str) -> list[dic
     return facts
 
 
+def discover_pr_origin(comments: list[dict[str, Any]]) -> tuple[str | None, bool]:
+    origins: set[str] = set()
+    marker_seen = False
+    for comment in comments:
+        body = str(comment.get("body") or "")
+        for marker_re in (PR_ORIGIN_RE, MARKER_RE):
+            for match in marker_re.finditer(body):
+                marker_seen = True
+                proposal = safe_attr(parse_attrs(match.group(1)).get("proposal"), MAX_PROPOSAL_ID_BYTES)
+                if proposal is None:
+                    return None, True
+                origins.add(proposal)
+    if not marker_seen:
+        return None, False
+    if len(origins) != 1:
+        return None, True
+    return next(iter(origins)), True
+
+
 def primary_rank(fact: dict[str, str]) -> int:
     return 1 if UPDATED_AT_RE.search(fact["version"]) else 0
 
@@ -142,8 +168,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"lifecycle-board-fact: {err}", file=sys.stderr)
         return 2
 
-    fact = board_fact(collect_state_facts(trusted_comments(comments, args.bot_login), args.origin))
+    trusted = trusted_comments(comments, args.bot_login)
+    origin = args.origin
+    if args.discover_pr_origin:
+        origin, managed = discover_pr_origin(trusted)
+        if not managed:
+            return 1
+        if origin is None:
+            print("lifecycle-board-fact: ambiguous or malformed PR origin", file=sys.stderr)
+            return 2
+
+    fact = board_fact(collect_state_facts(trusted, origin))
     if fact is None:
+        if args.discover_pr_origin:
+            print("lifecycle-board-fact: managed PR has no usable lifecycle fact", file=sys.stderr)
+            return 2
         return 1
     print(json.dumps(fact, separators=(",", ":")))
     return 0

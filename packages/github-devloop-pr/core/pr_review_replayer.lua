@@ -373,6 +373,9 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
   if done ~= nil then return done end
   local fact = review_meta_decision_fact(facts, current_pr)
   if fact == nil then
+    if facts.redrive_delivery ~= nil then
+      return tools.replay_review_meta_receiver(dept, issue, state, row, facts)
+    end
     return tools.log_skip(dept, proposal_id, state, "review-meta", "fixing|blocked", "skip-foreign(review-meta)", "trusted review-meta decision marker is not visible")
   end
   if fact.action == "fix" then
@@ -399,6 +402,23 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
     }, { kind = "pr", number = link.pr_number })
     devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "fixing", "applied(replay)", "trusted review-meta fix decision fact is visible")
     return tools.raise_effects(dept, proposal_id, "fixing", fact.version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:review-meta" } }, effects)
+  end
+  if fact.action == "no-actionable-gap" then
+    local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    local effects = {
+      {
+        queue = "github-proxy.github_pr_comment_request",
+        payload = requests_review.build_reviewing_comment_request(M, issue.repo, issue.number, {
+          proposal_id = proposal_id,
+          impl_version = fact.version,
+        }, link.pr_number, source_ref),
+      },
+    }
+    add_issue_label_effect(issue, proposal_id, "reviewing", fact.version, issue_source_ref(issue), effects, {
+      "review-meta", "label", "reviewing", tostring(proposal_id), tostring(fact.version), tostring(link.pr_number),
+    }, { kind = "pr", number = link.pr_number })
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "reviewing", "applied(replay)", "trusted review-meta no-actionable-gap decision fact is visible")
+    return tools.raise_effects(dept, proposal_id, "reviewing", fact.version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:review-meta" } }, effects)
   end
   local label_key = base_ids.dedup_key({
     "review-meta",
@@ -491,7 +511,7 @@ raise_reviewing_for_current_head = function(dept, issue, state, proposal_id, lin
   if not forge_validators.is_git_sha(current_pr.head_sha) then
     return false
   end
-  local review_version = state.version
+  local review_version = devloop_state.next_review_loop_version(state.version)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
   local request = requests_review.build_merge_head_reviewing_comment_request(M,
     issue.repo,

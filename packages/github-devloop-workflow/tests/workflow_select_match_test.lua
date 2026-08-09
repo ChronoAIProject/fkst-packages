@@ -14,6 +14,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local candidate_queue = "github-devloop-intake.devloop_intake_candidate"
 local restart_projection = owner_pending_projection.frozen_projection()
@@ -199,6 +200,12 @@ local function mock_workflow_codex(stdout, exit_code)
 end
 
 local function mock_default_context_bundle(current, authorized_logins)
+  local payload = candidate()
+  context_fixtures.materialize_context_bundle({
+    proposal_id = payload.proposal_id,
+    dedup_key = decision_key_for_current(payload, current),
+  }, "/tmp/fkst-packages-test/github-devloop-workflow/default-intake-runtime",
+    "/tmp/fkst-packages-test/github-devloop-workflow/default-intake-runtime/context/.bundle-tmp.intake")
   local ok = { stdout = "", stderr = "", exit_code = 0 }
   author_policy.mock_env(t, {
     env = {

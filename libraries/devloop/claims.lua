@@ -7,13 +7,12 @@ local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
-local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
-local marker_shared = require("devloop.markers.shared")
+local parsers_misc = require("devloop.parsers.misc")
 local parsers_shared = require("devloop.parsers.shared")
 local forks = require("devloop.forks")
 local restart_metadata = require("devloop.restart_metadata")
@@ -39,364 +38,71 @@ C.assignee_logins = parsers_shared.assignee_logins
 C.claim_owner = github_author_policy.claim_owner
 C.managed_bot_logins = github_author_policy.managed_bot_logins
 C.is_managed_bot_login = github_author_policy.is_managed_bot_login
-
-local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-local marker_attr = marker_shared.marker_attr
-local json_array_tag = nil
-local json_object_tag = nil
-local json_tags_initialized = false
-local peer_activity_scan_limit = 100
-local peer_activity_queries = {
-  issue = {
-    scope = "peer-activity-v1-all-limit-100-number-comments-author",
-    fields = "number,comments,author",
-  },
-  pr = {
-    scope = "peer-activity-v1-all-limit-100-number-headRefName-baseRefName-comments-author",
-    fields = "number,headRefName,baseRefName,comments,author",
-  },
-}
-
-local function initialize_json_tags()
-  if not json_tags_initialized then
-    json_array_tag = getmetatable(json.decode("[]"))
-    json_object_tag = getmetatable(json.decode("{}"))
-    json_tags_initialized = true
-  end
-end
-
-local function is_dense_json_array(value)
-  initialize_json_tags()
-  if type(value) ~= "table" or getmetatable(value) ~= json_array_tag then
-    return false
-  end
-  local count = 0
-  local maximum = 0
-  for key in pairs(value) do
-    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
-      return false
-    end
-    count = count + 1
-    maximum = math.max(maximum, key)
-  end
-  return count == maximum
-end
-
-local function is_json_object(value)
-  initialize_json_tags()
-  return type(value) == "table" and getmetatable(value) == json_object_tag
-end
-
-local function is_positive_integer(value)
-  return type(value) == "number" and value >= 1 and value % 1 == 0
-end
-
-local function valid_actor(value)
-  return is_json_object(value) and type(value.login) == "string" and value.login ~= ""
-end
-
-local function valid_optional_actor(value)
-  return value == nil or type(value) == "userdata" or valid_actor(value)
-end
-
-local function valid_comments(value)
-  if not is_dense_json_array(value) then
-    return false
-  end
-  for _, comment in ipairs(value) do
-    if not is_json_object(comment) or type(comment.body) ~= "string" or not valid_optional_actor(comment.author) then
-      return false
-    end
-  end
-  return true
-end
-
-local function valid_peer_activity_row(row, kind)
-  if not is_json_object(row) or not is_positive_integer(row.number)
-    or not valid_comments(row.comments) or not valid_optional_actor(row.author) then
-    return false
-  end
-  if kind == "pr" then
-    return type(row.headRefName) == "string" and row.headRefName ~= ""
-      and type(row.baseRefName) == "string" and row.baseRefName ~= ""
-  end
-  return kind == "issue"
-end
-
-local function decode_json_array(result, kind)
-  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
-    return nil, "command-result-unavailable"
-  end
-  if type(result.stdout) ~= "string" then
-    return nil, "stdout-not-string"
-  end
-  local ok, decoded = pcall(json.decode, result.stdout)
-  if not ok then
-    return nil, "malformed-json"
-  end
-  if not is_dense_json_array(decoded) then
-    return nil, "top-level-not-dense-array"
-  end
-  for _, row in ipairs(decoded) do
-    if not valid_peer_activity_row(row, kind) then
-      return nil, "invalid-" .. tostring(kind) .. "-row"
-    end
-  end
-  return decoded, nil
-end
-
-function C.claimed_label()
-  return claim_labels.active_label(config.claim_label_exclusive(), C.claim_owner())
-end
-
-local function comment_body(comment)
-  if type(comment) == "table" and comment.body ~= nil then
-    return tostring(comment.body)
-  end
-  return nil
-end
-
-local function github_actor_login(value)
-  if type(value) ~= "table" then
-    return nil
-  end
-  local seen = {}
-  local only = nil
-  local function add(login)
-    local normalized = devloop_base.strip_bot_login_suffix(login)
-    if normalized == nil or normalized == "" then
-      return
-    end
-    seen[normalized] = true
-    only = normalized
-  end
-  add(value.author_login)
-  if type(value.author) == "table" then
-    add(value.author.login)
-  end
-  if type(value.user) == "table" then
-    add(value.user.login)
-  end
-  local count = 0
-  for _ in pairs(seen) do
-    count = count + 1
-  end
-  if count ~= 1 then
-    return nil
-  end
-  return only
-end
-
-local function has_state_marker_comment(body)
-  if type(body) ~= "string" then
-    return false
-  end
-  for marker in body:gmatch(state_marker_pattern) do
-    if marker_attr(marker, "proposal") ~= nil
-      and restart_metadata.is_state(marker_attr(marker, "state"))
-      and marker_attr(marker, "version") ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
-local function add_authorized_candidate(logins, login, trusted_author_policy, owner)
-  if type(logins) ~= "table" or type(trusted_author_policy) ~= "table" then
-    return
-  end
-  local normalized = devloop_base.strip_bot_login_suffix(login)
-  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
-  if normalized ~= nil and normalized ~= "" and normalized ~= normalized_owner
-    and github_author_policy.is_authorized(trusted_author_policy, normalized) then
-    logins[normalized] = true
-  end
-end
-
-local function add_state_marker_comment_candidates(logins, comments, trusted_author_policy, owner)
-  if type(comments) ~= "table" then
-    return
-  end
-  for _, comment in ipairs(comments) do
-    local body = comment_body(comment)
-    if has_state_marker_comment(body) then
-      add_authorized_candidate(logins, github_actor_login(comment), trusted_author_policy, owner)
-    end
-  end
-end
-
-function C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
-  local logins = {}
-  if type(current) ~= "table" or type(current.comments) ~= "table" or type(trusted_author_policy) ~= "table" then
-    return logins
-  end
-  add_state_marker_comment_candidates(logins, current.comments, trusted_author_policy, owner)
-  return logins
-end
-
-local function add_observed_state_marker_managed_bot_logins(managed, current, trusted_author_policy, owner)
-  for login, allowed in pairs(C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)) do
-    if allowed == true then
-      managed[login] = true
-    end
-  end
-end
-
-local function issue_row_comments(row)
-  if type(row) ~= "table" or type(row.comments) ~= "table" then
-    return {}
-  end
-  return row.comments
-end
-
-local function pr_head_branch(row)
-  if type(row) ~= "table" then
-    return nil
-  end
-  if row.headRefName ~= nil then
-    return tostring(row.headRefName)
-  end
-  if type(row.head) == "table" and row.head.ref ~= nil then
-    return tostring(row.head.ref)
-  end
-  return nil
-end
-
-local function pr_base_branch(row)
-  if type(row) ~= "table" then
-    return nil
-  end
-  if row.baseRefName ~= nil then
-    return tostring(row.baseRefName)
-  end
-  if type(row.base) == "table" and row.base.ref ~= nil then
-    return tostring(row.base.ref)
-  end
-  return nil
-end
+C.observed_state_marker_managed_bot_logins = github_author_policy.observed_state_marker_managed_bot_logins
 
 function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle, poll_key)
   if poll_key == nil or tostring(poll_key) == "" then
     error("github-devloop: peer-snapshot-poll-epoch-missing: peer snapshot poll epoch must be non-empty")
   end
-  local logins = {}
   if type(trusted_author_policy) ~= "table" or repo == nil or tostring(repo) == "" then
-    return logins
+    return {}
   end
-  local handle = github_handle or github()
-  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
-    return nil, "peer-activity-stale-poll-epoch"
-  end
-  local issue_query = peer_activity_queries.issue
-  local issues = entity_list_cache.fetch_shared_settled_list(
-    repo,
-    "issue",
-    issue_query.scope,
-    poll_key,
-    function()
-      return handle.issue_list_cli(repo, "all", peer_activity_scan_limit, issue_query.fields, 30)
-    end,
-    function(result)
-      local rows, reason = decode_json_array(result, "issue")
-      return rows ~= nil, reason
-    end
-  )
-  local issue_rows = issues.tag == "available" and decode_json_array({
-    stdout = issues.stdout,
-    exit_code = 0,
-  }, "issue") or nil
-  if issue_rows == nil then
-    return nil, "issue-peer-activity-unavailable"
-  end
-  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
-    return nil, "peer-activity-stale-poll-epoch"
-  end
-  for _, row in ipairs(issue_rows) do
-    add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
-  end
-
-  local ok_config, branches = pcall(config.branch_config)
-  local upstream = ok_config and branches and branches.upstream or nil
-  local integration = ok_config and branches and branches.integration or nil
-  if upstream == nil or tostring(upstream) == "" or integration == nil or tostring(integration) == "" then
-    return logins
-  end
-  local pr_query = peer_activity_queries.pr
-  local prs = entity_list_cache.fetch_shared_settled_list(
-    repo,
-    "pr",
-    pr_query.scope,
-    poll_key,
-    function()
-      return handle.pr_list_cli(repo, "all", peer_activity_scan_limit, pr_query.fields, 30)
-    end,
-    function(result)
-      local rows, reason = decode_json_array(result, "pr")
-      return rows ~= nil, reason
-    end
-  )
-  local pr_rows = prs.tag == "available" and decode_json_array({
-    stdout = prs.stdout,
-    exit_code = 0,
-  }, "pr") or nil
-  if pr_rows == nil then
-    return nil, "pr-peer-activity-unavailable"
-  end
-  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
-    return nil, "peer-activity-stale-poll-epoch"
-  end
-  for _, row in ipairs(pr_rows) do
-    add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
-    if pr_base_branch(row) == tostring(upstream) and pr_head_branch(row) == tostring(integration) then
-      add_authorized_candidate(logins, github_actor_login(row), trusted_author_policy, owner)
-    end
-  end
-  return logins
-end
-
-local function add_repo_scoped_observed_managed_bot_logins(managed, repo, trusted_author_policy, owner, github_handle, poll_key)
-  local observed, unavailable_reason = C.repo_scoped_observed_managed_bot_logins(
+  return github_author_policy.repo_scoped_observed_managed_bot_logins(
     repo,
     trusted_author_policy,
     owner,
-    github_handle,
+    github_handle or github(),
     poll_key
   )
-  if observed == nil then
-    return false, unavailable_reason
+end
+
+function C.claimed_label()
+  return C.claimed_label_spec().name
+end
+
+function C.claimed_label_spec()
+  return claim_carriers.active_label_spec(config.claim_label_exclusive(), C.claim_owner())
+end
+
+function C.assert_claim_label_binding(existing, desired)
+  claim_carriers.assert_owner_binding(existing, desired)
+end
+
+function C.assert_current_claim_label_binding(repo, github_handle)
+  local desired = C.claimed_label_spec()
+  if desired.owner == nil then
+    return
   end
+  local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
+  local existing = json.decode(response.stdout or "{}")
+  if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
+    error("github-devloop: claim-label-binding-missing: derived claim label binding is absent")
+  end
+  C.assert_claim_label_binding(existing, desired)
+end
+
+local function merge_managed_bot_logins(managed, observed)
   for login, allowed in pairs(observed) do
     if allowed == true then
       managed[login] = true
     end
   end
-  return true, nil
 end
 
 function C.claim_mode_active()
   return config.claim_mode()
 end
 
--- Label mode isolates the active family label while respecting managed peer assignees.
 function C.issue_claim_state(assignees, owner, labels)
-  if config.claim_mode() == "label" then
-    local managed = C.managed_bot_logins()
-    for _, login in ipairs(C.assignee_logins(assignees)) do
-      if C.is_managed_bot_login(login, managed)
-        and devloop_base.strip_bot_login_suffix(login) ~= devloop_base.strip_bot_login_suffix(owner) then
-        return "other"
-      end
-    end
-    return claim_labels.classify(labels, C.claimed_label())
-  end
-  local logins = C.assignee_logins(assignees)
-  if #logins == 0 then
-    return "unassigned"
-  end
-  if #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
-    return "self"
-  end
-  return "other"
+  local mode = config.claim_mode()
+  return claim_carriers.classify(
+    mode,
+    C.assignee_logins(assignees),
+    owner,
+    labels,
+    mode == "label" and C.claimed_label() or nil,
+    mode == "label" and C.managed_bot_logins() or nil
+  )
 end
 
 local function issue_ownership_decision(ownership, owner)
@@ -415,7 +121,10 @@ local function issue_ownership_decision(ownership, owner)
   if author == nil then
     return { owned = false, claim_state = claim_state }
   end
-  return { owned = devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state = claim_state }
+  return {
+    owned = parsers_misc.canonical_login(author) == parsers_misc.canonical_login(owner),
+    claim_state = claim_state,
+  }
 end
 
 function C.is_self_owned_issue(ownership, owner)
@@ -428,17 +137,14 @@ function C.read_current_issue_assignees(repo, issue_number)
 end
 
 local function issue_labels(decoded)
-  return github_view.label_names(decoded and decoded.labels)
+  return parsers_shared.label_names(decoded and decoded.labels)
 end
 
 function C.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local fields = "assignees,author"
-  if config.claim_mode() == "label" then
-    fields = "assignees,author,labels"
-  end
+  local fields = "assignees,author,labels"
   local view = github().issue_view(repo, issue_number, fields, 30)
   local decoded = json.decode(view.stdout or "{}")
   return {
@@ -450,7 +156,11 @@ end
 
 function C.verify_issue_claim(repo, issue_number, owner)
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  return C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
+  local held = C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
+  if held and config.claim_mode() == "label" then
+    C.assert_current_claim_label_binding(repo)
+  end
+  return held
 end
 
 local function log_claim(dept, proposal_id, action, reason)
@@ -484,14 +194,12 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local owner = C.claim_owner()
   local ownership = nil
-  local current_usable
-  if config.claim_mode() == "label" then
-    current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
-      and current_issue.assignees ~= nil
-  else
-    current_usable = type(current_issue) == "table"
-      and current_issue.assignees ~= nil
-      and C.issue_author_login(current_issue) ~= nil
+  local mode = config.claim_mode()
+  local current_usable = type(current_issue) == "table"
+    and type(current_issue.assignees) == "table"
+    and type(current_issue.labels) == "table"
+  if mode ~= "label" then
+    current_usable = current_usable and C.issue_author_login(current_issue) ~= nil
   end
   if current_usable then
     ownership = current_issue
@@ -500,6 +208,9 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   end
   local decision = issue_ownership_decision(ownership, owner)
   if decision.owned then
+    if mode == "label" then
+      C.assert_current_claim_label_binding(repo)
+    end
     return decision
   end
   if decision.claim_state == "other" then
@@ -551,32 +262,34 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
 end
 
 function C.claim_admission_inputs(current, repo, poll_key)
-  local owner = C.claim_owner()
+  local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
+  local claim_mode = config.claim_mode()
   if status == "other" then
     return {
       owner = owner,
       status = status,
+      claim_mode = claim_mode,
+      repo = repo,
     }
   end
 
-  local claim_mode = config.claim_mode()
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local managed = nil
   local trusted_author_policy = nil
   local peer_discovery_error = nil
   local peer_snapshot_provenance = nil
-  if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
+  if canonical_author ~= nil and canonical_author ~= owner then
     managed = C.managed_bot_logins()
-    if not C.is_managed_bot_login(author, managed) then
+    if not C.is_managed_bot_login(canonical_author, managed) then
       local github_handle = github()
       trusted_author_policy = github_author_policy.from_handle_policy(github_handle)
-      add_observed_state_marker_managed_bot_logins(managed, current, trusted_author_policy, owner)
-      if not C.is_managed_bot_login(author, managed)
-        and github_author_policy.is_authorized(trusted_author_policy, author)
+      merge_managed_bot_logins(
+        managed,
+        C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
+      )
+      if not C.is_managed_bot_login(canonical_author, managed)
+        and github_author_policy.is_authorized(trusted_author_policy, canonical_author)
         and status ~= "self" then
         local peer_repo = repo or (current and current.repo)
         if poll_key == nil or tostring(poll_key) == "" then
@@ -588,16 +301,17 @@ function C.claim_admission_inputs(current, repo, poll_key)
             repo = peer_repo,
             poll_epoch = tostring(poll_key),
           }
-          local available, unavailable_reason = add_repo_scoped_observed_managed_bot_logins(
-            managed,
+          local observed, unavailable_reason = C.repo_scoped_observed_managed_bot_logins(
             peer_snapshot_provenance.repo,
             trusted_author_policy,
             owner,
             github_handle,
             peer_snapshot_provenance.poll_epoch
           )
-          if not available then
+          if observed == nil then
             peer_discovery_error = unavailable_reason or "peer-activity-unavailable"
+          else
+            merge_managed_bot_logins(managed, observed)
           end
         end
       end
@@ -607,6 +321,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
     owner = owner,
     status = status,
     claim_mode = claim_mode,
+    repo = repo,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -663,15 +378,12 @@ function C.with_current_claim_admission_epoch(detail, fn)
 end
 
 function C.claim_admission_precheck(current, inputs)
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local detail = {
     owner = inputs.owner,
     status = inputs.status,
     claim_mode = inputs.claim_mode,
-    author = author,
+    author = canonical_author,
     managed = inputs.managed,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
@@ -680,45 +392,46 @@ function C.claim_admission_precheck(current, inputs)
     detail.reason = reason
     return decision, detail
   end
+  if inputs.claim_mode == "label" and inputs.status == "self" then
+    if inputs.repo == nil or tostring(inputs.repo) == "" then
+      error("github-devloop: claim-label-binding-repo-missing: claim admission requires a repository")
+    end
+    C.assert_current_claim_label_binding(inputs.repo)
+  end
   if inputs.status == "other" then
     return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
   end
 
-  if inputs.claim_mode ~= "label" then
-    if author == nil or author == "" then
-      return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  if canonical_author == nil then
+    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  end
+  if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
+    if not C.claim_admission_epoch_is_current(inputs) then
+      return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     end
-    if author ~= inputs.owner then
-      if not C.claim_admission_epoch_is_current(inputs) then
-        return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
+    if inputs.peer_discovery_error ~= nil then
+      return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
+    end
+    if C.is_managed_bot_login(canonical_author, inputs.managed) then
+      if inputs.status == "self" then
+        return "held", detail
       end
-      if inputs.peer_discovery_error ~= nil then
-        return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
-      end
-      if C.is_managed_bot_login(author, inputs.managed) then
-        if inputs.status == "self" then
-          return "held", detail
-        end
-        return settle(
-          "denied",
-          "skip-fork-peer-bot",
-          "other-authored unassigned issue belongs to a managed bot login"
-        )
-      end
-      if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
-        return settle(
-          "denied",
-          "skip-non-whitelisted-author",
-          "other-authored issue author is not authorized for GitHub content"
-        )
-      end
+      return settle(
+        "denied",
+        "skip-fork-peer-bot",
+        "other-authored unassigned issue belongs to a managed bot login"
+      )
+    end
+    if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
+      return settle(
+        "denied",
+        "skip-non-whitelisted-author",
+        "other-authored issue author is not authorized for GitHub content"
+      )
     end
   end
   if inputs.status == "self" then
     return "held", detail
-  end
-  if author == nil or author == "" then
-    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
   return "needs-claim", detail
 end
@@ -755,7 +468,8 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   -- opts issues in via the fkst-dev:enabled label, so it claims directly
   -- (matching the label-claim fork). Assignee-mode isolates only authors admitted
   -- by the canonical GitHub content policy.
-  if claim_mode ~= "label" and author ~= owner then
+  if claim_mode ~= "label"
+    and parsers_misc.canonical_login(author) ~= parsers_misc.canonical_login(owner) then
     local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
     if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
@@ -788,6 +502,10 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     log_claim(dept, proposal_id, "fork-raised", "other-authored unassigned issue is forked before management")
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_create_request", request)
     return false
+  end
+
+  if claim_mode == "label" then
+    C.assert_current_claim_label_binding(repo)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
@@ -845,10 +563,14 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
   local claim_is_self = active_label ~= nil
     and restart_metadata.has_label(ownership and ownership.labels, active_label)
-    or active_label == nil and C.issue_claim_state(ownership and ownership.assignees, owner) == "self"
+    or active_label == nil
+      and claim_carriers.classify_assignees(C.assignee_logins(ownership and ownership.assignees), owner) == "self"
   if not claim_is_self then
     log_claim(dept, proposal_id, "skip-release-not-self", "fresh ownership no longer shows the configured actor's claim")
     return false
+  end
+  if active_label ~= nil then
+    C.assert_current_claim_label_binding(repo)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
@@ -872,24 +594,18 @@ function C.claim_required_payload(source_ref)
   if repo == nil or issue_number == nil then
     return nil
   end
-  return {
+  local claim = {
     owner = C.claim_owner(),
     source_ref = normalized,
   }
+  if config.claim_mode() == "label" then
+    claim.label = C.claimed_label()
+  end
+  return claim
 end
 
 function C.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
-    return payload
-  end
-  -- github-proxy's pre-write guard verifies the attached claim against the
-  -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
-  -- active claim label but is never an assignee, so an attached assignee
-  -- claim would always read as "lost" and block every write. Ownership in
-  -- label-mode is instead verified at claim time (claim_issue_for_management),
-  -- so skip attaching the assignee claim and let github-proxy's no-claim path
-  -- proceed. Assignee-mode is unchanged.
-  if config.claim_mode() == "label" then
     return payload
   end
   payload.claim = C.claim_required_payload(source_ref or payload.source_ref)

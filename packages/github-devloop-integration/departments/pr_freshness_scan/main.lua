@@ -24,6 +24,7 @@ local spec = {
   consumes = { "devloop_branch_tick" },
   produces = { "devloop_sync_conflict" },
   fanout = { "devloop_branch_tick" },
+  retry = {},
   stall_window = "10m",
 }
 
@@ -208,10 +209,12 @@ local function candidate_reason(pr, origin, issue, state)
   if state.state == "fixing" or state.state == "review-meta" or state.state == "merging" then
     return nil, "arbitrating"
   end
-  if is_approved(pr, origin) then
-    return "approved"
+  local approved = is_approved(pr, origin)
+    or m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil
+  if approved and is_imminently_mergeable(pr) then
+    return nil, "imminently-mergeable"
   end
-  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
+  if approved then
     return "approved"
   end
   if is_blocked_by_skew(pr, issue) and is_imminently_mergeable(pr) then
@@ -280,7 +283,7 @@ local function push_if_real(repo, branch, branch_sha, worktree)
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(core.git, repo, { branch }, "PR freshness fetch")
   local rechecked_branch_sha = git_mechanics.remote_head(core.git, branch, "PR freshness remote head", "unsafe PR freshness branch head")
   if rechecked_branch_sha ~= branch_sha then

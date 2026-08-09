@@ -382,5 +382,35 @@ class RestartLifecycleRatchetTest(unittest.TestCase):
                 self.assertEqual(ratchet.repository_messages(root, enforce_base=False), [])
 
 
+class MalformedInventoryTest(unittest.TestCase):
+    """A syntactically invalid inventory must become a typed violation, never a traceback.
+
+    An uncaught parse error exits the checker without a domain verdict, which the local-iteration
+    producer can only report as UNKNOWN — and an UNKNOWN verification is redriven forever instead of
+    telling the implementation what is wrong. Observed live on #3148: an implementation committed
+    unresolved git conflict markers into the inventory, so every harvest re-ran and re-failed.
+    """
+
+    def test_unparseable_inventory_yields_a_violation_naming_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'migration').mkdir(parents=True, exist_ok=True)
+            (root / ratchet.INVENTORY).write_text(
+                '{\n<<<<<<< HEAD\n  "artifact_sha256": "a",\n=======\n'
+                '  "artifact_sha256": "b",\n>>>>>>> other\n}\n',
+                encoding='utf-8',
+            )
+            messages = ratchet.repository_messages(root, enforce_base=False)
+            self.assertTrue(messages, 'an unparseable inventory must produce at least one violation')
+            self.assertTrue(
+                any(ratchet.INVENTORY in message for message in messages),
+                f'violation must name {ratchet.INVENTORY}: {messages}',
+            )
+            self.assertTrue(
+                any('conflict' in message.lower() or 'json' in message.lower() for message in messages),
+                f'violation must say why the file could not be read: {messages}',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

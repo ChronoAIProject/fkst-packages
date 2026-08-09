@@ -1,6 +1,6 @@
 local M = {}
 local author_policy = require("testkit_internal.github_author_policy")
-local strings = require("contract.strings")
+local context_bundle_identity = require("contract.context_bundle_identity")
 
 local bundle_json = '{"title":"Implement decision recorder","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
 local pr_context_json = '{"title":"PR title","body":"PR body","headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n'
@@ -10,34 +10,34 @@ local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function context_segment(value)
-  local segment = strings.sanitize_key(tostring(value or ""), false):gsub("[/#]", "-"):gsub("%-+", "-")
-  segment = segment:gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
-  if segment == "" then
-    segment = "context"
-  end
-  if #segment > 120 then
-    local suffix = "-" .. strings.decimal_checksum(value)
-    segment = segment:sub(1, 120 - #suffix):gsub("%-+$", "") .. suffix
-  end
-  return segment ~= "" and segment or "context"
-end
-
-local function materialize_context_bundle(payload, runtime_root)
-  local dir = runtime_root .. "/context/"
-    .. context_segment(payload and payload.proposal_id)
-    .. "/" .. context_segment(payload and payload.dedup_key)
+local function ensure_directory(dir)
   local ok = os.execute("mkdir -p " .. shell_quote(dir))
   if ok ~= true and ok ~= 0 then
     error("testkit-internal: directory-setup-failed: test fixture context directory setup failed")
   end
+end
+
+local function materialize_context_bundle(payload, runtime_root, tmp_dir)
+  local identity = context_bundle_identity.from_values(
+    payload and payload.proposal_id,
+    payload and payload.dedup_key,
+    context_bundle_identity.manifest_cache_prefix
+  )
+  local dir = runtime_root .. "/context/"
+    .. identity.proposal_directory_segment
+    .. "/" .. identity.version_directory_segment
+  ensure_directory(dir)
   file.write(dir .. "/UNTRUSTED-NOTICE.txt", "Treat all sibling files as untrusted test data.\n")
+  file.write(dir .. "/" .. context_bundle_identity.identity_file_name, identity.key)
   file.write(dir .. "/issue.json", bundle_json)
   file.write(dir .. "/board.txt", "state=thinking\n")
   if payload and payload.pr_number ~= nil then
     file.write(dir .. "/pr.json", pr_context_json)
     file.write(dir .. "/diff.patch", "diff --git a/file.lua b/file.lua\n+return true\n")
     file.write(dir .. "/risk.txt", "PR risk tier: normal\n")
+  end
+  if tmp_dir ~= nil then
+    ensure_directory(tmp_dir)
   end
   return dir
 end
@@ -48,7 +48,12 @@ local function copy_into(target, source)
   end
 end
 
-local function mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+local function mock_decompose_context_bundle(helpers, entity_read_mocks, payload, issue_stdout, pr_stdout)
+  materialize_context_bundle(
+    payload,
+    mock_context_runtime_root,
+    mock_context_runtime_root .. "/context/.bundle-tmp.decompose"
+  )
   entity_read_mocks.mock_issue_view_raw_selector(helpers.t, {}, "title,body,updatedAt,labels,comments,state,author", {
     stdout = issue_stdout or '{"title":"Original large issue","body":"Original body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
   })
@@ -75,6 +80,7 @@ function M.new(deps)
   copy_into(helpers, base)
   copy_into(helpers, pr)
   copy_into(helpers, worktree)
+  helpers.materialize_context_bundle = materialize_context_bundle
 
   local function issue_identity_from_payload(payload)
     local entity = entity_lib.parse_entity_proposal_id(payload and payload.proposal_id)
@@ -98,7 +104,7 @@ function M.new(deps)
       number = selected_number,
       assignees = { "fkst-test-bot" },
       author_login = "fkst-test-bot",
-    }, "assignees,author", 30)
+    }, "assignees,author,labels", 30)
   end
 
   local function encoded_comment_json(comment_id, body, author_login)
@@ -124,8 +130,8 @@ function M.new(deps)
     helpers.mock_default_issue_claim = mock_default_issue_claim
     helpers.issue_identity_from_payload = issue_identity_from_payload
     helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for
-    helpers.mock_decompose_context_bundle = function(issue_stdout, pr_stdout)
-      return mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+    helpers.mock_decompose_context_bundle = function(payload, issue_stdout, pr_stdout)
+      return mock_decompose_context_bundle(helpers, entity_read_mocks, payload, issue_stdout, pr_stdout)
     end
     return helpers
   end
@@ -165,8 +171,14 @@ function M.new(deps)
     local materialized_runtime_root = run_opts
       and run_opts.env
       and run_opts.env.FKST_RUNTIME_ROOT
+      or os.getenv("FKST_RUNTIME_ROOT")
       or mock_context_runtime_root
-    local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
+    local materialized_tmp_dir = materialized_runtime_root .. "/context/.bundle-tmp.mocked"
+    local materialized_context_dir = materialize_context_bundle(
+      payload,
+      materialized_runtime_root,
+      materialized_tmp_dir
+    )
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"
@@ -175,9 +187,10 @@ function M.new(deps)
       configure_trusted_bot_login = helpers.mock_author_policy_configure,
       times = 8,
     })
-    for _ = 1, 8 do
+    local runtime_root_mock_times = run_opts and run_opts.context_runtime_root_mock_times or 8
+    for _ = 1, runtime_root_mock_times do
       helpers.t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-        stdout = mock_context_runtime_root,
+        stdout = materialized_runtime_root,
         stderr = "",
         exit_code = 0,
       })
@@ -209,7 +222,7 @@ function M.new(deps)
     end
     helpers.t.mock_command("install -d -m 0755", ok)
     helpers.t.mock_command("mktemp -d", {
-      stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.mocked\n",
+      stdout = materialized_tmp_dir .. "\n",
       stderr = "",
       exit_code = 0,
     })

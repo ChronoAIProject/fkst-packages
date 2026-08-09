@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import check_repo_config
+import check_repo_bot_login_mediation
 import check_repo_codex_timeout
 import check_repo_content_truncation
 import check_repo_coverage
@@ -19,6 +20,8 @@ import check_repo_service_locator
 import check_repo_ambient_surface
 import check_repo_core_param
 import check_repo_hidden_state
+import check_repo_gh_egress
+import check_repo_gh_handle_construction
 import check_repo_intake_default_surface
 import check_repo_intake_routing
 import check_repo_intent_bounded_replay
@@ -247,6 +250,8 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
 
 def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
     root = config.project_root
+    for message in check_repo_bot_login_mediation.repository_messages(root, enforce_base=True):
+        c.add(violations, "G-BOT-LOGIN-MEDIATION", message)
     for message in check_repo_fanout_only.repository_messages(root, enforce_base=True):
         c.add(violations, "G-FANOUT-ONLY", message)
     for message in check_repo_restart_preflight.repository_messages(root):
@@ -266,6 +271,10 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         c.add(violations, "G-SAGA-SPLIT", message)
     for message in check_repo_hidden_state.repository_messages(root, config.allowlist_dir, config.is_own_repo):
         c.add(violations, "G-HIDDEN-STATE", message)
+    for message in check_repo_gh_egress.repository_messages(root):
+        c.add(violations, "G-GH-EGRESS", message)
+    for message in check_repo_gh_handle_construction.repository_messages(root, enforce_base=True):
+        c.add(violations, "G-GH-HANDLE-CONSTRUCTION", message)
     for message in check_repo_intake_default_surface.repository_messages(root):
         c.add(violations, "G-INTAKE-DEFAULT-SURFACE", message)
     for message in check_repo_intake_routing.repository_messages(root):

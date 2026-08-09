@@ -1,5 +1,6 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local error_facts = require("contract.error_facts")
 local core = require("core")
 local config = require("devloop.config")
@@ -19,7 +20,7 @@ local github_factory = require("devloop.github_factory")
 local workflow_codex = require("workflow_internal.codex")
 local forge_validators = require("devloop.forge_validators")
 local sync_conflict_attempts = require("sync_conflict_department_caps").production()
-
+local prompts = require("devloop.prompts").new({ prompts = { sync_conflict = require("prompts.sync_conflict") } }, { sync_conflict = true })
 local spec = {
   consumes = { "devloop_sync_conflict" },
   produces = { "github-proxy.github_issue_create_request" },
@@ -261,7 +262,7 @@ local function record_sync_conflict_attempt(git, conflict, runtime)
       })
       return attempt
     end
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local written, pushed, commit_sha = write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
     if written or sync_conflict_attempt_commit_visible(git, conflict, commit_sha) then
       return attempt
@@ -315,7 +316,7 @@ local function push_if_real(git, conflict, worktree)
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(git, conflict.repo, { conflict.integration_branch }, "branch fetch")
   local rechecked_integration_sha = git_mechanics.remote_head(git, conflict.integration_branch, "remote branch head", "unsafe remote branch head")
   if rechecked_integration_sha ~= conflict.integration_sha then
@@ -411,6 +412,9 @@ local function read_matching_parent(github, source_repo, pr_number, origin)
   if m_claims.issue_claim_state(parent.assignees, m_claims.claim_owner(), parent.labels) ~= "self" then
     return nil, "fail-closed(parent-claim)", "parent issue is not held by the current self-only claim"
   end
+  if m_claims.claim_mode_active() == "label" then
+    m_claims.assert_current_claim_label_binding(source_repo, github)
+  end
   return parent, nil, nil
 end
 
@@ -420,7 +424,7 @@ local function recover_exhausted_pr_freshness(github, git, conflict)
     return false
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local pr = read_pr_freshness(github, source_repo, pr_number, "PR freshness terminal re-read")
   local pr_state = tostring(pr.state or ""):upper()
   if pr_state == "CLOSED" or pr_state == "MERGED" then
@@ -591,7 +595,7 @@ local function act(event, ports)
 
       devloop_logging.log_codex_start("sync_conflict", "branch-sync", "sync-conflict")
       local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("sync-conflict", {
-        prompt = core.build_sync_conflict_prompt(active_conflict),
+        prompt = prompts.build_sync_conflict_prompt(active_conflict),
         worktree = worktree,
       }))
       if type(result) ~= "table" or result.exit_code ~= 0 then

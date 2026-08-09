@@ -1,5 +1,6 @@
 local actions = require("core.materialize.actions")
 local base_ids = require("devloop.base_ids")
+local decompose_lib = require("devloop.decompose")
 local marker = require("core.marker")
 local t = fkst.test
 
@@ -191,6 +192,124 @@ return {
     t.eq(req.parent_comment_target.issue_number, 42)
     t.is_true(has(req.body, "fkst:github-devloop-workflow:lineage:v1"))
     t.is_true(has(req.body, "Implement the requested page."))
+    t.is_true(not has(req.body, "decompose-lineage:v1"))
+  end,
+
+  test_issue_create_preserves_parent_decompose_lineage_outside_generated_spec = function()
+    local root = "github-devloop/issue/owner/repo/7"
+    local req = actions.issue_create_request(repo, 42, origin, "d-3588118930", "implement", entry(), {
+      title = "Implement the website feature",
+      body = "Implement the requested page.",
+    }, "Parent body.\n\n" .. decompose_lib.decompose_lineage_marker(root, 1))
+
+    t.is_true(req.body:find(decompose_lib.decompose_lineage_marker(root, 1), 1, true) == 1)
+    local lineage = decompose_lib.decompose_lineage(req.body)
+    t.eq(lineage.root, root)
+    t.eq(lineage.depth, 1)
+
+    local issue = {
+      number = 7,
+      title = req.title,
+      body = req.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. entry().child_dedup .. " -->\n",
+      author_login = "fkst-test-bot",
+    }
+    local spec = actions.spec_from_created_issue(issue, origin, "d-3588118930", "implement", entry().child_dedup)
+    t.eq(spec.title, "Implement the website feature")
+    t.eq(spec.body, "Implement the requested page.")
+  end,
+
+  test_issue_create_preserves_highest_valid_parent_decompose_lineage = function()
+    local shallow_root = "github-devloop/issue/owner/repo/7"
+    local deep_root = "github-devloop/issue/owner/repo/8"
+    local parent_body = table.concat({
+      decompose_lib.decompose_lineage_marker(shallow_root, 1),
+      '<!-- fkst:github-devloop:decompose-lineage:v1 root="malformed" depth="not-a-number" -->',
+      decompose_lib.decompose_lineage_marker(deep_root, 2),
+    }, "\n")
+    local req = actions.issue_create_request(repo, 42, origin, "d-3588118930", "implement", entry(), {
+      title = "Implement the website feature",
+      body = "Implement the requested page.",
+    }, parent_body)
+
+    local lineage = decompose_lib.decompose_lineage(req.body)
+    t.eq(lineage.root, deep_root)
+    t.eq(lineage.depth, 2)
+    t.is_true(not has(req.body, 'root="' .. shallow_root .. '"'))
+    t.is_true(not has(req.body, 'root="malformed"'))
+  end,
+
+  test_issue_create_is_stable_for_equal_depth_conflicting_parent_lineage = function()
+    local root_a = "github-devloop/issue/owner/repo/7"
+    local root_b = "github-devloop/issue/owner/repo/8"
+    local marker_a = decompose_lib.decompose_lineage_marker(root_a, 1)
+    local marker_b = decompose_lib.decompose_lineage_marker(root_b, 1)
+    local spec = {
+      title = "Implement the website feature",
+      body = "Implement the requested page.",
+    }
+    local first = actions.issue_create_request(
+      repo, 42, origin, "d-3588118930", "implement", entry(), spec, marker_a .. "\n" .. marker_b
+    )
+    local second = actions.issue_create_request(
+      repo, 42, origin, "d-3588118930", "implement", entry(), spec, marker_b .. "\n" .. marker_a
+    )
+
+    t.eq(first.body, second.body)
+    t.eq(decompose_lib.decompose_lineage(first.body).root, root_a)
+  end,
+
+  test_issue_create_ignores_non_finite_parent_decompose_depth = function()
+    local parent_body = '<!-- fkst:github-devloop:decompose-lineage:v1 root="github-devloop/issue/owner/repo/7" depth="'
+      .. string.rep("9", 400) .. '" -->'
+    local ok, req = pcall(actions.issue_create_request, repo, 42, origin, "d-3588118930", "implement", entry(), {
+      title = "Implement the website feature",
+      body = "Implement the requested page.",
+    }, parent_body)
+
+    t.is_true(ok)
+    t.is_true(not has(req.body, "decompose-lineage:v1"))
+  end,
+
+  test_generated_spec_decompose_marker_stays_logical_across_workflow_hops = function()
+    local logical_marker = decompose_lib.decompose_lineage_marker("github-devloop/issue/owner/repo/99", 1)
+    local generated_body = logical_marker .. "\n\nLogical body."
+    local req = actions.issue_create_request(repo, 42, origin, "d-3588118930", "implement", entry(), {
+      title = "Implement the website feature",
+      body = generated_body,
+    })
+    local issue = {
+      number = 7,
+      title = req.title,
+      body = req.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. entry().child_dedup .. " -->\n",
+      author_login = "fkst-test-bot",
+    }
+    local spec = actions.spec_from_created_issue(issue, origin, "d-3588118930", "implement", entry().child_dedup)
+
+    t.eq(spec.body, generated_body)
+    t.eq(decompose_lib.decompose_lineage_depth(req.body), 0)
+
+    local next_req = actions.issue_create_request(repo, 7, origin, "d-3588118930", "verify", entry(), {
+      title = "Verify the website feature",
+      body = "Verify the requested page.",
+    }, req.body)
+    t.is_true(not has(next_req.body, "decompose-lineage:v1"))
+  end,
+
+  test_spec_from_created_issue_rejects_malformed_decompose_prefix = function()
+    local req = actions.issue_create_request(repo, 42, origin, "d-3588118930", "implement", entry(), {
+      title = "Implement the website feature",
+      body = "Implement the requested page.",
+    })
+    local malformed_prefix = '<!-- fkst:github-devloop:decompose-lineage:v1 root="root" depth="invalid" -->'
+    local issue = {
+      number = 7,
+      title = req.title,
+      body = malformed_prefix .. "\n\n" .. req.body
+        .. "\n\n<!-- fkst:github-proxy:issue-create:" .. entry().child_dedup .. " -->\n",
+      author_login = "fkst-test-bot",
+    }
+
+    t.is_nil(actions.spec_from_created_issue(issue, origin, "d-3588118930", "implement", entry().child_dedup))
   end,
 
   test_spec_from_created_issue_strips_lineage_and_proxy_marker = function()

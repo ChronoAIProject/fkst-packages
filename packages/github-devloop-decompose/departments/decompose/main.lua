@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
@@ -16,7 +17,7 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local workflow_codex = require("workflow_internal.codex")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
-
+local prompts = require("devloop.prompts").new({ prompts = { decompose = require("prompts.decompose") } }, { decompose = true })
 local spec = {
   consumes = { "devloop_decompose" }, published_seam = { "devloop_decompose" },
   produces = { "github-proxy.github_issue_create_request", "github-proxy.github_pr_comment_request" },
@@ -45,7 +46,7 @@ local function parse_failure_key(decompose)
 end
 
 local function decompose_plan(decompose, current_issue, content_fetch)
-  local prompt = core.build_decompose_prompt(decompose, current_issue, content_fetch)
+  local prompt = prompts.build_decompose_prompt(decompose, current_issue, content_fetch)
   local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("decompose", workflow_codex.judgment_codex_opts(
     prompt,
     devloop_base.judgment_worktree_with_exec(exec_sync, "decompose", decompose.dedup_key)
@@ -317,7 +318,7 @@ local function decomposed_done(event)
   end
   local done = false
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local current_pr = read_current_pr(context.repo, context.decompose.pr_number)
     devloop_logging.log_forged_markers("decompose",
       context.decompose.proposal_id,
@@ -362,7 +363,7 @@ local function act_decompose(event)
   local repo = context.repo
   local issue_number = context.issue_number
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local current_pr = read_current_pr(repo, decompose.pr_number)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)

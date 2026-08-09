@@ -7,6 +7,7 @@ function M.make(core, deps)
   local entity_lib = deps.entity_lib
   local merge_batch = deps.merge_batch
   local m_mq = deps.merge_queue
+  local parsers_misc = deps.parsers_misc
   local v_merge_ready = deps.merge_ready_validator
   local payloads_builders = deps.payloads_builders
   local process_merge_ready_locked = deps.process_merge_ready_locked
@@ -55,21 +56,14 @@ function M.make(core, deps)
   end
 
   local function queue_starvation_target_entry(cause, entries)
-    local target = nil
-    for _, entry in ipairs(entries or {}) do
-      if queue_starvation_cause_matches_entry(cause, entry) then
-        target = entry
-        break
-      end
+    local head, age_minutes = m_mq.merge_queue_starvation_candidate(entries, m_mq._merge_ready_starvation_threshold_minutes, now())
+    if head == nil then
+      return nil, nil, "head-not-aged"
     end
-    if target == nil then
-      return nil, nil, "target-not-current"
+    if not queue_starvation_cause_matches_entry(cause, head) then
+      return nil, age_minutes, "target-not-current-head"
     end
-    local candidate, age_minutes = m_mq.merge_queue_starvation_candidate(entries, m_mq._merge_ready_starvation_threshold_minutes, now())
-    if not queue_starvation_cause_matches_entry(cause, candidate) then
-      return nil, age_minutes, "target-not-aged-candidate"
-    end
-    return target, age_minutes, "aged-candidate"
+    return head, age_minutes, "aged-head"
   end
 
   local function process_merge_queue_tick(event)
@@ -96,7 +90,7 @@ function M.make(core, deps)
       return
     end
     with_lock(lock_key, function()
-      devloop_base.assert_trusted_bot_configured()
+      parsers_misc.assert_trusted_bot_configured()
       local branches = config.branch_config()
       local head, entries = merge_queue_head_all(repo, branches.integration)
       if head == nil then
@@ -164,18 +158,14 @@ function M.make(core, deps)
       end
       merge_ready._merge_pass = "poll"
       devloop_logging.log_entry("merge", event, merge_ready.proposal_id, merge_ready.dedup_key)
-      local selected_is_fifo_head = queue_starvation_cause_matches_entry(cause, head)
       local write_mode = config.write_mode()
       local outcome = process_merge_ready_locked(repo, entity.issue_number, merge_ready, branches, nil, {
-        enforce_queue = false,
+        enforce_queue = cause_kind == "queue-starvation",
         write_mode = write_mode,
         queue_starvation_cause = cause_kind == "queue-starvation" and cause or nil,
       })
       if outcome ~= nil and outcome.status == "merged" then
-        local last_merged_pr_number = outcome.pr_number
-        if cause_kind ~= "queue-starvation" or selected_is_fifo_head then
-          last_merged_pr_number = merge_batch.run_merge_batch_window(core, repo, branches, merge_ready, entries, { write_mode = write_mode }, process_merge_ready_locked)
-        end
+        local last_merged_pr_number = merge_batch.run_merge_batch_window(core, repo, branches, merge_ready, entries, { write_mode = write_mode }, process_merge_ready_locked)
         chain_merge_queue_if_non_empty(repo, branches, last_merged_pr_number or outcome.pr_number)
       end
     end)

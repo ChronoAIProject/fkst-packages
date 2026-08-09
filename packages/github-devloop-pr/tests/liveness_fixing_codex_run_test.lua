@@ -35,12 +35,6 @@ local config = fixture.config
 local repo = fixture.repo
 local proposal_id = fixture.proposal_id
 local restart_transition_row = fixture.restart_transition_row
-local nonce = fixture.nonce
-local json_string = fixture.json_string
-local json_value = fixture.json_value
-local json_object = fixture.json_object
-local seed_codex_run = fixture.seed_codex_run
-local live_run_timing = fixture.live_run_timing
 local seed_role_codex_run = fixture.seed_role_codex_run
 local trusted_comment = fixture.trusted_comment
 local recent_comment = fixture.recent_comment
@@ -52,6 +46,7 @@ local timeout_facts = fixture.timeout_facts
 local ci_repair_hold_fixture = fixture.ci_repair_hold_fixture
 local capture_raises = fixture.capture_raises
 local captured_raise = fixture.captured_raise
+local captured_raise_index = fixture.captured_raise_index
 local with_codex_runs = fixture.with_codex_runs
 local with_codex_runs_unavailable = fixture.with_codex_runs_unavailable
 local dispatch_liveness = fixture.dispatch_liveness
@@ -219,8 +214,8 @@ return {
   test_fixing_no_codex_run_over_budget_redrives_never_reaching_blocked = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
-    local state = fixing_state(event, event.version .. "/timeout/fixing/2")
-    local comments = fixing_comments(event, state.version)
+    local state = fixing_state(event)
+    local comments = fixing_comments(event)
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
@@ -240,8 +235,15 @@ return {
       -- next timeout-attempt PR comment) and NEVER escalates to a terminal reconcile /
       -- blocked -- the timeout is a counter, not an explicit cannot-proceed.
       t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
+      t.is_true(captured_raise(raised, "devloop_fixing") ~= nil)
+      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request", function(payload)
+        return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+      end)
       t.is_true(attempt ~= nil)
+      t.is_true(captured_raise_index(raised, "devloop_fixing")
+        < captured_raise_index(raised, "github-proxy.github_pr_comment_request", function(payload)
+          return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+        end))
       t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
       t.is_true(tostring(attempt.payload.body or ""):find('state="fixing"', 1, true) ~= nil)
     end)
@@ -277,13 +279,14 @@ return {
         event.ci_failure_key
       )),
     }
-    seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key)
+    local release_codex_run = seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key)
     mock_repo_and_empty_issue_list()
     mock_pr_list()
     mock_issue_claim()
     mock_pr_state(comments)
 
     local result = run_liveness_scan("liveness-scan-fixing-live-codex", run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(h.find_raise(result.raises, "devloop_timeout_reconcile"), nil)
@@ -297,7 +300,7 @@ return {
     local branch = devloop_base.implement_branch(repo, "42", event.version)
     local rejection = reject_comment(event)
     local run_opts = opts("fixing-dispatch-live-run-no-marker", { FKST_GITHUB_WRITE = "1" })
-    seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key)
+    local release_codex_run = seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key)
     mock_fix_dispatch_context(event, branch, rejection)
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
     mock_existing_fix_worktree(branch, event.reviewed_head_sha)
@@ -310,6 +313,7 @@ return {
     mock_pr_fix({ m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev") }, branch, "feedface")
 
     local result = run_fix(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
@@ -358,7 +362,7 @@ return {
     local run_opts = opts("fixing-dispatch-expired-run-starts", {
       FKST_GITHUB_WRITE = "1",
     })
-    seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key, {
+    local release_codex_run = seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key, {
       lease_expires_at_ms = (now() - 60) * 1000,
       timeout_seconds = 1,
     })
@@ -374,6 +378,7 @@ return {
     mock_pr_fix({ m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev") }, branch, "feedface")
 
     local result = run_fix(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("git push origin"), 1)

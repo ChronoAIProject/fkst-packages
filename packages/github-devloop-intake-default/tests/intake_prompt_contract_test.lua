@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local h = require("tests.devloop_core_helpers")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
@@ -21,18 +22,18 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local marker = m_builders.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "background")
     t.eq(m_facts.has_intake_decision_marker({ { body = marker, author_login = "ordinary-user" } }, proposal_id), false)
-    local fact = m_facts.intake_decision_fact({ { body = marker, author_login = devloop_base.trusted_bot_login() } }, proposal_id)
+    local fact = m_facts.intake_decision_fact({ { body = marker, author_login = parsers_misc.trusted_bot_login() } }, proposal_id)
     t.eq(fact.decision, "decline")
     t.eq(fact.service_class, "background")
     t.eq(fact.proposal_id, proposal_id)
 
     local track_marker = m_builders.intake_decision_marker(proposal_id, "track", "intake/github-devloop/issue/owner/repo/42/v-track", "standard")
-    local tracked = m_facts.intake_decision_fact({ { body = track_marker, author_login = devloop_base.trusted_bot_login() } }, proposal_id)
+    local tracked = m_facts.intake_decision_fact({ { body = track_marker, author_login = parsers_misc.trusted_bot_login() } }, proposal_id)
     t.eq(tracked.decision, "track")
     t.eq(tracked.service_class, "standard")
 
     local escalation_marker = m_builders.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v2", "standard")
-    local escalation = m_facts.intake_decision_fact({ { body = escalation_marker, author_login = devloop_base.trusted_bot_login() } }, proposal_id)
+    local escalation = m_facts.intake_decision_fact({ { body = escalation_marker, author_login = parsers_misc.trusted_bot_login() } }, proposal_id)
     t.eq(escalation.decision, "escalate-to-class")
     t.eq(escalation.service_class, "standard")
 
@@ -40,8 +41,8 @@ return {
       .. '" decision="enable" dedup="intake/github-devloop/issue/owner/repo/42/old" -->'
     local invalid_class_marker = '<!-- fkst:github-devloop:intake-decision:v1 proposal="' .. proposal_id
       .. '" decision="enable" class="urgent" dedup="intake/github-devloop/issue/owner/repo/42/bad" -->'
-    t.is_nil(m_facts.intake_decision_fact({ { body = missing_class_marker, author_login = devloop_base.trusted_bot_login() } }, proposal_id))
-    t.is_nil(m_facts.intake_decision_fact({ { body = invalid_class_marker, author_login = devloop_base.trusted_bot_login() } }, proposal_id))
+    t.is_nil(m_facts.intake_decision_fact({ { body = missing_class_marker, author_login = parsers_misc.trusted_bot_login() } }, proposal_id))
+    t.is_nil(m_facts.intake_decision_fact({ { body = invalid_class_marker, author_login = parsers_misc.trusted_bot_login() } }, proposal_id))
   end,
   test_intake_prompt_neutralizes_sentinels_and_markers = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -77,6 +78,7 @@ return {
       body = "x",
       comments = {},
     })
+    t.eq(require("contract.sha256").hex(prompt), "2eb948407b297ded9991b680828c40e9c7e0588d22c62c88905e5bbcc2dd69dc")
     t.is_true(prompt:find("Decline only when", 1, true) ~= nil)
     t.is_true(prompt:find("Recurrence check is mandatory", 1, true) ~= nil)
     t.is_true(prompt:find("escalate-to-class", 1, true) ~= nil)

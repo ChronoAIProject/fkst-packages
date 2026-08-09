@@ -1,4 +1,3 @@
-{"path":"libraries/devloop/claims.lua","module":"forge.github_view"}
 {"path":"libraries/devloop/commands/support.lua","module":"forge.git"}
 {"path":"libraries/devloop/config.lua","module":"forge.git"}
 {"path":"libraries/devloop/entity_list_cache.lua","module":"forge.github_view"}
@@ -6,4 +5,3 @@
 {"path":"libraries/devloop/github_proxy_entity_view.lua","module":"forge.github_view"}
 {"path":"libraries/devloop/parsers/misc.lua","module":"forge.strings"}
 {"path":"libraries/devloop/parsers/shared.lua","module":"forge.github_view"}
-{"path":"libraries/devloop/payloads/shared.lua","module":"forge.github_view"}

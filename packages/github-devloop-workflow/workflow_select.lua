@@ -5,6 +5,8 @@ local default_catalog = require("core.default_catalog")
 local default_intake = require("devloop.intake.default")
 local fail = require("core.errors").fail
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
+local devloop_prompts = require("devloop.prompts")
 local base_ids = require("devloop.base_ids")
 local claims = require("devloop.claims")
 local execution_start = require("devloop.execution_start")
@@ -121,7 +123,8 @@ end
 
 local function issue_body_author_is_trusted(current)
   local author = claims.issue_author_login(current or {})
-  return devloop_base.strip_bot_login_suffix(author) == devloop_base.trusted_bot_login()
+  return forge_strings.canonical_login(author)
+    == forge_strings.canonical_login(parsers_misc.trusted_bot_login())
 end
 
 local function trusted_workflow_lineage_header(ctx)
@@ -263,7 +266,7 @@ function M.build_workflow_select_prompt(ctx, eligible)
     title = devloop_base.quote_untrusted_prompt_text(current.title),
     body = devloop_base.quote_untrusted_prompt_text(current.body),
     comments = devloop_base.quote_untrusted_prompt_text(comments),
-    execution_boundary = core.execution_boundary_clause("Judge only from the issue data and offered workflow catalog entries provided in this prompt."),
+    execution_boundary = devloop_prompts.execution_boundary_clause("Judge only from the issue data and offered workflow catalog entries provided in this prompt."),
   })
 end
 
@@ -521,6 +524,7 @@ function M.handlers()
       return default_intake.act(core, event, {
         dept = "workflow_select",
         before_codex = workflow_prefilter,
+        prompts = core.intake_prompt_surface,
       })
     end,
     wrap = core.wrap_pipeline_failure,

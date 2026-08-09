@@ -59,6 +59,15 @@ local function is_candidate_with_default_age(candidate)
 end
 
 return {
+  test_current_bot_login_canonicalizes_app_spelling_and_preserves_empty_contract = function()
+    with_env({ FKST_GITHUB_BOT_LOGIN = "app/fkst-test-bot" }, function()
+      t.eq(core.current_bot_login(), "fkst-test-bot")
+    end)
+    with_env({}, function()
+      t.eq(core.current_bot_login(), "")
+    end)
+  end,
+
   test_iso_timestamp_epoch_seconds_parses_utc_timestamps = function()
     t.eq(core.iso_timestamp_epoch_seconds("1970-01-01T00:00:00Z"), 0)
     t.eq(core.iso_timestamp_epoch_seconds("1970-01-02T00:00:00Z"), 86400)

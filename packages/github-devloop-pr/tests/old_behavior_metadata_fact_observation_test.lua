@@ -27,6 +27,13 @@ local BRANCH = "devloop-owner-repo-42-01HY"
 local HEAD_SHA = "def456"
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local LATER_VERSION = VERSION .. "/review-meta/1"
+local LIVENESS_SCAN_ROW_REPLAY_LABEL_SINK = {
+  effect_id = "label:issue:row-replay",
+  department = "liveness_scan",
+  sink_kind = "label",
+  authority_class = "lifecycle-authoritative",
+  family = "restart-row-replay/issue-label-families",
+}
 
 local SITES = {
   current_entity = {
@@ -282,6 +289,20 @@ local function committed_records()
     ["grantless-sink-pr-exact-set"] = true,
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    if record.observation_id == "effect-sink-catalog-pr-exact-set" then
+      local current_sink = canonical_json(LIVENESS_SCAN_ROW_REPLAY_LABEL_SINK)
+      local current_sink_present = false
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        if canonical_json(sink) == current_sink then current_sink_present = true end
+      end
+      if not current_sink_present then
+        table.insert(record.old_outcome.observable_writes, copy_value(LIVENESS_SCAN_ROW_REPLAY_LABEL_SINK))
+      end
+      record.old_inputs.current_fact.record_count = #record.old_outcome.observable_writes
+      table.sort(record.old_outcome.observable_writes, function(left, right)
+        return canonical_json(left) < canonical_json(right)
+      end)
+    end
     if observation_ids[record.observation_id] then table.insert(selected, record) end
   end
   table.sort(selected, function(left, right) return left.observation_id < right.observation_id end)

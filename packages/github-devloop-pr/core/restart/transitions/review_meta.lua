@@ -48,10 +48,10 @@ return function(M, h)
       redrive_opens_generation = true,
     },
     terminal = false,
-    to_states = { "fixing", "blocked" },
+    to_states = { "fixing", "reviewing", "blocked" },
     driving_queue = "devloop_review_meta",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
-    output_obligation = obligation({ "review-meta:v1", "state:v1 fixing", "state:v1 blocked" }, { "fixing", "blocked" }),
+    output_obligation = obligation({ "review-meta:v1", "state:v1 fixing", "state:v1 reviewing", "state:v1 blocked" }, { "fixing", "reviewing", "blocked" }),
     temporal_obligations = {
       {
         obligation_id = "github-devloop-pr/review-meta/response-with-deadline",
@@ -126,6 +126,18 @@ return function(M, h)
           bump = true,
         },
         {
+          state = "reviewing",
+          output_variant = "no-actionable-gap",
+          cas_policy_id = "cas.legacy_review_meta_v1",
+          cas_variant = "predecision_eligibility",
+          transition_effect_entitlements = effect_entitlements("no-actionable-gap"),
+          kind = "autonomous",
+          pending_order = { participates = true, predecessor_state = "review-meta" },
+          postcondition_family = "review-meta-decision",
+          decision_type = "review-meta-decision",
+          bump = true,
+        },
+        {
           state = "blocked",
           output_variant = "block",
           cas_policy_id = "cas.legacy_review_meta_v1",
@@ -152,6 +164,7 @@ return function(M, h)
     },
     advancing_facts = {
       advancing_fact("review-meta", "fixing", { pr = true, liveness_scan = true }, "source_ref:pr"),
+      advancing_fact("review-meta", "reviewing", { pr = true, liveness_scan = true }, "source_ref:pr"),
       advancing_fact("review-meta", "blocked", { pr = true, liveness_scan = true }, "source_ref:pr"),
     },
     payload_fields = {

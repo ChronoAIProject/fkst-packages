@@ -181,6 +181,7 @@ local claims = require("devloop.claims")
 local commands = require("devloop.commands")
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
 local marker_builders = require("devloop.markers.builders")
 local capacity = require("core.intake_capacity")
 local core = require("core")
@@ -214,7 +215,7 @@ end
 local function issue(number)
   local body = assert(read_optional(root() .. "/issues/" .. tostring(number) .. ".fact"), "missing fixture issue")
   local state, decision, dev_state = body:match("^([^\n]*)\n([^\n]*)\n([^\n]*)")
-  local configured_owner = devloop_base.strip_bot_login_suffix(assert(os.getenv("FKST_GITHUB_BOT_LOGIN")))
+  local configured_owner = forge_strings.canonical_login(assert(os.getenv("FKST_GITHUB_BOT_LOGIN")))
   local current_owner = tostring(read_optional(owner_path(number)) or ""):gsub("%s+$", "")
   local proposal_id = base_ids.proposal_id(assert(os.getenv("FKST_GITHUB_REPO")), number)
   local comments = {}
@@ -296,6 +297,8 @@ function M.new()
       return config.write_mode() == "real"
     end,
     owner = claims.claim_owner,
+    assert_owner_binding = function(_repo)
+    end,
     list_open_claim_numbers = function(_repo, configured_owner)
       local numbers = {}
       for _, number in ipairs(issue_numbers()) do

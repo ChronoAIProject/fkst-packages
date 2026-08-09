@@ -23,6 +23,17 @@ function M.new(deps)
     return '"' .. json_string(value) .. '"'
   end
 
+  local function comments_then_cached(primary_comments, cached_comments)
+    local comments = {}
+    for _, comment in ipairs(primary_comments) do
+      table.insert(comments, comment)
+    end
+    for _, comment in ipairs(cached_comments) do
+      table.insert(comments, comment)
+    end
+    return comments
+  end
+
   local function review_result_approve_marker(event)
     return m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key)
   end
@@ -195,14 +206,7 @@ function M.new(deps)
     if input_comments == nil or #input_comments == 0 then
       input_comments = cached or {}
     elseif cached ~= nil then
-      local merged = {}
-      for _, comment in ipairs(input_comments) do
-        table.insert(merged, comment)
-      end
-      for _, comment in ipairs(cached) do
-        table.insert(merged, comment)
-      end
-      input_comments = merged
+      input_comments = comments_then_cached(input_comments, cached)
     end
     if tostring(state or "OPEN") == "MERGED" and last_merge_comments ~= nil then
       local merged = {}
@@ -237,14 +241,7 @@ function M.new(deps)
     if input_comments == nil or #input_comments == 0 then
       input_comments = cached or last_merge_comments or {}
     elseif cached ~= nil then
-      local merged = {}
-      for _, comment in ipairs(input_comments) do
-        table.insert(merged, comment)
-      end
-      for _, comment in ipairs(cached) do
-        table.insert(merged, comment)
-      end
-      input_comments = merged
+      input_comments = comments_then_cached(input_comments, cached)
     end
     if cached == nil
       and last_merge_comments ~= nil
@@ -305,14 +302,7 @@ function M.new(deps)
     if input_comments == nil or #input_comments == 0 then
       input_comments = cached or last_merge_comments or {}
     elseif cached ~= nil then
-      local merged = {}
-      for _, comment in ipairs(input_comments) do
-        table.insert(merged, comment)
-      end
-      for _, comment in ipairs(cached) do
-        table.insert(merged, comment)
-      end
-      input_comments = merged
+      input_comments = comments_then_cached(input_comments, cached)
     end
     if tostring(state or "OPEN") == "MERGED" and last_merge_comments ~= nil then
       local merged = {}
@@ -503,14 +493,7 @@ function M.new(deps)
     if input_comments == nil or #input_comments == 0 then
       input_comments = cached or {}
     elseif cached ~= nil then
-      local merged = {}
-      for _, comment in ipairs(input_comments) do
-        table.insert(merged, comment)
-      end
-      for _, comment in ipairs(cached) do
-        table.insert(merged, comment)
-      end
-      input_comments = merged
+      input_comments = comments_then_cached(input_comments, cached)
     end
     entity_read_mocks.mock_pr_read_forms(t, {
       repo = "owner/repo",
@@ -552,14 +535,7 @@ function M.new(deps)
         }
       end
       if cached ~= nil then
-        local merged = {}
-        for _, comment in ipairs(comments) do
-          table.insert(merged, comment)
-        end
-        for _, comment in ipairs(cached) do
-          table.insert(merged, comment)
-        end
-        comments = merged
+        comments = comments_then_cached(comments, cached)
       end
       entity_read_mocks.mock_pr_read_forms(t, {
         repo = "owner/repo",

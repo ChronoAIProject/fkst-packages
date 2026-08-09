@@ -85,25 +85,29 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
+local function build_reject_comment(event, body)
+  return requests_review.build_review_result_comment_request(core,
+    "owner/repo",
+    "42",
+    event.proposal_id,
+    event.version,
+    {
+      proposal_id = event.review_proposal_id,
+      decision = "reject",
+      body = body,
+      blocking_gap = "missing regression guard",
+      dedup_key = event.review_dedup_key,
+      source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+    },
+    event.source_ref
+  ).body
+end
+
 return {
   test_fix_write_pushes_and_marks_reviewing_new_head = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      {
-        proposal_id = event.review_proposal_id,
-        decision = "reject",
-        body = "Reject because parser must fail closed.",
-        blocking_gap = "missing regression guard",
-        dedup_key = event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject because parser must fail closed.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -164,14 +168,7 @@ return {
   test_fix_marker_lag_retries_then_visible_marker_runs = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
 
     mock_bot_env()
     mock_write_env("1")
@@ -217,14 +214,7 @@ return {
       version = core.fix_version_from_review_version(review_version),
     })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
 
     mock_bot_env()
     mock_write_env("1")
@@ -244,14 +234,7 @@ return {
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local reviewing_version = core.next_fix_version(event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     mock_bot_env()
     mock_issue_fix_for_event(event, { "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", reviewing_version),
@@ -268,14 +251,7 @@ return {
   test_fix_missing_write_dry_run_no_advance = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     mock_bot_env()
     mock_write_env("")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -294,14 +270,7 @@ return {
   test_fix_runs_after_write_is_enabled = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
 
     mock_bot_env()
@@ -358,21 +327,7 @@ return {
     second_event.work_unit_key = require("devloop.payloads.builders").fixing_work_unit_key(second_event)
     local recomputed_branch = devloop_base.implement_branch("owner/repo", "42", second_event.version)
     t.eq(first_branch ~= recomputed_branch, true)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      second_event.proposal_id,
-      second_event.version,
-      {
-        proposal_id = second_event.review_proposal_id,
-        decision = "reject",
-        body = "Reject second round.",
-        blocking_gap = "missing regression guard",
-        dedup_key = second_event.review_dedup_key,
-        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-      },
-      second_event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(second_event, "Reject second round.")
     local origin_marker = m_builders.pr_origin_marker(second_event.proposal_id, "42", first_branch, first_event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -406,14 +361,7 @@ return {
   test_fix_push_then_crash_replay_self_heals_reviewing_marker = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
 
     mock_bot_env()
@@ -443,14 +391,7 @@ return {
   test_fix_missing_head_repository_fails_closed = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
 
     mock_bot_env()
@@ -476,14 +417,7 @@ return {
   test_fix_no_changes_retained_comment_body_matches_full_byte_witness = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -518,14 +452,7 @@ return {
   test_fix_clean_worktree_with_existing_ahead_commit_reuses_it = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
-      "42",
-      event.proposal_id,
-      event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
-      event.source_ref
-    ).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -535,7 +462,10 @@ return {
     }, branch, event.version)
     mock_pr_fix({ origin_marker }, branch, "def456")
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
-    local worktree = mock_existing_fix_worktree(branch, "feedface"); t.mock_command("git -C " .. worktree .. " diff --check " .. event.reviewed_head_sha .. "..feedface", { stdout = "", stderr = "", exit_code = 0 })
+    local worktree = mock_existing_fix_worktree(branch, "feedface", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
+    })
+    t.mock_command("git -C " .. worktree .. " diff --check " .. event.reviewed_head_sha .. "..feedface", { stdout = "", stderr = "", exit_code = 0 })
     mock_implement_codex(0, "Fix commit already exists.")
     mock_git_status("")
     t.mock_command("rev-list --count", {
@@ -570,8 +500,7 @@ return {
   test_fix_reviewing_clears_stale_fix_summary_when_codex_summary_is_empty = function()
     local event = fixing({ fix_summary = "stale summary from a prior round" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local review = { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } }
-    local reject_comment = requests_review.build_review_result_comment_request(core, "owner/repo", "42", event.proposal_id, event.version, review, event.source_ref).body
+    local reject_comment = build_reject_comment(event, "Reject.")
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -579,7 +508,10 @@ return {
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, comments, branch, event.version)
     mock_pr_fix({ origin_marker }, branch, "def456")
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
-    local worktree = mock_existing_fix_worktree(branch, "feedface"); t.mock_command("git -C " .. worktree .. " diff --check " .. event.reviewed_head_sha .. "..feedface", { stdout = "", stderr = "", exit_code = 0 })
+    local worktree = mock_existing_fix_worktree(branch, "feedface", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
+    })
+    t.mock_command("git -C " .. worktree .. " diff --check " .. event.reviewed_head_sha .. "..feedface", { stdout = "", stderr = "", exit_code = 0 })
     mock_implement_codex(0, "")
     mock_git_status("")
     t.mock_command("rev-list --count", { stdout = "1\n", stderr = "", exit_code = 0 })

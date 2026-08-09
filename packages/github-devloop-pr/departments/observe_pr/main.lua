@@ -1,6 +1,8 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
+local pr_safety = require("devloop.pr_safety")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
@@ -25,6 +27,7 @@ local devloop_commands = require("devloop.commands")
 local observe_pr_caps = require("observe_pr_department_caps")
 local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local payloads_builders = require("devloop.payloads.builders")
+local liveness_scan = require("devloop.liveness_scan")
 
 local M = {}
 local restart_transition_table = core.restart_transition_table
@@ -84,35 +87,6 @@ local function origin_from_pr(repo, pr_number, current_pr)
     return origin, true
   end
   return entity_lib.pr_native_origin(repo, pr_number, current_pr), false
-end
-
-local function origin_matches_pr(origin, current_pr, repo, branches, require_issue_backing)
-  if origin.repo ~= repo then
-    return false, "repo"
-  end
-  if require_issue_backing and origin.issue_number == nil then
-    return false, "issue"
-  end
-  if tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
-    return false, "head"
-  end
-  if tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch) then
-    return false, "base"
-  end
-  if origin.base_branch ~= nil
-    and tostring(origin.base_branch or "") ~= tostring(branches.integration) then
-    return false, "base"
-  end
-  return true, "ok"
-end
-
-local function origin_base_matches_current_pr(origin, current_pr)
-  return tostring(current_pr.base_ref_name or "") == tostring(origin.base_branch)
-end
-
-local function origin_base_matches_integration(origin, branches)
-  return origin.base_branch ~= nil
-    and tostring(origin.base_branch or "") == tostring(branches.integration)
 end
 
 local function maybe_pr_label_hint(origin, pr_number, current_pr, state, source_ref)
@@ -441,8 +415,8 @@ end
 local function maybe_heal_pr_base_unmanaged_block(origin, pr_number, current_pr, state, branches, source_ref, issue_current)
   local blocked_state = visible_pr_base_unmanaged_block_state(state, origin, current_pr)
   if blocked_state == nil
-    or not origin_base_matches_current_pr(origin, current_pr)
-    or not origin_base_matches_integration(origin, branches) then
+    or not pr_safety.origin_base_matches_current_pr(origin, current_pr)
+    or not pr_safety.origin_base_matches_integration(origin, branches.integration) then
     return false
   end
   if tostring(current_pr.state or ""):lower() ~= "open" then
@@ -654,7 +628,7 @@ local function reconcile_pr_event(event)
 
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
   local function resolve_lock()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
       force_fresh = true,
@@ -690,11 +664,11 @@ local function reconcile_pr_event(event)
       devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(pr)", "PR branch facts missing")
       return
     end
-    local ok, reason = origin_matches_pr(origin, current_pr, pr.repo, branches, false)
+    local ok, reason = pr_safety.origin_matches_pr(origin, current_pr, pr.repo, branches.integration, false)
     if not ok then
       if reason == "base"
-        and origin_base_matches_current_pr(origin, current_pr)
-        and not origin_base_matches_integration(origin, branches) then
+        and pr_safety.origin_base_matches_current_pr(origin, current_pr)
+        and not pr_safety.origin_base_matches_integration(origin, branches.integration) then
         if maybe_block_unmanaged_base(pr, origin, current_pr, branches, source_ref) then
           return
         end
@@ -857,9 +831,14 @@ local function reconcile_pr_event(event)
   })
 end
 
+local function reconcile_liveness_pr_event(event)
+  liveness_scan.liveness_scan_fail_observe_payload(event and event.payload)
+  return reconcile_pr_event(event)
+end
+
 return saga.department(spec, { done = function() return false end, act = function(event)
   queue.dispatch_consumed_queue("observe_pr", spec, event, {
     ["github-proxy.github_entity_changed"] = reconcile_pr_event,
-    devloop_observe_pr = reconcile_pr_event,
+    devloop_observe_pr = reconcile_liveness_pr_event,
   }, "github-devloop-pr")
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_pr" })

@@ -61,11 +61,13 @@ local function copy_table(value, extra)
 end
 
 return {
-  test_prompt_library_exposes_single_role_scoped_installer_surface = function()
-    t.eq(type(prompt_installers.install), "function")
-    local ok, err = pcall(prompt_installers.install, {}, { prompts = {} })
+  test_prompt_library_exposes_single_role_scoped_constructor_surface = function()
+    t.eq(type(prompt_installers.new), "function")
+    t.eq(type(prompt_installers.execution_boundary_clause), "function")
+    local ok, err = pcall(prompt_installers.new, { prompts = {} })
     t.eq(ok, false)
     t.is_true(tostring(err):find("missing role install options", 1, true) ~= nil)
+    t.is_nil(prompt_installers.install)
     t.is_nil(prompt_installers.install_shared)
     t.is_nil(prompt_installers.install_implement)
     t.is_nil(prompt_installers.install_fix)
@@ -75,6 +77,13 @@ return {
     t.is_nil(prompt_installers.install_review_meta)
     t.is_nil(prompt_installers.install_intake_parser)
     t.is_nil(prompt_installers.install_review_meta_parser)
+
+    local names = {}
+    for name in pairs(require("core.devloop_wiring").prompts()) do
+      table.insert(names, name)
+    end
+    table.sort(names)
+    t.eq(table.concat(names, ","), "build_implement_prompt")
   end,
 
   test_issue_package_installs_only_issue_prompt_roles = function()
@@ -658,6 +667,7 @@ return {
       title = "Fix parser",
       body = "Expected behavior",
     }, nil, nil, nil, generic_implementation_result_context)
+    t.eq(require("contract.sha256").hex(prompt), "5df806db725a7eebc27aa952a212ff8b1c44f2c47ce3fce82821b43dd306794f")
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Implement EXACTLY within this", 1, true) ~= nil)
     t.is_true(prompt:find("Issue title brief:\nFix parser", 1, true) ~= nil)

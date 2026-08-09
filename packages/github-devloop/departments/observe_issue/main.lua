@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
@@ -20,6 +21,7 @@ local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
 local pr_parent_observation = require("departments.observe_issue.pr_parent_observation")
+local liveness_scan = require("devloop.liveness_scan")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -429,7 +431,7 @@ local function reconcile_issue_event(event, opts)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
   local function process_issue_event(_, record_authoritative_version)
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
@@ -740,6 +742,11 @@ end
 
 local process_pr_event = pr_parent_observation.make(reconcile_issue_event)
 
+local function reconcile_liveness_issue_event(event)
+  liveness_scan.liveness_scan_fail_observe_payload(event and event.payload)
+  return reconcile_issue_event(event)
+end
+
 return saga.department(spec, { done = function() return false end, act = function(event)
   queue.dispatch_consumed_queue("observe_issue", spec, event, {
     ["github-proxy.github_entity_changed"] = function(e)
@@ -748,6 +755,6 @@ return saga.department(spec, { done = function() return false end, act = functio
       end
       return reconcile_issue_event(e)
     end,
-    devloop_observe_issue = reconcile_issue_event,
+    devloop_observe_issue = reconcile_liveness_issue_event,
   })
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_issue" })

@@ -134,6 +134,7 @@ return {
       title = "Fix parser",
       body = "Expected behavior",
     }, "Review says the implementation raised the bounds.", fix.framing, manifest)
+    t.eq(require("contract.sha256").hex(prompt), "a1fad069781ea718c89d3bd31665a0cf4eb2599cde9491f60871e02baa494e1e")
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Fix EXACTLY within this agreed framing", 1, true) ~= nil)
     t.is_true(prompt:find("Fix the bounded source_ref migration only; do not raise payload limits.", 1, true) ~= nil)
@@ -244,9 +245,11 @@ return {
       title = "PR #7",
       comments = {},
     })
+    t.eq(require("contract.sha256").hex(prompt), "d7e296412e758cbf32e9c48855d90f29e58cad128320d5918d369fb2ff664193")
     t.is_true(prompt:find("If you cannot read the local context files (issue body / PR diff / comments) for ANY reason, choose `block`.", 1, true) ~= nil)
     t.is_true(prompt:find("Respond with exactly two lines", 1, true) ~= nil)
-    t.is_true(prompt:find("one word from fix, block, or spec-amendment", 1, true) ~= nil)
+    t.is_true(prompt:find("one value from fix, no-actionable-gap, block, or spec-amendment", 1, true) ~= nil)
+    t.is_true(prompt:find("Only `review_result` may approve the PR or advance it to `merge-ready`.", 1, true) ~= nil)
     t.is_true(prompt:find("fixing the PR would violate it", 1, true) ~= nil)
     t.is_nil(prompt:find("FETCH", 1, true))
     t.is_nil(prompt:find("one word from fix, block, or accept", 1, true))

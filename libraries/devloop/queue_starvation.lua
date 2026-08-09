@@ -223,29 +223,6 @@ local function newest_recent_merge(merged, now_seconds)
   return newest
 end
 
-local function merge_ready_queue_head(M, entities, now_seconds)
-  local selected = nil
-  for _, entity in ipairs(entities or {}) do
-    local state = entity.state and entity.state.state or nil
-    local age = M.stall_suspect_age_minutes(entity.state and entity.state.version or nil, now_seconds)
-    if state == "merge-ready"
-      and tonumber(age) ~= nil
-      and tonumber(age) > m_mq._merge_ready_starvation_threshold_minutes
-      and (selected == nil
-        or tonumber(age) > tonumber(selected.age_minutes)
-        or (tonumber(age) == tonumber(selected.age_minutes)
-          and tostring(entity.proposal_id or "") < tostring(selected.entity and selected.entity.proposal_id or ""))) then
-      selected = {
-        entity = entity,
-        state = state,
-        age_minutes = age,
-        threshold_minutes = m_mq._merge_ready_starvation_threshold_minutes,
-      }
-    end
-  end
-  return selected
-end
-
 local function merge_queue_head_entity(M, repo, now_seconds)
   local branches = config.branch_config()
   local _, entries = m_mq.merge_queue_head(M, repo, branches.integration)
@@ -274,27 +251,6 @@ local function merge_queue_head_entity(M, repo, now_seconds)
     age_minutes = age,
     threshold_minutes = m_mq._merge_ready_starvation_threshold_minutes,
   }
-end
-
-local function observed_queue_head(M, entities, now_seconds)
-  local selected = merge_ready_queue_head(M, entities, now_seconds)
-  if selected ~= nil and selected.entity ~= nil then
-    selected.entity.source = selected.entity.source or "observability-sample"
-  end
-  return selected
-end
-
-local function queue_head_for_starvation(M, repo, entities, now_seconds)
-  local ok, head = pcall(function()
-    return merge_queue_head_entity(M, repo, now_seconds)
-  end)
-  if ok and head ~= nil then
-    return head
-  end
-  if not ok then
-    log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=fallback reason=merge-queue-source-failed")
-  end
-  return observed_queue_head(M, entities, now_seconds)
 end
 
 function C.queue_starvation_window_key(now_seconds)
@@ -429,8 +385,14 @@ function C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
   }
 end
 
-function C.observe_queue_starvation(M, repo, entities, limits, deadline, now_seconds)
-  local queue_head = queue_head_for_starvation(M, repo, entities, now_seconds)
+function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_seconds)
+  local ok, queue_head = pcall(function()
+    return merge_queue_head_entity(M, repo, now_seconds)
+  end)
+  if not ok then
+    log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=merge-queue-source-failed")
+    return { action = "no-op", reason = "merge-queue-source-failed" }
+  end
   if queue_head == nil then
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=no-stale-merge-ready")
     return { action = "no-op", reason = "no-stale-merge-ready" }

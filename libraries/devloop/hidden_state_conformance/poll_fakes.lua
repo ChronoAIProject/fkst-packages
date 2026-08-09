@@ -3,16 +3,66 @@ local S = {}
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local git_mechanics = require("devloop.git_mechanics")
 local git_commands = require("devloop.commands.git_ops")
+local devloop_logging = require("devloop.logging")
 local pr_commands = require("devloop.commands.prs")
+
+local function with_effect_capture(fn)
+  local events = {
+    decisions = {},
+    raises = {},
+    applies = {},
+  }
+  local previous_decision = devloop_logging.log_cas_decision
+  local previous_raise = devloop_logging.log_raise
+  local previous_apply = devloop_logging.log_apply
+  devloop_logging.log_cas_decision = function(dept, proposal_id, state, from_state, to_state, outcome, reason)
+    table.insert(events.decisions, {
+      dept = dept,
+      proposal_id = proposal_id,
+      state = state,
+      from_state = from_state,
+      to_state = to_state,
+      outcome = outcome,
+      reason = reason,
+    })
+  end
+  devloop_logging.log_raise = function(dept, proposal_id, queue, payload)
+    table.insert(events.raises, {
+      dept = dept,
+      proposal_id = proposal_id,
+      queue = queue,
+      payload = payload,
+    })
+  end
+  devloop_logging.log_apply = function(dept, proposal_id, apply_state, version, label_changes, queues)
+    table.insert(events.applies, {
+      dept = dept,
+      proposal_id = proposal_id,
+      apply_state = apply_state,
+      version = version,
+      label_changes = label_changes,
+      queues = queues,
+    })
+  end
+  local ok, result = pcall(fn)
+  devloop_logging.log_cas_decision = previous_decision
+  devloop_logging.log_raise = previous_raise
+  devloop_logging.log_apply = previous_apply
+  if not ok then
+    error(result)
+  end
+  return result, events
+end
 
 function S.with(core, opts, fn)
   local head_sha = opts.head_sha
   local base_branch = opts.base_branch
   local previous_children = core.gh_issue_list_decompose_children
   local previous_branch_config = config.branch_config
-  local previous_bot_login = devloop_base.configured_trusted_bot_login()
+  local previous_bot_login = parsers_misc.configured_trusted_bot_login()
   local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
   local previous_git_is_ancestor = core.git.is_ancestor
   local previous_git_fetch_branch = core.git.fetch_branch
@@ -31,7 +81,7 @@ function S.with(core, opts, fn)
       return { exit_code = 0, stdout = "[]", stderr = "" }
     end
   end
-  devloop_base.configure_trusted_bot_login(core._test_bot_login or "fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login(core._test_bot_login or "fkst-test-bot")
   git_mechanics.with_repo_ref_store_lock = function(_, locked_fn)
     return locked_fn()
   end
@@ -81,11 +131,11 @@ function S.with(core, opts, fn)
     return "Hidden-state conformance board fixture."
   end
 
-  local ok, first, second = pcall(fn)
+  local ok, first, second = pcall(with_effect_capture, fn)
   if type(previous_children) == "function" then
     core.gh_issue_list_decompose_children = previous_children
   end
-  devloop_base.configure_trusted_bot_login(previous_bot_login)
+  parsers_misc.configure_trusted_bot_login(previous_bot_login)
   git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
   config.branch_config = previous_branch_config
   core.git.is_ancestor = previous_git_is_ancestor

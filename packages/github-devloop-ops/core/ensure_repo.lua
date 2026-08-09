@@ -4,6 +4,7 @@ local error_facts = require("contract.error_facts")
 local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
+local forge_strings = require("forge.strings")
 local S = {}
 local config = require("devloop.config")
 
@@ -259,7 +260,8 @@ end
 
 local function ensure_dashboard_anchor(repo, mode, issues, bot_login)
   for _, issue in ipairs(issues or {}) do
-    if devloop_base.strip_bot_login_suffix(issue.author_login or "") == devloop_base.strip_bot_login_suffix(bot_login or "")
+    if forge_strings.canonical_login(issue.author_login)
+      == forge_strings.canonical_login(bot_login)
       and tostring(issue.title or "") == dashboard_title
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       local label_added = ensure_dashboard_anchor_label(repo, mode, issue)
@@ -361,12 +363,18 @@ end
 function M.ensure_repo()
   local cfg = config.devloop_config()
   local repo = require_repo(cfg.repo)
+  local claim_mode = config.claim_mode()
   if cfg.write_mode == "real" then
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
   end
   local repo_labels = parsers_misc.parse_repo_labels(run_gh(function(timeout)
     return labels.gh_repo_labels_list(repo, timeout)
   end, 30, "gh label list").stdout)
+  local claim_spec = nil
+  if claim_mode == "label" then
+    claim_spec = m_claims.claimed_label_spec()
+    m_claims.assert_claim_label_binding(label_index(repo_labels)[claim_spec.name], claim_spec)
+  end
   local dashboard_issues = parsers_misc.parse_dashboard_issue_list(run_gh(function(timeout)
       return dashboard.gh_dashboard_issue_all_open(repo, timeout)
     end, 30, "gh dashboard issue list").stdout
@@ -388,18 +396,18 @@ function M.ensure_repo()
   -- The active claim label backs label-mode ownership; only register it when the
   -- deployment opts into label-mode so assignee-mode repos stay unchanged.
   local claim_label_result = nil
-  if config.claim_mode() == "label" then
+  if claim_mode == "label" then
     claim_label_result = ensure_label(repo, apply_mode, repo_labels, {
-      name = m_claims.claimed_label(),
+      name = claim_spec.name,
       color = "0E8A16",
-      description = "fkst-dev-label-mode-ownership-claim",
+      description = claim_spec.description,
     })
   end
   local dashboard_result = ensure_dashboard_anchor(repo, apply_mode, dashboard_issues, cfg.bot_login)
   return {
     repo = repo,
     mode = cfg.write_mode,
-    claim_mode = config.claim_mode(),
+    claim_mode = claim_mode,
     labels = label_result,
     dashboard_label = dashboard_label_result,
     claim_label = claim_label_result,

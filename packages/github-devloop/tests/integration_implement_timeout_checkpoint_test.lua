@@ -258,6 +258,9 @@ return {
     local branch = deterministic_branch_for(event)
     local code_head = "1111111111111111111111111111111111111111"
     local result_head = "2222222222222222222222222222222222222222"
+    local advanced_base_head = "3333333333333333333333333333333333333333"
+    local merged_head = "4444444444444444444444444444444444444444"
+    local resealed_head = "5555555555555555555555555555555555555555"
     local implementing_comments = {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
@@ -284,7 +287,12 @@ return {
 
     mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
     mock_missing_remote_branch(branch)
-    local worktree = mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    local worktree = mock_existing_empty_implement_worktree_reuse({
+      base_head = advanced_base_head,
+      branch = branch,
+      ahead_count = "1",
+      merge = { stdout = "Merge made by the 'ort' strategy.\n" },
+    })
     mock_branch_diff_paths("packages/github-devloop/core.lua\n",
       "fkst: implementation result v1 " .. require("contract.sha256").hex(event.dedup_key))
     t.mock_command("rev-parse --verify refs/heads/", {
@@ -292,6 +300,17 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("rev-parse HEAD", {
+      stdout = merged_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("merge-base --is-ancestor", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    h.mock_result_checkpoint(resealed_head, branch)
     mock_implement_codex(0, "redelivery must not dispatch this result")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("3333333333333333333333333333333333333333", branch)
@@ -300,17 +319,108 @@ return {
     local retry_opts = opts("implement-result-fresh-runtime")
     local retry = run_implement(event, retry_opts)
 
-    t.is_true(first_opts.env.FKST_RUNTIME_ROOT ~= retry_opts.env.FKST_RUNTIME_ROOT)
-    t.eq(retry.exit_code, 0)
+    t.is_true(first_opts.env.FKST_RUNTIME_ROOT ~= retry_opts.env.FKST_RUNTIME_ROOT,
+      "completed-result replay must cross fresh runtime roots")
+    t.eq(retry.exit_code, 0, tostring(retry.error))
     t.eq(count_calls("codex exec"), 1)
-    t.eq(count_calls("commit --allow-empty -m"), 1)
+    t.eq(count_calls("commit --allow-empty -m"), 2)
+    t.is_true(count_calls("diff --name-only") > 0,
+      "completed implementation work must remain reachable while replay reconciles the base")
+    local merge_index = last_command_call_index("merge --no-edit")
+    local reseal_index = last_command_call_index("commit --allow-empty -m")
+    local gate_index = last_command_call_index("scripts/run.sh test-affected")
+    t.is_true(merge_index ~= nil, "completed-result replay must call merge_integration")
+    t.is_true(reseal_index ~= nil, "completed-result replay must write a replacement receipt")
+    t.is_true(gate_index ~= nil, "completed-result replay must enter harvest verification")
+    t.is_true(merge_index < reseal_index and reseal_index < gate_index,
+      "completed-result replay must merge, reseal, then run harvest verification")
     local final = find_raise(retry.raises, "github-proxy.github_issue_comment_request", function(payload)
       return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
     end)
-    t.is_true(final ~= nil)
+    t.is_true(final ~= nil, "completed-result replay must publish the harvested implementation")
     local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
-    t.eq(fact.head_sha, result_head)
-    t.is_true(tostring(final.payload.body):find(worktree, 1, true) ~= nil)
+    t.eq(fact.base_sha, advanced_base_head)
+    t.eq(fact.head_sha, resealed_head)
+    t.is_true(tostring(final.payload.body):find(worktree, 1, true) ~= nil,
+      "harvested implementation must retain the completed-result worktree")
+  end,
+
+  test_completed_result_merge_conflict_reenters_resolution_before_harvest = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local code_head = "1111111111111111111111111111111111111111"
+    local result_head = "2222222222222222222222222222222222222222"
+    local advanced_base_head = "3333333333333333333333333333333333333333"
+    local resolved_head = "4444444444444444444444444444444444444444"
+    local resolved_receipt_head = "5555555555555555555555555555555555555555"
+    local implementing_comments = {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    }
+
+    mock_issue_implement({ "fkst-dev:ready" }, nil, { times = 2 })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "completed implementation output")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(code_head, branch, nil, result_head)
+    t.mock_command("rev-parse --abbrev-ref HEAD", {
+      stdout = branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_view_failure("title,body,labels,comments,state,author", "post-output source recheck failed")
+
+    local first = run_implement(event, opts("implement-result-conflict-first-runtime"))
+    t.eq(first.exit_code, 1)
+
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+    mock_missing_remote_branch(branch)
+    mock_existing_empty_implement_worktree_reuse({
+      base_head = advanced_base_head,
+      branch = branch,
+      ahead_count = "1",
+      merge = {
+        stderr = "CONFLICT (content): merge conflict in packages/github-devloop/core.lua\n",
+        exit_code = 1,
+        unmerged_stdout = "100644 abc123 1\tpackages/github-devloop/core.lua\n",
+      },
+    })
+    t.mock_command("git show " .. branch .. ":.fkst/substrate-ref", {
+      stdout = "1111111111111111111111111111111111111111\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n",
+      "fkst: implementation result v1 " .. require("contract.sha256").hex(event.dedup_key))
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = result_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_implement_codex(0, "resolved integration conflict")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(resolved_head, branch, nil, resolved_receipt_head)
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+
+    local retry = run_implement(event, opts("implement-result-conflict-replay-runtime"))
+
+    t.eq(retry.exit_code, 0, tostring(retry.error))
+    t.eq(count_calls("codex exec"), 2)
+    local merge_index = last_command_call_index("merge --no-edit")
+    local second_codex_index = last_command_call_index("codex exec")
+    local gate_index = last_command_call_index("scripts/run.sh test-affected")
+    t.is_true(merge_index ~= nil, "conflicted completed-result replay must call merge_integration")
+    t.is_true(second_codex_index ~= nil, "conflicted completed-result replay must dispatch resolution")
+    t.is_true(gate_index ~= nil, "resolved completed-result replay must enter harvest verification")
+    t.is_true(merge_index < second_codex_index and second_codex_index < gate_index,
+      "MERGE_SKEW resolution must complete before harvest verification")
+    local final = find_raise(retry.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil, "resolved completed-result replay must publish the implementation")
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.base_sha, advanced_base_head)
+    t.eq(fact.head_sha, resolved_receipt_head)
   end,
 
   test_checkpoint_request_identity_separates_divergent_reason_replays = function()

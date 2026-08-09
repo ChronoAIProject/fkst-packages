@@ -45,6 +45,7 @@ return {
       },
     }, "Read these local files for your complete context.\nIssue JSON: /tmp/ctx/issue.json\nBoard digest: /tmp/ctx/board.txt\nPR diff patch: /tmp/ctx/diff.patch")
 
+    t.eq(require("contract.sha256").hex(prompt), "d6ef665abe1093bf511e344e5d7e6f1f5f263de28555712c2416d20b0dc8735f")
     assert_judge_preamble_slots(prompt)
     assert_github_entity_history(prompt)
     t.is_true(prompt:find("/tmp/ctx/issue.json", 1, true) ~= nil)
@@ -86,7 +87,7 @@ return {
     }, {
       {
         body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 3),
-        author_login = "fkst-test-bot",
+        author_login = "app/fkst-test-bot",
         state = "OPEN",
       },
       {

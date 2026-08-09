@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "c50a80ebb2b93c0ca3043911fb99ad444ac788fd1d385727a13d6f4aa9b631f0",
+  "artifact_sha256": "bce6a03ef446277a458531e9a3e0d2d7d52316a7dc0e29410ddb7fb6da913f87",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -35640,14 +35640,14 @@
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "comment:pr:review-meta-result",
-            "family": "state:v1/fixing|blocked+review-meta:v1",
+            "family": "state:v1/fixing|reviewing|blocked+review-meta:v1",
             "sink_kind": "comment"
           },
           {
             "authority_class": "lifecycle-authoritative",
             "department": "review_meta",
             "effect_id": "label:issue:review-meta-result",
-            "family": "state-label:fixing|blocked;dedup=review-meta/label",
+            "family": "state-label:fixing|reviewing|blocked;dedup=review-meta/label",
             "sink_kind": "label"
           },
           {
@@ -38534,7 +38534,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -38577,7 +38577,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },
@@ -39344,7 +39344,7 @@
         },
         "handoff_reference": null,
         "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
       },
       "old_outcome": {
         "cas_outcome": "applied(replay)",
@@ -39387,7 +39387,7 @@
       "typed_intent": {
         "cause_schema_id": "github-proxy.v1",
         "generation_epoch": {
-          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "replay_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
           "state_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
           "terminal": false
         },

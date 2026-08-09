@@ -26,11 +26,11 @@ local find_causal_raise = h.find_causal_raise
 
 
 
-local function trusted_issue_command(command, id)
+local function trusted_issue_command(command, id, author_login)
   return {
     id = id or ("IC_" .. tostring(command) .. "_issue_1"),
     body = "fkst: " .. tostring(command),
-    author_login = "fkst-test-bot",
+    author_login = author_login or "fkst-test-bot",
     created_at = "2026-06-04T03:00:00Z",
   }
 end
@@ -164,6 +164,21 @@ return {
     t.eq(proposal_raise.payload.round, 8)
     t.eq(proposal_raise.payload.convergence_question, "Same narrowed question")
     t.eq(proposal_raise.payload.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_issue_rereview_command_accepts_app_actor_author = function()
+    local event = issue()
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_app", "app/fkst-test-bot")
+    local comments, base_version = thinking_converge_comments(event, 7, command)
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", comments)
+
+    local result = run_observe(event, opts("operator-issue-rereview-app-author"))
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: rereview")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
+
+    t.eq(result.exit_code, 0)
+    t.is_true(response ~= nil)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
   end,
 
   test_issue_rereview_command_replays_round_seven_converge_without_true_stall = function()

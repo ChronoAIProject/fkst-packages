@@ -8,6 +8,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local m_state = require("devloop.state")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 gh_argv.install(t, core)
 
@@ -18,9 +19,15 @@ local title = "Recover intake after terminal DLQ"
 local body = "Exercise safe replay after the intake judge exhausted retries."
 local owner = "fkst-test-bot"
 local proposal_id = base_ids.proposal_id(repo, issue_number)
+local decision_version = devloop_base.intake_decision_dedup_key(proposal_id, {
+  title = title,
+  body = body,
+})
 local target_queue = "github-devloop-intake.devloop_intake_candidate"
 local target_dept = "github-devloop-intake-default.intake_judge"
 local system_path = "/usr/bin:/bin"
+local context_runtime_root = "/tmp/fkst-packages-test/github-devloop-intake-replay/runtime"
+local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.replay"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -106,7 +113,7 @@ local function mock_base_env(times)
     t.mock_command('printf %s "$FKST_GITHUB_PROXY_POLL_LABEL_PREFIX"', { stdout = "fkst-dev:,fkst-class:", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_PROXY_REPLAY_BUDGET"', { stdout = "1", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/github-devloop-intake-replay/runtime",
+      stdout = context_runtime_root,
       stderr = "",
       exit_code = 0,
     })
@@ -165,7 +172,7 @@ local function mock_claim_verify()
     number = issue_number,
     assignees = { owner },
     author_login = owner,
-  }, "assignees,author")
+  }, "assignees,author,labels")
 end
 
 local function mock_claim_write()
@@ -192,13 +199,17 @@ end
 
 local function mock_context_bundle()
   local ok = { stdout = "", stderr = "", exit_code = 0 }
+  context_fixtures.materialize_context_bundle({
+    proposal_id = proposal_id,
+    dedup_key = decision_version,
+  }, context_runtime_root, context_tmp_dir)
   for _ = 1, 6 do
     t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
     t.mock_command("test -e", { stdout = "", stderr = "", exit_code = 1 })
   end
   t.mock_command("install -d -m 0755", ok)
   t.mock_command("mktemp -d", {
-    stdout = "/tmp/fkst-packages-test/github-devloop-intake-replay/runtime/context/.bundle-tmp.replay\n",
+    stdout = context_tmp_dir .. "\n",
     stderr = "",
     exit_code = 0,
   })

@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -84,7 +85,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local branches = config.branch_config()
   local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then

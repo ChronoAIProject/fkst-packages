@@ -1,8 +1,10 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
 local m_facts = require("devloop.markers.facts")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local requests_review = require("devloop.requests.review")
 local core, sweep_bounds = require("core"), require("devloop.sweep_bounds")
 local liveness_scan = require("devloop.liveness_scan")
@@ -21,6 +23,7 @@ local spec = {
   produces = {
     "devloop_observe_pr",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "devloop_review_request",
     "devloop_reviewing",
@@ -88,6 +91,10 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
   if should_reinject_pr_base_unmanaged_heal(origin, current, state) then
     return true
   end
+  if m_fix_feedback_observation.legacy_review_meta_unbound(
+      current.comments, origin.proposal_id, state.version) ~= nil then
+    return true
+  end
   local source_ref = entity_lib.pr_source_ref(repo, pr.number)
   local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(origin.repo, origin.issue_number), state, {
     proposal_id = origin.proposal_id,
@@ -125,7 +132,7 @@ end
 
 local function act_liveness_scan(event)
   devloop_logging.log_entry("liveness_scan", event, "github-devloop/liveness-scan", "tick")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
 
   local repo = liveness_scan.liveness_scan_read_repo()
   if repo == nil then
@@ -177,8 +184,12 @@ local function act_liveness_scan(event)
         current_now_seconds
       )
       if not call_ok then
-        -- Isolate the failed PR in the existing reliable per-PR consumer so the sweep can continue.
-        liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
+        liveness_scan.liveness_scan_reinject_failure(
+          repo,
+          activation.entity,
+          "pr",
+          should_reinject
+        )
         should_reinject = false
       end
       liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)

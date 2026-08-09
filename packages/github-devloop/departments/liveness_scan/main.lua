@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
@@ -28,6 +29,7 @@ local spec = {
     "devloop_timeout_reconcile",
   },
   fanout = { "devloop_liveness_tick" },
+  retry = {},
   stall_window = "30s",
 }
 
@@ -123,7 +125,7 @@ end
 
 local function act_liveness_scan(event)
   devloop_logging.log_entry("liveness_scan", event, "github-devloop/liveness-scan", "tick")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
 
   local repo = liveness_scan.liveness_scan_read_repo()
   if repo == nil then
@@ -174,7 +176,13 @@ local function act_liveness_scan(event)
       )
       liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if not call_ok then
-        error(should_reinject, 0)
+        liveness_scan.liveness_scan_reinject_failure(
+          repo,
+          activation.entity,
+          "issue",
+          should_reinject
+        )
+        should_reinject = false
       end
       if defer_reason == "deadline" then
         liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)

@@ -35,12 +35,6 @@ local config = fixture.config
 local repo = fixture.repo
 local proposal_id = fixture.proposal_id
 local restart_transition_row = fixture.restart_transition_row
-local nonce = fixture.nonce
-local json_string = fixture.json_string
-local json_value = fixture.json_value
-local json_object = fixture.json_object
-local seed_codex_run = fixture.seed_codex_run
-local live_run_timing = fixture.live_run_timing
 local seed_role_codex_run = fixture.seed_role_codex_run
 local trusted_comment = fixture.trusted_comment
 local recent_comment = fixture.recent_comment
@@ -52,6 +46,7 @@ local timeout_facts = fixture.timeout_facts
 local ci_repair_hold_fixture = fixture.ci_repair_hold_fixture
 local capture_raises = fixture.capture_raises
 local captured_raise = fixture.captured_raise
+local captured_raise_index = fixture.captured_raise_index
 local with_codex_runs = fixture.with_codex_runs
 local with_codex_runs_unavailable = fixture.with_codex_runs_unavailable
 local dispatch_liveness = fixture.dispatch_liveness
@@ -110,11 +105,11 @@ return {
     local row = restart_transition_row("review-meta")
     local state = {
       state = "review-meta",
-      version = event.version .. "/timeout/review-meta/2",
+      version = event.version,
       proposal_id = event.proposal_id,
       marker_created_at = "2026-06-03T00:00:00Z",
     }
-    local comments = review_meta_comments(event, state.version)
+    local comments = review_meta_comments(event)
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
@@ -133,8 +128,15 @@ return {
       -- Owner directive (#2725): review-meta past budget REDRIVES (next timeout-attempt PR
       -- comment), never escalating to a terminal reconcile.
       t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
+      t.is_true(captured_raise(raised, "devloop_review_meta") ~= nil)
+      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request", function(payload)
+        return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+      end)
       t.is_true(attempt ~= nil)
+      t.is_true(captured_raise_index(raised, "devloop_review_meta")
+        < captured_raise_index(raised, "github-proxy.github_pr_comment_request", function(payload)
+          return tostring(payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+        end))
       t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
       t.is_true(tostring(attempt.payload.body or ""):find('state="review-meta"', 1, true) ~= nil)
     end)
@@ -159,13 +161,14 @@ return {
   test_review_meta_dispatch_with_live_run_without_completion_markers_skips_redelivery = function()
     local event = h.review_meta_event()
     local run_opts = opts("review-meta-dispatch-live-run-no-marker")
-    seed_role_codex_run(run_opts, "review-meta", event.proposal_id, event.version)
+    local release_codex_run = seed_role_codex_run(run_opts, "review-meta", event.proposal_id, event.version)
     h.mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(event.proposal_id, "review-meta", event.version),
     })
     h.mock_meta_codex("block", "duplicate review-meta should not spawn")
 
     local result = h.run_review_meta(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
@@ -174,7 +177,7 @@ return {
   test_review_meta_dispatch_with_expired_codex_run_starts_one_replacement = function()
     local event = h.review_meta_event()
     local run_opts = opts("review-meta-dispatch-expired-run-starts")
-    seed_role_codex_run(run_opts, "review-meta", event.proposal_id, event.version, {
+    local release_codex_run = seed_role_codex_run(run_opts, "review-meta", event.proposal_id, event.version, {
       lease_expires_at_ms = (now() - 60) * 1000,
       timeout_seconds = 1,
     })
@@ -184,6 +187,7 @@ return {
     h.mock_meta_codex("block", "replacement review-meta ran")
 
     local result = h.run_review_meta(event, run_opts)
+    release_codex_run()
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
     local comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")

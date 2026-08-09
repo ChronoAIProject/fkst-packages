@@ -1,6 +1,7 @@
 local fixtures = require("tests.materialize_reconcile_helpers")
 local base_ids = fixtures.base_ids
 local core = fixtures.core
+local decompose_lib = require("devloop.decompose")
 local digest = fixtures.digest
 local materialization = fixtures.materialization
 local materialize_reconcile = fixtures.materialize_reconcile
@@ -28,6 +29,16 @@ local child_body_with_blueprint = fixtures.child_body_with_blueprint
 local raise_capture = fixtures.raise_capture
 local run_with = fixtures.run_with
 local only_queue = fixtures.only_queue
+
+local function first_generated_entry(spec)
+  return materialization.write_generated_entry(
+    origin,
+    digest.blueprint_digest(blueprint()),
+    blueprint().steps[1],
+    materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+    spec
+  )
+end
 
 return {
   test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
@@ -83,6 +94,21 @@ return {
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) == nil)
+  end,
+
+  test_static_frontier_preserves_origin_decompose_lineage = function()
+    local root = "github-devloop/issue/owner/repo/7"
+    local raised = run_with({
+      current = issue({ comment(blueprint_marker()) }, {
+        body = "Run the workflow.\n\n" .. decompose_lib.decompose_lineage_marker(root, 1),
+      }),
+    })
+
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
+    local lineage = decompose_lib.decompose_lineage(raised[1].payload.body)
+    t.eq(lineage.root, root)
+    t.eq(lineage.depth, 1)
   end,
 
   test_unsatisfied_origin_dependency_holds_before_child_materialization = function()
@@ -337,13 +363,7 @@ return {
 
   test_existing_child_search_records_created_without_second_create = function()
     local existing_spec = generated_spec("first")
-    local generated_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local generated_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -380,13 +400,7 @@ return {
 
   test_parent_issue_created_marker_before_generator_records_created_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -424,13 +438,7 @@ return {
 
   test_parent_issue_created_marker_unreadable_waits_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local raised = run_with({
       current = issue({
@@ -455,13 +463,7 @@ return {
 
   test_parent_issue_create_intent_waits_without_codex_or_second_create = function()
     local existing_spec = generated_spec("first")
-    local planned_entry = materialization.write_generated_entry(
-      origin,
-      digest.blueprint_digest(blueprint()),
-      blueprint().steps[1],
-      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-      existing_spec
-    )
+    local planned_entry = first_generated_entry(existing_spec)
     local generator_calls = 0
     local search_calls = 0
     local raised = run_with({

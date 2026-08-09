@@ -2,6 +2,7 @@ local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
 local child_disposition_receipt = require("core.child_disposition_receipt")
 local child_result = require("core.child_result")
+local child_transfer = require("core.child_transfer")
 local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
 local frontier = require("core.frontier")
@@ -24,6 +25,14 @@ local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local saga_conformance = require("devloop.saga_conformance")
 
 local M
+local intake_prompt_surface = devloop_prompts.new({
+  prompts = {
+    intake = default_intake.prompt,
+  },
+}, {
+  intake = true,
+  intake_parser = true,
+})
 
 local function conformance_errors()
   return saga_conformance.errors(M)
@@ -34,6 +43,7 @@ M = {
   catalog = catalog,
   child_disposition_receipt = child_disposition_receipt,
   child_result = child_result,
+  child_transfer = child_transfer,
   default_catalog = default_catalog,
   digest = digest,
   frontier = frontier,
@@ -127,14 +137,17 @@ local function install_intake_surface(target)
   target.build_intake_class_followup_comment_request = function(...) return intake_class.build_intake_class_followup_comment_request(target, ...) end
   target.build_intake_class_folded_label_request = function(...) return intake_class.build_intake_class_folded_label_request(target, ...) end
   target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
-  devloop_prompts.install(target, {
-    prompts = {
-      intake = default_intake.prompt,
-    },
-  }, {
-    intake = true,
-    intake_parser = true,
-  })
+  target.output_language = devloop_prompts.output_language
+  target.prompt_preamble = devloop_prompts.prompt_preamble
+  target.judge_harness_clause = devloop_prompts.judge_harness_clause
+  target.actor_harness_clause = devloop_prompts.actor_harness_clause
+  target.review_observation_boundary_clause = devloop_prompts.review_observation_boundary_clause
+  target.short_review_observation_boundary_clause = devloop_prompts.short_review_observation_boundary_clause
+  target.execution_boundary_clause = devloop_prompts.execution_boundary_clause
+  target.render_prompt_template = devloop_prompts.render_prompt_template
+  target.build_intake_prompt = intake_prompt_surface.build_intake_prompt
+  target.parse_intake_action = intake_prompt_surface.parse_intake_action
+  target.intake_prompt_surface = intake_prompt_surface
   target.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(target, ...) end
 end
 
@@ -147,6 +160,7 @@ function M.install(target)
   catalog.install(target)
   child_disposition_receipt.install(target)
   child_result.install(target)
+  child_transfer.install(target)
   default_catalog.install(target)
   digest.install(target)
   frontier.install(target)

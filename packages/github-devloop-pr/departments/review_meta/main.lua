@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local strings = require("contract.strings")
 local m_claims = require("devloop.claims")
@@ -64,10 +65,10 @@ local function load_review_meta_context(repo, issue_number, review_meta, event, 
 end
 
 local function review_meta_codex_decision(plan)
-  devloop_logging.log_cas_decision("review_meta", plan.review_meta.proposal_id, plan.state, "review-meta", "fixing|blocked", "applied", "running review-meta codex decision")
+  devloop_logging.log_cas_decision("review_meta", plan.review_meta.proposal_id, plan.state, "review-meta", "fixing|reviewing|blocked", "applied", "running review-meta codex decision")
   devloop_logging.log_codex_start("review_meta", plan.review_meta.proposal_id, "review-meta")
   local codex_opts = workflow_codex.judgment_codex_opts(
-    core.build_review_meta_prompt(plan.review_meta, plan.current_issue, plan.content_fetch),
+    review_meta_caps.prompts.build_review_meta_prompt(plan.review_meta, plan.current_issue, plan.content_fetch),
     devloop_base.judgment_worktree_with_exec(exec_sync, "review-meta", plan.review_meta.dedup_key)
   )
   codex_opts.sync = true
@@ -89,7 +90,7 @@ local function review_meta_codex_decision(plan)
     })
     error("github-devloop: review-meta-codex-failed: review-meta codex failed: " .. tostring(stderr))
   end
-  local parsed = core.parse_review_meta_action(result.stdout)
+  local parsed = review_meta_caps.prompts.parse_review_meta_action(result.stdout)
   if parsed == nil then
     devloop_logging.log_codex_result("review_meta", plan.review_meta.proposal_id, "review-meta", result, nil, "parse-failed", {
       queue = plan.event_queue,
@@ -106,7 +107,7 @@ local function review_meta_codex_decision(plan)
   if is_reflection then
     allowed_action = parsed.action == "continue" or parsed.action == "spec-gap"
   else
-    allowed_action = parsed.action == "fix" or parsed.action == "block" or parsed.action == "spec-amendment"
+    allowed_action = parsed.action == "fix" or parsed.action == "no-actionable-gap" or parsed.action == "block" or parsed.action == "spec-amendment"
   end
   if not allowed_action then
     devloop_logging.log_codex_result("review_meta", plan.review_meta.proposal_id, "review-meta", result, nil, "invalid-action-for-mode")
@@ -129,7 +130,7 @@ end
 
 local function apply_review_meta_decision(plan, parsed, restart_effect)
   local review_meta = plan.review_meta
-  local to_state = (parsed.action == "fix" or parsed.action == "continue") and "fixing" or "blocked"
+  local to_state = ({ fix = "fixing", continue = "fixing", ["no-actionable-gap"] = "reviewing" })[parsed.action] or "blocked"
   local exit_version = devloop_state.next_review_meta_action_version(review_meta.version)
   local args = {
     core = core,
@@ -174,14 +175,14 @@ return saga.department(spec, { done = function() return false end, act = functio
   local review_meta = event.payload or {}
   if not v_review_meta.is_supported_review_meta(review_meta) then
     devloop_logging.log_entry("review_meta", event, "unknown", devloop_logging.payload_field(review_meta, "dedup_key"))
-    devloop_logging.log_cas_decision("review_meta", "unknown", { state = nil, version = nil }, "review-meta", "fixing|blocked", "skip-foreign(payload)", "unsupported event payload")
+    devloop_logging.log_cas_decision("review_meta", "unknown", { state = nil, version = nil }, "review-meta", "fixing|reviewing|blocked", "skip-foreign(payload)", "unsupported event payload")
     return
   end
 
   devloop_logging.log_entry("review_meta", event, review_meta.proposal_id, review_meta.dedup_key)
   local entity = entity_lib.parse_entity_proposal_id(review_meta.proposal_id)
   if entity == nil then
-    devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, { state = nil, version = nil }, "review-meta", "fixing|blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
+    devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, { state = nil, version = nil }, "review-meta", "fixing|reviewing|blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
   local repo = entity.repo
@@ -192,12 +193,12 @@ return saga.department(spec, { done = function() return false end, act = functio
 
   local lock_key = entity_lib.transition_lock_key(review_meta.proposal_id)
   if lock_key == nil then
-    devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, { state = nil, version = nil }, "review-meta", "fixing|blocked", "skip-foreign(proposal_id)", "no transition lock key")
+    devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, { state = nil, version = nil }, "review-meta", "fixing|reviewing|blocked", "skip-foreign(proposal_id)", "no transition lock key")
     return
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, review_meta.pr_number, 30)
     if view.exit_code ~= 0 then
@@ -227,7 +228,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     if not result_marker_visible
       and not source_marker_visible
       and devloop_state.compare_state_marker_order(state, "review-meta", review_meta.version) < 0 then
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
+      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|reviewing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
       error("github-devloop: review-meta-marker-missing: review-meta state marker not yet visible; retrying")
     end
     local snapshot = review_meta_caps.restart_effects.seal_snapshot({
@@ -248,11 +249,11 @@ return saga.department(spec, { done = function() return false end, act = functio
       overlay_version = review_meta.version,
     })
     if admission.status == "pending" then
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
+      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|reviewing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
       error("github-devloop: review-meta-marker-missing: review-meta state marker not yet visible; retrying")
     end
     if result_marker_visible then
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "skip-idempotent(review-meta marker already visible)", "review-meta result marker for incoming version is already visible")
+      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|reviewing|blocked", "skip-idempotent(review-meta marker already visible)", "review-meta result marker for incoming version is already visible")
       return
     end
     if state.state ~= "review-meta" or admission.status == "stale" then
@@ -260,7 +261,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       if admission.reason_code == "version-mismatch" then
         stale_reason = "review-meta event version does not match canonical issue marker"
       end
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", admission.cas_outcome, stale_reason)
+      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|reviewing|blocked", admission.cas_outcome, stale_reason)
       return
     end
     if admission.status ~= "apply" then
@@ -279,7 +280,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         review_meta.proposal_id,
         { state = "review-meta", version = review_meta.version, stage_rank = devloop_state.stage_rank("review-meta") },
         "review-meta",
-        "fixing|blocked",
+        "fixing|reviewing|blocked",
         "skip-idempotent(live-exec-ref)",
         "matching review-meta codex run is still live"
       )
@@ -304,15 +305,14 @@ return saga.department(spec, { done = function() return false end, act = functio
       return
     end
 
-    -- The legacy gate probes fixing before the codex result exists. Reselect only
-    -- block outcomes so the minted grant is bound to the actual routed edge.
+    -- The legacy gate probes fixing before the codex result exists. Reselect when
+    -- the result routes to a different edge so the grant binds to that edge.
     local selected_decision = admission
-    local selected_variant = "fix"
-    if parsed.action ~= "fix" and parsed.action ~= "continue" then
-      selected_variant = "block"
+    local selected_variant = parsed.action == "no-actionable-gap" and parsed.action or ((parsed.action == "fix" or parsed.action == "continue") and "fix" or "block")
+    if selected_variant ~= "fix" then
       selected_decision = review_meta_caps.restart_effects.decide_transition(snapshot, {
         semantic_variant = selected_variant,
-        target = "blocked",
+        target = selected_variant == "no-actionable-gap" and "reviewing" or "blocked",
         incoming_version = review_meta.version,
         overlay_version = review_meta.version,
       })

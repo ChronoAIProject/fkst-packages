@@ -1,8 +1,8 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local parsers_shared = require("devloop.parsers.shared")
 local strings = require("contract.strings")
 local C = {}
-local github_view = require("forge.github_view")
 local github_handle = nil
 local github_factory = require("devloop.github_factory")
 
@@ -18,7 +18,7 @@ function C.github(_M)
 end
 
 function C.label_names(_M, labels)
-  return github_view.label_names(labels)
+  return parsers_shared.label_names(labels)
 end
 
 function C.bounded_framing(framing)

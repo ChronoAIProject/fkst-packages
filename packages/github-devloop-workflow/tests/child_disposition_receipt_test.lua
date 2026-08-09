@@ -2,7 +2,6 @@ local forge_git = require("forge.git")
 local sha256 = require("contract.sha256")
 local strings = require("contract.strings")
 local receipt = require("core.child_disposition_receipt")
-local marker = require("core.marker")
 
 local t = fkst.test
 
@@ -17,11 +16,25 @@ local function fact(overrides)
     blueprint_digest = "d-1234567890",
     slot = "first",
     child_issue = "788438",
-    disposition = "satisfied",
+    disposition = "transferred",
+    successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
   }
   for key, field in pairs(overrides or {}) do
     value[key] = field
   end
+  return value
+end
+
+local function non_transfer_fact(disposition, reason_code)
+  local value = fact({ disposition = disposition })
+  value.successor_source_ref = nil
+  value.reason_code = reason_code
+  return value
+end
+
+local function fact_without_successor()
+  local value = fact()
+  value.successor_source_ref = nil
   return value
 end
 
@@ -52,15 +65,10 @@ local function receipt_json(value)
   return encoded .. "}"
 end
 
-local function assert_outcome(actual, expected)
+local function assert_transfer(actual, expected)
   t.eq(actual.disposition, expected.disposition)
-  t.eq(actual.reason_code, expected.reason_code)
-  if expected.successor_source_ref == nil then
-    t.eq(actual.successor_source_ref, nil)
-  else
-    t.eq(actual.successor_source_ref.kind, expected.successor_source_ref.kind)
-    t.eq(actual.successor_source_ref.ref, expected.successor_source_ref.ref)
-  end
+  t.eq(actual.successor_source_ref.kind, expected.successor_source_ref.kind)
+  t.eq(actual.successor_source_ref.ref, expected.successor_source_ref.ref)
 end
 
 local function result(stdout, stderr, exit_code)
@@ -214,13 +222,33 @@ local tests = {
     t.is_true(receipt.receipt_ref(first) ~= receipt.receipt_ref(second))
   end,
 
+  test_put_once_rejects_caller_asserted_non_transfer_dispositions_before_git_mutation = function()
+    local values = {
+      non_transfer_fact("satisfied"),
+      non_transfer_fact("undeliverable", "not-actionable"),
+    }
+
+    for _, value in ipairs(values) do
+      local model, commands = new_git_process()
+      local ok, err = pcall(function()
+        receipt.new({ commands = commands }).put_once(value)
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("receipt-disposition-invalid", 1, true) ~= nil)
+      t.eq(count_calls(model, "ls-remote"), 0)
+      t.eq(count_calls(model, "commit-tree"), 0)
+      t.eq(count_calls(model, "push"), 0)
+    end
+  end,
+
   test_put_once_creates_reads_back_and_replays_from_a_fresh_adapter = function()
     local model, commands = new_git_process()
     local store = receipt.new({ commands = commands })
 
     local created = store.put_once(fact())
     t.eq(created.schema, receipt.RECEIPT_SCHEMA)
-    t.eq(created.disposition, "satisfied")
+    t.eq(created.disposition, "transferred")
     t.eq(created.commit_sha, FIRST_SHA)
     t.eq(count_calls(model, "commit-tree"), 1)
     t.eq(count_calls(model, "push"), 1)
@@ -242,78 +270,48 @@ local tests = {
     t.eq(count_calls(replay_model, "cat-file"), 1)
   end,
 
-  test_put_once_source_reads_and_replays_every_child_disposition = function()
-    local values = {
-      fact(),
-      fact({
-        disposition = "undeliverable",
-        reason_code = "missing-required-artifact",
-      }),
-      fact({
-        disposition = "transferred",
-        successor_source_ref = {
-          kind = "external",
-          ref = "owner/next-repo#issue/42",
-        },
-      }),
-    }
-    local expected_ref = receipt.receipt_ref(values[1])
+  test_put_once_source_reads_and_replays_the_transfer_disposition = function()
+    local value = fact({
+      successor_source_ref = {
+        kind = "external",
+        ref = "owner/next-repo#issue/42",
+      },
+    })
+    local model, commands = new_git_process()
+    local created = receipt.new({ commands = commands }).put_once(value)
 
-    for _, value in ipairs(values) do
-      t.eq(receipt.receipt_ref(value), expected_ref)
-      local model, commands = new_git_process()
-      local created = receipt.new({ commands = commands }).put_once(value)
+    assert_transfer(created, value)
+    t.eq(created.commit_sha, FIRST_SHA)
 
-      assert_outcome(created, value)
-      t.eq(created.commit_sha, FIRST_SHA)
+    local replay_model, replay_commands = new_git_process({
+      refs = model.refs,
+      commits = model.commits,
+    })
+    local fresh = receipt.new({ commands = replay_commands })
+    assert_transfer(fresh.read(value), value)
+    local replayed = fresh.put_once(value)
 
-      local replay_model, replay_commands = new_git_process({
-        refs = model.refs,
-        commits = model.commits,
-      })
-      local fresh = receipt.new({ commands = replay_commands })
-      assert_outcome(fresh.read(value), value)
-      local replayed = fresh.put_once(value)
-
-      assert_outcome(replayed, value)
-      t.eq(replayed.commit_sha, FIRST_SHA)
-      t.eq(count_calls(replay_model, "commit-tree"), 0)
-      t.eq(count_calls(replay_model, "push"), 0)
-    end
+    assert_transfer(replayed, value)
+    t.eq(replayed.commit_sha, FIRST_SHA)
+    t.eq(count_calls(replay_model, "commit-tree"), 0)
+    t.eq(count_calls(replay_model, "push"), 0)
   end,
 
   test_put_once_rejects_invalid_outcome_values_before_git_mutation = function()
     local cases = {
-      fact({ disposition = "unknown" }),
+      non_transfer_fact("unknown"),
+      non_transfer_fact("satisfied"),
+      non_transfer_fact("undeliverable", "not-actionable"),
       fact({ reason_code = "forbidden" }),
+      fact_without_successor(),
       fact({
-        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
-      }),
-      fact({ disposition = "undeliverable" }),
-      fact({ disposition = "undeliverable", reason_code = "" }),
-      fact({ disposition = "undeliverable", reason_code = "not path safe" }),
-      fact({
-        disposition = "undeliverable",
-        reason_code = string.rep("x", marker.MAX_TERMINAL_REASON_CODE_BYTES + 1),
+        successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
       }),
       fact({
-        disposition = "undeliverable",
-        reason_code = "blocked",
-        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
-      }),
-      fact({ disposition = "transferred" }),
-      fact({
-        disposition = "transferred",
         successor_source_ref = { kind = "external", ref = "owner/repo#pr/9" },
       }),
       fact({
-        disposition = "transferred",
         successor_source_ref = { kind = "external", ref = "owner/repo#issue/9", extra = "field" },
-      }),
-      fact({
-        disposition = "transferred",
-        reason_code = "forbidden",
-        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
       }),
     }
 
@@ -333,20 +331,10 @@ local tests = {
   test_put_once_rejects_conflicting_committed_values_without_replacing_them = function()
     local cases = {
       {
-        committed = fact(),
-        proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" }),
-      },
-      {
-        committed = fact({ disposition = "undeliverable", reason_code = "not-actionable" }),
-        proposed = fact({ disposition = "undeliverable", reason_code = "missing-context" }),
-      },
-      {
         committed = fact({
-          disposition = "transferred",
           successor_source_ref = { kind = "external", ref = "owner/repo#issue/90" },
         }),
         proposed = fact({
-          disposition = "transferred",
           successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
         }),
       },
@@ -368,14 +356,15 @@ local tests = {
       t.eq(authoritative_sha, committed.commit_sha)
       t.eq(count_calls(model, "commit-tree"), 1)
       t.eq(count_calls(model, "push"), 1)
-      assert_outcome(store.read(case.committed), case.committed)
+      assert_transfer(store.read(case.committed), case.committed)
     end
   end,
 
   test_put_once_keeps_staged_bytes_bound_to_the_normalized_value = function()
-    local proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" })
+    local proposed = fact({
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/90" },
+    })
     local competing = fact({
-      disposition = "transferred",
       successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
     })
     local model, commands = new_git_process()
@@ -405,7 +394,7 @@ local tests = {
     local committed = receipt.new({ commands = commands, file = file_port }).put_once(proposed)
 
     t.eq(interleaved, true)
-    assert_outcome(committed, proposed)
+    assert_transfer(committed, proposed)
     t.eq(model.refs[receipt.receipt_ref(proposed)], committed.commit_sha)
     t.eq(count_calls(model, "commit-tree"), 1)
     t.eq(count_calls(model, "push"), 1)
@@ -429,9 +418,10 @@ local tests = {
   end,
 
   test_put_once_reports_a_conflicting_source_visible_race_winner = function()
-    local proposed = fact({ disposition = "undeliverable", reason_code = "not-actionable" })
+    local proposed = fact({
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/90" },
+    })
     local winner = fact({
-      disposition = "transferred",
       successor_source_ref = { kind = "external", ref = "owner/repo#issue/91" },
     })
     local model, commands = new_git_process()
@@ -499,27 +489,15 @@ local tests = {
 
   test_read_fails_closed_for_invalid_outcome_content = function()
     local cases = {
-      fact({ disposition = "unknown" }),
+      non_transfer_fact("unknown"),
+      non_transfer_fact("satisfied"),
+      non_transfer_fact("undeliverable", "not-actionable"),
       fact({ reason_code = "forbidden" }),
-      fact({ disposition = "undeliverable" }),
-      fact({ disposition = "undeliverable", reason_code = "not path safe" }),
+      fact_without_successor(),
       fact({
-        disposition = "undeliverable",
-        reason_code = "blocked",
-        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
-      }),
-      fact({ disposition = "transferred" }),
-      fact({
-        disposition = "transferred",
         successor_source_ref = { kind = "external", ref = "owner/repo#pr/9" },
       }),
       fact({
-        disposition = "transferred",
-        reason_code = "forbidden",
-        successor_source_ref = { kind = "external", ref = "owner/repo#issue/9" },
-      }),
-      fact({
-        disposition = "transferred",
         successor_source_ref = { kind = "external", ref = "owner/repo#issue/9", extra = "field" },
       }),
       fact({ unsupported_field = "field" }),
@@ -534,6 +512,20 @@ local tests = {
       t.eq(ok, false)
       t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
     end
+  end,
+
+  test_read_fails_closed_for_a_source_visible_self_transfer_receipt = function()
+    local self_transfer = fact({
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/788438" },
+    })
+    local _, commands = seed_remote_commit(fact(), receipt_json(self_transfer) .. "\n")
+
+    local ok, err = pcall(function()
+      receipt.new({ commands = commands }).read(fact())
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("receipt-invalid", 1, true) ~= nil)
   end,
 
   test_read_fails_closed_when_committed_identity_differs_from_requested_identity = function()

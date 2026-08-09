@@ -1,0 +1,98 @@
+# Frozen pre-migration inventory for G-BOT-LOGIN-MEDIATION.
+# This is immutable review evidence, not a live allowlist or enforcement source.
+# schema=bot-login-mediation-frozen-inventory-v1
+# base_sha=ada252196182d056e5f94a72f27b3f73cd2d286b
+# base_tree=e26c5372527bf15f05cbf3eb71eb1f617f82cafd
+# detector_commit=e78b9d585b4f538895e06d17a6de1b7df794fd77
+# detector_blob=804925fb5a736b4f89f8e8f79865fe6f337d1bcc
+# scope=production Lua under libraries/ and packages/; tests and libraries/forge/strings.lua excluded
+# sweep_command_1=snapshot="$(mktemp -d)"; git archive ada252196182d056e5f94a72f27b3f73cd2d286b | tar -x -C "$snapshot"
+# sweep_command_2=TASK_BASE_TREE="$snapshot" PYTHONPATH=scripts python3 -B -c 'import os; from pathlib import Path; import check_repo_bot_login_mediation as m; sites=sorted(m.repository_sites(Path(os.environ["TASK_BASE_TREE"]))); print("recognized_site_count=%d" % len(sites)); [print("%s|%s|%d|%s" % (s.kind, s.path, s.line, s.surface)) for s in sites]'
+# sweep_result=recognized_site_count=86
+# Format: kind|path|base-line|surface
+legacy-normalizer|libraries/devloop/base.lua|153|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/base.lua|161|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|13|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|87|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|91|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|99|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|115|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claim_carriers.lua|118|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claims.lua|123|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claims.lua|275|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/claims.lua|382|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/forks.lua|23|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|26|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|33|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|42|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|210|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|252|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/github_author_policy.lua|253|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/operator_commands.lua|654|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/operator_commands.lua|655|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/parsers/misc.lua|84|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/parsers/misc.lua|87|strip_bot_login_suffix
+legacy-normalizer|libraries/devloop/parsers/misc.lua|90|strip_bot_login_suffix
+legacy-normalizer|libraries/forge/github/claim_identity.lua|42|strip_bot_login_suffix
+legacy-normalizer|libraries/forge/github/content_filter.lua|370|canon_login
+legacy-normalizer|libraries/forge/github/content_filter.lua|385|canon_login
+legacy-normalizer|libraries/forge/github/content_filter.lua|422|canon_login
+legacy-normalizer|libraries/forge/github/content_filter.lua|629|canon_login
+legacy-normalizer|libraries/forge/github/content_filter.lua|649|canon_login
+legacy-normalizer|libraries/forge/github_fake.lua|59|strip_bot_login_suffix
+legacy-normalizer|libraries/forge/github_fake.lua|67|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-ops/core/ensure_repo.lua|262|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-ops/departments/observability/dashboard.lua|491|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-ops/departments/observability/dashboard.lua|510|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-ops/departments/observability/terminal_retirement.lua|70|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-ops/departments/observability/terminal_retirement.lua|73|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-workflow/core/materialize/actions.lua|29|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-workflow/core/materialize/lease.lua|18|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop-workflow/workflow_select.lua|125|strip_bot_login_suffix
+legacy-normalizer|packages/github-devloop/departments/implement/external_pr_bridge.lua|34|strip_bot_login_suffix
+legacy-normalizer|packages/github-external-pr-intake/core.lua|523|canon_login
+legacy-normalizer|packages/github-external-pr-intake/core.lua|33|strip_bot_login_suffix
+legacy-normalizer|packages/github-external-pr-intake/core.lua|52|strip_bot_login_suffix
+legacy-normalizer|packages/github-external-pr-intake/core.lua|66|strip_bot_login_suffix
+legacy-normalizer|packages/github-external-pr-intake/core.lua|146|strip_bot_login_suffix
+legacy-normalizer|packages/github-external-pr-intake/departments/external_pr_intake/main.lua|158|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core.lua|12|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core.lua|20|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core.lua|195|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core/blocked_by.lua|37|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core/comment.lua|38|strip_bot_login_suffix
+legacy-normalizer|packages/github-proxy/core/issue_create.lua|85|strip_bot_login_suffix
+legacy-normalizer|packages/github-ratchet-migration-slicer/core.lua|31|strip_bot_login_suffix
+legacy-normalizer|packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua|43|strip_bot_login_suffix
+legacy-normalizer|packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua|49|strip_bot_login_suffix
+legacy-normalizer|packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua|69|strip_bot_login_suffix
+raw-login-comparison|libraries/devloop/claim_carriers.lua|91|devloop_base.strip_bot_login_suffix(assignees[1])==normalized_owner
+raw-login-comparison|libraries/devloop/claim_carriers.lua|99|devloop_base.strip_bot_login_suffix(candidate)==login
+raw-login-comparison|libraries/devloop/claim_carriers.lua|119|normalized~=normalized_owner
+raw-login-comparison|libraries/devloop/claims.lua|411|author~=inputs.owner
+raw-login-comparison|libraries/devloop/claims.lua|281|author~=owner
+raw-login-comparison|libraries/devloop/claims.lua|478|author~=owner
+raw-login-comparison|libraries/devloop/decompose.lua|161|parsers_misc.comment_author_login(issue)==devloop_base.trusted_bot_login()
+raw-login-comparison|libraries/devloop/github_author_policy.lua|254|normalized~=normalized_owner
+raw-login-comparison|libraries/devloop/parsers/misc.lua|110|author==devloop_base.trusted_bot_login()
+raw-login-comparison|packages/github-devloop-ops/core/failure_triage.lua|252|parsers_misc._comment_author_login(issue)~=devloop_base.trusted_bot_login()
+raw-login-comparison|packages/github-devloop-ops/core/failure_triage.lua|385|parsers_misc._comment_author_login(observed_issue)==devloop_base.trusted_bot_login()
+raw-login-comparison|packages/github-devloop-workflow/core/materialize/actions.lua|433|issue_author_login(issue)==trusted
+raw-login-comparison|packages/github-devloop-workflow/workflow_select.lua|125|devloop_base.strip_bot_login_suffix(author)==devloop_base.trusted_bot_login()
+raw-login-comparison|packages/github-external-pr-intake/departments/external_pr_intake/main.lua|159|login==self_login
+raw-login-comparison|packages/github-proxy/core/blocked_by.lua|171|issue_author_login(comment)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/claims.lua|54|tostring(claim.owner)~=owner
+raw-login-comparison|packages/github-proxy/core/comment.lua|129|comment_author_login(comment)==bot_login
+raw-login-comparison|packages/github-proxy/core/comment.lua|141|comment_author_login(comment)==bot_login
+raw-login-comparison|packages/github-proxy/core/comment.lua|153|comment_author_login(comment)==bot_login
+raw-login-comparison|packages/github-proxy/core/issue_create.lua|293|issue_author_login(comment)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/issue_create.lua|311|issue_author_login(comment)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/issue_create.lua|332|issue_author_login(comment)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/issue_create.lua|264|issue_author_login(issue)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/issue_create.lua|278|issue_author_login(issue)==tostring(bot_login)
+raw-login-comparison|packages/github-proxy/core/marker_guard.lua|155|M._comment_author_login(comment)==bot_login
+raw-login-membership|libraries/devloop/github_author_policy.lua|43|managed[normalized]
+raw-login-membership|libraries/devloop/parsers/misc.lua|108|trust_set[author]
+raw-login-membership|libraries/forge/github/content_filter.lua|426|whitelist[canonical]
+raw-login-membership|packages/github-external-pr-intake/core.lua|147|managed[normalized]
+raw-login-membership|packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua|70|trusted_logins[author]

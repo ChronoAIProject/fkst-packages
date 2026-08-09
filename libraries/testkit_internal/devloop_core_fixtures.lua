@@ -4,9 +4,9 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
 
 local function configure_test_bot_login(login)
-  local ok, devloop_base = pcall(require, "devloop.base")
-  if ok and type(devloop_base) == "table" and type(devloop_base.configure_trusted_bot_login) == "function" then
-    devloop_base.configure_trusted_bot_login(login or "fkst-test-bot")
+  local ok, parsers_misc = pcall(require, "devloop.parsers.misc")
+  if ok and type(parsers_misc) == "table" and type(parsers_misc.configure_trusted_bot_login) == "function" then
+    parsers_misc.configure_trusted_bot_login(login or "fkst-test-bot")
   end
 end
 

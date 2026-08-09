@@ -5,6 +5,7 @@ local devloop_logging = require("devloop.logging")
 local spec = {
   consumes = { "devloop_substrate_ref_tick" },
   produces = { "github-proxy.github_pr_comment_request" },
+  retry = {},
   stall_window = "5m",
 }
 

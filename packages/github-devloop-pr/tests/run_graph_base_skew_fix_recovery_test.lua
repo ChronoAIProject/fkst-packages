@@ -162,7 +162,7 @@ local function mock_replay_entry(event, canonical)
     number = issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "assignees,author", 4)
+  }, "assignees,author,labels", 4)
 end
 
 local function mock_comment_handoff(event, canonical, include_fixing)
