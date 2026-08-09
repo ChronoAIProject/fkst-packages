@@ -179,7 +179,7 @@ function C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadlin
       if M.observability_result_deferred(view) then
         return nil, nil, "deadline"
       end
-      local current = parsers_issue.parse_issue_view_observe(M, view.stdout)
+      local current = parsers_issue.parse_issue_view_observe(view.stdout)
       current.closed_at = issue.closed_at
       current.number = issue.number
       fact = merged_fact_from_issue(M, current)

@@ -119,7 +119,7 @@ local function load_timeout_issue_surface(repo, issue_number, proposal_id, state
   if view.exit_code ~= 0 then
     error("github-devloop: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
   end
-  local current_issue = parsers_issue.parse_issue_view_loop(core, view.stdout)
+  local current_issue = parsers_issue.parse_issue_view_loop(view.stdout)
   local issue_state = require("devloop.entity").current_entity_state(current_issue.comments, proposal_id)
   if timeout_reconcile_needs_pr_surface(state_name) then
     local snapshot = core.linked_pr_surface_snapshot(repo, proposal_id, current_issue.comments)

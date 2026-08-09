@@ -183,7 +183,7 @@ local function issue_state(repo, issue_number, current_updated_at)
     "issue",
     issue_number,
     current_updated_at,
-    function(stdout) return parsers_issue.parse_issue_view_state(core, stdout) end,
+    function(stdout) return parsers_issue.parse_issue_view_state(stdout) end,
     function() return devloop_commands.gh_issue_view_state(repo, issue_number, 30) end,
     "PR freshness issue view"
   )

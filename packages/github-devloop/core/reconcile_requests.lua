@@ -65,8 +65,8 @@ function M.build_reconcile_comment_request(repo, issue_number, reconcile, action
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "reconcile_action_prefix") .. tostring(action)
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+    body = comment_strings.comment_string(M.output_language, "reconcile_action_prefix") .. tostring(action)
+      .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
       .. "\n\n"
       .. state_marker .. "\n" .. marker
       .. "\n" .. ai_sentinel,
@@ -89,8 +89,8 @@ function M.build_fix_reconcile_comment_request(repo, issue_number, fix_reconcile
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, comment_strings.comment_string(M, "fix_reconcile_action_prefix") .. tostring(action)
-    .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+  }, comment_strings.comment_string(M.output_language, "fix_reconcile_action_prefix") .. tostring(action)
+    .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
     .. "\n\n"
     .. state_marker .. "\n" .. marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({
@@ -110,8 +110,8 @@ function M.build_review_reconcile_comment_request(repo, issue_number, review_rec
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, comment_strings.comment_string(M, "review_reconcile_action_prefix") .. tostring(action)
-    .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+  }, comment_strings.comment_string(M.output_language, "review_reconcile_action_prefix") .. tostring(action)
+    .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
     .. "\n\n"
     .. state_marker .. "\n" .. marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({

@@ -62,7 +62,7 @@ return {
     t.eq(ready.ready_hand_off.comment_id, "IC_ready_1")
     t.eq(ready.ready_hand_off.marker_version, version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)
-    t.eq(v_ready.is_supported_ready(core, ready), true)
+    t.eq(v_ready.is_supported_ready(ready), true)
   end,
 
   test_comment_written_ready_ack_preserves_effect_version_marker_identity = function()
@@ -98,7 +98,7 @@ return {
     t.eq(ready.ready_hand_off.comment_id, "IC_ready_effect_1")
     t.eq(ready.ready_hand_off.marker_version, marker_version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)
-    t.eq(v_ready.is_supported_ready(core, ready), true)
+    t.eq(v_ready.is_supported_ready(ready), true)
   end,
 
   test_comment_written_ready_ack_without_guarded_projection_is_rejected = function()

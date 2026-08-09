@@ -74,7 +74,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       error("github-devloop: issue-read-failed: gh issue loop view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     devloop_logging.log_forged_markers("loop", unresolved.proposal_id, current.comments)
     local state = devloop_state.current_state(current.comments, unresolved.proposal_id)
     local trusted_author_policy = github_author_policy.from_handle_policy(github_factory.production_handle)

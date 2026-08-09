@@ -96,7 +96,7 @@ function M.fetch_issue(core, repo, issue_number, limits, deadline, read_cmd)
   if core.observability_result_deferred(view) then
     return nil, view.reason
   end
-  return parsers_issue.parse_issue_view_observe(core, view.stdout)
+  return parsers_issue.parse_issue_view_observe(view.stdout)
 end
 
 function M.fetch_pr(core, repo, pr_number, limits, deadline, read_cmd)

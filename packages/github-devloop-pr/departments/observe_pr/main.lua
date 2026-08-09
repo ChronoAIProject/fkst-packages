@@ -121,7 +121,7 @@ local function issue_reviewing_for_origin(origin)
   if issue_view.exit_code ~= 0 then
     error("github-devloop: gh-issue-reviewing-view-failed: gh issue reviewing view failed: " .. tostring(issue_view.stderr))
   end
-  return parsers_issue.parse_issue_view_reviewing(core, issue_view.stdout)
+  return parsers_issue.parse_issue_view_reviewing(issue_view.stdout)
 end
 
 local function issue_claim_for_origin(origin)

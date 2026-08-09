@@ -382,7 +382,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_implement(view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   local receiver_state = { state = "implementing", version = marker_ready.dedup_key }
@@ -444,7 +444,7 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_implement(view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   if state.state == "implementing"
@@ -508,7 +508,7 @@ end
 
 local function process_ready_event(event)
   local ready = event.payload or {}
-  if not v_ready.is_supported_ready(core, ready) then
+  if not v_ready.is_supported_ready(ready) then
     devloop_logging.log_entry("implement", event, "unknown", devloop_logging.payload_field(ready, "dedup_key"))
     devloop_logging.log_cas_decision("implement", "unknown", { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -548,7 +548,7 @@ local function process_ready_event(event)
       error("github-devloop: issue-read-failed: gh issue implement view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_implement(view.stdout)
     current.repo = repo
     current.number = issue_number
     local managed = m_claims.managed_bot_logins()

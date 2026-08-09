@@ -9,6 +9,8 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local core = h.core
 local t = h.t
 
@@ -117,9 +119,9 @@ local audited_english_skeletons = {
 }
 
 local function render_cases(lang)
-  comment_strings.configure_output_lang(core, lang)
+  comment_strings.configure_output_lang(core.output_language, lang)
   local rendered = comment_cases()
-  comment_strings.configure_output_lang(core, nil)
+  comment_strings.configure_output_lang(core.output_language, nil)
   return rendered
 end
 
@@ -128,6 +130,31 @@ local function body_of(case)
 end
 
 return {
+  test_localized_comment_and_resource_bytes_are_frozen = function()
+    local corpus = {
+      en = render_cases("en"),
+      zh = render_cases("zh"),
+      resources = {
+        en = comment_strings.comment_strings("en"),
+        zh = comment_strings.comment_strings("zh"),
+      },
+    }
+    t.eq(
+      sha256.hex(observation.canonical_json(corpus)),
+      "f51e9b0f732887649173d3642ead28ea02c3d35853818a580b0e67b8f735aca4"
+    )
+  end,
+
+  test_output_language_override_is_composition_local = function()
+    local other_owner = { output_language = function() return "en" end }
+    comment_strings.configure_output_lang(core.output_language, "zh")
+    comment_strings.configure_output_lang(other_owner.output_language, "en")
+    t.eq(comment_strings.comment_string(core.output_language, "reason_inline_label"), "原因：")
+    t.eq(comment_strings.comment_string(other_owner.output_language, "reason_inline_label"), "Reason: ")
+    comment_strings.configure_output_lang(core.output_language, nil)
+    comment_strings.configure_output_lang(other_owner.output_language, nil)
+  end,
+
   test_comment_template_audit_has_complete_language_table = function()
     local en = comment_strings.comment_strings("en")
     local zh = comment_strings.comment_strings("zh")

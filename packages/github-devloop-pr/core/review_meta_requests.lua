@@ -111,7 +111,7 @@ function M.build_fix_review_meta_comment_request(repo, issue_number, fix, reason
     text = base_ids.truncate_utf8(text, M._max_impl_output_len)
   end
   if text == "" then
-    text = comment_strings.comment_string(M, "no_fix_output")
+    text = comment_strings.comment_string(M.output_language, "no_fix_output")
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
   local state_marker = devloop_state.state_marker(fix.proposal_id, "review-meta", fix.version)
@@ -119,7 +119,7 @@ function M.build_fix_review_meta_comment_request(repo, issue_number, fix, reason
     kind = "pr",
     repo = repo,
     number = fix.pr_number,
-  }, comment_strings.comment_string(M, "fix_escalated_to_review_meta_prefix") .. safe_reason
+  }, comment_strings.comment_string(M.output_language, "fix_escalated_to_review_meta_prefix") .. safe_reason
     .. "\n\n" .. text
     .. "\n\n" .. state_marker
     .. "\n" .. m_builders.review_meta_marker(fix.proposal_id, fix.review_dedup_key), base_ids.dedup_key({
@@ -157,13 +157,13 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local state_version = version or review_meta.version
   local marker = review_meta_result_marker(review_meta, action, reason, state_version, blocking_gap)
-  local prefix = review_meta.mode == "fix-reflection" and comment_strings.comment_string(M, "fix_reflection_prefix") or comment_strings.comment_string(M, "review_meta_action_prefix")
+  local prefix = review_meta.mode == "fix-reflection" and comment_strings.comment_string(M.output_language, "fix_reflection_prefix") or comment_strings.comment_string(M.output_language, "review_meta_action_prefix")
   local request = entity_lib.build_entity_comment_request({
     kind = "pr",
     repo = repo,
     number = review_meta.pr_number,
   }, prefix .. review_meta_action_text(review_meta, normalized == "spec-amendment" and action or normalized)
-    .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+    .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
     .. "\n\n" .. devloop_state.state_marker(review_meta.proposal_id, to_state, state_version)
     .. "\n" .. marker, base_ids.dedup_key({
     review_meta.mode == "fix-reflection" and "fix-reflection" or "review-meta",
@@ -232,8 +232,8 @@ function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcil
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, comment_strings.comment_string(M, "fix_reconcile_action_prefix") .. tostring(action)
-    .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+  }, comment_strings.comment_string(M.output_language, "fix_reconcile_action_prefix") .. tostring(action)
+    .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
     .. "\n\n"
     .. state_marker .. "\n" .. marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({
@@ -253,8 +253,8 @@ function M.build_review_reconcile_comment_request(repo, _issue_number, review_re
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, comment_strings.comment_string(M, "review_reconcile_action_prefix") .. tostring(action)
-    .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+  }, comment_strings.comment_string(M.output_language, "review_reconcile_action_prefix") .. tostring(action)
+    .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. safe_reason
     .. "\n\n"
     .. state_marker .. "\n" .. marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({

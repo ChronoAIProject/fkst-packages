@@ -233,7 +233,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-loop-view-failed: gh issue review loop view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_review_loop(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_review_loop(issue_view.stdout)
     end
     local next_n = round + 1
     local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)

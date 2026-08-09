@@ -799,7 +799,7 @@ local function act_fix(event)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-fix-view-failed: gh issue fix view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_fix(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_fix(issue_view.stdout)
     end
 
     local speculative_predecessors = nil
