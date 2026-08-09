@@ -131,6 +131,27 @@ def load_inventory(root: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def unreadable_inventory_message(root: Path, error: json.JSONDecodeError) -> str:
+    """Say why the inventory could not be read, as a violation rather than a traceback.
+
+    An uncaught parse error leaves the checker with no domain verdict, which the local-iteration
+    producer can only report as UNKNOWN, and an UNKNOWN verification is redriven forever instead of
+    telling the implementation what to fix.
+    """
+    for number, line in enumerate(
+        (root / INVENTORY).read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if line.startswith("<<<<<<< ") or line.startswith(">>>>>>> "):
+            return (
+                f"{INVENTORY}: unresolved merge conflict marker at line {number}"
+                f" ({line.strip()}) — resolve the conflict before committing"
+            )
+    return (
+        f"{INVENTORY}: is not valid JSON — {error.msg}"
+        f" at line {error.lineno} column {error.colno}"
+    )
+
+
 def write_inventory(root: Path, inventory: dict[str, Any]) -> None:
     path = root / INVENTORY
     path.write_text(
@@ -454,7 +475,10 @@ def shrink_only_messages(
 def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
     if not (root / INVENTORY).exists():
         return []
-    inventory = load_inventory(root)
+    try:
+        inventory = load_inventory(root)
+    except json.JSONDecodeError as error:
+        return [unreadable_inventory_message(root, error)]
     messages = validate_top_level(inventory)
     if inventory.get("schema") != SCHEMA:
         messages.append(f"{INVENTORY}: schema must be {SCHEMA}")
