@@ -5,6 +5,7 @@ local base_ids = require("devloop.base_ids")
 local contract_pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
+local payload_registry = require("devloop.payload_registry")
 local C = {}
 local forge_validators = require("devloop.forge_validators")
 local contract_time = require("contract.time")
@@ -680,9 +681,12 @@ function C.pr_link_fact(comments, proposal_id, version_lineage)
   if type(comments) ~= "table" then
     return nil
   end
-  local expected_lineage = version_lineage ~= nil
-    and transition_version.strip_suffixes(version_lineage)
-    or nil
+  local expected_lineage = nil
+  if version_lineage ~= nil then
+    expected_lineage = payload_registry.resolve("dedup:ready", {
+      dedup_key = transition_version.strip_suffixes(version_lineage),
+    })
+  end
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do

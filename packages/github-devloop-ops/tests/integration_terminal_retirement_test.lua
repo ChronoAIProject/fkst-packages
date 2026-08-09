@@ -7,6 +7,7 @@ local queue_starvation = require("devloop.queue_starvation")
 local output_obligation_resolution = require("departments.observability.output_obligation_resolution")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local payload_registry = require("devloop.payload_registry")
 local decompose = require("devloop.decompose")
 local conv_reconcile = require("devloop.convergence.reconcile")
 require("departments.observability.terminal_retirement")
@@ -19,6 +20,9 @@ local result_dedup = "consensus:github-devloop/issue/owner/repo/42/intake/retire
 local reconcile_base_version = "github-devloop/issue/owner/repo/42/intake/reconcile-retirement-test"
 local reconcile_round = 3
 local reconcile_terminal_version = conv_reconcile.reconcile_state_version(reconcile_base_version, reconcile_round)
+local reconcile_impl_version = payload_registry.resolve("dedup:ready", {
+  dedup_key = reconcile_base_version,
+})
 local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
 
 local function bot_comment(body, created_at)
@@ -372,6 +376,47 @@ return {
     }
     local department, model = fake_department(comments, "OPEN", "blocked")
     mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
+  end,
+
+  test_pr_linked_reconcile_drop_lineage_remains_open = function()
+    mock_env("1")
+    local comments = reconcile_drop_comments({
+      bot_comment(
+        m_builders.pr_link_marker(
+          proposal_id,
+          7,
+          "devloop-owner-repo-42-01HY",
+          reconcile_impl_version,
+          "dev"
+        ),
+        "2000-01-02T00:00:00Z"
+      ),
+    })
+    local department, model = fake_department(comments, "OPEN", "blocked")
+    mock_census(comments, "OPEN", "blocked")
+    entity_read_mocks.mock_pr_view_selector(t, {
+      repo = repo,
+      number = 7,
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = "def456",
+      base_branch = "dev",
+      state = "OPEN",
+      comments = {
+        bot_comment(m_builders.pr_origin_marker(
+          proposal_id,
+          issue_number,
+          "devloop-owner-repo-42-01HY",
+          reconcile_impl_version,
+          "dev"
+        )),
+      },
+      labels = {},
+    }, entity_read_mocks.pr_origin_selector)
 
     local result = run_tick(department)
 
