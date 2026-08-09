@@ -22,6 +22,7 @@ local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
 local fix_caps = require("fix_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
+local restart_policy = fix_caps.restart_policy
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -30,8 +31,8 @@ local review_meta_caps = {
 }
 
 local dispatch_liveness = {
-  restart_transition_table = function(...) return core.restart_transition_table(...) end,
-  restart_row_receiver_liveness = function(...) return core.restart_row_receiver_liveness(...) end,
+  restart_transition_table = function(...) return restart_policy.restart_transition_table(...) end,
+  restart_row_receiver_liveness = function(...) return restart_policy.restart_row_receiver_liveness(...) end,
 }
 
 local payloads_builders = require("devloop.payloads.builders")

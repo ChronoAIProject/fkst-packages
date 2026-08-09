@@ -10,7 +10,7 @@ local devloop_state = deps.devloop_state
 local operator_commands = deps.operator_commands
 local replayer = deps.replayer
 local replay_fields = deps.replay_fields
-local restart_transition_table = core.restart_transition_table
+local restart_transition_table = deps.restart_policy.restart_transition_table
 local M = {}
 
 local function thinking_state_budget_exceeded(state)

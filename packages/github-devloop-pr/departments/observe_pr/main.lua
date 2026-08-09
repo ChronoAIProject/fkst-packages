@@ -29,7 +29,8 @@ local payloads_builders = require("devloop.payloads.builders")
 local liveness_scan = require("devloop.liveness_scan")
 
 local M = {}
-local restart_transition_table = core.restart_transition_table
+local restart_policy = observe_pr_caps.restart_policy
+local restart_transition_table = restart_policy.restart_transition_table
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_pr" },
@@ -142,7 +143,7 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     if observation.source == "merge-gate" and observation.status == "invalid" then
       fix_feedback_observation = observation
     else
-      feedback = core.fixing_replay_feedback_fact(
+      feedback = restart_policy.fixing_replay_feedback_fact(
         current_pr.comments, origin.proposal_id, state.version)
     end
   end
@@ -271,12 +272,12 @@ end
 
 local function maybe_liveness_timeout(origin, pr_number, current_pr, state, source_ref, issue_current, now_seconds)
   local row = replay_fields.restart_transition_row(restart_transition_table(), state and state.state)
-  if not core.restart_row_observable_on(row, "pr") then
+  if not restart_policy.restart_row_observable_on(row, "pr") then
     return false
   end
   local issue_source_ref = origin.issue_number ~= nil and entity_lib.issue_source_ref(origin.repo, origin.issue_number) or source_ref
   local head_sha = current_pr and current_pr.head_sha
-  return core.maybe_timeout_redrive_from_table("observe_pr", {
+  return restart_policy.maybe_timeout_redrive_from_table("observe_pr", {
     repo = origin.repo,
     number = origin.issue_number,
     source_ref = issue_source_ref,
