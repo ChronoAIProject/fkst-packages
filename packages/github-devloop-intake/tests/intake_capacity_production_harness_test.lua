@@ -1,5 +1,4 @@
 local capacity = require("core.intake_capacity")
-local forge_strings = require("forge.strings")
 local t = fkst.test
 
 local owner = "fkst-test-bot"
@@ -182,6 +181,7 @@ local claims = require("devloop.claims")
 local commands = require("devloop.commands")
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
 local marker_builders = require("devloop.markers.builders")
 local capacity = require("core.intake_capacity")
 local core = require("core")
