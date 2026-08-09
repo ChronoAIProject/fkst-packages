@@ -675,11 +675,11 @@ local function trusted_audit_issue(issue, trusted_login)
   if tostring(issue.body or ""):find("fkst:archaudit:audit-run:v1", 1, true) == nil then
     return false
   end
-  if trusted_login == nil or trusted_login == "" then
-    return false
-  end
-  return forge_strings.canonical_login(issue.author_login)
-    == forge_strings.canonical_login(trusted_login)
+  local canonical_author = forge_strings.canonical_login(issue.author_login)
+  local canonical_trusted_login = forge_strings.canonical_login(trusted_login)
+  return canonical_author ~= nil
+    and canonical_trusted_login ~= nil
+    and canonical_author == canonical_trusted_login
 end
 
 function M.latest_audit_issue_seconds(issues, trusted_login)

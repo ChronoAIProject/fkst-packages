@@ -380,6 +380,11 @@ return {
     t.eq(core.latest_audit_issue_seconds(issues, ""), nil)
   end,
 
+  test_audit_search_rejects_matching_malformed_bot_identities = function()
+    local issues = core.parse_audit_issue_search('[{"number":7,"body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"idle\\" -->","createdAt":"2026-06-20T00:00:00Z","author":{"login":"app/"}}]')
+    t.eq(core.latest_audit_issue_seconds(issues, "app/"), nil)
+  end,
+
   test_audit_due_verdict_uses_durable_marker_window = function()
     local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-20T01:00:00Z")
     local staleness = core.audit_due_staleness_seconds()
