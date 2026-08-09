@@ -48,8 +48,8 @@ local PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK = {
   family = "issue-blocked-by/precursor/proposal+version+blocker",
 }
 local CURRENT_SINK_FAMILIES = {
-  ["adapter:github.claim-label-add"] = "claim-label/add/fkst-dev:claimed[:owner]",
-  ["adapter:github.claim-label-remove"] = "claim-label/remove/fkst-dev:claimed[:owner]",
+  ["adapter:github.claim-label-add"] = "claim-label/add/fkst-dev:claimed[:owner-digest]",
+  ["adapter:github.claim-label-remove"] = "claim-label/remove/fkst-dev:claimed[:owner-digest]",
   ["comment:issue:consensus-result"] =
     "state:v1+result:v1+projected-label-handoff;dedup=proposal/comment/logical-result",
   ["label:issue:consensus-result"] =

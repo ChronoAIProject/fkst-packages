@@ -1,4 +1,5 @@
 local core = require("core")
+local claim_carriers = require("devloop.claim_carriers")
 local author_policy = require("testkit_internal.github_author_policy")
 local t = fkst.test
 
@@ -130,16 +131,16 @@ return {
     local payload = claim_payload("fkst-test-bot")
     local issue = {
       assignees = { { login = "FKST-Test-Bot" } },
-      labels = { { name = "fkst-dev:claimed:peer" } },
+      labels = { { name = claim_carriers.derived_label("peer") } },
     }
-    mock_ownership('[{"login":"FKST-Test-Bot"}]', '[{"name":"fkst-dev:claimed:peer"}]')
+    mock_ownership('[{"login":"FKST-Test-Bot"}]', '[{"name":"' .. claim_carriers.derived_label("peer") .. '"}]')
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), false)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), false)
   end,
 
   test_assignee_mode_refuses_label_claim_carrier = function()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local label = claim_carriers.derived_label("fkst-test-bot")
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
       assignees = { { login = "human" } },
@@ -164,20 +165,55 @@ return {
   end,
 
   test_label_claim_verification_accepts_own_label_with_human_assignee = function()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local label = spec.name
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
       assignees = { { login = "human" } },
-      labels = { { name = label } },
+      labels = { { name = label, description = spec.description } },
     }
-    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label .. '"}]', nil, "label")
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label
+      .. '","description":"' .. spec.description .. '"}]', nil, "label")
 
     t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), true)
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), true)
   end,
 
+  test_label_claim_verification_fails_closed_on_forced_owner_collision = function()
+    local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local collision_description = "fkst-dev-label-mode-ownership-claim owner=peer-bot"
+    local payload = claim_payload("fkst-test-bot", spec.name)
+    local issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = spec.name, description = collision_description } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. spec.name
+      .. '","description":"' .. collision_description .. '"}]', nil, "label")
+
+    local live_ok, live_err = pcall(
+      core.verify_issue_claim_before_write,
+      payload,
+      repo,
+      issue_number,
+      "claim_test"
+    )
+    local in_memory_ok, in_memory_err = pcall(
+      core.verify_issue_claim_in_issue,
+      issue,
+      payload,
+      repo,
+      issue_number,
+      "claim_test"
+    )
+
+    t.eq(live_ok, false)
+    t.is_true(tostring(live_err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(live_err))
+    t.eq(in_memory_ok, false)
+    t.is_true(tostring(in_memory_err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(in_memory_err))
+  end,
+
   test_label_claim_verification_refuses_label_derived_from_different_owner = function()
-    local label = "fkst-dev:claimed:peer"
+    local label = claim_carriers.derived_label("peer")
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
       assignees = { { login = "human" } },
@@ -190,7 +226,7 @@ return {
   end,
 
   test_label_claim_verification_refuses_derived_label_in_exclusive_posture = function()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local label = claim_carriers.derived_label("fkst-test-bot")
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
       assignees = { { login = "human" } },
@@ -203,7 +239,7 @@ return {
   end,
 
   test_label_claim_verification_refuses_managed_peer_assignee = function()
-    local label = "fkst-dev:claimed:fkst-test-bot"
+    local label = claim_carriers.derived_label("fkst-test-bot")
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
       assignees = { { login = "ElonSG" } },
