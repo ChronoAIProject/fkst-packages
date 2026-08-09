@@ -1,4 +1,3 @@
-local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(semantic_variant, effect_ids)
   local id = "github-devloop-pr/fixing/autonomous/" .. semantic_variant
@@ -201,7 +200,7 @@ return function(M, h)
         },
       },
     }),
-    payload_builder = payloads_builders.build_devloop_fixing_payload,
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_fixing_payload",
     dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>; timeout delivery appends delivery-redrive/<generation_key>/<attempt> to the logical replay identity",
     required_facts = {
       fact("state", "marker-read"),

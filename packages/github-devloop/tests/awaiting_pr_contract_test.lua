@@ -37,7 +37,7 @@ return {
     t.eq(row.liveness_contract.signal.family, "state")
     t.eq(row.liveness_contract.signal.resolver, "child-state")
     t.eq(row.liveness_contract.signal.surface, "pr-comment-stream")
-    t.eq(row.payload_builder, nil)
+    t.eq(row.payload_builder_symbol, nil)
     t.eq(row.responsibility_signature.receiver_kind, "pr-child-workflow")
     t.eq(row.responsibility_signature.state_kind, "gate")
     t.eq(row.responsibility_signature.output_postcondition_family, "parent_resume_from_child_state_terminal")
