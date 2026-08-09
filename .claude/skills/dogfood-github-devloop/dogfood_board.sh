@@ -50,6 +50,11 @@ issue_recency_class() { # $1 issue-number, $2 labels, $3 state, $4 age-hours, $5
   case "$st" in
     tracking|pr-open) echo "tracking/umbrella" ;;
     blocked|impl-failed|merged|declined) echo "parked($st)" ;;
+    # Standalone `dependency_wait` is the same condition already parked for
+    # `ready` + `fkst-dev:blocked-on-dependency`: a row stays in it exactly while its gate
+    # re-evaluates to waiting — `satisfied` cascades it to `ready`, and `cycle` /
+    # `unresolvable` move it to `blocked` — so persisting here IS the waiting state.
+    dependency_wait|dependency-wait) echo "parked(dependency-wait)" ;;
     thinking|ready|implementing|stalled-thinking)
       if [ "$st" = "ready" ] && issue_label_has "$labels" "fkst-dev:blocked-on-dependency"; then
         echo "parked(dependency-wait)"
