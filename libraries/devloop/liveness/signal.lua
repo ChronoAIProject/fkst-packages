@@ -14,7 +14,8 @@ local contract_time = require("contract.time")
 local devloop_logging = require("devloop.logging")
 local payloads_builders = require("devloop.payloads.builders")
 
-function S.install(M, shared)
+function S.new(policy, shared)
+local K = {}
 local numeric_minutes = shared.numeric_minutes
 local signal_age_from_created_at = shared.signal_age_from_created_at
 local marker_attr = shared.marker_attr
@@ -530,7 +531,7 @@ local function live_signal_age(M, row, state, facts, now_seconds)
   return nil
 end
 
-function M.restart_row_liveness_signal(row, state, facts, now_seconds)
+function K.restart_row_liveness_signal(row, state, facts, now_seconds)
   local contract = row and row.liveness_contract
   if type(contract) ~= "table" then
     return { live = false, reason = "missing-contract" }
@@ -539,7 +540,7 @@ function M.restart_row_liveness_signal(row, state, facts, now_seconds)
     and row.actionable_epoch
     and (row.actionable_epoch.source == "codex_run:v1"
       or row.actionable_epoch.source == "codex_run_with_durable_hold:v1") then
-    return codex_run_liveness_signal(M, row, state, facts, now_seconds)
+    return codex_run_liveness_signal(policy, row, state, facts, now_seconds)
   end
   local signal_contract = liveness_contract_signal(contract)
   if type(signal_contract) ~= "table" then
@@ -550,7 +551,7 @@ function M.restart_row_liveness_signal(row, state, facts, now_seconds)
   if max_age == nil then
     return { live = false, reason = "invalid-liveness-signal" }
   end
-  local age = live_signal_age(M, row, state, facts, now_seconds)
+  local age = live_signal_age(policy, row, state, facts, now_seconds)
   if age ~= nil and age < max_age then
     return {
       live = true,
@@ -569,12 +570,12 @@ function M.restart_row_liveness_signal(row, state, facts, now_seconds)
   }
 end
 
-function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
-  if m_rae.restart_row_has_registered_actionable_epoch(M, row)
+function K.restart_row_receiver_liveness(row, state, facts, now_seconds)
+  if m_rae.restart_row_has_registered_actionable_epoch(policy, row)
     and row
     and row.watchdog
     and row.watchdog.mode == "live-defer" then
-    local eval = m_rae.actionable_epoch_resolve(M, row, state, facts, now_seconds)
+    local eval = m_rae.actionable_epoch_resolve(policy, row, state, facts, now_seconds)
     if type(facts) == "table" then
       facts.actionable_epoch_eval = eval
     end
@@ -615,7 +616,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
     return { action = "stuck", reason = "missing-contract" }
   end
   if contract.mode == "live-defer" then
-    local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
+    local signal = K.restart_row_liveness_signal(row, state, facts, now_seconds)
     if signal.live then
       return {
         action = "defer",
@@ -630,7 +631,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
     }
   end
   if contract.mode == "row-budget-bounds-receiver" then
-    local absolute_due, state_age = M.liveness_timeout_due(row, state, now_seconds)
+    local absolute_due, state_age = policy.liveness_timeout_due(row, state, now_seconds)
     if absolute_due then
       return {
         action = "stuck",
@@ -641,7 +642,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
       }
     end
     if type(contract.progress_signal) == "table" then
-      local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
+      local signal = K.restart_row_liveness_signal(row, state, facts, now_seconds)
       if signal.live then
         return {
           action = "defer",
@@ -668,48 +669,49 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
   end
   return { action = "stuck", reason = "unsupported-contract" }
 end
-function M.restart_row_liveness_deferred(row, state, facts, now_seconds)
-  return M.restart_row_receiver_liveness(row, state, facts, now_seconds).action == "defer"
+function K.restart_row_liveness_deferred(row, state, facts, now_seconds)
+  return K.restart_row_receiver_liveness(row, state, facts, now_seconds).action == "defer"
 end
 
-function M.restart_row_observable_on(row, surface)
+function K.restart_row_observable_on(row, surface)
   return type(row) == "table"
     and row.terminal == false
     and type(row.observe_surfaces) == "table"
     and row.observe_surfaces[tostring(surface or "")] == true
 end
 
-function M.restart_observe_replay_due(row, surface, state, facts, now_seconds)
-  if not M.restart_row_observable_on(row, surface) then
+function K.restart_observe_replay_due(row, surface, state, facts, now_seconds)
+  if not K.restart_row_observable_on(row, surface) then
     return false
   end
   if surface == "issue" and row.from_state == "thinking" then
     return true
   end
   if surface == "liveness_scan" then
-    return not M.restart_row_liveness_deferred(row, state, facts, now_seconds)
+    return not K.restart_row_liveness_deferred(row, state, facts, now_seconds)
   end
   return false
 end
 
-function M.restart_observe_timeout_due(row, surface, state, facts, now_seconds)
+function K.restart_observe_timeout_due(row, surface, state, facts, now_seconds)
   if type(row) ~= "table" or row.terminal == true then
     return false
   end
-  if M.restart_row_liveness_deferred(row, state, facts, now_seconds) then
+  if K.restart_row_liveness_deferred(row, state, facts, now_seconds) then
     return false
   end
-  local due = M.liveness_timeout_due_with_facts(row, state, facts, now_seconds) == true
+  local due = policy.liveness_timeout_due_with_facts(row, state, facts, now_seconds) == true
   if not due then
     local scan = surface == "liveness_scan" or surface == "issue_liveness_scan"
-    return scan and M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds).action == "redrive"
+    return scan and policy.liveness_timeout_decision_with_facts(row, state, facts, now_seconds).action == "redrive"
   end
   if type(row.timeout_surfaces) == "table" and row.timeout_surfaces[tostring(surface or "")] == true then
     return true
   end
-  return M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds).action == "escalate"
+  return policy.liveness_timeout_decision_with_facts(row, state, facts, now_seconds).action == "escalate"
 end
 
+return K
 end
 
 return S
