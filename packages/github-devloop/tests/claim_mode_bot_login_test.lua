@@ -359,7 +359,7 @@ return {
       "claim_mode",
       "owner/repo",
       42,
-      { assignees = {}, labels = { derived_claimed_label }, author_login = "human", comments = {} },
+      { assignees = {}, labels = { derived_claimed_label }, author_login = "fkst-test-bot", comments = {} },
       "github-devloop/issue/owner/repo/42"
     )
     t.eq(ok, true)
@@ -558,7 +558,7 @@ return {
       exit_code = 0,
     })
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({ "peer-bot" }, "human", { derived_claimed_label }),
+      stdout = ownership_json({ "peer-bot" }, "fkst-test-bot", { derived_claimed_label }),
       stderr = "",
       exit_code = 0,
     })
@@ -572,7 +572,7 @@ return {
       "claim_mode",
       "owner/repo",
       42,
-      { assignees = {}, labels = {}, author_login = "human", comments = {} },
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot", comments = {} },
       "github-devloop/issue/owner/repo/42"
     )
 

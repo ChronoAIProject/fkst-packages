@@ -103,6 +103,16 @@ local function direct_discovery_admission(handle, policy, poll_key)
   })
 end
 
+local function direct_carrier_admission(claim_mode, author, managed, authorized)
+  return m_claims.claim_admission_precheck(current_issue(author, {}), {
+    owner = "fkst-test-bot",
+    status = "unassigned",
+    claim_mode = claim_mode,
+    managed = managed or {},
+    trusted_author_policy = github_author_policy.from_logins(authorized or { "fkst-test-bot" }),
+  })
+end
+
 local function mock_peer_branch_config(times)
   for _ = 1, times or 1 do
     t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
@@ -186,6 +196,27 @@ local function mock_repo_peer_scan(issue_rows, pr_rows, opts)
 end
 
 return {
+  test_author_and_peer_admission_is_carrier_independent = function()
+    for _, claim_mode in ipairs({ "assignee", "label" }) do
+      local peer_admission, peer_detail = direct_carrier_admission(
+        claim_mode,
+        "peer-bot",
+        { ["peer-bot"] = true }
+      )
+      t.eq(peer_admission, "denied")
+      t.eq(peer_detail.action, "skip-fork-peer-bot")
+
+      local author_admission, author_detail = direct_carrier_admission(
+        claim_mode,
+        "drive-by",
+        {},
+        { "fkst-test-bot" }
+      )
+      t.eq(author_admission, "denied")
+      t.eq(author_detail.action, "skip-non-whitelisted-author")
+    end
+  end,
+
   test_repo_peer_snapshot_accessor_requires_a_nonempty_poll_epoch = function()
     local calls = 0
     local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
