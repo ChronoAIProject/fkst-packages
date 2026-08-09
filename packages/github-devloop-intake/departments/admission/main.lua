@@ -130,7 +130,7 @@ local function admit_issue_event(context, event, entity)
         devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
         return
       end
-      local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
+      local epoch_current = context.claims.run_if_current_claim_admission_epoch(claim_detail, function()
         if not claim_with_capacity(
           context,
           context.capacity.authorize,

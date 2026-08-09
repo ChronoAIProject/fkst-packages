@@ -252,19 +252,14 @@ function C.poll_epoch_is_current(repo, poll_key)
   return current ~= nil and current.epoch == tostring(poll_key)
 end
 
-function C.with_current_poll_epoch(repo, poll_key, fn)
+function C.run_if_current_poll_epoch(repo, poll_key, fn)
   if type(fn) ~= "function" then
     error("github-devloop: poll-epoch-guard-invalid: poll epoch guard requires a function")
   end
-  if poll_key == nil or tostring(poll_key) == "" then
-    return true, fn()
+  if not C.poll_epoch_is_current(repo, poll_key) then
+    return false, nil
   end
-  return with_lock(poll_epoch_cache_key(repo), function()
-    if not C.poll_epoch_is_current(repo, poll_key) then
-      return false, nil
-    end
-    return true, fn()
-  end)
+  return true, fn()
 end
 
 function C.entity_list_poll_key(event)
