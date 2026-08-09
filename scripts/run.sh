@@ -232,6 +232,14 @@ cmd_check() {
     fail=1
   fi
   run_units_parallel "$pool" "${units[@]}" || fail=$(( fail + $? ))
+  # A unit that exited with the conformance checker's typed violation code reported a stated,
+  # actionable defect — classify it as SEMANTIC rather than letting it fall through to UNKNOWN,
+  # which the implement loop redrives forever instead of failing with a reason. Only when EVERY
+  # failing unit typed itself this way is the attribution certain; a mixed or bare-nonzero failure
+  # keeps the honest UNKNOWN.
+  if [ -n "${RUN_UNITS_FAIL_CODES:-}" ] && [ "$RUN_UNITS_FAIL_CODES" = "10" ]; then
+    local_iteration_result_fail "SEMANTIC"
+  fi
   # engine workspace dependency validation runs only after the ratchets pass, exactly
   # as before: resolve_bin may exit on an unresolvable BIN, so it must not preempt the
   # checks (whose failure output some checker unit-tests assert on).
