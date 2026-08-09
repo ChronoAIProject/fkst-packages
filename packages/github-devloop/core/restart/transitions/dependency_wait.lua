@@ -1,4 +1,3 @@
-local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(semantic_variant)
   local id = "github-devloop/dependency_wait/guard_boundary/" .. semantic_variant
@@ -114,7 +113,7 @@ return function(M, h)
         },
       },
     }),
-    payload_builder = payloads_builders.build_devloop_ready_payload,
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_ready_payload",
     dedup_shape = "ready/<state.version> when blockers release",
     required_facts = { fact("state", "marker-read"), fact("dependency-wait", "marker-read"), fact("dependency-release", "marker-read") },
     advancing_facts = {
