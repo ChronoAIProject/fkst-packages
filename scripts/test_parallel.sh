@@ -45,6 +45,10 @@ run_units_parallel() {
     echo "error: run_units_parallel could not create its work directory" >&2
     return 1
   fi
+  # Distinct nonzero codes observed this run, so a caller can tell a typed failure (a checker
+  # reporting violations) from a bare nonzero (attribution indeterminate). The RETURN value stays
+  # the failure count, so existing callers are unaffected.
+  RUN_UNITS_FAIL_CODES=""
   local i j fails=0 rc running
   for (( i=0; i<n; i++ )); do
     # Throttle: launch the next unit only once a worker slot frees (true work-stealing).
@@ -63,7 +67,13 @@ run_units_parallel() {
   for (( j=0; j<n; j++ )); do
     cat "$dir/$j.out" 2>/dev/null || true
     rc="$(cat "$dir/$j.rc" 2>/dev/null || printf '1')"
-    [ "$rc" = 0 ] || fails=$(( fails + 1 ))
+    if [ "$rc" != 0 ]; then
+      fails=$(( fails + 1 ))
+      case " $RUN_UNITS_FAIL_CODES " in
+        *" $rc "*) ;;
+        *) RUN_UNITS_FAIL_CODES="${RUN_UNITS_FAIL_CODES:+$RUN_UNITS_FAIL_CODES }$rc" ;;
+      esac
+    fi
   done
   rm -rf "$dir"
   return "$fails"
