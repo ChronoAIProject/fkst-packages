@@ -19,7 +19,7 @@ local github_factory = require("devloop.github_factory")
 local workflow_codex = require("workflow_internal.codex")
 local forge_validators = require("devloop.forge_validators")
 local sync_conflict_attempts = require("sync_conflict_department_caps").production()
-
+local prompts = require("devloop.prompts").new({ prompts = { sync_conflict = require("prompts.sync_conflict") } }, { sync_conflict = true })
 local spec = {
   consumes = { "devloop_sync_conflict" },
   produces = { "github-proxy.github_issue_create_request" },
@@ -411,6 +411,9 @@ local function read_matching_parent(github, source_repo, pr_number, origin)
   if m_claims.issue_claim_state(parent.labels) ~= "self" then
     return nil, "fail-closed(parent-claim)", "parent issue is not held by the current self-only claim"
   end
+  if m_claims.claim_mode_active() == "label" then
+    m_claims.assert_current_claim_label_binding(source_repo, github)
+  end
   return parent, nil, nil
 end
 
@@ -591,7 +594,7 @@ local function act(event, ports)
 
       devloop_logging.log_codex_start("sync_conflict", "branch-sync", "sync-conflict")
       local result = spawn_codex_sync(workflow_codex.with_resolved_timeout("sync-conflict", {
-        prompt = core.build_sync_conflict_prompt(active_conflict),
+        prompt = prompts.build_sync_conflict_prompt(active_conflict),
         worktree = worktree,
       }))
       if type(result) ~= "table" or result.exit_code ~= 0 then

@@ -80,6 +80,7 @@ local function new_world(max_inflight)
     successful_cas = 0,
     before_next_cas = nil,
     fail_next_cas = false,
+    owner_binding_error = nil,
   }
 
   function world:add(current)
@@ -119,6 +120,12 @@ local function new_world(max_inflight)
       end,
       owner = function()
         return OWNER
+      end,
+      assert_owner_binding = function(repo)
+        t.eq(repo, REPO)
+        if self.owner_binding_error ~= nil then
+          error(self.owner_binding_error)
+        end
       end,
       list_open_claim_numbers = function(repo, owner)
         t.eq(repo, REPO)
@@ -219,6 +226,21 @@ local function authorize(controller, world, number)
 end
 
 return {
+  test_owner_binding_failure_precedes_capacity_persistence = function()
+    h.mock_bot_env()
+    local world = new_world(1)
+    world:add(issue(40))
+    world.owner_binding_error = "claim-label-owner-collision"
+    local controller = capacity.new(world:ports("/runtime/owner-binding"))
+
+    local ok, err = pcall(authorize, controller, world, 40)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
+    t.eq(world.successful_cas, 0)
+    t.eq(#world.writes, 0)
+  end,
+
   test_two_eligible_events_share_one_intake_slot = function()
     h.mock_bot_env()
     local world = new_world(1)

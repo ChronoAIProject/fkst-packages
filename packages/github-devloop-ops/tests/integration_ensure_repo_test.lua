@@ -1,5 +1,6 @@
 local t = fkst.test
 local core = require("core")
+local claim_carriers = require("devloop.claim_carriers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 gh_argv.install(t, core)
 
@@ -354,13 +355,23 @@ return {
     t.eq(count_calls(dashboard_issue_list_command()), 1)
   end,
 
+<<<<<<< HEAD
   test_ensure_repo_provisions_derived_active_claim_label = function()
     local claim_label = "fkst-dev:claimed:fkst-test-bot"
+=======
+  test_label_mode_provisions_derived_active_claim_label = function()
+    local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local claim_label = claim_spec.name
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
       claim_label,
       "0E8A16",
+<<<<<<< HEAD
       "fkst-dev-label-ownership-claim"
+=======
+      claim_spec.description
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     )
     mock_env("1")
     mock_labels(canonical_labels_with_dashboard())
@@ -382,7 +393,36 @@ return {
     t.eq(count_calls(claim_command), 1)
   end,
 
+<<<<<<< HEAD
   test_ensure_repo_provisions_bare_claim_label_in_exclusive_posture = function()
+=======
+  test_label_mode_fails_closed_when_derived_label_is_bound_to_another_owner = function()
+    local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local repo_labels = canonical_labels_with_dashboard()
+    table.insert(repo_labels, {
+      name = claim_spec.name,
+      color = "0E8A16",
+      description = "fkst-dev-label-mode-ownership-claim owner=peer-bot",
+    })
+    mock_env("1")
+    mock_claim_label_env("")
+    mock_labels(repo_labels)
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+
+    local result = run_ensure(opts("ensure-derived-claim-label-collision", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    }))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh api --method POST"), 0)
+    t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
+  test_label_mode_provisions_bare_claim_label_in_exclusive_posture = function()
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     local claim_label = "fkst-dev:claimed"
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",

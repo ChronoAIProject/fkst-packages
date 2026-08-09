@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local base_ids = require("devloop.base_ids")
@@ -55,7 +56,7 @@ local function initial_event()
   }
 end
 
-local function mock_runtime_and_context()
+local function mock_runtime_and_context(claim_mode)
   for _ = 1, 8 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), {
       stdout = "fkst-test-bot",
@@ -67,12 +68,31 @@ local function mock_runtime_and_context()
       stderr = "",
       exit_code = 0,
     })
+<<<<<<< HEAD
+=======
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), {
+      stdout = claim_mode or "",
+      stderr = "",
+      exit_code = 0,
+    })
+>>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"), {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
   end
+end
+
+local function mock_claim_label_collision()
+  local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+  t.mock_command("gh api repos/owner/repo/labels/" .. spec.name, {
+    stdout = '{"name":"' .. spec.name
+      .. '","description":"fkst-dev-label-mode-ownership-claim owner=peer-bot"}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  return spec.name
 end
 
 local function mock_blocked_issue_with_stale_label()
@@ -101,6 +121,39 @@ local function mock_blocked_issue_with_stale_label()
 end
 
 return {
+  test_run_graph_observe_issue_fails_closed_on_claim_label_owner_collision = function()
+    return with_isolated_observation_highwater(function()
+      mock_runtime_and_context("label")
+      local claim_label = mock_claim_label_collision()
+      entity_read_mocks.mock_issue_read_with_defaults(
+        t,
+        { "fkst-dev:enabled", "fkst-dev:blocked", claim_label },
+        { core.state_marker(proposal_id, "blocked", blocked_version) },
+        {
+          repo = repo,
+          number = issue_number,
+          title = "Entry routing issue",
+          updated_at = "2026-06-03T01:02:03Z",
+          state = "OPEN",
+          assignees = {},
+          author_login = "human",
+          times = 4,
+        }
+      )
+
+      local trace = graph.run(initial_event(), { max_steps = 2 })
+      local delivery = graph.require_delivery(trace, {
+        queue = "github-proxy.github_entity_changed",
+        consumer = "github-devloop.observe_issue",
+      })
+      t.is_true(delivery.exit_code ~= 0, tostring(delivery.error))
+      t.is_true(
+        tostring(delivery.error):find("claim-label-owner-collision", 1, true) ~= nil,
+        tostring(delivery.error)
+      )
+    end)
+  end,
+
   test_run_graph_entity_changed_delivers_to_observe_issue_and_raises_forward_action = function()
     return with_isolated_observation_highwater(function()
       mock_runtime_and_context()

@@ -56,10 +56,7 @@ return {
   end,
 
   test_shared_execution_boundary_clause_matches_literal = function()
-    local shared_prompts = {}
-    devloop_prompts.install(shared_prompts, {}, {})
-
-    t.eq(shared_prompts.execution_boundary_clause(source_phrase), expected_boundary)
+    t.eq(devloop_prompts.execution_boundary_clause(source_phrase), expected_boundary)
   end,
 
   test_workflow_intake_prompt_bytes = function()

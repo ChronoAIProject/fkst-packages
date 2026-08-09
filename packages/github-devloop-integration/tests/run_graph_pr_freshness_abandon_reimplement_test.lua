@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local entity_lib = require("devloop.entity")
 local github_fake = require("forge.github_fake")
 local git_fake = require("forge.git_fake")
@@ -157,6 +158,8 @@ local function baseline(overrides)
       source_ref = fields.source_ref or core.pr_freshness_source_ref(REPO, PR_NUMBER),
     },
     final_mutation = fields.final_mutation,
+    claim_mode = fields.claim_mode,
+    claim_label = fields.claim_label,
   }
 end
 
@@ -259,7 +262,9 @@ local function make_github(fixture)
     },
   })
   local github = github_fake.new(model)
+  fixture.github_model = model
   local original_read_issue = github.read_issue
+  local original_api_get = github.api_get
   local original_close = github.pr_close
   local pr_reads = 0
   local parent_reads = 0
@@ -297,6 +302,17 @@ local function make_github(fixture)
     record(model, "issue_read", { source_ref = copy(source_ref), opts = copy(opts), read = parent_reads })
     return original_read_issue(source_ref, opts)
   end
+  function github.api_get(repo, path, timeout)
+    if fixture.claim_label ~= nil and path == "labels/" .. fixture.claim_label.name then
+      return {
+        stdout = '{"name":"' .. json_string(fixture.claim_label.name)
+          .. '","description":"' .. json_string(fixture.claim_label.description) .. '"}',
+        stderr = "",
+        exit_code = 0,
+      }
+    end
+    return original_api_get(repo, path, timeout)
+  end
   function github.pr_close(repo, pr_number, timeout)
     local result = original_close(repo, pr_number, timeout)
     fixture.pr.state = "CLOSED"
@@ -305,12 +321,14 @@ local function make_github(fixture)
   return github, model
 end
 
-local function mock_env(write_mode)
+local function mock_env(write_mode, claim_mode)
   local values = {
     FKST_GITHUB_WRITE = write_mode or "1",
     FKST_GITHUB_BOT_LOGIN = BOT,
     FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
     FKST_DEVLOOP_INTEGRATION_BRANCH = INTEGRATION_BRANCH,
+    FKST_GITHUB_CLAIM_MODE = claim_mode or "",
+    FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
   }
   for name, value in pairs(values) do
     for _ = 1, 12 do
@@ -359,7 +377,7 @@ local function count_raises(raises, queue)
 end
 
 local function run_fixture(fixture, write_mode)
-  mock_env(write_mode)
+  mock_env(write_mode, fixture.claim_mode)
   local normalized_parent = require("forge.github.issue").normalize_issue(
     fixture.parent,
     entity_lib.issue_source_ref(REPO, ISSUE_NUMBER)
@@ -484,6 +502,27 @@ return {
     end), 1)
     assert_no_resolution_effects(replay)
     t.is_nil(find_raise(replay.raises, "github-proxy.github_issue_create_request"))
+  end,
+
+  test_exhausted_original_pr_fails_closed_on_claim_label_owner_collision = function()
+    local spec = claim_carriers.active_label_spec(false, BOT)
+    local fixture = baseline({
+      claim_mode = "label",
+      assignees = { "human" },
+      parent_labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr", spec.name },
+      claim_label = {
+        name = spec.name,
+        description = "fkst-dev-label-mode-ownership-claim owner=peer-bot",
+      },
+    })
+
+    local ok, err = pcall(run_fixture, fixture, "1")
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
+    t.eq(count_rows(fixture.github_model.writes, "exec", function(row)
+      return row.context == "gh pr close"
+    end), 0)
   end,
 
   test_exhausted_merged_pr_is_idempotent_without_close_or_escalation = function()
