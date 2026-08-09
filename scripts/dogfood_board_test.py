@@ -138,6 +138,7 @@ JSON
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 58 "$old" '__fkst_stateless__' random-user 'Foreign author'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 59 "$old" '__fkst_stateless__' 'fkst-other-machine[bot]' 'Peer app REST spelling'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 60 "$old" '__fkst_dashboard__' ElonSG 'Peer-authored dashboard'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 61 "$old" 'fkst-dev:dependency_wait' loning 'Dependency wait standalone'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/34/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/47/comments?per_page=100)
                     num=${2#*/issues/}; num=${num%%/*}
@@ -324,6 +325,11 @@ class DogfoodBoardTest(unittest.TestCase):
             # Ownership downgrades warnings only: a tracked dashboard keeps the classification that
             # says more than who owns it.
             self.assertIn("#60   [dashboard   ] ✓ dashboard (tracked)", result.stdout)
+            # `dependency_wait` is the standalone form of the condition already rendered as
+            # parked for `ready` + `fkst-dev:blocked-on-dependency`; a row sits in it precisely
+            # while its gate re-evaluates to waiting, so it is parked, not unrendered.
+            self.assertIn("#61   [dependency_wait] parked(dependency-wait)", result.stdout)
+            self.assertNotIn("UNRENDERED-STATE dependency_wait", result.stdout)
             self.assertNotIn("#60   [dashboard   ] peer-owned", result.stdout)
             self.assertIn(
                 "#38   [workflow    ] parked(workflow:software-feature-flow blocked(child-fatal-walking-skeleton))",
