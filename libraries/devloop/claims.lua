@@ -362,7 +362,7 @@ function C.claim_admission_epoch_is_current(detail)
   )
 end
 
-function C.with_current_claim_admission_epoch(detail, fn)
+function C.run_if_current_claim_admission_epoch(detail, fn)
   if type(fn) ~= "function" then
     error("github-devloop: claim-admission-guard-invalid: claim admission epoch guard requires a function")
   end
@@ -370,7 +370,7 @@ function C.with_current_claim_admission_epoch(detail, fn)
   if provenance == nil then
     return true, fn()
   end
-  return entity_list_cache.with_current_poll_epoch(
+  return entity_list_cache.run_if_current_poll_epoch(
     provenance.repo,
     provenance.poll_epoch,
     fn
