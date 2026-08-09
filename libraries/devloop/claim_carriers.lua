@@ -1,4 +1,4 @@
-local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 
 local C = {}
 
@@ -55,11 +55,12 @@ function C.classify_assignees(assignees, owner)
   if type(assignees) ~= "table" then
     return "other"
   end
-  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
+  local normalized_owner = parsers_misc.canonical_login(owner)
   if #assignees == 0 then
     return "unassigned"
   end
-  if #assignees == 1 and devloop_base.strip_bot_login_suffix(assignees[1]) == normalized_owner then
+  if #assignees == 1
+    and parsers_misc.canonical_login(assignees[1]) == normalized_owner then
     return "self"
   end
   return "other"
@@ -67,7 +68,8 @@ end
 
 local function is_managed_login(managed, login)
   for candidate, allowed in pairs(type(managed) == "table" and managed or {}) do
-    if allowed == true and devloop_base.strip_bot_login_suffix(candidate) == login then
+    if allowed == true
+      and parsers_misc.canonical_login(candidate) == parsers_misc.canonical_login(login) then
       return true
     end
   end
@@ -83,10 +85,10 @@ function C.classify(mode, assignees, owner, labels, active_label, managed)
     return "other"
   end
 
-  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
+  local normalized_owner = parsers_misc.canonical_login(owner)
   if mode == "label" then
     for _, login in ipairs(assignees) do
-      local normalized = devloop_base.strip_bot_login_suffix(login)
+      local normalized = parsers_misc.canonical_login(login)
       if is_managed_login(managed, normalized) and normalized ~= normalized_owner then
         return "other"
       end

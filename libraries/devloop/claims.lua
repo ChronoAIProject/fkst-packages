@@ -12,6 +12,7 @@ local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local parsers_misc = require("devloop.parsers.misc")
 local parsers_shared = require("devloop.parsers.shared")
 local forks = require("devloop.forks")
 local restart_metadata = require("devloop.restart_metadata")
@@ -99,7 +100,10 @@ local function issue_ownership_decision(ownership, owner)
   if author == nil then
     return { owned = false, claim_state = claim_state }
   end
-  return { owned = devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state = claim_state }
+  return {
+    owned = parsers_misc.canonical_login(author) == parsers_misc.canonical_login(owner),
+    claim_state = claim_state,
+  }
 end
 
 function C.is_self_owned_issue(ownership, owner)
@@ -230,7 +234,7 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
 end
 
 function C.claim_admission_inputs(current, repo, poll_key)
-  local owner = C.claim_owner()
+  local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   if status == "other" then
     return {
@@ -240,25 +244,22 @@ function C.claim_admission_inputs(current, repo, poll_key)
   end
 
   local claim_mode = config.claim_mode()
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local managed = nil
   local trusted_author_policy = nil
   local peer_discovery_error = nil
   local peer_snapshot_provenance = nil
-  if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
+  if claim_mode ~= "label" and canonical_author ~= nil and canonical_author ~= owner then
     managed = C.managed_bot_logins()
-    if not C.is_managed_bot_login(author, managed) then
+    if not C.is_managed_bot_login(canonical_author, managed) then
       local github_handle = github()
       trusted_author_policy = github_author_policy.from_handle_policy(github_handle)
       merge_managed_bot_logins(
         managed,
         C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
       )
-      if not C.is_managed_bot_login(author, managed)
-        and github_author_policy.is_authorized(trusted_author_policy, author)
+      if not C.is_managed_bot_login(canonical_author, managed)
+        and github_author_policy.is_authorized(trusted_author_policy, canonical_author)
         and status ~= "self" then
         local peer_repo = repo or (current and current.repo)
         if poll_key == nil or tostring(poll_key) == "" then
@@ -346,15 +347,12 @@ function C.with_current_claim_admission_epoch(detail, fn)
 end
 
 function C.claim_admission_precheck(current, inputs)
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local detail = {
     owner = inputs.owner,
     status = inputs.status,
     claim_mode = inputs.claim_mode,
-    author = author,
+    author = canonical_author,
     managed = inputs.managed,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
@@ -368,17 +366,17 @@ function C.claim_admission_precheck(current, inputs)
   end
 
   if inputs.claim_mode ~= "label" then
-    if author == nil or author == "" then
+    if canonical_author == nil then
       return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
     end
-    if author ~= inputs.owner then
+    if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
       if not C.claim_admission_epoch_is_current(inputs) then
         return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
       end
       if inputs.peer_discovery_error ~= nil then
         return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
       end
-      if C.is_managed_bot_login(author, inputs.managed) then
+      if C.is_managed_bot_login(canonical_author, inputs.managed) then
         if inputs.status == "self" then
           return "held", detail
         end
@@ -388,7 +386,7 @@ function C.claim_admission_precheck(current, inputs)
           "other-authored unassigned issue belongs to a managed bot login"
         )
       end
-      if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
+      if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
         return settle(
           "denied",
           "skip-non-whitelisted-author",
@@ -400,7 +398,7 @@ function C.claim_admission_precheck(current, inputs)
   if inputs.status == "self" then
     return "held", detail
   end
-  if author == nil or author == "" then
+  if canonical_author == nil then
     return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
   return "needs-claim", detail
@@ -438,7 +436,8 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   -- opts issues in via the fkst-dev:enabled label, so it claims directly
   -- (matching the label-claim fork). Assignee-mode isolates only authors admitted
   -- by the canonical GitHub content policy.
-  if claim_mode ~= "label" and author ~= owner then
+  if claim_mode ~= "label"
+    and parsers_misc.canonical_login(author) ~= parsers_misc.canonical_login(owner) then
     local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
     if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")

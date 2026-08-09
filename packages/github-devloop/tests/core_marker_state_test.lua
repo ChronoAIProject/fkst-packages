@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local parsers_issue = require("devloop.parsers.issue")
@@ -753,7 +754,7 @@ return {
       },
       {
         body = core.state_marker(proposal_id, "thinking", "v1"),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }
     local current = core.current_state(comments, proposal_id)
@@ -782,13 +783,13 @@ return {
   end,
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
     local parsed = parsers_issue.parse_issue_view_state(core, '{"comments":[{"body":"'
       .. h.projected_state_comment(proposal_id, "ready", "v2"):gsub('"', '\\"')
       .. '","author":null},{"body":"'
       .. core.state_marker(proposal_id, "thinking", "v1"):gsub('"', '\\"')
       .. '","author":{"login":"'
-      .. devloop_base.trusted_bot_login()
+      .. parsers_misc.trusted_bot_login()
       .. '"}}]}')
 
     local current = core.current_state(parsed.comments, proposal_id)

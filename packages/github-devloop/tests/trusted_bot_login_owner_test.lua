@@ -1,13 +1,14 @@
 -- devloop library behavior tests are hosted in github-devloop because the
 -- engine test runner only scans package tests and department tests.
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local t = fkst.test
 
 local expected_write_error =
   "github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)"
 
 local function call_trusted_bot_login(env_login, write_mode, configured_login)
-  devloop_base.configure_trusted_bot_login(nil)
+  parsers_misc.configure_trusted_bot_login(nil)
   t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), {
     stdout = env_login or "",
     stderr = "",
@@ -19,12 +20,12 @@ local function call_trusted_bot_login(env_login, write_mode, configured_login)
     exit_code = 0,
   })
   if configured_login ~= nil then
-    devloop_base.configure_trusted_bot_login(configured_login)
+    parsers_misc.configure_trusted_bot_login(configured_login)
   end
 
-  local ok, result = pcall(devloop_base.trusted_bot_login)
-  local configured = devloop_base.configured_trusted_bot_login()
-  devloop_base.configure_trusted_bot_login(nil)
+  local ok, result = pcall(parsers_misc.trusted_bot_login)
+  local configured = parsers_misc.configured_trusted_bot_login()
+  parsers_misc.configure_trusted_bot_login(nil)
   return ok, result, configured
 end
 

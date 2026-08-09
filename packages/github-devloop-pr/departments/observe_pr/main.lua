@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local pr_safety = require("devloop.pr_safety")
@@ -627,7 +628,7 @@ local function reconcile_pr_event(event)
 
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
   local function resolve_lock()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
       force_fresh = true,

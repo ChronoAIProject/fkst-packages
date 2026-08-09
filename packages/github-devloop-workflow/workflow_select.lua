@@ -5,6 +5,7 @@ local default_catalog = require("core.default_catalog")
 local default_intake = require("devloop.intake.default")
 local fail = require("core.errors").fail
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
 local base_ids = require("devloop.base_ids")
 local claims = require("devloop.claims")
 local execution_start = require("devloop.execution_start")
@@ -121,7 +122,8 @@ end
 
 local function issue_body_author_is_trusted(current)
   local author = claims.issue_author_login(current or {})
-  return devloop_base.strip_bot_login_suffix(author) == devloop_base.trusted_bot_login()
+  return forge_strings.canonical_login(author)
+    == forge_strings.canonical_login(parsers_misc.trusted_bot_login())
 end
 
 local function trusted_workflow_lineage_header(ctx)

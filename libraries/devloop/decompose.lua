@@ -158,7 +158,8 @@ function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_n
   for _, issue in ipairs(issues or {}) do
     local body = tostring(type(issue) == "table" and issue.body or "")
     local trusted_child = type(issue) == "table"
-      and parsers_misc.comment_author_login(issue) == devloop_base.trusted_bot_login()
+      and parsers_misc.canonical_login(parsers_misc.comment_author_login(issue))
+        == parsers_misc.canonical_login(parsers_misc.trusted_bot_login())
       and tostring(issue.state or ""):upper() == "OPEN"
     if trusted_child then
       for marker in body:gmatch(child_pattern) do

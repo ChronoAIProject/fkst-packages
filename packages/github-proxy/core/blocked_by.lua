@@ -34,7 +34,7 @@ local function issue_author_login(comment)
   elseif type(comment.user) == "table" and comment.user.login ~= nil then
     raw = comment.user.login
   end
-  return shared.strip_bot_login_suffix(raw)
+  return forge_strings.canonical_login(raw)
 end
 
 function M.validate_issue_blocked_by_payload(payload)
@@ -168,7 +168,8 @@ function M.has_trusted_blocked_by_marker(comments, dedup_key, bot_login)
   end
   local marker_pattern = "<!%-%- fkst:github%-proxy:blocked%-by:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if issue_author_login(comment) == tostring(bot_login) then
+    if forge_strings.canonical_login(issue_author_login(comment))
+      == forge_strings.canonical_login(bot_login) then
       local body = tostring(comment.body or "")
       for marker in body:gmatch(marker_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then

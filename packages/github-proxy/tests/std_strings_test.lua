@@ -11,11 +11,20 @@ return {
     t.eq(strings.trim(nil), "")
   end,
 
-  test_strip_bot_login_suffix_normalizes_app_author_logins = function()
-    t.eq(forge_strings.strip_bot_login_suffix("fkst-test-bot[bot]"), "fkst-test-bot")
-    t.eq(forge_strings.strip_bot_login_suffix("fkst-test-bot"), "fkst-test-bot")
-    t.eq(forge_strings.strip_bot_login_suffix("user[bot]name"), "user[bot]name")
-    t.is_nil(forge_strings.strip_bot_login_suffix(nil))
+  test_canonical_login_normalizes_all_github_app_actor_spellings = function()
+    t.eq(forge_strings.canonical_login("fkst-test-bot"), "fkst-test-bot")
+    t.eq(forge_strings.canonical_login("FkSt-TeSt-BoT[BOT]"), "fkst-test-bot")
+    t.eq(forge_strings.canonical_login(" app/Fkst-Test-Bot "), "fkst-test-bot")
+    t.eq(forge_strings.canonical_login("user[bot]name"), "user[bot]name")
+    t.is_nil(forge_strings.canonical_login(nil))
+    t.is_nil(forge_strings.canonical_login(""))
+    t.is_nil(forge_strings.strip_bot_login_suffix)
+  end,
+
+  test_canonical_login_rejects_malformed_app_actor_spellings = function()
+    t.is_nil(forge_strings.canonical_login("app/"))
+    t.is_nil(forge_strings.canonical_login("app/fkst-test-bot/extra"))
+    t.is_nil(forge_strings.canonical_login("app/fkst-test-bot[bot]"))
   end,
 
   test_split_repo_accepts_single_owner_name_separator = function()
@@ -73,7 +82,7 @@ return {
 
   test_empty_string_helpers_return_empty = function()
     t.eq(strings.trim(""), "")
-    t.eq(forge_strings.strip_bot_login_suffix(""), "")
+    t.is_nil(forge_strings.canonical_login(""))
     t.eq(forge_strings.comment_body(""), "")
   end,
 

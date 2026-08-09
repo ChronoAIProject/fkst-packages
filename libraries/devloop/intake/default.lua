@@ -1,6 +1,7 @@
 -- Canonical default intake executor and policy prompt shared by policy adapters.
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -323,7 +324,7 @@ local function act(package_core, event, opts)
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   local gate = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts)
   end)
   if gate == nil then

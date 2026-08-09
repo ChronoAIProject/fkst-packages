@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local devloop_claims = require("devloop.claims")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local forge_strings = require("forge.strings")
 local github_factory = require("devloop.github_factory")
 
 local M = {}
@@ -15,7 +16,8 @@ end
 
 local function is_self_only_assignee(core, ownership, claim_owner)
   local logins = devloop_claims.assignee_logins(ownership and ownership.assignees)
-  return #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(claim_owner or "")
+  return #logins == 1
+    and forge_strings.canonical_login(logins[1]) == forge_strings.canonical_login(claim_owner)
 end
 
 local function log(origin, action, reason)

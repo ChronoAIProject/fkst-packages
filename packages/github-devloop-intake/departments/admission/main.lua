@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local core = require("core")
@@ -93,7 +94,7 @@ local function admit_issue_event(context, event, entity)
     event = event,
     lock_key = lock_key,
     work = function(_, record_authoritative_version)
-      devloop_base.assert_trusted_bot_configured()
+      parsers_misc.assert_trusted_bot_configured()
       local poll_key = m_claims.claim_admission_poll_epoch(event)
       local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
       record_authoritative_version(current.updated_at)

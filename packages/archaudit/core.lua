@@ -678,7 +678,8 @@ local function trusted_audit_issue(issue, trusted_login)
   if trusted_login == nil or trusted_login == "" then
     return false
   end
-  return tostring(issue.author_login or "") == tostring(trusted_login)
+  return forge_strings.canonical_login(issue.author_login)
+    == forge_strings.canonical_login(trusted_login)
 end
 
 function M.latest_audit_issue_seconds(issues, trusted_login)
