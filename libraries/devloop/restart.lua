@@ -4,6 +4,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local S = {}
 local registry = require("workflow_internal.registry")
 local transition_version = require("contract.transition_version")
+local restart_metadata = require("devloop.restart_metadata")
 
 local source_ref_derivations = {
   entity = true,
@@ -108,30 +109,18 @@ local transition_helpers = {
   responsibility_signature = responsibility_signature, span_contract = responsibility_signature,
 }
 
-local function restart_deps(M, resolved)
+local function restart_deps(resolved)
   resolved = resolved or {}
-  local package_name = M.restart_package_name or "github-devloop"
-  local ops = {
-    version_fix_round = M.version_fix_round,
-    fixing_version_matches_link = M.fixing_version_matches_link,
-    latest_complete_converge_round = M.latest_complete_converge_round,
-    liveness_heartbeat_version = M.liveness_heartbeat_version,
-    liveness_signal_producer_contract = M.liveness_signal_producer_contract,
-    stage_rank = M.stage_rank,
-    decompose_package_queue = M.decompose_package_queue,
-  }
-  for key, value in pairs(resolved.ops or {}) do
-    ops[key] = value
-  end
+  local package_name = resolved.restart_package_name or "github-devloop"
   return {
     config = {
       registry_package_name = package_name,
       restart_package_name = package_name,
-      restart_consumer_sources = M.restart_consumer_sources,
+      restart_consumer_sources = resolved.restart_consumer_sources,
       limits = {
-        _max_blocking_gap_len = M._max_blocking_gap_len,
-        _max_dedup_len = M._max_dedup_len,
-        _max_key_len = M._max_key_len,
+        _max_blocking_gap_len = resolved._max_blocking_gap_len,
+        _max_dedup_len = resolved._max_dedup_len,
+        _max_key_len = resolved._max_key_len,
       },
       spec = {
         transitions_label = resolved.transitions_label,
@@ -141,7 +130,7 @@ local function restart_deps(M, resolved)
         replay_payload_fields = resolved.replay_payload_fields,
       },
     },
-    ops = ops,
+    ops = resolved.ops or {},
   }
 end
 
@@ -232,15 +221,12 @@ function S.build_kernel(deps)
   }
 end
 
-function S.transition_table(M, resolved)
-return S.build_kernel(restart_deps(M, resolved)).transition_table
-end
-
-function S.install(M, resolved)
+function S.new(resolved)
 resolved = resolved or {}
 
-local package_name = M.restart_package_name or "github-devloop"
-local default_consumer_sources = M.restart_consumer_sources or {}
+local K = {}
+local package_name = resolved.restart_package_name or "github-devloop"
+local default_consumer_sources = resolved.restart_consumer_sources or {}
 
 local kernel = nil
 local transition_table = nil
@@ -272,7 +258,7 @@ local function field_reference_error(reference)
   return "unsupported payload field source " .. tostring(reference)
 end
 
-function M.restart_field_coverage_errors(rows)
+function K.restart_field_coverage_errors(rows)
   local errors = {}
   for _, row in ipairs(rows or transition_table) do
     local required_fields = required_replay_payload_fields[row.from_state] or {}
@@ -304,7 +290,7 @@ local function source_contains_any(paths, needle)
   return false
 end
 
-function M.restart_effect_contract_errors(rows, consumer_sources)
+function K.restart_effect_contract_errors(rows, consumer_sources)
   local errors = {}
   local sources = consumer_sources or default_consumer_sources
   for _, row in ipairs(rows or transition_table) do
@@ -325,7 +311,7 @@ function M.restart_effect_contract_errors(rows, consumer_sources)
   return errors
 end
 
-function M.latest_complete_converge_round(comments, proposal_id, epoch_version, source_ref)
+function K.latest_complete_converge_round(comments, proposal_id, epoch_version, source_ref)
   if epoch_version == nil or source_ref == nil then
     return nil
   end
@@ -348,10 +334,10 @@ function M.latest_complete_converge_round(comments, proposal_id, epoch_version, 
   return latest
 end
 
-function M.fixing_version_matches_link(issue_version, link_version)
+function K.fixing_version_matches_link(issue_version, link_version)
   local current = tostring(issue_version or "")
   local linked = tostring(link_version or "")
-  if current == linked or M._strip_latest_fix_version_suffix(current) == linked then
+  if current == linked or restart_metadata._strip_latest_fix_version_suffix(current) == linked then
     return true
   end
   local current_base = transition_version.strip_suffixes(current)
@@ -362,7 +348,9 @@ function M.fixing_version_matches_link(issue_version, link_version)
   return transition_version.safe_version_segment(current_base) == transition_version.safe_version_segment(linked_base)
 end
 
-local deps = restart_deps(M, resolved)
+resolved.ops.fixing_version_matches_link = K.fixing_version_matches_link
+resolved.ops.latest_complete_converge_round = K.latest_complete_converge_round
+local deps = restart_deps(resolved)
 kernel = S.build_kernel(deps)
 transition_table = kernel.transition_table
 marker_fields = assert(kernel.marker_fields, package_name .. ": missing resolved restart marker_fields")
@@ -372,7 +360,7 @@ for _, row in ipairs(transition_table) do
   audit_by_state[row.from_state] = row
 end
 
-function M.restart_completeness_audit()
+function K.restart_completeness_audit()
   local rows = {}
   for _, row in ipairs(transition_table) do
     table.insert(rows, {
@@ -385,26 +373,27 @@ function M.restart_completeness_audit()
   return rows
 end
 
-function M.restart_completeness_audit_for_state(state)
+function K.restart_completeness_audit_for_state(state)
   return audit_by_state[state]
 end
 
-function M.restart_transition_table()
+function K.restart_transition_table()
   return kernel.restart_transition_table()
 end
 
-function M.restart_durable_marker_fields()
+function K.restart_durable_marker_fields()
   return marker_fields
 end
 
-function M.restart_source_ref_derivations()
+function K.restart_source_ref_derivations()
   return source_ref_derivations
 end
 
-function M.restart_required_replay_payload_fields()
+function K.restart_required_replay_payload_fields()
   return required_replay_payload_fields
 end
 
+return K
 end
 
 return S

@@ -77,16 +77,17 @@ function S.with_restart_policy(resolved)
   return out
 end
 
-function S.install(M, resolved)
-  local policy = devloop_liveness_policy()
+function S.new(policy, resolved)
+  assert(type(policy) == "table", "devloop.liveness: missing restart policy")
+  local config = devloop_liveness_policy()
   for key, value in pairs(resolved or {}) do
-    policy[key] = value
+    config[key] = value
   end
-  policy.restart_package_name = M.restart_package_name
-  policy.restart_source_root = M.restart_source_root
-  local shared = require("workflow_internal.liveness.shared").install(M, policy)
-  require("workflow_internal.liveness.contract").install(M, shared, {
-    workflow_ports = workflow_ports.from_devloop(M),
+  config.restart_package_name = policy.restart_package_name
+  config.restart_source_root = policy.restart_source_root
+  local shared = require("workflow_internal.liveness.shared").install(policy, config)
+  require("workflow_internal.liveness.contract").install(policy, shared, {
+    workflow_ports = workflow_ports.from_devloop(policy),
     pr_recovery = {
       allowed = {
         not_mergeable = {
@@ -96,8 +97,15 @@ function S.install(M, resolved)
       },
     },
   })
-  require("devloop.liveness.signal").install(M, shared)
-  require("devloop.liveness.timeout").install(M, shared)
+  for key, value in pairs(require("devloop.liveness.signal").new(policy, shared)) do
+    policy[key] = value
+  end
+  for key, value in pairs(require("devloop.liveness.timeout").new(policy, shared, {
+    replayer = assert(config.replayer),
+  })) do
+    policy[key] = value
+  end
+  return policy
 end
 
 return S
