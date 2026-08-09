@@ -76,7 +76,7 @@ local function label_mode_admission_department()
       claim_issue_for_management = function()
         return true
       end,
-      with_current_claim_admission_epoch = function(_detail, fn)
+      run_if_current_claim_admission_epoch = function(_detail, fn)
         fn()
         return true
       end,
