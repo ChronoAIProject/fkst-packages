@@ -308,6 +308,10 @@ return {
     t.eq(conv_reconcile.fix_reconcile_fact({
       conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "re-design"),
     }, issue_proposal_id, issue_version, "drop"), nil)
+    t.eq(conv_reconcile.fix_reconcile_fact({
+      conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "re-design")
+        .. "\n" .. marker,
+    }, issue_proposal_id, issue_version), nil)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="fix-reconcile:' .. issue_version .. '"', 1, true) ~= nil)

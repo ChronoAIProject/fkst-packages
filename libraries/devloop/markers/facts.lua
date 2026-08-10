@@ -688,6 +688,7 @@ function C.pr_link_fact(comments, proposal_id, version_lineage)
     })
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
+  local fact = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
@@ -702,17 +703,25 @@ function C.pr_link_fact(comments, proposal_id, version_lineage)
         and forge_validators.is_git_ref_safe(marker_branch)
         and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
         and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
+        local candidate = {
           proposal_id = marker_proposal,
           pr_number = tonumber(marker_pr),
           branch = marker_branch,
           impl_version = marker_impl_version,
           base_branch = marker_base_branch,
         }
+        if fact == nil then
+          fact = candidate
+        elseif candidate.pr_number ~= fact.pr_number
+          or candidate.branch ~= fact.branch
+          or candidate.impl_version ~= fact.impl_version
+          or candidate.base_branch ~= fact.base_branch then
+          return nil
+        end
       end
     end
   end
-  return nil
+  return fact
 end
 
 function C.pr_delegation_fact(comments, proposal_id, version, delegation)
@@ -720,6 +729,7 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
     return nil
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-delegation:v1.-%-%->"
+  local fact = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
@@ -736,7 +746,7 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
         and forge_validators.is_positive_pr_number(marker_pr)
         and strings.is_bounded_string(marker_version, devloop_base._max_dedup_len)
         and strings.is_path_safe_key(marker_delegation, devloop_base._max_dedup_len) then
-        return {
+        local candidate = {
           proposal_id = marker_proposal,
           pr_proposal_id = marker_pr_proposal,
           pr_proposal = marker_pr_proposal,
@@ -745,10 +755,18 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
           delegation = marker_delegation,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }
+        if fact == nil then
+          fact = candidate
+        elseif candidate.pr_proposal_id ~= fact.pr_proposal_id
+          or candidate.pr_number ~= fact.pr_number
+          or candidate.version ~= fact.version
+          or candidate.delegation ~= fact.delegation then
+          return nil
+        end
       end
     end
   end
-  return nil
+  return fact
 end
 
 function C.pr_origin_fact(comments)

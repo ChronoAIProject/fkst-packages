@@ -204,4 +204,39 @@ return {
     t.eq(proof.facts[2].index, 2)
     t.eq(proof.facts[2].issue_number, 102)
   end,
+
+  test_decompose_completion_rejects_missing_child_identity = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local issues = {
+      {
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+    }
+
+    local _, _, proof = decompose_lib.decompose_children_complete(
+      nil,
+      issues,
+      proposal_id,
+      version,
+      7,
+      1
+    )
+
+    t.eq(proof.exact, false)
+    t.eq(proof.matched_count, 0)
+  end,
+
+  test_decomposed_fact_rejects_contradictory_trusted_counts = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local comments = {
+      decompose_lib.decomposed_marker(proposal_id, version, 7, 2),
+      decompose_lib.decomposed_marker(proposal_id, version, 7, 3),
+    }
+
+    t.eq(decompose_lib.decomposed_fact(comments, proposal_id, version, 7), nil)
+  end,
 }

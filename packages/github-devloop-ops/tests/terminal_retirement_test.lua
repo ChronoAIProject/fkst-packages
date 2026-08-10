@@ -177,7 +177,7 @@ local function delegated_pr(extra_comments, overrides)
   end
   return {
     number = delegated_pr_number,
-    state = "OPEN",
+    state = values.native_state or "OPEN",
     comments = comments,
   }
 end
@@ -412,12 +412,27 @@ return {
       { parent = delegated_parent(), pr = { state = "OPEN", comments = {} }, reason = "delegated-pr-link-missing" },
       { parent = delegated_parent(), pr = delegated_pr(nil, { pr_link_marker = wrong_link }), reason = "delegated-pr-link-missing" },
       { parent = delegated_parent(), pr = delegated_pr(nil, { pr_link_author = "mallory" }), reason = "delegated-pr-link-missing" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { native_state = "CLOSED" }), reason = "delegated-pr-state-mismatch" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { native_state = "MERGED" }), reason = "delegated-pr-state-mismatch" },
       { parent = delegated_parent(), pr = delegated_pr(nil, { state = "reviewing" }), reason = "delegated-pr-state-mismatch" },
       { parent = delegated_parent(), pr = delegated_pr(nil, { state_version = delegated_version .. "/other" }), reason = "delegated-pr-state-mismatch" },
       {
         parent = delegated_parent(),
         pr = delegated_pr(nil, {
           fix_marker = conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "re-design"),
+        }),
+        reason = "delegated-fix-reconcile-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, {
+          fix_marker = conv_reconcile.review_reconcile_marker(
+            proposal_id,
+            delegated_version,
+            4,
+            "drop",
+            "no-semantic-progress"
+          ),
         }),
         reason = "delegated-fix-reconcile-missing",
       },
@@ -469,6 +484,10 @@ return {
   end,
 
   test_delegated_terminal_requires_one_exact_trusted_child_fact_per_index = function()
+    local missing_identity = delegated_children()
+    missing_identity[1].number = nil
+    local invalid_identity = delegated_children()
+    invalid_identity[1].number = 0
     local cases = {
       { children = { delegated_children()[1] } },
       { children = delegated_children({ second_index = 1 }) },
@@ -476,6 +495,8 @@ return {
       { children = delegated_children({ first_version = delegated_version .. "/other" }) },
       { children = delegated_children({ first_pr = 8 }) },
       { children = delegated_children({ first_author = "mallory" }) },
+      { children = missing_identity },
+      { children = invalid_identity },
     }
 
     for _, case in ipairs(cases) do
@@ -496,6 +517,11 @@ return {
       author_login = "alice",
       created_at = "2026-07-30T00:03:00Z",
     }
+    local same_second_issue_comment = {
+      body = "This arrived after reconcile within the same timestamp second.",
+      author_login = "alice",
+      created_at = "2026-07-30T00:00:00Z",
+    }
 
     local issue_decision = decide_delegated(
       delegated_parent({ issue_comment }),
@@ -507,11 +533,78 @@ return {
       delegated_pr({ pr_comment }),
       delegated_children()
     )
+    local same_second_decision = decide_delegated(
+      delegated_parent({ same_second_issue_comment }),
+      delegated_pr(),
+      delegated_children()
+    )
 
     t.eq(issue_decision.decision, "ineligible")
     t.eq(issue_decision.reason, "post-terminal-non-bot-comment")
     t.eq(pr_decision.decision, "ineligible")
     t.eq(pr_decision.reason, "post-terminal-non-bot-comment")
+    t.eq(same_second_decision.decision, "ineligible")
+    t.eq(same_second_decision.reason, "post-terminal-non-bot-comment")
+  end,
+
+  test_delegated_terminal_rejects_contradictory_trusted_authority = function()
+    local conflicting_parent = delegated_parent()
+    table.insert(conflicting_parent.comments, bot_comment(
+      m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/8",
+        8,
+        delegated_version,
+        "g2"
+      ),
+      "2026-07-30T00:03:00Z"
+    ))
+
+    local conflicting_link_pr = delegated_pr()
+    table.insert(conflicting_link_pr.comments, bot_comment(
+      m_builders.pr_link_marker(
+        proposal_id,
+        8,
+        "devloop-owner-repo-42-other",
+        delegated_version,
+        "dev"
+      ),
+      "2026-07-30T00:03:00Z"
+    ))
+
+    local conflicting_fix_pr = delegated_pr(nil, {
+      fix_marker = conv_reconcile.fix_reconcile_marker(
+        proposal_id,
+        delegated_version,
+        "re-design"
+      ) .. "\n" .. conv_reconcile.fix_reconcile_marker(
+        proposal_id,
+        delegated_version,
+        "drop"
+      ),
+    })
+
+    local conflicting_decomposed_pr = delegated_pr()
+    table.insert(conflicting_decomposed_pr.comments, bot_comment(
+      decompose.decomposed_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        3
+      ),
+      "2026-07-30T00:03:00Z"
+    ))
+
+    local cases = {
+      { parent = conflicting_parent, pr = delegated_pr() },
+      { parent = delegated_parent(), pr = conflicting_link_pr },
+      { parent = delegated_parent(), pr = conflicting_fix_pr },
+      { parent = delegated_parent(), pr = conflicting_decomposed_pr },
+    }
+    for _, case in ipairs(cases) do
+      local decision = decide_delegated(case.parent, case.pr, delegated_children())
+      t.eq(decision.decision, "ineligible")
+    end
   end,
 
   test_delegated_receipt_must_match_force_fresh_authority_and_proof = function()

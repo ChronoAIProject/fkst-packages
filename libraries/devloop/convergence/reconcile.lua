@@ -438,10 +438,16 @@ function C.fix_reconcile_fact(comments, proposal_id, issue_version, expected_act
             comment_index = comment_index,
             comment_created_at = parsers_misc._comment_created_at(comment),
           }
-          if expected_version ~= nil then
-            return fact
-          end
-          if best == nil or transition_version.compare(fact.version, best.version) >= 0 then
+          local order = best ~= nil and transition_version.compare(fact.version, best.version) or 1
+          if best == nil or order > 0 then
+            best = fact
+          elseif order == 0 then
+            if fact.version ~= best.version
+              or fact.round ~= best.round
+              or fact.action ~= best.action
+              or fact.dedup_key ~= best.dedup_key then
+              return nil
+            end
             best = fact
           end
         end

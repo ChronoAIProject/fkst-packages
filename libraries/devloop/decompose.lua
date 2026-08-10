@@ -100,6 +100,7 @@ function C.decomposed_fact(comments, proposal_id, version, pr_number)
     return nil
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:decomposed:v1.-%-%->"
+  local fact = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       if marker:match('proposal="([^"]+)"') == tostring(proposal_id) then
@@ -113,18 +114,25 @@ function C.decomposed_fact(comments, proposal_id, version, pr_number)
           and count >= 1
           and count <= max_decompose_issues
           and count % 1 == 0 then
-          return {
+          local candidate = {
             proposal_id = tostring(proposal_id),
             version = marker_version,
             pr_number = tonumber(marker_pr_number),
             count = count,
             comment_created_at = parsers_misc._comment_created_at(comment),
           }
+          if fact == nil then
+            fact = candidate
+          elseif candidate.version == fact.version
+            and candidate.pr_number == fact.pr_number
+            and candidate.count ~= fact.count then
+            return nil
+          end
         end
       end
     end
   end
-  return nil
+  return fact
 end
 
 function C.parse_decompose_child_issue_list(stdout)
@@ -161,6 +169,7 @@ function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_n
   local child_pattern = "<!%-%- fkst:github%-devloop:decompose%-child:v1.-%-%->"
   for _, issue in ipairs(issues or {}) do
     local body = tostring(type(issue) == "table" and issue.body or "")
+    local issue_number = type(issue) == "table" and tonumber(issue.number) or nil
     local trusted_child = type(issue) == "table"
       and parsers_misc.canonical_login(parsers_misc.comment_author_login(issue))
         == parsers_misc.canonical_login(parsers_misc.trusted_bot_login())
@@ -174,10 +183,12 @@ function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_n
           if index ~= nil and index >= 1 and index <= max_decompose_issues and index % 1 == 0 then
             completed[index] = true
             evidence.occurrences[index] = (evidence.occurrences[index] or 0) + 1
-            table.insert(evidence.facts, {
-              index = index,
-              issue_number = tonumber(issue.number),
-            })
+            if forge_validators.is_positive_pr_number(issue_number) then
+              table.insert(evidence.facts, {
+                index = index,
+                issue_number = issue_number,
+              })
+            end
           end
         end
       end

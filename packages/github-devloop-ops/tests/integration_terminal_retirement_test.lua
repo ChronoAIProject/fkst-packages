@@ -114,9 +114,11 @@ local function delegated_pr_comments(extra_comments, overrides)
       "2026-07-29T23:59:00Z"
     ))
   end
+  local reconcile_marker = values.reconcile_marker
+    or conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "drop")
   table.insert(comments, bot_comment(
     core.state_marker(proposal_id, "blocked", delegated_version)
-      .. "\n" .. conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "drop"),
+      .. "\n" .. reconcile_marker,
     "2026-07-30T00:00:00Z"
   ))
   table.insert(comments, bot_comment(
@@ -712,6 +714,25 @@ return {
       { pr_comments = delegated_pr_comments(nil, { pr_link = false }), child_issues = delegated_child_issues() },
       { pr_comments = delegated_pr_comments({ human_comment }), child_issues = delegated_child_issues() },
       { pr_comments = delegated_pr_comments(), child_issues = duplicate_children },
+      {
+        pr_comments = delegated_pr_comments(nil, {
+          reconcile_marker = conv_reconcile.review_reconcile_marker(
+            proposal_id,
+            delegated_version,
+            4,
+            "drop",
+            "no-semantic-progress"
+          ),
+        }),
+        child_issues = delegated_child_issues(),
+      },
+      {
+        pr_comments = delegated_pr_comments(nil, {
+          reconcile_marker = '<!-- fkst:github-devloop:timeout-reconcile:v1 proposal="' .. proposal_id
+            .. '" version="' .. delegated_version .. '" round="4" action="drop" -->',
+        }),
+        child_issues = delegated_child_issues(),
+      },
     }
 
     for _, delegated in ipairs(cases) do

@@ -99,7 +99,7 @@ local function has_post_terminal_non_bot_comment_after(comments, terminal_create
       local comment_seconds = contract_time.iso_timestamp_epoch_seconds(
         parsers_misc._comment_created_at(comment)
       )
-      if comment_seconds == nil or comment_seconds > terminal_seconds then
+      if comment_seconds == nil or comment_seconds >= terminal_seconds then
         return true
       end
     end
@@ -347,6 +347,9 @@ local function delegated_reconcile_drop_retirement_fact(
   local pr = type(delegated) == "table" and delegated.pr or nil
   if type(pr) ~= "table" then
     return nil, ineligible("delegated-pr-unavailable")
+  end
+  if tostring(pr.state or ""):upper() ~= "OPEN" then
+    return nil, ineligible("delegated-pr-state-mismatch")
   end
   local link = marker_facts.pr_link_fact(pr.comments, proposal_id)
   if link == nil
