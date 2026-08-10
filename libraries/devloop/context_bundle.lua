@@ -7,6 +7,7 @@ local github_risk = require("devloop.github_risk")
 local base_ids = require("devloop.base_ids")
 local devloop_logging = require("devloop.logging")
 local content_filter = require("forge.github.content_filter")
+local devloop_commands = require("devloop.commands")
 
 -- Resolve the codex-bundle authored-content whitelist from host env. Bot login is
 -- required (fail-closed); the additive optional entries are read under pcall so an
@@ -318,7 +319,7 @@ local function unknown_risk_classification()
   }
 end
 
-local function fetch_risk_from_pr_paths(M, args)
+local function fetch_risk_from_pr_paths(args)
   if args == nil or args.pr_number == nil then
     return clone_risk_classification({
       known = true,
@@ -329,7 +330,7 @@ local function fetch_risk_from_pr_paths(M, args)
     })
   end
   local result = (function(timeout)
-    return M.gh_pr_diff_name_only(args.repo, args.pr_number, timeout, args.exec)
+    return devloop_commands.gh_pr_diff_name_only(args.repo, args.pr_number, timeout, args.exec)
   end)(60)
   return clone_risk_classification(github_risk.github_diff_name_risk(result))
 end
@@ -413,7 +414,7 @@ function C.is_stale_generation_context_error(err)
   return has_stale_generation_context_error(text)
 end
 
-function C.build_context_bundle(M, args)
+function C.build_context_bundle(args)
   local repo = args and args.repo
   local issue_number = args and args.issue_number
   local proposal_id = args and args.proposal_id
@@ -477,7 +478,7 @@ function C.build_context_bundle(M, args)
   local issue_json = '{"title":"PR-only context","body":"No backing GitHub issue is available for this delivery.","labels":[],"comments":[],"state":"UNKNOWN"}\n'
   if issue_number ~= nil then
     issue_json = fetch_result(function(timeout)
-      return M.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec, args.exec)
+      return devloop_commands.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec, args.exec)
     end, "issue fetch")
     if whitelist ~= nil then
       local issue_redactions = {}
@@ -491,7 +492,7 @@ function C.build_context_bundle(M, args)
 
   if args.pr_number ~= nil then
     local pr_json = fetch_result(function(timeout)
-      return M.gh_pr_view_context(repo, args.pr_number, timeout, args.exec, args.exec)
+      return devloop_commands.gh_pr_view_context(repo, args.pr_number, timeout, args.exec, args.exec)
     end, "pr fetch")
     if whitelist ~= nil then
       local pr_redactions = {}
@@ -502,13 +503,13 @@ function C.build_context_bundle(M, args)
     write_file(tmp_bundle.pr_path, pr_json, args.exec)
     tmp_bundle.pr_bytes = #pr_json
     local diff = fetch_result(function(timeout)
-      return M.gh_pr_diff(repo, args.pr_number, timeout, args.exec)
+      return devloop_commands.gh_pr_diff(repo, args.pr_number, timeout, args.exec)
     end, "pr diff fetch")
     diff = truncate_if_needed(diff, args.dept, proposal_id, "diff.patch")
     write_file(tmp_bundle.diff_path, diff, args.exec)
     tmp_bundle.diff_bytes = #diff
     local name_result = (function(timeout)
-      return M.gh_pr_diff_name_only(repo, args.pr_number, timeout, args.exec)
+      return devloop_commands.gh_pr_diff_name_only(repo, args.pr_number, timeout, args.exec)
     end)(60)
     local risk = github_risk.github_diff_name_risk(name_result)
     risk_classification = clone_risk_classification(risk)
@@ -518,7 +519,7 @@ function C.build_context_bundle(M, args)
     tmp_bundle.risk_bytes = #risk_text
   end
 
-  local board = payloads_board.board_digest_block(M, repo, args.tick)
+  local board = payloads_board.board_digest_block(repo, args.tick)
   board = truncate_if_needed(board, args.dept, proposal_id, "board.txt")
   write_file(tmp_bundle.board_path, board, args.exec)
   tmp_bundle.board_bytes = #board
@@ -553,19 +554,19 @@ function C.build_context_bundle(M, args)
   return final_bundle
 end
 
-function C.context_fetch_from_bundle(M, args)
-  return C.context_bundle_manifest(C.build_context_bundle(M, args))
+function C.context_fetch_from_bundle(args)
+  return C.context_bundle_manifest(C.build_context_bundle(args))
 end
 
-function C.context_fetch_ref_from_bundle(M, args)
-  local bundle = C.build_context_bundle(M, args)
+function C.context_fetch_ref_from_bundle(args)
+  local bundle = C.build_context_bundle(args)
   local risk = bundle.risk
   -- Structured risk is the single source of truth. A legacy boolean `high_risk`
   -- cannot represent `known=false`, so synthesizing `known=true` from it reintroduces
   -- the strand (unknown collapsed to "known normal"). Absent structured risk = unknown:
   -- re-derive structurally or fail closed to unknown so the producer defers, never strands.
   if risk == nil then
-    risk = args and args.pr_number ~= nil and fetch_risk_from_pr_paths(M, args) or unknown_risk_classification()
+    risk = args and args.pr_number ~= nil and fetch_risk_from_pr_paths(args) or unknown_risk_classification()
   end
   risk = clone_risk_classification(risk)
   return C.context_bundle_manifest_ref(C.context_bundle_manifest_key(args.proposal_id, args.version)), risk.high_risk == true, risk

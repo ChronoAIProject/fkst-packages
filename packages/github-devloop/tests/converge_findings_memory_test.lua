@@ -105,8 +105,7 @@ return {
       head_sha,
       source_digest
     )
-    local proposal = payloads_builders.build_pr_review_loop_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_loop_proposal(      "owner/repo",
       42,
       7,
       issue_version,

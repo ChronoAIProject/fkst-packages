@@ -21,7 +21,7 @@ local function source_ref()
 end
 
 local function ready_payload()
-  return payloads_builders.build_devloop_ready_payload(core, {
+  return payloads_builders.build_devloop_ready_payload({
     proposal_id = proposal_id,
     dedup_key = inner_version,
     source_ref = source_ref(),

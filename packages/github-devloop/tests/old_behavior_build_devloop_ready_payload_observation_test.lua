@@ -176,8 +176,8 @@ local function capture_runtime(fixture)
   local original_write_mode = config.write_mode
   local original_read_env = devloop_base.read_env
 
-  payloads_builders.build_devloop_ready_payload = function(M, source)
-    local payload = original_builder(M, source)
+  payloads_builders.build_devloop_ready_payload = function(source)
+    local payload = original_builder(source)
     table.insert(constructor_calls, {
       source = copy_value(source),
       payload = copy_value(payload),

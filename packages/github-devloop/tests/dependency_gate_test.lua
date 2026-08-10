@@ -191,7 +191,7 @@ return {
     mock_blocker_pr(31, 32, link, {
       m_builders.pr_origin_marker(link.proposal_id, 31, link.branch, link.impl_version, link.base_branch),
       core.state_marker(link.proposal_id, "merged", "merge-version-7"),
-      m_builders.merged_marker(core, link.proposal_id, 32, "merge-version-7", "def456"),
+      m_builders.merged_marker(link.proposal_id, 32, "merge-version-7", "def456"),
     })
     local gate = core.dependency_gate(repo, 42)
     t.eq(dependency_gate.dependency_gate_is_satisfied(gate), true)

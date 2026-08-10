@@ -66,7 +66,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   local authoritative_state_visible = type(state) == "table" and state.state == to_state
   local result_projection_visible = result_marker_visible and authoritative_state_visible
   local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
-    or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
+    or requests_lifecycle.build_result_comment_request(consensus_result_caps.output_language, repo, issue_number, reached, to_state)
   local label_request = nil
   if result_projection_visible then
     label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
@@ -96,7 +96,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
         or consensus_result_caps.dependency_wait_marker(
           reached.proposal_id, version, gate.unmet, gate.hold_kind, gate.reason
         ))
-    dependency_comment_request = requests_lifecycle.build_dependency_hold_comment_request(core,
+    dependency_comment_request = requests_lifecycle.build_dependency_hold_comment_request(consensus_result_caps.output_language,
       repo,
       issue_number,
       reached.proposal_id,
@@ -113,7 +113,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       reached.source_ref
     )
   elseif not declined and consensus_result_caps.dependency_gate_has_notes(gate) then
-    dependency_release_comment_request = requests_lifecycle.build_dependency_release_comment_request(core,
+    dependency_release_comment_request = requests_lifecycle.build_dependency_release_comment_request(consensus_result_caps, consensus_result_caps.output_language,
       repo,
       issue_number,
       reached.proposal_id,

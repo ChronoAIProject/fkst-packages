@@ -100,7 +100,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       local hand_off_reason = "missing"
       local handoff = nil
       if reviewing.reviewing_hand_off ~= nil then
-        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(core, repo, reviewing.reviewing_hand_off, {
+        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(repo, reviewing.reviewing_hand_off, {
           proposal_id = reviewing.proposal_id,
           state = "reviewing",
           marker_version = reviewing.version,
@@ -168,7 +168,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local review_id = devloop_base.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
     local review_dedup_key = base_ids.dedup_key({ review_id, "review" })
-    local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
+    local context_fetch = { context_bundle.context_fetch_ref_from_bundle({
       dept = "review_pr",
       repo = repo,
       issue_number = issue_number,
@@ -184,7 +184,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       no_legitimate_diff.raise_closed_unmerged("review_pr", core, repo, reviewing.pr_number, reviewing.proposal_id, state, pr_source_ref)
       return
     end
-    local proposal = payloads_builders.build_board_pr_review_proposal(core, repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
+    local proposal = payloads_builders.build_board_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
     if reviewing.review_delivery_dedup_key ~= nil then
       if devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(
         reviewing.review_delivery_dedup_key

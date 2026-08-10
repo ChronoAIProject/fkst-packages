@@ -27,7 +27,7 @@ local function serialize_thinking_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_lifecycle.build_observe_comment_request(
-    args.core,
+    args.core.output_language,
     args.issue,
     args.proposal
   )
@@ -41,7 +41,8 @@ local function serialize_implement_activation_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_lifecycle.build_implementing_state_comment_request(
-    args.core,
+    args.core.implement_attempt_marker,
+    args.core.output_language,
     args.issue.repo,
     args.issue.number,
     args.ready,
@@ -89,7 +90,7 @@ local function serialize_consensus_result_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_lifecycle.build_result_comment_request(
-    args.core,
+    args.core.output_language,
     args.repo,
     args.issue_number,
     args.reached,
@@ -212,7 +213,7 @@ local function serialize_loop_plain_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_lifecycle.build_converge_round_comment_request(
-    args.core,
+    args.core.output_language,
     args.issue.repo,
     args.issue.number,
     args.unresolved,

@@ -87,7 +87,7 @@ local function child_comments_with_delegated_merged_pr(child_proposal_id, pr_num
     comment(table.concat({
       core.state_marker(child_proposal_id, "merged", version),
       m_builders.pr_delegation_marker(child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
-      m_builders.merged_marker(core, child_proposal_id, pr_number, version, head_sha),
+      m_builders.merged_marker(child_proposal_id, pr_number, version, head_sha),
     }, "\n")),
   }
 end

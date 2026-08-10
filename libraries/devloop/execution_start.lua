@@ -64,7 +64,7 @@ function E.build_execution_start_proposal(core, repo, issue_number, request, cur
     title = current.title,
     updated_at = current.updated_at,
     source_ref = request.source_ref,
-    content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = dept or "execute_start",
       repo = repo,
       issue_number = issue_number,
@@ -73,7 +73,7 @@ function E.build_execution_start_proposal(core, repo, issue_number, request, cur
       tick = event_ts,
     }),
   }
-  local proposal = payloads_builders.build_board_proposal(core, issue, event_ts)
+  local proposal = payloads_builders.build_board_proposal(issue, event_ts)
   proposal.dedup_key = request.dedup_key
   proposal.effect_version = request.dedup_key
   proposal.intake_hand_off = E.execution_intake_hand_off(request)
@@ -92,7 +92,7 @@ function E.build_execution_start_effects(core, repo, issue_number, request, curr
   }
   return {
     proposal = proposal,
-    thinking_comment_request = requests_lifecycle.build_observe_comment_request(core, issue_ref, proposal),
+    thinking_comment_request = requests_lifecycle.build_observe_comment_request(core.output_language, issue_ref, proposal),
     thinking_label_request = requests_labels.build_thinking_label_request(issue_ref, proposal),
   }
 end

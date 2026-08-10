@@ -110,7 +110,7 @@ local function maybe_label_hints(origin, pr_number, current_pr, state, pr_source
 end
 
 local function build_reviewing_comment_request(origin, pr_number, source_ref)
-  return requests_review.build_reviewing_comment_request(core, origin.repo, origin.issue_number, origin, pr_number, source_ref)
+  return requests_review.build_reviewing_comment_request(observe_pr_caps.output_language, origin.repo, origin.issue_number, origin, pr_number, source_ref)
 end
 
 local function issue_reviewing_for_origin(origin)
@@ -356,7 +356,7 @@ local function maybe_redrive_not_mergeable_pr(origin, pr_number, current_pr, sta
     reviewed_head_sha = review_fact.reviewed_head_sha,
     dedup_key = tostring(state.version) .. "/observe-pr-conflict",
   }
-  local comment_request = requests_review.build_merge_gate_fix_comment_request(core,
+  local comment_request = requests_review.build_merge_gate_fix_comment_request(observe_pr_caps.merge_gate_reason_class, observe_pr_caps.output_language,
     origin.repo,
     origin.issue_number,
     comment_origin,

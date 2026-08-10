@@ -273,7 +273,7 @@ local function fixing_payload(fixture)
 end
 
 local function reject_comment(fix)
-  return requests_review.build_review_result_comment_request(core, REPO, ISSUE_NUMBER, fix.proposal_id,
+  return requests_review.build_review_result_comment_request(core.output_language, REPO, ISSUE_NUMBER, fix.proposal_id,
     fix.version, { proposal_id = fix.review_proposal_id, decision = "reject",
       body = "Review consensus rejects the diff.", blocking_gap = "missing OLD entry observation evidence",
       dedup_key = fix.review_dedup_key, source_ref = fix.source_ref }, fix.source_ref).body

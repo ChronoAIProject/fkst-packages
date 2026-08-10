@@ -573,8 +573,8 @@ function C.build_operator_issue_reimplement_comment_request(repo, issue_number, 
   }), source_ref)
 end
 
-function C.build_operator_issue_dependency_waiver_comment_request(M, repo, issue_number, command, proposal_id, version, blocker_number, source_ref)
-  local waiver_marker = M.dependency_waiver_marker(proposal_id, version, blocker_number, "operator-waiver")
+function C.build_operator_issue_dependency_waiver_comment_request(dependency_waiver_marker, repo, issue_number, command, proposal_id, version, blocker_number, source_ref)
+  local waiver_marker = dependency_waiver_marker(proposal_id, version, blocker_number, "operator-waiver")
   local command_marker = C.operator_command_marker(command, "applied", "dependency-waiver")
   return entity_lib.build_entity_comment_request({
     kind = "issue",

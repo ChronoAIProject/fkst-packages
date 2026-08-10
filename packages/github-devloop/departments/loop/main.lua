@@ -230,7 +230,7 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local next_n = round + 1
     local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)
-    local content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    local content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "loop",
       repo = repo,
       issue_number = issue_number,
@@ -238,7 +238,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       version = next_dedup,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_loop_proposal(core, repo, issue_number, current, unresolved.source_ref, next_n, {
+    local proposal = payloads_builders.build_board_loop_proposal(repo, issue_number, current, unresolved.source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
       findings_record = lineage_with_current[#lineage_with_current] and lineage_with_current[#lineage_with_current].findings_record,
