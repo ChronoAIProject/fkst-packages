@@ -90,7 +90,7 @@ local function retirement_receipt_marker(fact)
       .. '" terminal_state="blocked" terminal_version="' .. fact.terminal_version
       .. '" terminal_authority="reconcile:v1" action="drop"'
       .. ' terminal_cause="no-semantic-progress" dwell_minutes="' .. tostring(fact.dwell_minutes)
-      .. '" decompose_check="no-pr-link-or-decomposed"'
+      .. '" decompose_check="no-proposal-pr-delegation-or-terminal-lineage-decomposed"'
       .. ' operator_handling_check="no-post-terminal-human-comment" -->'
   end
   return '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
@@ -112,7 +112,8 @@ local function retirement_receipt_visible(comments, fact)
           and marker_shared.marker_attr(marker, "action") == "drop"
           and marker_shared.marker_attr(marker, "terminal_cause") == "no-semantic-progress"
           and marker_shared.marker_attr(marker, "dwell_minutes") == tostring(fact.dwell_minutes)
-          and marker_shared.marker_attr(marker, "decompose_check") == "no-pr-link-or-decomposed"
+          and marker_shared.marker_attr(marker, "decompose_check")
+            == "no-proposal-pr-delegation-or-terminal-lineage-decomposed"
           and marker_shared.marker_attr(marker, "operator_handling_check") == "no-post-terminal-human-comment" then
           return true
         end
@@ -137,7 +138,7 @@ local function retirement_receipt_request(repo, issue_number, fact)
       "Terminal marker version: `" .. fact.terminal_version .. "`",
       "Required dwell: `" .. tostring(fact.dwell_minutes) .. " minutes`",
       "Elapsed dwell: `" .. tostring(fact.elapsed_minutes) .. " minutes`",
-      "Decompose check: `no trusted pr-link or decomposed:v1 for this proposal/version lineage`",
+      "Decompose check: `no trusted pr-delegation for this proposal; no decomposed:v1 for this terminal version lineage`",
       "Operator-handling check: `no non-bot comment after the reconcile terminal comment`",
       "",
       retirement_receipt_marker(fact),
@@ -238,8 +239,8 @@ local function reconcile_drop_retirement_fact(issue, proposal_id, terminal_versi
   if dwell == nil then
     return nil, failure
   end
-  if marker_facts.pr_link_fact(issue.comments, proposal_id, terminal_version) ~= nil then
-    return nil, ineligible("reconcile-terminal-pr-link-present", dwell.elapsed_minutes)
+  if marker_facts.pr_delegation_fact(issue.comments, proposal_id) ~= nil then
+    return nil, ineligible("reconcile-terminal-pr-delegation-present", dwell.elapsed_minutes)
   end
   if decompose.decomposed_fact(issue.comments, proposal_id, terminal_version) ~= nil then
     return nil, ineligible("reconcile-terminal-decomposed-present", dwell.elapsed_minutes)

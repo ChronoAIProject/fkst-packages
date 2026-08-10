@@ -324,7 +324,7 @@ return {
     t.is_true(receipt.payload.body:find("Terminal marker version: `" .. reconcile_terminal_version .. "`", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find("Required dwell: `1440 minutes`", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find(
-      "Decompose check: `no trusted pr-link or decomposed:v1 for this proposal/version lineage`",
+      "Decompose check: `no trusted pr-delegation for this proposal; no decomposed:v1 for this terminal version lineage`",
       1,
       true
     ) ~= nil)
@@ -339,7 +339,11 @@ return {
     t.is_true(receipt.payload.body:find('proposal="' .. proposal_id .. '"', 1, true) ~= nil)
     t.is_true(receipt.payload.body:find('terminal_version="' .. reconcile_terminal_version .. '"', 1, true) ~= nil)
     t.is_true(receipt.payload.body:find('dwell_minutes="1440"', 1, true) ~= nil)
-    t.is_true(receipt.payload.body:find('decompose_check="no-pr-link-or-decomposed"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find(
+      'decompose_check="no-proposal-pr-delegation-or-terminal-lineage-decomposed"',
+      1,
+      true
+    ) ~= nil)
     t.is_true(receipt.payload.body:find('operator_handling_check="no-post-terminal-human-comment"', 1, true) ~= nil)
     t.eq(#close_writes(model), 0)
     t.eq(#reads, 1)
@@ -383,40 +387,22 @@ return {
     t.eq(#close_writes(model), 0)
   end,
 
-  test_pr_linked_reconcile_drop_lineage_remains_open = function()
+  test_pr_delegated_reconcile_drop_lineage_remains_open = function()
     mock_env("1")
     local comments = reconcile_drop_comments({
       bot_comment(
-        m_builders.pr_link_marker(
+        m_builders.pr_delegation_marker(
           proposal_id,
+          "github-devloop/pr/owner/repo/7",
           7,
-          "devloop-owner-repo-42-01HY",
           reconcile_impl_version,
-          "dev"
+          "g1"
         ),
         "2000-01-02T00:00:00Z"
       ),
     })
     local department, model = fake_department(comments, "OPEN", "blocked")
     mock_census(comments, "OPEN", "blocked")
-    entity_read_mocks.mock_pr_view_selector(t, {
-      repo = repo,
-      number = 7,
-      head = "devloop-owner-repo-42-01HY",
-      head_sha = "def456",
-      base_branch = "dev",
-      state = "OPEN",
-      comments = {
-        bot_comment(m_builders.pr_origin_marker(
-          proposal_id,
-          issue_number,
-          "devloop-owner-repo-42-01HY",
-          reconcile_impl_version,
-          "dev"
-        )),
-      },
-      labels = {},
-    }, entity_read_mocks.pr_origin_selector)
 
     local result = run_tick(department)
 
