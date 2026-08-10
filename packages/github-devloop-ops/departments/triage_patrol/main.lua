@@ -3,6 +3,7 @@ local core = require("core")
 local devloop_base = require("devloop.base")
 local github_author_policy = require("devloop.github_author_policy")
 local github_issue_create = require("contract.github_issue_create")
+local transition_version = require("contract.transition_version")
 local parsers_misc = require("devloop.parsers.misc")
 local ports = require("forge.ports")
 local request_shared = require("devloop.requests.shared")
@@ -18,8 +19,13 @@ local spec = {
 }
 
 local admitted_states = {
+  blocked = true,
   declined = true,
   dependency_wait = true,
+}
+
+local blocked_verdicts = {
+  ["child-pr-blocked"] = "derived",
 }
 
 local function require_repo()
@@ -89,6 +95,19 @@ local function authorized_marker_trust_set(comments, policy)
   return trust_set
 end
 
+local function classify_marker(state, marker_version)
+  if state ~= "blocked" then
+    return "", "abstain"
+  end
+  local suffixes = transition_version.parse(marker_version).suffixes or {}
+  local final_suffix = suffixes[#suffixes]
+  if final_suffix == nil or final_suffix.kind ~= "blocked" then
+    return "", "abstain"
+  end
+  local why = tostring(final_suffix.reason or "")
+  return why, blocked_verdicts[why] or "abstain"
+end
+
 local function admitted_row(github, policy, repo, host_login, candidate, limits)
   local issue_number = tonumber(candidate and candidate.number)
   if issue_number == nil or issue_number < 1 or issue_number % 1 ~= 0 then
@@ -116,13 +135,15 @@ local function admitted_row(github, policy, repo, host_login, candidate, limits)
   if not strings.is_bounded_string(current.author_login, base_ids.max_key_len) then
     error("github-devloop-ops: triage-patrol-marker-author-invalid: admitted marker author is missing or unbounded")
   end
+  local why, verdict = classify_marker(current.state, current.version)
   return {
     proposal_id = proposal_id,
     issue_number = issue_number,
     state = current.state,
-    version = current.version,
+    marker_version = current.version,
     marker_author = current.author_login,
-    verdict = "abstain",
+    why = why,
+    verdict = verdict,
   }
 end
 
@@ -135,7 +156,8 @@ local function snapshot_tuple(row)
   return table.concat({
     encoded_field(row.proposal_id),
     encoded_field(row.state),
-    encoded_field(row.version),
+    encoded_field(row.marker_version),
+    encoded_field(row.why),
     encoded_field(row.verdict),
   }, "|")
 end
@@ -179,7 +201,7 @@ local function render_receipt_body(repo, rows, snapshot_digest)
       .. '" entries="' .. tostring(#rows) .. '" -->',
     "",
     "Entries:",
-    "Fields: p=proposal_id i=issue s=state v=version a=marker_author",
+    "Fields: p=proposal_id i=issue s=state marker_version=state-marker-version a=marker_author why=blocked-why verdict=verdict",
   }
   if #rows == 0 then
     table.insert(lines, "- none")
@@ -188,8 +210,9 @@ local function render_receipt_body(repo, rows, snapshot_digest)
       table.insert(lines, "- `p=" .. display_field(row.proposal_id)
         .. " i=" .. tostring(row.issue_number)
         .. " s=" .. tostring(row.state)
-        .. " v=" .. display_field(row.version)
+        .. " marker_version=" .. display_field(row.marker_version)
         .. " a=" .. display_field(row.marker_author)
+        .. " why=" .. display_field(row.why)
         .. " verdict=" .. tostring(row.verdict) .. "`")
     end
   end
@@ -228,8 +251,9 @@ local function worst_case_receipt_row(repo)
     proposal_id = base_ids.proposal_id(repo, max_issue),
     issue_number = max_issue,
     state = longest_admitted_state(),
-    version = maximally_expanding_display_input(base_ids.max_dedup_len),
+    marker_version = maximally_expanding_display_input(base_ids.max_dedup_len),
     marker_author = string.rep("a", base_ids.max_key_len),
+    why = maximally_expanding_display_input(base_ids.max_dedup_len),
     verdict = "abstain",
   }
 end
@@ -278,7 +302,7 @@ local function receipt_request(repo, rows)
   return {
     schema = "github-proxy.issue-create.v1",
     repo = repo,
-    title = "Triage patrol abstain receipt",
+    title = "Triage patrol audit receipt",
     body = receipt_body(repo, rows, snapshot_digest),
     labels = json.decode("[]"),
     dedup_key = receipt_key,
