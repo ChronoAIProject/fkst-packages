@@ -28,10 +28,8 @@ M.stall_suspect_threshold_minutes = {
   fixing = 90,
   merging = 30,
 }
--- Declined issues remain reopenable for one full day before observability retires them.
-M.terminal_retirement_dwell_minutes = {
-  declined = 24 * 60,
-}
+-- Eligible terminal issues remain reopenable for one full day before observability retires them.
+M.terminal_retirement_dwell_minutes = 24 * 60
 
 function M.install_common(_core)
 end

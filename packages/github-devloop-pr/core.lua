@@ -96,21 +96,17 @@ require("forge.merge").install(M, {
 require("core.review_carry_over").install(M)
 require("devloop.logging").install(M)
 require("devloop.state").install(M)
+local package_replayer
 local restart_runtime = {
   durable_hold_resolver = require("core.ci_repair_retry").resolve_liveness_hold,
   replay_from_table_classified = function(...)
-    return require("devloop.replayer").replay_from_table_classified(M, ...)
+    return package_replayer.replay_from_table_classified(...)
   end,
 }
 local restart_policy = wiring.restart_policy(restart_runtime)
 require("core.review_redrive").install(M)
-local review_replayers = require("core.pr_review_replayer").install(M)
-M.replayer_review_registry = review_replayers
-require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
+local review_replayers = require("core.pr_review_replayer").install(M, restart_policy)
 rawset(M, "restart_policy", restart_policy)
-for key, value in pairs(restart_policy) do
-  if rawget(M, key) == nil then M[key] = value end
-end
 local prompt_surface = wiring.prompts()
 M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
@@ -127,6 +123,27 @@ require("core.pr_label_requests").install(M)
 require("core.review_meta_requests").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
+package_replayer = require("devloop.replayer").new(restart_policy, {
+  review_replayers = review_replayers,
+  linked_pr_surface_snapshot = M.linked_pr_surface_snapshot,
+  issue_lifecycle_facts = {
+    fetch_pr_view_origin = function(...) return M.fetch_pr_view_origin(...) end,
+    gh_issue_list_decompose_children = function(...) return M.gh_issue_list_decompose_children(...) end,
+  },
+}, {
+  authorization = {
+    approved_lineage_carry_over = M.approved_lineage_carry_over,
+  },
+  git = M.git,
+  output_language = M.output_language,
+  merge_gate_reason_class = M.merge_gate_reason_class,
+  pr_package_queue = M.pr_package_queue,
+})
+rawset(M, "replayer", package_replayer)
+require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
+for key, value in pairs(restart_policy) do
+  if rawget(M, key) == nil then M[key] = value end
+end
 require("core.span_conformance").install(M)
 
 return M
