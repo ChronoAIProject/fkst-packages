@@ -16,6 +16,14 @@ local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
+local function command_result(exit_code, stderr, stdout)
+  return {
+    stdout = stdout or "",
+    stderr = stderr or "",
+    exit_code = exit_code,
+  }
+end
+
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
@@ -102,19 +110,11 @@ local function blocked_by_json(nodes)
 end
 
 local function mock_blocked_by(issue_number, nodes)
-  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
-    stdout = blocked_by_json(nodes),
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), command_result(0, "", blocked_by_json(nodes)))
 end
 
 local function mock_blocked_by_failure(issue_number)
-  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
-    stdout = "",
-    stderr = "graphql failed",
-    exit_code = 1,
-  })
+  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), command_result(1, "graphql failed"))
 end
 
 local function mock_blocker_issue(issue_number, state_name)
@@ -122,11 +122,11 @@ local function mock_blocker_issue(issue_number, state_name)
   if state_name ~= nil then
     table.insert(comments, h.state_comment(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
   end
-  t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
-    stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n',
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), command_result(
+    0,
+    "",
+    '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n'
+  ))
 end
 
 local function mock_observe_issue(labels, comments)
@@ -137,19 +137,11 @@ local function mock_observe_issue(labels, comments)
     comments = comments,
     times = 1,
   })
-  t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), {
-    stdout = issue_view_json(labels, comments),
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), command_result(0, "", issue_view_json(labels, comments)))
 end
 
 local function mock_implement_issue(labels, comments)
-  t.mock_command(core.gh_issue_view_implement_cmd(repo, 42), {
-    stdout = issue_view_json(labels, comments),
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(core.gh_issue_view_implement_cmd(repo, 42), command_result(0, "", issue_view_json(labels, comments)))
 end
 
 local function reached()
@@ -799,11 +791,11 @@ return {
     mock_implement_issue({ "fkst-dev:ready" }, {
       h.projected_state_comment(proposal_id, "dependency_wait", version),
     })
-    t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_dependency_release_ready'", {
-      stdout = '{"body":"' .. encode_json_string(release_comment.payload.body) .. '","user":{"login":"fkst-test-bot"}}\n',
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_dependency_release_ready'", command_result(
+      0,
+      "",
+      '{"body":"' .. encode_json_string(release_comment.payload.body) .. '","user":{"login":"fkst-test-bot"}}\n'
+    ))
     h.mock_fresh_implement_worktree({ impl_version = ready.payload.dedup_key })
     h.mock_implement_codex(0, "implemented")
     h.mock_git_status(" M packages/github-devloop/core/ready_split.lua\n")
@@ -848,16 +840,8 @@ return {
         delegation
       ),
     })
-    t.mock_command("git fetch 'origin' '" .. branch .. "'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", {
-      stdout = "def456\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git fetch 'origin' '" .. branch .. "'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", command_result(0, "", "def456\n"))
 
     local result = h.run_implement(ready, h.opts("ready-split-regression-advanced-implement"))
     t.eq(result.exit_code, 0)
