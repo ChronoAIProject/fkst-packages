@@ -447,22 +447,62 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
-  test_blocked_issue_poll_closes_after_canonical_child_merge_lands = function()
+  test_blocked_issue_projects_and_confirms_parent_merge_before_close = function()
     local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     mock_issue_close()
     mock_branch_config()
     mock_rollup_landing(0)
-    local result = run_observe(parent_comments({
+    local blocked_comments = parent_comments({
       state = "blocked",
       version = blocked_version,
       delegation_version = version,
-    }), child_comments("merged"), {
+    })
+    local projection_result = run_observe(blocked_comments, child_comments("merged"), {
       labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
       pr_state = "MERGED",
       write = "real",
     })
 
-    t.eq(result.exit_code, 0)
+    t.eq(projection_result.exit_code, 0)
+    local projection = resume_comment(projection_result)
+    t.is_true(projection ~= nil)
+    t.is_true(projection.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+    t.eq(projection.payload.body:find('state="merged"', 1, true), nil)
+    if count_calls("gh issue close 42 --repo owner/repo") ~= 0 then
+      error("projection pass closed the blocked parent before confirming its merged fact")
+    end
+
+    table.insert(blocked_comments, comment(
+      projection.payload.body,
+      core._test_bot_login,
+      "2026-06-03T04:04:05Z"
+    ))
+    local projected_fact = m_facts.merged_fact(blocked_comments, parent, pr_number, blocked_version)
+    t.is_true(projected_fact ~= nil)
+    t.eq(projected_fact.head_sha, head_sha)
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local confirmation_decisions = {}
+    local active_log_cas_decision = devloop_logging.log_cas_decision
+    devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
+      table.insert(confirmation_decisions, tostring(outcome) .. ": " .. tostring(reason))
+      return active_log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason)
+    end
+    local close_result = run_observe(blocked_comments, child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+      pr_state = "MERGED",
+      write = "real",
+    })
+    devloop_logging.log_cas_decision = active_log_cas_decision
+
+    if close_result.exit_code ~= 0 then
+      error("confirmation pass failed: " .. tostring(close_result.error or close_result.stderr)
+        .. "; decisions=" .. table.concat(confirmation_decisions, " | "))
+    end
+    local repeated_projection = resume_comment(close_result)
+    if repeated_projection ~= nil then
+      error("confirmation pass published a comment again: " .. tostring(repeated_projection.payload.body))
+    end
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
