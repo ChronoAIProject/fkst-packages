@@ -202,6 +202,6 @@ def repository_messages(root: Path, allowlist_dir: Path | None = None, enforce_b
     base_status, base_allowlist = allowlist_at_dev_base(root) if enforce_base else ("absent", None)
     messages: list[str] = []
     if base_status == "unresolved":
-        messages.append("cannot resolve dev base allowlist to enforce shrink-only live-run-dispatch ratchet; ensure CI provides the dev ref")
+        messages.append(check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only live-run-dispatch ratchet; ensure CI provides the dev ref"))
     messages.extend(ratchet_messages(current_violations(repository_sources(root)), allowlist, base_allowlist))
     return messages

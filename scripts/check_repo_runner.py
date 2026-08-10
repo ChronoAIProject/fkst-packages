@@ -58,14 +58,18 @@ def check_library_error_class(c, root, violations, allowlist_dir=None, enforce_b
         c.add(
             violations,
             "G-LIB-ERROR-CLASS",
-            "cannot resolve target baseline diagnostics to enforce the shrink-only library error-class ratchet; "
-            "ensure an explicit target branch or FKST_RATCHET_TARGET_REF is available",
+            check_repo_config.configuration_failure(
+                "cannot resolve target baseline diagnostics to enforce the shrink-only library error-class ratchet; "
+                "ensure an explicit target branch or FKST_RATCHET_TARGET_REF is available"
+            ),
         )
     for message in check_repo_error_class.library_ratchet_messages(current, allowlist, target_sites):
         c.add(violations, "G-LIB-ERROR-CLASS", message)
 
 
-def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_content_truncation(
+    c, root, violations, allowlist_dir=None, enforce_base=True
+) -> None:
     sources = {}
     for package_root in c.package_roots(root):
         sources.update(check_repo_content_truncation.package_lua_sources(root, package_root, c.read_text, c.rel))
@@ -85,12 +89,14 @@ def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_ba
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-CONTENT-TRUNCATION", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(violations, "G-CONTENT-TRUNCATION", check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     for message in check_repo_content_truncation.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-CONTENT-TRUNCATION", message)
 
 
-def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_dept_failure_surface(
+    c, root, violations, allowlist_dir=None, enforce_base=True
+) -> None:
     sources = {}
     for package_root in c.package_roots(root):
         if not package_root.is_dir():
@@ -112,7 +118,7 @@ def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-DEPT-FAILURE-SURFACE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(violations, "G-DEPT-FAILURE-SURFACE", check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     for message in check_repo_dept_failure_surface.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-DEPT-FAILURE-SURFACE", message)
 
@@ -127,7 +133,9 @@ def check_lock_scope(c, root, violations, allowlist_dir=None, enforce_base=True)
         c.add(violations, "G-LOCK-SCOPE", message)
 
 
-def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_producer_liveness(
+    c, root, violations, allowlist_dir=None, enforce_base=True
+) -> None:
     package_roots = c.package_roots(root)
     raisers = set().union(*[
         check_repo_producer_liveness.declared_raisers(root, package_root)
@@ -157,7 +165,7 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-PRODUCER-LIVENESS", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(violations, "G-PRODUCER-LIVENESS", check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     messages = check_repo_producer_liveness.ratchet_messages(
         raisers,
         coverage,
@@ -173,7 +181,9 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
         c.add(violations, "G-PRODUCER-LIVENESS", message)
 
 
-def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_monotone_gate(
+    c, root, violations, allowlist_dir=None, enforce_base=True
+) -> None:
     package_roots = c.package_roots(root)
     if not enforce_base and not check_repo_monotone_gate.production_sources(root, package_roots):
         return
@@ -193,12 +203,17 @@ def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=Tr
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-MONOTONE-GATE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(violations, "G-MONOTONE-GATE", check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     for message in check_repo_monotone_gate.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-MONOTONE-GATE", message)
 
 
-def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
+def run_generic(
+    c,
+    config: check_repo_config.CheckRepoConfig,
+    violations: list[str],
+    warnings: list[str],
+) -> None:
     root = config.project_root
     allowlists = config.allowlist_dir
     enforce_base = config.is_own_repo
@@ -302,7 +317,12 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         c.add(violations, "G-DEVLOOP-CORE-PARAM", message)
 
 
-def run(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
+def run(
+    c,
+    config: check_repo_config.CheckRepoConfig,
+    violations: list[str],
+    warnings: list[str],
+) -> None:
     run_generic(c, config, violations, warnings)
     if config.is_own_repo:
         run_library_b_specific(c, config, violations, warnings)
