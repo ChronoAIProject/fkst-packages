@@ -4,15 +4,25 @@ local core = h.core
 local testing = require("testkit_internal.testing")
 local github_fake = require("forge.github_fake")
 local queue_starvation = require("devloop.queue_starvation")
+local output_obligation_resolution = require("departments.observability.output_obligation_resolution")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local payload_registry = require("devloop.payload_registry")
+local decompose = require("devloop.decompose")
+local conv_reconcile = require("devloop.convergence.reconcile")
 require("departments.observability.terminal_retirement")
 
 local repo = "owner/repo"
 local issue_number = 42
 local proposal_id = "github-devloop/issue/owner/repo/42"
-local terminal_version = "github-devloop/issue/owner/repo/42/intake/retirement-test"
+local declined_terminal_version = "github-devloop/issue/owner/repo/42/intake/retirement-test"
 local result_dedup = "consensus:github-devloop/issue/owner/repo/42/intake/retirement-test"
+local reconcile_base_version = "github-devloop/issue/owner/repo/42/intake/reconcile-retirement-test"
+local reconcile_round = 3
+local reconcile_terminal_version = conv_reconcile.reconcile_state_version(reconcile_base_version, reconcile_round)
+local reconcile_impl_version = payload_registry.resolve("dedup:ready", {
+  dedup_key = reconcile_base_version,
+})
 local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
 
 local function bot_comment(body, created_at)
@@ -27,17 +37,38 @@ local function declined_comments()
   return {
     bot_comment(
       "github-devloop decision: decline: premise-refuted\n\n"
-        .. core.state_marker(proposal_id, "declined", terminal_version, "result-marker,declined-label,premise-refuted")
+        .. core.state_marker(proposal_id, "declined", declined_terminal_version, "result-marker,declined-label,premise-refuted")
         .. "\n"
         .. m_builders.result_marker(
           proposal_id,
           "reject",
           result_dedup,
           "premise-refuted",
-          terminal_version
+          declined_terminal_version
         )
     ),
   }
+end
+
+local function reconcile_drop_comments(extra_comments)
+  local comments = {
+    bot_comment(
+      "github-devloop reconcile action: drop\n\n"
+        .. core.state_marker(proposal_id, "blocked", reconcile_terminal_version)
+        .. "\n"
+        .. conv_reconcile.reconcile_marker(
+          proposal_id,
+          reconcile_base_version,
+          reconcile_round,
+          "drop",
+          "no-semantic-progress"
+        )
+    ),
+  }
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  return comments
 end
 
 local function mock_env(write_mode)
@@ -67,12 +98,13 @@ local function mock_env(write_mode)
   end
 end
 
-local function mock_census(comments, state)
+local function mock_census(comments, state, state_name)
+  local terminal_state = state_name or "declined"
   local empty = { stdout = "[]\n", stderr = "", exit_code = 0 }
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._hold_label, 1, true), empty)
   for _, state_name in ipairs(core.lifecycle_state_order()) do
-    if state_name == "declined" then
+    if state_name == terminal_state then
       entity_read_mocks.mock_issue_list_command(
         t,
         core.gh_issue_list_observe_cmd(repo, core.state_label(state_name), 1, true),
@@ -80,7 +112,7 @@ local function mock_census(comments, state)
           {
             number = issue_number,
             state = state or "OPEN",
-            labels = { core.state_label("declined") },
+            labels = { core.state_label(terminal_state) },
             author_login = "alice",
           },
         }
@@ -93,10 +125,10 @@ local function mock_census(comments, state)
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = repo,
     number = issue_number,
-    title = "Declined proposal",
+    title = "Terminal proposal",
     body = "Proposal body",
     state = state or "OPEN",
-    labels = { core.state_label("declined") },
+    labels = { core.state_label(terminal_state) },
     comments = comments,
     author_login = "alice",
     assignees = {},
@@ -113,6 +145,7 @@ local function with_unrelated_controls_stubbed(fn)
     publish_observability_dashboard = core.publish_observability_dashboard,
     observability_topology_mermaid = core.observability_topology_mermaid,
     observe_queue_starvation = queue_starvation.observe_queue_starvation,
+    reconcile_output_obligation = output_obligation_resolution.reconcile,
   }
   core.collect_recent_merged_prs = function() return {} end
   core.collect_recent_merged_issues = function() return {} end
@@ -128,6 +161,7 @@ local function with_unrelated_controls_stubbed(fn)
   queue_starvation.observe_queue_starvation = function()
     return { action = "observed" }
   end
+  output_obligation_resolution.reconcile = function() return nil end
 
   local ok, result = pcall(fn)
   core.collect_recent_merged_prs = originals.collect_recent_merged_prs
@@ -138,21 +172,23 @@ local function with_unrelated_controls_stubbed(fn)
   core.publish_observability_dashboard = originals.publish_observability_dashboard
   core.observability_topology_mermaid = originals.observability_topology_mermaid
   queue_starvation.observe_queue_starvation = originals.observe_queue_starvation
+  output_obligation_resolution.reconcile = originals.reconcile_output_obligation
   if not ok then error(result, 0) end
   return result
 end
 
-local function fake_department(comments, state)
+local function fake_department(comments, state, state_name)
+  local terminal_state = state_name or "declined"
   local model = github_fake.model({
     issues = {
       [source_ref.ref] = {
         repo = repo,
         number = issue_number,
         state = state or "OPEN",
-        title = "Declined proposal",
+        title = "Terminal proposal",
         body = "Proposal body",
         comments = comments,
-        labels = { core.state_label("declined") },
+        labels = { core.state_label(terminal_state) },
         author_login = "alice",
         assignees = {},
       },
@@ -234,12 +270,12 @@ return {
     t.eq(receipt.payload.issue_number, issue_number)
     t.eq(receipt.payload.source_ref.ref, source_ref.ref)
     t.is_true(receipt.payload.body:find("Terminal state: `declined`", 1, true) ~= nil)
-    t.is_true(receipt.payload.body:find("Terminal marker version: `" .. terminal_version .. "`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Terminal marker version: `" .. declined_terminal_version .. "`", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find("Decline reason: `premise-refuted`", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find("Elapsed dwell: `", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find("reopening with a corrected premise or new evidence", 1, true) ~= nil)
     t.is_true(receipt.payload.body:find('proposal="' .. proposal_id .. '"', 1, true) ~= nil)
-    t.is_true(receipt.payload.body:find('terminal_version="' .. terminal_version .. '"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('terminal_version="' .. declined_terminal_version .. '"', 1, true) ~= nil)
     t.eq(#close_writes(model), 0)
     t.eq(#reads, 1)
     t.eq(reads[1].ref, source_ref.ref)
@@ -267,6 +303,146 @@ return {
     t.eq(receipt_raise(replay), nil)
     t.eq(#close_writes(model), 1)
     t.eq(#reads, 2)
+  end,
+
+  test_reconcile_drop_blocked_issue_emits_receipt_then_closes_not_planned_once = function()
+    mock_env("1")
+    local comments = reconcile_drop_comments()
+    local department, model, reads = fake_department(comments, "OPEN", "blocked")
+
+    mock_census(comments, "OPEN", "blocked")
+    local first = run_tick(department)
+    local receipt = receipt_raise(first)
+
+    t.is_true(receipt ~= nil)
+    t.eq(receipt.payload.issue_number, issue_number)
+    t.eq(receipt.payload.source_ref.ref, source_ref.ref)
+    t.is_true(receipt.payload.body:find("Terminal authority: `reconcile:v1`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Reconcile action: `drop`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Terminal cause: `no-semantic-progress`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Proposal: `" .. proposal_id .. "`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Terminal marker version: `" .. reconcile_terminal_version .. "`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Required dwell: `1440 minutes`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find(
+      "Decompose check: `no trusted pr-delegation for this proposal; no decomposed:v1 for this terminal version lineage`",
+      1,
+      true
+    ) ~= nil)
+    t.is_true(receipt.payload.body:find(
+      "Operator-handling check: `no non-bot comment after the reconcile terminal comment`",
+      1,
+      true
+    ) ~= nil)
+    t.is_true(receipt.payload.body:find('terminal_authority="reconcile:v1"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('action="drop"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('terminal_cause="no-semantic-progress"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('proposal="' .. proposal_id .. '"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('terminal_version="' .. reconcile_terminal_version .. '"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('dwell_minutes="1440"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find(
+      'decompose_check="no-proposal-pr-delegation-or-terminal-lineage-decomposed"',
+      1,
+      true
+    ) ~= nil)
+    t.is_true(receipt.payload.body:find('operator_handling_check="no-post-terminal-human-comment"', 1, true) ~= nil)
+    t.eq(#close_writes(model), 0)
+    t.eq(#reads, 1)
+    t.eq(reads[1].ref, source_ref.ref)
+    t.eq(reads[1].force_fresh, true)
+
+    table.insert(model.issues[source_ref.ref].comments, bot_comment(receipt.payload.body, "2000-01-02T00:00:00Z"))
+    mock_census(model.issues[source_ref.ref].comments, "OPEN", "blocked")
+    local second = run_tick(department)
+    local closes = close_writes(model)
+
+    t.eq(receipt_raise(second), nil)
+    t.eq(#closes, 1)
+    t.eq(closes[1].argv[4], tostring(issue_number))
+    t.eq(closes[1].argv[6], repo)
+    t.eq(closes[1].argv[7], "--reason")
+    t.eq(closes[1].argv[8], "not planned")
+    t.eq(#reads, 2)
+    t.eq(reads[2].force_fresh, true)
+
+    model.issues[source_ref.ref].state = "CLOSED"
+    mock_census(model.issues[source_ref.ref].comments, "CLOSED", "blocked")
+    local replay = run_tick(department)
+
+    t.eq(receipt_raise(replay), nil)
+    t.eq(#close_writes(model), 1)
+    t.eq(#reads, 2)
+  end,
+
+  test_dwell_only_blocked_issue_remains_open = function()
+    mock_env("1")
+    local comments = {
+      bot_comment(core.state_marker(proposal_id, "blocked", reconcile_terminal_version)),
+    }
+    local department, model = fake_department(comments, "OPEN", "blocked")
+    mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
+  end,
+
+  test_pr_delegated_reconcile_drop_lineage_remains_open = function()
+    mock_env("1")
+    local comments = reconcile_drop_comments({
+      bot_comment(
+        m_builders.pr_delegation_marker(
+          proposal_id,
+          "github-devloop/pr/owner/repo/7",
+          7,
+          reconcile_impl_version,
+          "g1"
+        ),
+        "2000-01-02T00:00:00Z"
+      ),
+    })
+    local department, model = fake_department(comments, "OPEN", "blocked")
+    mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
+  end,
+
+  test_decomposed_reconcile_drop_lineage_remains_open_without_child_proof = function()
+    mock_env("1")
+    local comments = reconcile_drop_comments({
+      bot_comment(
+        decompose.decomposed_marker(proposal_id, reconcile_terminal_version, 7, 1),
+        "2000-01-02T00:00:00Z"
+      ),
+    })
+    local department, model = fake_department(comments, "OPEN", "blocked")
+    mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
+  end,
+
+  test_post_reconcile_rereview_comment_keeps_blocked_issue_open = function()
+    mock_env("1")
+    local comments = reconcile_drop_comments({
+      {
+        body = "fkst: rereview",
+        author_login = "alice",
+        created_at = "2000-01-02T00:00:00Z",
+      },
+    })
+    local department, model = fake_department(comments, "OPEN", "blocked")
+    mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
   end,
 
   test_dry_run_logs_would_retire_and_performs_no_github_writes = function()
