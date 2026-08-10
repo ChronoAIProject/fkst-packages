@@ -60,7 +60,7 @@ local function issue(comments, fields)
     body = extra.body or "Run the workflow.",
     state = extra.state or "OPEN",
     labels = extra.labels or {},
-    assignees = { "fkst-test-bot" },
+    assignees = extra.assignees or { "fkst-test-bot" },
     author_login = "fkst-test-bot",
     comments = comments or { comment(blueprint_marker()) },
     repo = repo,

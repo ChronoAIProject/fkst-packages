@@ -61,7 +61,10 @@ local function run_case(fresh)
     fresh_comments = fixtures.comments_with(fresh_comments, extra)
   end
   local planned_issue = fixtures.issue(planned_comments)
-  local fresh_issue = fixtures.issue(fresh_comments, { labels = (fresh or {}).labels })
+  local fresh_issue = fixtures.issue(fresh_comments, {
+    assignees = (fresh or {}).assignees,
+    labels = (fresh or {}).labels,
+  })
 
   local reads = 0
   local in_lock = false
@@ -190,6 +193,13 @@ return {
   -- minutes-long generator run every time a projection landed.
   test_materialization_commits_plan_when_only_labels_moved = function()
     local _events, raised = run_case({ labels = { "triage" } })
+    t.eq(#raised, 1)
+  end,
+
+  -- Assignees are not claim carriers. Once label claims are the sole lease authority,
+  -- an unrelated assignee edit cannot supersede a label-authorized plan.
+  test_materialization_commits_plan_when_only_assignees_moved = function()
+    local _events, raised = run_case({ assignees = { "human-reviewer" } })
     t.eq(#raised, 1)
   end,
 

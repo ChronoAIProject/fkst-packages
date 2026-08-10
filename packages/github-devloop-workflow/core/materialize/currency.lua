@@ -1,4 +1,3 @@
-local devloop_claims = require("devloop.claims")
 local materialization = require("core.materialization")
 local discovery = require("core.materialize.discovery")
 
@@ -18,19 +17,11 @@ local M = {}
 -- An effect that genuinely IS authorized by labels does not rely on this token: it
 -- registers its own commit guard and re-validates that authorization against the
 -- fresh snapshot (see the irreversible done cleanup in materialize_reconcile).
-local PARTS = { "state", "assignees", "terminal", "blueprint", "materializations" }
+local PARTS = { "state", "terminal", "blueprint", "materializations" }
 
 local function sorted_join(values)
   table.sort(values)
   return table.concat(values, ",")
-end
-
-local function assignees_part(current)
-  local logins = {}
-  for _, login in ipairs(devloop_claims.assignee_logins(current and current.assignees) or {}) do
-    logins[#logins + 1] = tostring(login):lower()
-  end
-  return sorted_join(logins)
 end
 
 local function terminal_part(core, current, origin)
@@ -62,7 +53,6 @@ end
 function M.origin_currency(core, current, origin)
   return {
     state = tostring(current and current.state or ""):upper(),
-    assignees = assignees_part(current),
     terminal = terminal_part(core, current, origin),
     blueprint = blueprint_part(core, current, origin),
     materializations = materializations_part(core, current, origin),

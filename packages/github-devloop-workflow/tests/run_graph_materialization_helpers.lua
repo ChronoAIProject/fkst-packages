@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local transition_version = require("contract.transition_version")
 local t = fkst.test
 local core = require("core")
@@ -21,6 +22,7 @@ local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local integration_branch = "integration-elonsg"
 local revived_branch = "devloop-owner-repo-2137-01HY"
 local blocked_child_version = transition_version.next_blocked(child_version, "child-pr-blocked")
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local function json_escape(value)
   return tostring(value or "")
@@ -72,8 +74,19 @@ local function rest_comments_json(comments)
   return "[[" .. table.concat(parts, ",") .. "]]\n"
 end
 
-local function ownership_json()
-  return '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n'
+local function ownership_json(claimed)
+  local labels = claimed == true and '[{"name":"' .. claim_spec.name .. '"}]' or "[]"
+  return '{"labels":' .. labels .. ',"author":{"login":"fkst-test-bot"}}\n'
+end
+
+local function mock_claim_label_binding(times)
+  for _ = 1, times or 8 do
+    t.mock_command("gh api repos/" .. repo .. "/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function blocked_by_json(nodes)
@@ -267,6 +280,7 @@ local function mock_origin_dependency(blocker_state)
 end
 
 local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout, blocker_state)
+  mock_claim_label_binding()
   mock_origin_dependency(blocker_state)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
@@ -284,7 +298,7 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
     })
   end
   t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
-    stdout = ownership_json(), stderr = "", exit_code = 0,
+    stdout = ownership_json(true), stderr = "", exit_code = 0,
   })
   t.mock_command("gh issue view " .. tostring(first_child_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
     stdout = child_history(first_child, first_child_issue, first_pr, true), stderr = "", exit_code = 0,
@@ -304,13 +318,13 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
   end
   if releases_claim then
     t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
-      stdout = ownership_json(), stderr = "", exit_code = 0,
+      stdout = ownership_json(true), stderr = "", exit_code = 0,
     })
   end
 end
 
 local function mock_env()
-  for _ = 1, 9 do
+  for _ = 1, 12 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
       stdout = repo,
       stderr = "",
@@ -357,6 +371,8 @@ return {
   issue_json = issue_json,
   rest_comments_json = rest_comments_json,
   ownership_json = ownership_json,
+  active_claim_label = claim_spec.name,
+  mock_claim_label_binding = mock_claim_label_binding,
   blocked_by_json = blocked_by_json,
   workflow_history = workflow_history,
   revived_child_body = revived_child_body,

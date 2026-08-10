@@ -41,6 +41,7 @@ local mock_env = fixtures.mock_env
 local mock_write_mode = fixtures.mock_write_mode
 
 local function mock_child_issue_reads(issue_number, title, body, labels, comments)
+  fixtures.mock_claim_label_binding()
   local stdout = issue_json(issue_number, title, labels, comments, "OPEN", body)
   for _ = 1, 8 do
     for _, command in ipairs({
@@ -58,10 +59,11 @@ local function mock_child_issue_reads(issue_number, title, body, labels, comment
 
   local path = "repos/" .. repo .. "/issues/" .. tostring(issue_number)
   local rest = string.format(
-    '{"number":%d,"title":"%s","body":"%s","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:03Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:ready"}],"user":{"login":"fkst-test-bot"},"assignees":[{"login":"fkst-test-bot"}]}\n',
+    '{"number":%d,"title":"%s","body":"%s","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:03Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:ready"},{"name":"%s"}],"user":{"login":"fkst-test-bot"}}\n',
     issue_number,
     json_escape(title),
-    json_escape(body)
+    json_escape(body),
+    fixtures.active_claim_label
   )
   for _ = 1, 12 do
     t.mock_command("gh api '" .. path .. "' --jq '.updated_at'", {
@@ -135,8 +137,9 @@ end
 
 local function issue_rest_json()
   return string.format(
-    '{"number":%d,"title":"Workflow child","body":"fixture","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:02Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:blocked"}],"user":{"login":"fkst-test-bot"},"assignees":[{"login":"fkst-test-bot"}]}\n',
-    revived_child_issue
+    '{"number":%d,"title":"Workflow child","body":"fixture","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:02Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:blocked"},{"name":"%s"}],"user":{"login":"fkst-test-bot"}}\n',
+    revived_child_issue,
+    fixtures.active_claim_label
   )
 end
 
@@ -172,7 +175,8 @@ local function mock_child_materialization(created_issue, child_dedup)
 end
 
 local function mock_native_merge_observation()
-  mock_write_mode("1", 4)
+  fixtures.mock_claim_label_binding()
+  mock_write_mode("1", 7)
   t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
     stdout = upstream_branch, stderr = "", exit_code = 0,
   })
@@ -232,7 +236,7 @@ end
 return {
   test_run_graph_rederives_revived_merged_child_after_child_fatal = function()
     mock_env()
-    mock_write_mode("", 4)
+    mock_write_mode("", 5)
     mock_child_materialization()
     mock_materialization_cycle(workflow_history(false), nil, nil, false)
 
@@ -249,7 +253,8 @@ return {
     t.eq(create.payload.title, "Workflow child")
     t.is_true(create.payload.body:find("Materialized workflow child fixture.", 1, true) ~= nil)
 
-    mock_write_mode("", 4)
+    mock_env()
+    mock_write_mode("", 5)
     mock_materialization_cycle(workflow_history(true), "OPEN", "OPEN", false)
 
     local fatal_trace = graph.require_quiescent(graph.run({
@@ -271,6 +276,7 @@ return {
     t.is_true(fatal.payload.body:find('state="blocked"', 1, true) ~= nil)
     t.is_true(fatal.payload.body:find('reason_code="child-fatal-behavior-preserving-restructure"', 1, true) ~= nil)
 
+    mock_env()
     mock_native_merge_observation()
     local merged_trace = graph.require_quiescent(graph.run(native_pr_merged_event(), { max_steps = 4 }))
     graph.assert_covers(merged_trace, {
@@ -285,6 +291,7 @@ return {
     end
     t.eq(close_calls, 1)
 
+    mock_env()
     mock_write_mode("", 6)
     mock_materialization_cycle(workflow_history(true, fatal.payload.body), "CLOSED", "MERGED", true)
     local recovered_trace = graph.require_quiescent(graph.run({
@@ -315,7 +322,7 @@ return {
     t.eq(graph.find_raise(held, "github-proxy.github_issue_create_request"), nil)
 
     mock_env()
-    mock_write_mode("1", 4)
+    mock_write_mode("1", 5)
     mock_materialization_cycle(release_history, nil, nil, false, nil, "CLOSED")
     local released = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",
@@ -355,9 +362,9 @@ return {
       ),
       created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
     }
-    local child_labels = { "fkst-dev:enabled", "fkst-dev:ready" }
+    local child_labels = { "fkst-dev:enabled", "fkst-dev:ready", fixtures.active_claim_label }
     mock_env()
-    mock_write_mode("", 18)
+    mock_write_mode("", 24)
     mock_child_issue_reads(
       created_child_issue,
       create.payload.title,

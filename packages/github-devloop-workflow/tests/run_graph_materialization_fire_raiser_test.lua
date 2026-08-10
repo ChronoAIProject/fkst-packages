@@ -128,7 +128,7 @@ return {
   test_run_graph_terminalizes_parent_from_impl_failure_while_child_label_is_stale = function()
     local child_stdout = stale_label_impl_failed_child_history()
     mock_env()
-    mock_write_mode("", 4)
+    mock_write_mode("", 5)
     mock_materialization_cycle(workflow_history(true), "OPEN", nil, false, child_stdout)
 
     local terminal_trace = graph.require_quiescent(graph.run({
@@ -142,7 +142,7 @@ return {
 
     local terminal_history = workflow_history(true, terminal.payload.body)
     mock_env()
-    mock_write_mode("", 4)
+    mock_write_mode("", 5)
     mock_materialization_cycle(terminal_history, "OPEN", nil, false, child_stdout)
     local projection_trace = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",
@@ -159,7 +159,7 @@ return {
       created_at = "2026-07-10T20:44:00Z",
     }
     mock_env()
-    mock_write_mode("", 5)
+    mock_write_mode("", 7)
     mock_materialization_cycle(terminal_history, "OPEN", nil, false, child_stdout)
     local label_trace = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",

@@ -1,4 +1,5 @@
 local author_policy = require("testkit_internal.github_author_policy")
+local claim_carriers = require("devloop.claim_carriers")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local graph = require("testkit.graph")
@@ -6,6 +7,7 @@ local marker_builders = require("devloop.markers.builders")
 local premise_correction = require("devloop.premise_correction")
 local t = fkst.test
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -71,7 +73,8 @@ local function issue_view_json(fixture)
     ))
   end
   return string.format(
-    '{"title":"Automate deployment","body":"Use the repository fake deployment adapter.","updatedAt":"2026-07-27T10:02:00Z","state":"OPEN","labels":[],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    '{"title":"Automate deployment","body":"Use the repository fake deployment adapter.","updatedAt":"2026-07-27T10:02:00Z","state":"OPEN","labels":[{"name":"%s"}],"comments":[%s],"author":{"login":"fkst-test-bot"}}\n',
+    claim_spec.name,
     table.concat(comments, ",")
   )
 end
@@ -126,6 +129,13 @@ local function mock_issue_reads(fixture)
   for _ = 1, 12 do
     t.mock_command("gh issue view", {
       stdout = issue_view_json(fixture),
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/" .. repo .. "/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
       stderr = "",
       exit_code = 0,
     })

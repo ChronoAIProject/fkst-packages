@@ -1,4 +1,5 @@
 local actions = require("core.materialize.actions")
+local claim_carriers = require("devloop.claim_carriers")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local decompose_lib = require("devloop.decompose")
 local devloop_base = require("devloop.base")
@@ -17,6 +18,7 @@ local child_proposal = "github-devloop/issue/owner/repo/43"
 local pr_number = 7
 local version = "ready/consensus-github-devloop/issue/owner/repo/43/2026-06-03T01-02-03Z/fix/3"
 local runtime_root = "/tmp/fkst-packages-test/github-devloop-workflow/decompose-lineage-chain"
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local function mock_command_times(command, stdout, times)
   for _ = 1, times or 1 do
@@ -63,36 +65,34 @@ local function mock_claim_and_reads(materialized_body, payload)
   entity_read_mocks.mock_issue_read_forms(t, {
     repo = repo,
     number = 43,
-    assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
+    labels = { "fkst-dev:blocked", claim_spec.name },
   })
-  entity_read_mocks.mock_issue_view_selector(t, {
+  local claim_fields = {
     repo = repo,
     number = 43,
-    assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-    labels = { "fkst-dev:blocked" },
-  }, "assignees,author,labels", 30)
+    labels = { "fkst-dev:blocked", claim_spec.name },
+  }
+  mock_command_times(
+    "gh issue view 43 --repo owner/repo --json 'labels,author'",
+    entity_read_mocks.issue_view_stdout(claim_fields),
+    30
+  )
+  mock_command_times(
+    "gh api repos/" .. repo .. "/labels/" .. claim_spec.name,
+    '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+    16
+  )
   local issue_fields = {
     repo = repo,
     number = 43,
     title = "Workflow child",
     body = materialized_body,
-    labels = { "fkst-dev:blocked" },
+    labels = { "fkst-dev:blocked", claim_spec.name },
     comments = blocked_comments(),
   }
   entity_read_mocks.mock_issue_view_selector(t, issue_fields, "title,body,labels,comments,author")
-  mock_command_times(
-    "gh issue view 43 --repo owner/repo --json 'assignees,author,labels'",
-    entity_read_mocks.issue_view_stdout({
-      repo = repo,
-      number = 43,
-      assignees = { "fkst-test-bot" },
-      author_login = "fkst-test-bot",
-      labels = { "fkst-dev:blocked" },
-    }),
-    30
-  )
   mock_command_times(
     "gh issue view 43 --repo owner/repo --json 'title,body,labels,comments,author'",
     entity_read_mocks.issue_view_stdout(issue_fields)
@@ -147,7 +147,7 @@ local function mock_decompose_codex(payload)
   end
   t.mock_command("install -d -m 0755", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("mktemp -d", { stdout = tmp_dir .. "\n", stderr = "", exit_code = 0 })
-  local issue_context_stdout = '{"title":"Workflow child","body":"Materialized body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
+  local issue_context_stdout = '{"title":"Workflow child","body":"Materialized body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"},{"name":"' .. claim_spec.name .. '"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n'
   entity_read_mocks.mock_issue_view_raw_selector(t, {
     repo = repo,
     number = 43,
@@ -227,7 +227,7 @@ return {
       configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
       times = 8,
     })
-    for _ = 1, 4 do
+    for _ = 1, 6 do
       t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
         stdout = "1",
         stderr = "",

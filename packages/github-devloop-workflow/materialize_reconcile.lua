@@ -70,7 +70,7 @@ local function new_origin_unit()
     }
   end
 
-  -- Lease writes (assignee release, origin close) go straight to GitHub instead of
+  -- Lease writes (claim-label release, origin close) go straight to GitHub instead of
   -- through a request queue, so they are buffered like raises and applied under the
   -- same commit gate: a superseded plan must not release a claim it no longer owns.
   function unit.lease_action(apply)

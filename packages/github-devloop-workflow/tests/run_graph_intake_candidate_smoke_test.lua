@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local graph = require("testkit.graph")
 local marker_facts = require("devloop.markers.facts")
 local payloads_builders = require("devloop.payloads.builders")
@@ -6,6 +7,7 @@ local t = fkst.test
 local core = require("core")
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local function json_string(value)
   return tostring(value or "")
@@ -34,7 +36,7 @@ local function issue_view_json()
     '{"title":"%s","body":"%s","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[%s],"comments":[],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
     json_string("Repair retry backoff for failed widget sync"),
     json_string("Implement exponential backoff for widget sync retries."),
-    encode_labels_json({})
+    encode_labels_json({ claim_spec.name })
   )
 end
 
@@ -62,7 +64,7 @@ end
 
 local function mock_env()
   author_policy.mock_env(t, nil, { times = 12 })
-  for _ = 1, 12 do
+  for _ = 1, 15 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
       stdout = "",
       stderr = "",
@@ -90,6 +92,13 @@ local function mock_issue_reads()
   for _ = 1, 3 do
     t.mock_command("gh issue view", {
       stdout = issue_view_json(),
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
       stderr = "",
       exit_code = 0,
     })
