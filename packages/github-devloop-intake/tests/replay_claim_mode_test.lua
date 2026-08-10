@@ -3,6 +3,7 @@ local replay_admission_department = require("departments.replay_admission.main")
 local claim_carriers = require("devloop.claim_carriers")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
+local dashboard = require("devloop.dashboard")
 local h = require("tests.devloop_helpers")
 local testing = require("testkit_internal.testing")
 local t = h.t
@@ -176,6 +177,52 @@ local function label_mode_admission_department()
 end
 
 return {
+  test_replay_skips_dashboard_anchor_before_capacity_or_raise = function()
+    h.mock_bot_env()
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    t.mock_observe({
+      terminal_dead_letter = {
+        delivery_id = "terminal-dashboard-anchor",
+        queue = "github-devloop-intake.devloop_intake_candidate",
+        dept = "github-devloop-intake-default.intake_judge",
+        source = { kind = "External", reference = "owner/repo#issue/42" },
+        attempts = 1,
+        permanent = true,
+        replayable = false,
+      },
+    })
+    local capacity_calls = 0
+    local department = replay_admission_department.make_department({
+      capacity = {
+        authorize = function()
+          capacity_calls = capacity_calls + 1
+          return true, "unexpected-capacity-admission"
+        end,
+        reconcile = function() end,
+      },
+      read_current_issue = function()
+        return "owner/repo", 42, {
+          number = 42,
+          title = dashboard.title,
+          body = dashboard.marker("anchor", "2026-08-08T00:00:00Z"),
+          updated_at = "2026-07-31T01:02:03Z",
+          state = "OPEN",
+          labels = {},
+          comments = {},
+          assignees = { "fkst-test-bot" },
+        }, nil
+      end,
+    })
+
+    local result = with_claim_mode("assignee", function()
+      return testing.run_fake_outcome(department, observed_issue())
+    end)
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(capacity_calls, 0)
+  end,
+
   test_label_claim_mode_replays_terminal_lineage_for_held_claim = function()
     mock_claim_env("label")
     local terminal = terminal_row()
