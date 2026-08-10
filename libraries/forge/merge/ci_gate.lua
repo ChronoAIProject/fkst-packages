@@ -22,8 +22,8 @@ local pr_rollup_green = check_runs.pr_rollup_green
 local pr_mergeable = check_runs.pr_mergeable
 local is_not_mergeable_reason = check_runs.is_not_mergeable_reason
 local required_head_check_run_status = shared.required_head_check_run_status
-local required_head_ci_failure_key = shared.required_head_ci_failure_key
-local required_head_ci_failure_summary = shared.required_head_ci_failure_summary
+local head_ci_failure_key = shared.head_ci_failure_key
+local head_ci_failure_summary = shared.head_ci_failure_summary
 local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
 local merge_gate_reason_row = shared.merge_gate_reason_row
@@ -95,12 +95,12 @@ local function classify_pr_ci_gate(pr, opts)
   if head_status == "unknown" then
     return ci_classification("CI_UNKNOWN", "ci-unknown", { check_runs = runs })
   end
-  local ci_failure_key = required_head_ci_failure_key(runs, head_sha)
+  local ci_failure_key = head_ci_failure_key(runs, head_sha)
   if ci_failure_key ~= nil then
     return ci_classification("OWN_CI_RED", "own-ci-red", {
       check_runs = runs,
       ci_failure_key = ci_failure_key,
-      gate_failure_excerpt = required_head_ci_failure_summary(runs, head_sha, opts and opts.failure_summary_limit),
+      gate_failure_excerpt = head_ci_failure_summary(runs, head_sha, opts and opts.failure_summary_limit),
     })
   end
   if reason == "rollup-pending" then
