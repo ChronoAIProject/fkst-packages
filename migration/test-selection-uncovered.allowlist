@@ -21,6 +21,8 @@ docs/README.md
 docs/adr/0001-std-dependency-model.md
 docs/adr/0002-host-fkst-layout.md
 docs/dev/auditing-ratchet-reasons.md
+docs/dev/characterization-digest-audit.md
+docs/dev/checker-proxy-audit.md
 docs/dev/consensus-converge-redesign.md
 docs/dev/devloop-design.md
 docs/dev/harness-construction-methodology.md
@@ -73,6 +75,7 @@ docs/superpowers/specs/2026-08-09-ambient-m-dissolution-campaign-spec.md
 docs/superpowers/specs/2026-08-10-cas-parity-invariant-checker-design.md
 docs/user/control-planes-and-host-repo-composition.md
 docs/user/downstream-customization-guide.md
+docs/user/github-app-permissions.md
 docs/user/github-devloop-dogfood-topology.md
 docs/user/global-host-profiles.md
 docs/user/host-profile.env.example
@@ -120,6 +123,7 @@ migration/intent_bounded_replay/corpus/timeout-reconcile.json
 migration/intent_bounded_replay/r11-delivery-authorizations.json
 migration/library-error-class.allowlist
 migration/live-run-dispatch.allowlist
+migration/lock-scope.allowlist
 migration/lower-injected-m.inventory
 migration/monotone-gate.allowlist
 migration/monotone-gate.inventory

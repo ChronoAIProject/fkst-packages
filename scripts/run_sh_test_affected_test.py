@@ -90,6 +90,8 @@ class TestAffectedHarness:
                 "intake_policy_slots.json",
             ):
                 shutil.copy2(REPO_ROOT / "scripts" / name, self.scripts / name)
+            for name in ("test_selection_test.py", "check_repo_test_selection.py"):
+                (self.scripts / name).write_text("raise SystemExit(0)\n", encoding="utf-8")
             test_affected = REPO_ROOT / "scripts" / "test_affected.sh"
             if test_affected.exists():
                 shutil.copy2(test_affected, self.scripts / "test_affected.sh")

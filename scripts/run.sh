@@ -212,9 +212,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_affected_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_selection_test.py"'
-    'python3 -B "$ROOT/scripts/test_selection_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_test_selection_test.py"'
-    'python3 -B "$ROOT/scripts/check_repo_test_selection.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_deadline_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_reaper_test.py"'
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
@@ -529,7 +527,11 @@ cmd_test() {
       exit 1
     fi
   done
+  echo "=== test selection soundness ==="
+  python3 -B "$ROOT/scripts/test_selection_test.py" || fail=$((fail + 1))
+  python3 -B "$ROOT/scripts/check_repo_test_selection.py" --bin "$BIN" || fail=$((fail + 1))
   if [ "$repo_only" -eq 1 ]; then
+    [ "$fail" -eq 0 ] || { local_iteration_result_unknown; echo "FAILED: $fail test selection soundness unit(s)" >&2; return 1; }
     echo "=== narrowed local test: not the CI gate ==="
     echo "skipped package suites and aggregate gates after repository checks"
     local_iteration_result_pass; return 0

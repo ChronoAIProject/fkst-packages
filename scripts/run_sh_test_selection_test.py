@@ -14,20 +14,33 @@ from run_sh_test_affected_test import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TEST_SELECTION_GATE_UNITS = (
+CHECK_PHASE_UNITS = (
     'python3 -B "$ROOT/scripts/run_sh_test_selection_test.py"',
-    'python3 -B "$ROOT/scripts/test_selection_test.py"',
     'python3 -B "$ROOT/scripts/check_repo_test_selection_test.py"',
+)
+TEST_PHASE_UNITS = (
+    'python3 -B "$ROOT/scripts/test_selection_test.py"',
     'python3 -B "$ROOT/scripts/check_repo_test_selection.py"',
 )
 
 
 class RunShTestSelectionTest(unittest.TestCase):
-    def test_check_registers_all_test_selection_gate_units(self) -> None:
+    def test_places_test_selection_units_by_engine_dependency(self) -> None:
         source = (REPO_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
-        for unit in TEST_SELECTION_GATE_UNITS:
+        check_phase = source[
+            source.index("cmd_check() {") : source.index("check_test_file_coverage() {")
+        ]
+        test_phase = source[
+            source.index("cmd_test() {") : source.index("collect_composed_package() {")
+        ]
+        for unit in CHECK_PHASE_UNITS:
             with self.subTest(unit=unit):
-                self.assertIn(unit, source)
+                self.assertIn(unit, check_phase)
+                self.assertNotIn(unit, test_phase)
+        for unit in TEST_PHASE_UNITS:
+            with self.subTest(unit=unit):
+                self.assertNotIn(unit, check_phase)
+                self.assertIn(unit, test_phase)
 
     def test_repo_only_runs_one_check_and_no_package_units(self) -> None:
         h = TestAffectedHarness()
@@ -46,6 +59,25 @@ class RunShTestSelectionTest(unittest.TestCase):
             self.assertNotIn("=== sdk-primitives ===", result.stdout)
             self.assertNotIn("=== consensus ===", result.stdout)
             self.assertNotIn("=== github-devloop ===", result.stdout)
+        finally:
+            h.close()
+
+    def test_repo_only_fails_when_a_soundness_unit_fails(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            (h.scripts / "test_selection_test.py").write_text(
+                "raise SystemExit(1)\n", encoding="utf-8"
+            )
+
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\nmain test --repo-only"
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result), [result_marker("UNKNOWN", "UNKNOWN")]
+            )
+            self.assertIn("FAILED: 1 test selection soundness unit(s)", result.stderr)
         finally:
             h.close()
 
