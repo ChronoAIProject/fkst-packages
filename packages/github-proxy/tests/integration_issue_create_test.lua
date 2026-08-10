@@ -6,6 +6,20 @@ local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 
+local function successful_command_result(stdout)
+  return {
+    stdout = stdout,
+    stderr = "",
+    exit_code = 0,
+  }
+end
+
+local function write_opts(name)
+  return opts(name, {
+    FKST_GITHUB_WRITE = "1",
+  })
+end
+
 local function long_decompose_dedup(slot, token)
   return "decompose/generic-workflow/issue/owner/x/42/"
     .. string.rep("review-loop/1/fix/12/", 10)
@@ -80,27 +94,23 @@ local function archaudit_payload(extra)
 end
 
 local function mock_issue_create_search(stdout)
-  t.mock_command("gh issue list", {
-    stdout = stdout or "[]\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("gh issue list", successful_command_result(stdout or "[]\n"))
 end
 
 local function mock_issue_create()
-  t.mock_command("gh issue create", {
-    stdout = "https://github.example/owner/x/issues/99\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh issue create",
+    successful_command_result("https://github.example/owner/x/issues/99\n")
+  )
 end
 
 local function mock_child_issue_rest_view(issue_number, child_id)
-  t.mock_command("gh api repos/owner/x/issues/" .. tostring(issue_number or 99), {
-    stdout = '{"id":' .. tostring(child_id or 987654321) .. ',"number":' .. tostring(issue_number or 99) .. "}\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh api repos/owner/x/issues/" .. tostring(issue_number or 99),
+    successful_command_result(
+      '{"id":' .. tostring(child_id or 987654321) .. ',"number":' .. tostring(issue_number or 99) .. "}\n"
+    )
+  )
 end
 
 local function mock_source_issue_author(author_login)
@@ -108,11 +118,12 @@ local function mock_source_issue_author(author_login)
   if author_login ~= nil then
     author = '{"login":"' .. h.json_string(author_login) .. '"}'
   end
-  t.mock_command("gh api repos/owner/x/issues/42", {
-    stdout = '{"number":42,"title":"Source issue","body":"Source body","state":"open","user":' .. author .. "}\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh api repos/owner/x/issues/42",
+    successful_command_result(
+      '{"number":42,"title":"Source issue","body":"Source body","state":"open","user":' .. author .. "}\n"
+    )
+  )
 end
 
 local function mock_issue_add_sub_issue(parent_number, child_id, exit_code, stderr)
@@ -129,11 +140,9 @@ end
 local function mock_parent_sub_issues(parent_number, child_id)
   t.mock_command(
     "gh api --paginate --slurp repos/owner/x/issues/" .. tostring(parent_number or 42) .. "/sub_issues?per_page=100",
-    {
-      stdout = '[[{"id":' .. tostring(child_id or 987654321) .. ',"number":99}]]\n',
-      stderr = "",
-      exit_code = 0,
-    }
+    successful_command_result(
+      '[[{"id":' .. tostring(child_id or 987654321) .. ',"number":99}]]\n'
+    )
   )
 end
 
@@ -146,16 +155,14 @@ local function mock_parent_pr_comment_write()
 end
 
 local function mock_parent_issue_comment_write()
-  t.mock_command("gh issue comment 42 --repo owner/x --body-file /tmp/fkst-github-proxy-intent-", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("gh issue comment 42 --repo owner/x --body-file /tmp/fkst-github-proxy-created-", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh issue comment 42 --repo owner/x --body-file /tmp/fkst-github-proxy-intent-",
+    successful_command_result("")
+  )
+  t.mock_command(
+    "gh issue comment 42 --repo owner/x --body-file /tmp/fkst-github-proxy-created-",
+    successful_command_result("")
+  )
 end
 
 local function first_call_index(needle)
@@ -257,9 +264,7 @@ return {
 
     local result = t.run_department("departments/github_issue_create/main.lua", event({
       title = "",
-    }), opts("issue-create-missing-title", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    }), write_opts("issue-create-missing-title"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 0)
@@ -277,9 +282,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-idempotent", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-idempotent"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 0)
@@ -297,9 +300,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-archaudit-marker-skip", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-archaudit-marker-skip"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 1)
@@ -319,9 +320,7 @@ return {
     mock_issue_create_search("[]\n")
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-parent-ledger-skip", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-parent-ledger-skip"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 1)
@@ -343,9 +342,7 @@ return {
     mock_issue_create()
     mock_parent_pr_comment_write()
 
-    local result = run_issue_create(payload, opts("issue-create-parent-intent-skip", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-parent-intent-skip"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 1)
@@ -371,9 +368,7 @@ return {
     mock_issue_create()
     mock_parent_pr_comment_write()
 
-    local result = run_issue_create(payload, opts("issue-create-parent-intent-reconcile", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-parent-intent-reconcile"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 1)
@@ -399,9 +394,7 @@ return {
     mock_parent_pr_comment_write()
     mock_parent_pr_comment_write()
 
-    local result = run_issue_create(payload, opts("issue-create-write", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-write"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 2)
@@ -436,9 +429,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = run_issue_create(payload, opts("issue-create-post-blocked-by", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-post-blocked-by"))
 
     t.eq(result.exit_code, 0)
     local raised = result.raises[1]
@@ -471,9 +462,7 @@ return {
     })
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-post-blocked-by-existing", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-post-blocked-by-existing"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue create"), 0)
@@ -497,9 +486,7 @@ return {
     mock_parent_pr_comment_write()
     mock_parent_pr_comment_write()
 
-    local result = run_issue_create(payload, opts("issue-create-parent-ledger-write", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-parent-ledger-write"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 1)
@@ -528,9 +515,7 @@ return {
     mock_child_issue_rest_view(99, 987654321)
     mock_issue_add_sub_issue(42, 987654321)
 
-    local result = run_issue_create(payload, opts("issue-create-native-sub-issue", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-native-sub-issue"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue create"), 1)
@@ -565,9 +550,7 @@ return {
     mock_parent_sub_issues(42, 987654321)
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-native-sub-issue-redelivery", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-native-sub-issue-redelivery"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue create"), 0)
@@ -578,9 +561,7 @@ return {
 
   test_issue_create_request_second_delivery_same_dedup_skips_create = function()
     local payload = event().payload
-    local run_opts = opts("issue-create-once-dedup", {
-      FKST_GITHUB_WRITE = "1",
-    })
+    local run_opts = write_opts("issue-create-once-dedup")
     mock_write_env("1")
     mock_bot_env()
     mock_parent_pr_comments({})
@@ -622,9 +603,7 @@ return {
       long_decompose_dedup(1, 2014529193),
       long_decompose_dedup(2, 2014529194),
     }
-    local run_opts = opts("issue-create-long-dedup-distinct", {
-      FKST_GITHUB_WRITE = "1",
-    })
+    local run_opts = write_opts("issue-create-long-dedup-distinct")
 
     for _, dedup_key in ipairs(dedup_keys) do
       mock_write_env("1")
@@ -661,9 +640,7 @@ return {
     ))
     mock_issue_create()
 
-    local result = run_issue_create(payload, opts("issue-create-no-parent-search-fallback", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("issue-create-no-parent-search-fallback"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 0)
@@ -704,9 +681,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = run_issue_create(payload, opts("fork-issue-create-unauthorized-author", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("fork-issue-create-unauthorized-author"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api repos/owner/x/issues/42"), 1)
@@ -734,9 +709,7 @@ return {
     mock_source_issue_author(nil)
     h.mock_comment_view({})
 
-    local result = run_issue_create(payload, opts("fork-issue-create-missing-author", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("fork-issue-create-missing-author"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api repos/owner/x/issues/42"), 1)
@@ -772,9 +745,7 @@ return {
     mock_issue_create()
     mock_parent_issue_comment_write()
 
-    local result = run_issue_create(payload, opts("fork-issue-create-authorized-author", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local result = run_issue_create(payload, write_opts("fork-issue-create-authorized-author"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api repos/owner/x/issues/42"), 1)
