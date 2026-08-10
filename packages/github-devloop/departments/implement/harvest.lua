@@ -209,18 +209,11 @@ local function worktree_unavailability_from_command(result)
 end
 
 local function command_detail(result)
-  if type(result) ~= "table" then
-    return ""
+  local detail = type(result) == "table" and tostring(result.stderr or "") or ""
+  if detail == "" and type(result) == "table" then
+    detail = tostring(result.stdout or "")
   end
-  local stdout = tostring(result.stdout or "")
-  local stderr = tostring(result.stderr or "")
-  if stdout == "" then
-    return stderr
-  end
-  if stderr == "" then
-    return stdout
-  end
-  return stdout .. (stdout:sub(-1) == "\n" and "" or "\n") .. stderr
+  return detail
 end
 
 local function command_timed_out(result)

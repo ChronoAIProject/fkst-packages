@@ -435,9 +435,10 @@ return {
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
-        stdout = "repository check failed:\n"
+        stdout = "",
+        stderr = local_iteration_marker("CONFIGURATION_FAIL")
+          .. "repository check failed:\n"
           .. "  G10: cannot resolve dev base allowlist to enforce shrink-only ratchet\n",
-        stderr = local_iteration_marker("CONFIGURATION_FAIL"),
         exit_code = 2,
       },
     })
