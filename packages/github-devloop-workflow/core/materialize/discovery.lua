@@ -116,7 +116,7 @@ function M.read_issue(core, deps, repo, issue_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: materialization-issue-view-failed: materialization issue view failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, result.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(result.stdout)
   current.repo = repo
   current.number = issue_number
   return current

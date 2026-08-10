@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local pr_safety = require("devloop.pr_safety")
@@ -109,7 +110,7 @@ local function maybe_label_hints(origin, pr_number, current_pr, state, pr_source
 end
 
 local function build_reviewing_comment_request(origin, pr_number, source_ref)
-  return requests_review.build_reviewing_comment_request(core, origin.repo, origin.issue_number, origin, pr_number, source_ref)
+  return requests_review.build_reviewing_comment_request(observe_pr_caps.output_language, origin.repo, origin.issue_number, origin, pr_number, source_ref)
 end
 
 local function issue_reviewing_for_origin(origin)
@@ -120,7 +121,7 @@ local function issue_reviewing_for_origin(origin)
   if issue_view.exit_code ~= 0 then
     error("github-devloop: gh-issue-reviewing-view-failed: gh issue reviewing view failed: " .. tostring(issue_view.stderr))
   end
-  return parsers_issue.parse_issue_view_reviewing(core, issue_view.stdout)
+  return parsers_issue.parse_issue_view_reviewing(issue_view.stdout)
 end
 
 local function issue_claim_for_origin(origin)
@@ -355,7 +356,7 @@ local function maybe_redrive_not_mergeable_pr(origin, pr_number, current_pr, sta
     reviewed_head_sha = review_fact.reviewed_head_sha,
     dedup_key = tostring(state.version) .. "/observe-pr-conflict",
   }
-  local comment_request = requests_review.build_merge_gate_fix_comment_request(core,
+  local comment_request = requests_review.build_merge_gate_fix_comment_request(observe_pr_caps.merge_gate_reason_class, observe_pr_caps.output_language,
     origin.repo,
     origin.issue_number,
     comment_origin,
@@ -628,7 +629,7 @@ local function reconcile_pr_event(event)
 
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
   local function resolve_lock()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
       force_fresh = true,

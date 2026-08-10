@@ -4,6 +4,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local common = require("departments.observability.common")
 local dashboard_commands = require("core.dashboard_commands")
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local devloop_state = require("devloop.state")
 local decimal_checksum = strings.decimal_checksum
 
@@ -487,8 +488,7 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
     error("github-devloop: dashboard-issue-list-empty: dashboard issue list failed: empty output")
   end
   for _, issue in ipairs(parsers_misc.parse_dashboard_issue_list(listed.stdout)) do
-    -- Normalize both sides so a "<slug>[bot]" author (REST) matches a bare bot login.
-    if devloop_base.strip_bot_login_suffix(issue.author_login) == devloop_base.strip_bot_login_suffix(bot_login)
+    if forge_strings.canonical_login(issue.author_login) == forge_strings.canonical_login(bot_login)
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       return issue
     end
@@ -507,7 +507,7 @@ local function trusted_dashboard_issue_by_number(repo, issue_number, bot_login, 
   end
   local issue = parse_dashboard_issue_get(view.stdout)
   if issue.number == tonumber(issue_number)
-    and devloop_base.strip_bot_login_suffix(issue.author_login) == devloop_base.strip_bot_login_suffix(bot_login)
+    and forge_strings.canonical_login(issue.author_login) == forge_strings.canonical_login(bot_login)
     and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
     return issue
   end
@@ -539,7 +539,7 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
   end
 
   local deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local bot_login = devloop_base.assert_trusted_bot_configured()
+  local bot_login = parsers_misc.assert_trusted_bot_configured()
   deferred = ensure_dashboard_label(repo, limits, deadline); if deferred == "deferred" then return deferred end
   deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
   local current = trusted_dashboard_issue(repo, bot_login, limits, deadline)

@@ -1,7 +1,8 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_claims = require("devloop.claims")
 local parsers_issue = require("devloop.parsers.issue")
-local core = require("core")
+
 local execution_start = require("devloop.execution_start")
 local saga = require("workflow.saga")
 local v_execution_request = require("devloop.validators.execution_request")
@@ -30,7 +31,7 @@ local function read_current(repo, issue_number, request)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-execute-start-view-failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers("execute_start", request.proposal_id, current.comments)
   if current.state ~= "OPEN" then
@@ -41,14 +42,14 @@ local function read_current(repo, issue_number, request)
     devloop_logging.log_cas_decision("execute_start", request.proposal_id, { state = nil, version = nil }, "execution-request", "thinking", "skip-held", "fkst-dev:hold label is present")
     return nil
   end
-  if not m_claims.claim_issue_for_management(core, "execute_start", repo, issue_number, current, request.proposal_id) then
+  if not m_claims.claim_issue_for_management("execute_start", repo, issue_number, current, request.proposal_id) then
     return nil
   end
   return current
 end
 
 local function raise_execution_start(repo, issue_number, request, current, event_ts)
-  local effects = execution_start.build_execution_start_effects(core, repo, issue_number, request, current, event_ts, "execute_start")
+  local effects = execution_start.build_execution_start_effects(require("devloop.prompts").output_language, repo, issue_number, request, current, event_ts, "execute_start")
   if effects == nil then
     log.warn("github-devloop dept=execute_start proposal_id=" .. tostring(request.proposal_id) .. " tag=SKIP reason=cannot-build-valid-execution-start-effects")
     return false
@@ -86,7 +87,7 @@ local function act_execute_start(event)
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local current = read_current(repo, issue_number, request)
     if current == nil then
       return

@@ -2,9 +2,9 @@ local C = {}
 local shared = require("devloop.parsers.shared")
 local parsers_misc = require("devloop.parsers.misc")
 
-function C.parse_issue_view_state(M, stdout)
+function C.parse_issue_view_state(stdout)
   local decoded = json.decode(stdout or "{}")
-  return C.issue_state_from_json(M, decoded)
+  return C.issue_state_from_json(decoded)
 end
 
 function C.parse_issue_list_freshness(stdout)
@@ -24,7 +24,7 @@ function C.parse_issue_list_freshness(stdout)
   return versions
 end
 
-function C.issue_state_from_json(M, decoded)
+function C.issue_state_from_json(decoded)
   local labels = {}
   for _, label in ipairs(decoded.labels or {}) do
     if type(label) == "table" and label.name ~= nil then
@@ -46,7 +46,7 @@ function C.issue_state_from_json(M, decoded)
   }
 end
 
-function C.parse_issue_list_intake(M, stdout, limit)
+function C.parse_issue_list_intake(stdout, limit)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
   if type(decoded) ~= "table" then
@@ -130,9 +130,9 @@ function C.parse_issue_list_observe(stdout)
   return issues
 end
 
-function C.parse_issue_view_result(M, stdout)
+function C.parse_issue_view_result(stdout)
   local decoded = json.decode(stdout or "{}")
-  local state = C.issue_state_from_json(M, decoded)
+  local state = C.issue_state_from_json(decoded)
 
   return {
     labels = state.labels,
@@ -142,9 +142,9 @@ function C.parse_issue_view_result(M, stdout)
   }
 end
 
-function C.parse_issue_view_loop(M, stdout)
+function C.parse_issue_view_loop(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   return {
     title = tostring(decoded.title or ""),
     created_at = decoded.createdAt or decoded.created_at,
@@ -157,9 +157,9 @@ function C.parse_issue_view_loop(M, stdout)
   }
 end
 
-function C.parse_issue_view_intake_judge(M, stdout)
+function C.parse_issue_view_intake_judge(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   local milestone = decoded.milestone
   if type(milestone) == "userdata" then
     milestone = nil
@@ -191,9 +191,9 @@ function C.parse_issue_view_intake_judge(M, stdout)
   }
 end
 
-function C.parse_issue_view_meta(M, stdout)
+function C.parse_issue_view_meta(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   return {
     title = tostring(decoded.title or ""),
     labels = result.labels,
@@ -201,18 +201,18 @@ function C.parse_issue_view_meta(M, stdout)
   }
 end
 
-function C.parse_issue_view_implement(M, stdout)
+function C.parse_issue_view_implement(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_meta(M, stdout)
+  local result = C.parse_issue_view_meta(stdout)
   result.body = tostring(decoded.body or "")
   result.state = decoded.state
   result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
-function C.parse_issue_view_open_pr(M, stdout)
+function C.parse_issue_view_open_pr(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   return {
     title = tostring(decoded.title or ""),
     labels = result.labels,
@@ -222,21 +222,21 @@ function C.parse_issue_view_open_pr(M, stdout)
   }
 end
 
-function C.parse_issue_view_reviewing(M, stdout)
-  return C.parse_issue_view_result(M, stdout)
+function C.parse_issue_view_reviewing(stdout)
+  return C.parse_issue_view_result(stdout)
 end
 
-function C.parse_issue_view_review(M, stdout)
+function C.parse_issue_view_review(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_meta(M, stdout)
+  local result = C.parse_issue_view_meta(stdout)
   result.assignees = shared.assignee_logins(decoded.assignees)
   result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
-function C.parse_issue_view_decompose(M, stdout)
+function C.parse_issue_view_decompose(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   return {
     title = tostring(decoded.title or ""),
     body = tostring(decoded.body or ""),
@@ -247,27 +247,27 @@ function C.parse_issue_view_decompose(M, stdout)
   }
 end
 
-function C.parse_issue_view_fix(M, stdout)
-  return C.parse_issue_view_meta(M, stdout)
+function C.parse_issue_view_fix(stdout)
+  return C.parse_issue_view_meta(stdout)
 end
 
-function C.parse_issue_view_review_loop(M, stdout)
+function C.parse_issue_view_review_loop(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_meta(M, stdout)
+  local result = C.parse_issue_view_meta(stdout)
   result.assignees = shared.assignee_logins(decoded.assignees)
   result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
-function C.parse_issue_view_merge(M, stdout)
+function C.parse_issue_view_merge(stdout)
   local decoded = json.decode(stdout or "{}")
-  local result = C.parse_issue_view_result(M, stdout)
+  local result = C.parse_issue_view_result(stdout)
   result.title = tostring(decoded.title or "")
   result.state = decoded.state
   return result
 end
 
-function C.parse_issue_view_observe(M, stdout)
+function C.parse_issue_view_observe(stdout)
   local decoded = json.decode(stdout or "{}")
   return {
     title = tostring(decoded.title or ""),

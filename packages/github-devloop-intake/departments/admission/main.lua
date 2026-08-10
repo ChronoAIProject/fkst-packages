@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local core = require("core")
@@ -39,7 +40,6 @@ local function claim_with_capacity(context, authorize, repo, issue_number, curre
     return false
   end
   if context.claims.claim_issue_for_management(
-    core,
     "admission",
     repo,
     issue_number,
@@ -93,7 +93,7 @@ local function admit_issue_event(context, event, entity)
     event = event,
     lock_key = lock_key,
     work = function(_, record_authoritative_version)
-      devloop_base.assert_trusted_bot_configured()
+      parsers_misc.assert_trusted_bot_configured()
       local poll_key = m_claims.claim_admission_poll_epoch(event)
       local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
       record_authoritative_version(current.updated_at)
@@ -129,7 +129,7 @@ local function admit_issue_event(context, event, entity)
         devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
         return
       end
-      local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
+      local epoch_current = context.claims.run_if_current_claim_admission_epoch(claim_detail, function()
         if not claim_with_capacity(
           context,
           context.capacity.authorize,

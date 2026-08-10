@@ -108,8 +108,8 @@ local function observe_department(reviewing_version, run)
     })
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
-  payloads_predicates.verified_hand_off_state = function(M, repo, hand_off, expected)
-    local state, reason = original_verified_hand_off_state(M, repo, hand_off, expected)
+  payloads_predicates.verified_hand_off_state = function(repo, hand_off, expected)
+    local state, reason = original_verified_hand_off_state(repo, hand_off, expected)
     sequence = sequence + 1
     table.insert(handoff_checks, {
       sequence = sequence,

@@ -3,6 +3,7 @@ local context_manifest_module = require("consensus.context_manifest")
 local context_bundle = require("devloop.context_bundle")
 local context_bundle_identity = require("contract.context_bundle_identity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
 local fixtures = require("tests.production_fixture_helpers")
 
@@ -114,7 +115,7 @@ end
 
 local function build_args(root, fixtures, extra)
   local fields = extra or {}
-  devloop_base.configure_trusted_bot_login("fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login("fkst-test-bot")
   return {
     repo = "owner/repo",
     issue_number = fields.issue_number or 42,
@@ -207,7 +208,7 @@ end
 
 local function run_round_trip(root)
   local fixtures = {}
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixtures, { pr_number = 7 }))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixtures, { pr_number = 7 }))
   local paths = manifest_paths(context_bundle.context_bundle_manifest(bundle))
   local scratch = root .. "/isolated-scratch"
   mkdir_p(scratch)
@@ -219,6 +220,7 @@ local function run_round_trip(root)
   return {
     paths = paths,
     contents = contents,
+    calls = fixtures.calls,
     manifest = context_bundle.context_bundle_manifest(bundle),
     issue_content = read_file(bundle.issue_path),
     notice_content = read_file(bundle.notice_path),
@@ -233,9 +235,9 @@ local function run_deleted_file(root)
     },
   }
   local args = build_args(root, fixtures)
-  local first = context_bundle.build_context_bundle(core, args)
+  local first = context_bundle.build_context_bundle(args)
   os.remove(first.issue_path)
-  local second = context_bundle.build_context_bundle(core, args)
+  local second = context_bundle.build_context_bundle(args)
   return {
     first_dir = first.dir,
     second_dir = second.dir,
@@ -256,7 +258,7 @@ local function run_preexisting(root)
   write_file(dir .. "/UNTRUSTED-NOTICE.txt", "BEGIN UNTRUSTED BUNDLE DATA\npreexisting notice\nEND UNTRUSTED BUNDLE DATA\n")
   write_file(dir .. "/issue.json", "preexisting issue\n")
   write_file(dir .. "/board.txt", "preexisting board\n")
-  local bundle = context_bundle.build_context_bundle(core, args)
+  local bundle = context_bundle.build_context_bundle(args)
   return {
     dir = bundle.dir,
     expected_dir = dir,
@@ -274,12 +276,12 @@ local function run_publish_reuse(root)
     },
   }
   local args = build_args(root, fixtures)
-  local first = context_bundle.build_context_bundle(core, args)
+  local first = context_bundle.build_context_bundle(args)
   local before_notice = read_file(first.notice_path)
   local before_issue = read_file(first.issue_path)
   local before_board = read_file(first.board_path)
   local fetches_after_first = count_calls(fixtures.calls, "gh issue view")
-  local second = context_bundle.build_context_bundle(core, args)
+  local second = context_bundle.build_context_bundle(args)
   return {
     first_dir = first.dir,
     second_dir = second.dir,
@@ -299,12 +301,12 @@ local function run_publish_unique_on_invalid(root)
     },
   }
   local args = build_args(root, fixtures)
-  local first = context_bundle.build_context_bundle(core, args)
+  local first = context_bundle.build_context_bundle(args)
   os.remove(first.notice_path)
   write_file(first.issue_path, "invalid first issue remains\n")
   local before_issue = read_file(first.issue_path)
   local before_board = read_file(first.board_path)
-  local second = context_bundle.build_context_bundle(core, args)
+  local second = context_bundle.build_context_bundle(args)
   return {
     dir = second.dir,
     original_dir = first.dir,
@@ -326,7 +328,7 @@ local function run_utf8_truncation(root)
       '{"title":"T","body":' .. strings.json_string(body) .. ',"updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixture_data, { tick = nil }))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixture_data, { tick = nil }))
   return {
     issue_content = read_file(bundle.issue_path),
     issue_bytes = bundle.issue_bytes,
@@ -336,8 +338,8 @@ end
 local function run_stale_manifest_files(root)
   local fixtures = {}
   local args = build_args(root, fixtures)
-  local ref = context_bundle.context_fetch_ref_from_bundle(core, args)
-  local old_bundle = context_bundle.build_context_bundle(core, args)
+  local ref = context_bundle.context_fetch_ref_from_bundle(args)
+  local old_bundle = context_bundle.build_context_bundle(args)
   os.remove(old_bundle.issue_path)
   local ok, err = pcall(context_bundle.context_bundle_manifest_from_ref, ref, args.exec)
   return {
@@ -361,7 +363,7 @@ local function run_unknown_risk_structured(root)
     proposal_id = "github-devloop/pr-review/owner-repo/1234567890/7/unknown-risk",
     version = "unknown-risk-" .. safe_suffix:sub(-48),
   })
-  local ref, high_risk, risk = context_bundle.context_fetch_ref_from_bundle(core, args)
+  local ref, high_risk, risk = context_bundle.context_fetch_ref_from_bundle(args)
   return {
     ref = ref,
     high_risk = high_risk,
@@ -389,13 +391,13 @@ local function run_stale_manifest_rebuild(root)
     },
   }
   local old_args = build_args(old_root, old_fixtures, { proposal_id = proposal_id, version = version })
-  local old_ref = context_bundle.context_fetch_ref_from_bundle(core, old_args)
-  local old_bundle = context_bundle.build_context_bundle(core, old_args)
+  local old_ref = context_bundle.context_fetch_ref_from_bundle(old_args)
+  local old_bundle = context_bundle.build_context_bundle(old_args)
   os.remove(old_bundle.issue_path)
 
   local stale_ok, stale_err = pcall(context_bundle.context_bundle_manifest_from_ref, old_ref, old_args.exec)
   local fresh_args = build_args(fresh_root, fresh_fixtures, { proposal_id = proposal_id, version = version })
-  local fresh_ref = context_bundle.context_fetch_ref_from_bundle(core, fresh_args)
+  local fresh_ref = context_bundle.context_fetch_ref_from_bundle(fresh_args)
   local fresh_manifest = context_bundle.context_bundle_manifest_from_ref(fresh_ref, fresh_args.exec)
   return {
     stale_ok = stale_ok,
@@ -411,8 +413,8 @@ local function run_production_length_materialize(root, payload)
     proposal_id = payload.proposal_id,
     version = payload.version,
   })
-  local ref = context_bundle.context_fetch_ref_from_bundle(core, args)
-  local bundle = context_bundle.build_context_bundle(core, args)
+  local ref = context_bundle.context_fetch_ref_from_bundle(args)
+  local bundle = context_bundle.build_context_bundle(args)
   return {
     ref = ref,
     dir = bundle.dir,
@@ -472,7 +474,7 @@ local function run_content_redaction(root)
         .. '{"body":' .. strings.json_string(bot_body) .. ',"author":{"login":"fkst-test-bot"}}]}\n',
     },
   }
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixtures))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixtures))
   local issue_content = read_file(bundle.issue_path)
   local ok, decoded = pcall(json.decode, issue_content)
   return {
@@ -497,7 +499,7 @@ local function run_pr_content_redaction(root)
       .. '{"body":' .. strings.json_string(external_body) .. ',"author":{"login":"mallory"}},'
       .. '{"body":' .. strings.json_string(bot_body) .. ',"author":{"login":"fkst-test-bot"}}]}\n',
   }
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixtures, { pr_number = 7 }))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixtures, { pr_number = 7 }))
   local pr_content = read_file(bundle.pr_path)
   local ok, decoded = pcall(json.decode, pr_content)
   return {
@@ -532,7 +534,7 @@ local function run_content_redaction_whitelist_env(root, env)
         .. '{"body":' .. strings.json_string(external_body) .. ',"author":{"login":"mallory"}}]}\n',
     },
   }
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixtures))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixtures))
   local ok, decoded = pcall(json.decode, read_file(bundle.issue_path))
   return {
     ok = ok,
@@ -561,7 +563,7 @@ local function run_content_redaction_optional_env_unreadable(root)
         .. '{"body":' .. strings.json_string(optional_body) .. ',"author":{"login":"trusted-user"}}]}\n',
     },
   }
-  local bundle = context_bundle.build_context_bundle(core, build_args(root, fixtures))
+  local bundle = context_bundle.build_context_bundle(build_args(root, fixtures))
   local ok, decoded = pcall(json.decode, read_file(bundle.issue_path))
   return {
     ok = ok,
@@ -577,7 +579,7 @@ local function run_content_redaction_requires_bot(root)
       '{"title":"Bundle issue","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[{"body":"payload","author":{"login":"mallory"}}]}\n',
     },
   }
-  local ok, err = pcall(context_bundle.build_context_bundle, core, build_args(root, fixtures))
+  local ok, err = pcall(context_bundle.build_context_bundle, build_args(root, fixtures))
   return {
     ok = ok,
     error = tostring(err or ""),

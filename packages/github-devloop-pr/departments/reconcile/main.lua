@@ -119,7 +119,7 @@ local function load_timeout_issue_surface(repo, issue_number, proposal_id, state
   if view.exit_code ~= 0 then
     error("github-devloop: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
   end
-  local current_issue = parsers_issue.parse_issue_view_loop(core, view.stdout)
+  local current_issue = parsers_issue.parse_issue_view_loop(view.stdout)
   local issue_state = require("devloop.entity").current_entity_state(current_issue.comments, proposal_id)
   if timeout_reconcile_needs_pr_surface(state_name) then
     local snapshot = core.linked_pr_surface_snapshot(repo, proposal_id, current_issue.comments)
@@ -170,7 +170,7 @@ local function pipeline_review(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
@@ -314,7 +314,7 @@ local function pipeline_fix(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local apply_current = function(current, classification)
       if classification ~= nil then
@@ -480,7 +480,7 @@ local function pipeline_timeout(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local comments
     local current_pr

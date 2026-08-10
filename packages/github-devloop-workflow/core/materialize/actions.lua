@@ -10,6 +10,7 @@ local marker = require("core.marker")
 local materialization = require("core.materialization")
 local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local github_factory = require("devloop.github_factory")
 
 local M = {}
@@ -26,7 +27,7 @@ end
 
 local function issue_author_login(issue)
   local login = devloop_claims.issue_author_login(issue)
-  return devloop_base.strip_bot_login_suffix(login)
+  return forge_strings.canonical_login(login)
 end
 
 local function issue_create_marker(child_dedup)
@@ -426,11 +427,12 @@ function M.find_created_issue_by_dedup(repo, child_dedup, deps)
   if not ok or type(decoded) ~= "table" then
     error("github-devloop-workflow: materialization-child-search-malformed: child issue search returned malformed JSON")
   end
-  local trusted = devloop_base.trusted_bot_login()
+  local trusted = parsers_misc.trusted_bot_login()
   for _, issue in ipairs(decoded) do
     local number = searched_issue_number(issue)
     if number ~= nil
-      and issue_author_login(issue) == trusted
+      and forge_strings.canonical_login(issue_author_login(issue))
+        == forge_strings.canonical_login(trusted)
       and tostring(issue.body or ""):find(issue_create_marker(child_dedup), 1, true) ~= nil then
       return {
         number = number,

@@ -370,7 +370,7 @@ local function fetch_issue_view_intake_judge(repo, issue_number, updated_at, opt
   local key = entity_view_cache_key(repo, intake_issue_view_cache_kind, issue_number)
   if validator ~= "" and coalesce_scope ~= "" then
     local cached_result = nil
-    local epoch_current = entity_list_cache.with_current_poll_epoch(repo, coalesce_scope, function()
+    local epoch_current = entity_list_cache.run_if_current_poll_epoch(repo, coalesce_scope, function()
       local cached = decode_cached_view(cache_get(key))
       if cached ~= nil and cached.updated_at == validator then
         cached_result = success_from_cache(cached)

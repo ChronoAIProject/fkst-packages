@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local strings = require("contract.strings")
 local m_claims = require("devloop.claims")
@@ -43,7 +44,7 @@ local function load_review_meta_context(repo, issue_number, review_meta, event, 
   if not devloop_state.has_state_marker(current_pr.comments, review_meta.proposal_id, "review-meta", review_meta.version) then
     error("github-devloop: review-meta-marker-missing: " .. durable_start_marker .. " marker not visible during context load")
   end
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = "review_meta",
     repo = repo,
     issue_number = issue_number,
@@ -198,7 +199,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, review_meta.pr_number, 30)
     if view.exit_code ~= 0 then
@@ -215,7 +216,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-meta-view-failed: gh issue review-meta view failed: " .. tostring(issue_view.stderr))
       end
-      local parsed_issue = parsers_issue.parse_issue_view_fix(core, issue_view.stdout)
+      local parsed_issue = parsers_issue.parse_issue_view_fix(issue_view.stdout)
       if parsed_issue.title ~= nil and parsed_issue.title ~= "" then
         current_issue.title = parsed_issue.title
       end

@@ -427,9 +427,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     local function checkpoint_request(reason)
-      return requests_lifecycle.build_implement_checkpoint_comment_request(
-        core,
-        "owner/repo",
+      return requests_lifecycle.build_implement_checkpoint_comment_request(core.implement_attempt_marker, core.output_language, "owner/repo",
         42,
         event,
         "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/checkpoint-identity",

@@ -4,10 +4,16 @@ local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_commands = require("devloop.commands")
-local S = {}
 local comment_strings = require("devloop.strings")
+local devloop_prompts = require("devloop.prompts")
 
-function S.install(M)
+local function build_surface()
+local M = {
+  _max_title_len = devloop_base._max_title_len,
+  _max_meta_reason_len = devloop_base._max_meta_reason_len,
+  _max_body_len = devloop_base._max_body_len,
+  output_language = devloop_prompts.output_language,
+}
 local ai_sentinel = "⟦AI:FKST⟧"
 
 local stable_class_label_prefixes = {
@@ -141,7 +147,7 @@ function M.fetch_recent_closed_intake_class_issues(repo)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
   end
-  return parsers_issue.parse_issue_list_intake(M, listed.stdout)
+  return parsers_issue.parse_issue_list_intake(listed.stdout)
 end
 
 function M.intake_class_carrier_marker(class_key)
@@ -168,7 +174,7 @@ function M.find_open_intake_class_carrier(repo, issue_number, current, class_key
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class lookup failed: " .. tostring(listed.stderr))
   end
-  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(M, listed.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
     if tostring(issue.number) ~= tostring(issue_number)
       and (tostring(issue.body or ""):find(wanted_marker, 1, true) ~= nil
         or tostring(issue.title or "") == wanted_title
@@ -198,7 +204,7 @@ function M.build_intake_class_followup_comment_request(repo, issue_number, candi
   local marker = M.intake_class_followup_marker(candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(M, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(M.output_language, "no_reason_provided")
   end
   if #safe_reason > M._max_meta_reason_len then
     safe_reason = base_ids.truncate_utf8(safe_reason, M._max_meta_reason_len)
@@ -276,6 +282,7 @@ function M.build_intake_class_issue_create_request(repo, issue_number, candidate
   }
 end
 
+return M
 end
 
-return S
+return build_surface()

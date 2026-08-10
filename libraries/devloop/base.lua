@@ -93,7 +93,6 @@ function C.parse_name_only_paths(stdout)
   return paths
 end
 
-local trusted_bot_login_current = nil
 local comment_body
 local comment_author_login
 local is_trusted_comment
@@ -143,43 +142,6 @@ local function fix_reflection_checkpoint_round()
 end
 
 local is_path_safe_key = strings.is_path_safe_key
-
--- A GitHub App's author login is "<slug>[bot]" via the REST API but bare
--- "<slug>" via GraphQL. Strip the suffix so callers comparing against a
--- configured bot login match regardless of which API populated the field.
--- Nil-safe (nil in → nil out) and a no-op for ordinary user logins (which never
--- end in "[bot]"), so claim_owner() and author comparisons keep their existing
--- nil semantics when the bot login is unconfigured.
-function C.strip_bot_login_suffix(login)
-  if login == nil then
-    return nil
-  end
-  return (strings.trim(login):lower():gsub("%[bot%]$", ""))
-end
-
-function C.configure_trusted_bot_login(login)
-  trusted_bot_login_current = C.strip_bot_login_suffix(login)
-  if trusted_bot_login_current == "" then
-    trusted_bot_login_current = nil
-  end
-  return trusted_bot_login_current
-end
-
-function C.configured_trusted_bot_login()
-  return trusted_bot_login_current
-end
-
-function C.assert_trusted_bot_configured()
-  local login = C.read_env("FKST_GITHUB_BOT_LOGIN")
-  if login ~= nil then
-    C.configure_trusted_bot_login(login)
-  end
-
-  if C.read_env("FKST_GITHUB_WRITE") == "1" and trusted_bot_login_current == nil then
-    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
-  end
-  return trusted_bot_login_current
-end
 
 local dedup_key = base_ids.dedup_key
 
@@ -824,20 +786,6 @@ function C.gh_exec_opts(cmd_or_opts, timeout)
   end
   opts.timeout = opts.timeout or timeout or 30
   return opts
-end
-
-function C.trusted_bot_login()
-  if trusted_bot_login_current ~= nil then
-    return trusted_bot_login_current
-  end
-  local login = C.configure_trusted_bot_login(C.read_env("FKST_GITHUB_BOT_LOGIN"))
-  if login ~= nil then
-    return login
-  end
-  if C.read_env("FKST_GITHUB_WRITE") == "1" then
-    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
-  end
-  return test_bot_login
 end
 
 base_constants.install_public(C, {

@@ -25,7 +25,7 @@ local function child_issue_view(core, repo, issue_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: child-issue-result-view-failed: child issue result view failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, result.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(result.stdout)
   current.repo = repo
   current.number = issue_number
   current.proposal_id = base_ids.proposal_id(repo, issue_number)

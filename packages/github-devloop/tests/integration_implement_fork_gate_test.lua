@@ -17,6 +17,8 @@ local mock_git_commit = h.mock_git_commit
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local author_policy = require("testkit_internal.github_author_policy")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 
 local original_issue = 1663
 local canonical_issue = 1715
@@ -45,7 +47,7 @@ local function redacted_original_state_for(logins, author_login)
     content_filter.build_whitelist(logins),
     {}
   )
-  return parsers_issue.parse_issue_view_state(core, filtered), filtered
+  return parsers_issue.parse_issue_view_state(filtered), filtered
 end
 
 local function find_duplicate_comment(raises)
@@ -76,6 +78,18 @@ local function command_count_snapshot()
 end
 
 return {
+  test_slice5_fork_create_request_bytes_are_frozen = function()
+    author_policy.mock_env(t, h.opts("slice5-fork-characterization"), {
+      configure_trusted_bot_login = h.mock_author_policy_configure,
+    })
+    local request = forks.build_fork_issue_create_request("owner/repo", original_issue, {
+      state = "OPEN",
+      title = "Preserve fork identity",
+      author_login = "human",
+    }, entity_lib.issue_source_ref("owner/repo", original_issue))
+    t.eq(sha256.hex(observation.canonical_json(request)), "be5afe5026b67c60fbdd933fb972144e686143fd1cb05c3e80a1cf031023b27e")
+  end,
+
   test_noncanonical_fork_exits_before_implementation = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
@@ -145,7 +159,6 @@ return {
     local redacted_original, redacted_stdout = redacted_original_state_for({ "loning", "ElonSG" }, "mallory")
     t.is_true(redacted_stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
     t.is_nil(forks.trusted_issue_created_number(
-      core,
       redacted_original.comments,
       forks.fork_issue_dedup_key("owner/repo", original_issue),
       "loning",

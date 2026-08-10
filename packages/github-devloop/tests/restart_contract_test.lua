@@ -5,7 +5,6 @@ local operator_commands = require("devloop.operator_commands")
 local replayer = require("devloop.replayer")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_core_helpers")
-local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
 local core = h.core
 local t = h.t
@@ -240,8 +239,8 @@ return {
         t.is_true(row.budget.receiver_max_work_justification ~= "")
         t.is_true(type(row.liveness_contract) == "table")
         t.is_true(type(row.on_timeout) == "table")
-        if row.payload_builder ~= nil then
-          t.is_true(type(row.payload_builder) == "function")
+        if row.payload_builder_symbol ~= nil then
+          t.is_true(type(row.payload_builder_symbol) == "string")
         end
         t.is_true(type(row.dedup_shape) == "string" and row.dedup_shape ~= "")
         t.is_true(type(row.required_facts) == "table" and #row.required_facts > 0)
@@ -319,7 +318,7 @@ return {
     t.eq(row.on_timeout.queue, "devloop_ready")
     t.eq(row.kickoff, "devloop_ready")
     t.eq(row.effects.kinds[1], "devloop_ready")
-    t.eq(row.payload_builder, payloads_builders.build_devloop_ready_payload)
+    t.eq(row.payload_builder_symbol, "devloop.payloads.builders.build_devloop_ready_payload")
     t.eq(row.payload_fields.proposal_id, "marker:state.proposal")
     t.eq(row.payload_fields.dedup_key, "marker:state.version")
     t.is_true(row.version_identity:find("ready_payload_inner_version", 1, true) ~= nil)
@@ -331,7 +330,7 @@ return {
     t.eq(row.on_timeout.queue, "devloop_ready")
     t.eq(row.kickoff, "devloop_ready")
     t.eq(row.effects.kinds[1], "devloop_ready")
-    t.eq(row.payload_builder, payloads_builders.build_devloop_ready_payload)
+    t.eq(row.payload_builder_symbol, "devloop.payloads.builders.build_devloop_ready_payload")
     t.eq(row.payload_fields.proposal_id, "marker:state.proposal")
     t.eq(row.payload_fields.dedup_key, "marker:impl-failure.dedup")
     t.is_true(row.version_identity:find("ready_payload_inner_version", 1, true) ~= nil)

@@ -1,6 +1,7 @@
 -- Canonical default intake executor and policy prompt shared by policy adapters.
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -16,6 +17,7 @@ local v_execution_request = require("devloop.validators.execution_request")
 local v_intake_candidate = require("devloop.validators.intake_candidate")
 local workflow_codex = require("workflow_internal.codex")
 local premise_correction = require("devloop.premise_correction")
+local devloop_prompts = require("devloop.prompts")
 
 local prompt = {
   template = [[You are the github-devloop intake judge.
@@ -100,7 +102,7 @@ local function copy_fields(value)
   return result
 end
 
-local function raise_enable_successor(package_core, dept, repo, issue_number, candidate, current, event_ts, decision_dedup_key, options)
+local function raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event_ts, decision_dedup_key, options)
   local opts = options or {}
   local _ = current
   local __ = event_ts
@@ -109,12 +111,12 @@ local function raise_enable_successor(package_core, dept, repo, issue_number, ca
     log.warn("github-devloop dept=" .. tostring(dept) .. " proposal_id=" .. tostring(candidate.proposal_id) .. " tag=SKIP reason=cannot-build-valid-execution-request")
     return false
   end
-  local label_request = requests_labels.build_intake_enabled_label_request(package_core, repo, issue_number, candidate)
+  local label_request = requests_labels.build_intake_enabled_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
   if opts.log_apply then
-    local class_add, class_remove = package_core.intake_service_class_label_changes(candidate.service_class)
+    local class_add, class_remove = intake_service_class.intake_service_class_label_changes(candidate.service_class)
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "intake-enable", "execution-request", "applied(" .. tostring(opts.reason or "direct") .. ")", "raising execution request successor event")
     devloop_logging.log_apply(dept, candidate.proposal_id, "enable", execution_request.dedup_key, {
-      add = { package_core._enabled_label, class_add[1] },
+      add = { devloop_base._enabled_label, class_add[1] },
       remove = class_remove,
     }, {
       "github-proxy.github_issue_label_request",
@@ -126,12 +128,12 @@ local function raise_enable_successor(package_core, dept, repo, issue_number, ca
   return true
 end
 
-local function read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
+local function read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
   local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue intake judge view failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(package_core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers(dept, candidate.proposal_id, current.comments)
   if current.state ~= "OPEN" then
@@ -142,7 +144,7 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-held", "fkst-dev:hold label is present")
     return nil
   end
-  if not m_claims.claim_issue_for_management(package_core, dept, repo, issue_number, current, candidate.proposal_id) then
+  if not m_claims.claim_issue_for_management(dept, repo, issue_number, current, candidate.proposal_id) then
     return nil
   end
 
@@ -205,7 +207,7 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
     if can_replay_enable_successor then
       local replay_candidate = copy_fields(candidate)
       replay_candidate.service_class = intake_fact.service_class
-      raise_enable_successor(package_core, dept, repo, issue_number, replay_candidate, current, event_ts, intake_fact.dedup_key, {
+      raise_enable_successor(intake_service_class, dept, repo, issue_number, replay_candidate, current, event_ts, intake_fact.dedup_key, {
         log_apply = true,
         reason = "visible-intake-fact",
       })
@@ -223,9 +225,9 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
   }
 end
 
-local function apply_intake_decision(package_core, dept, repo, issue_number, event, candidate, gate, parsed)
+local function apply_intake_decision(intake_class, intake_service_class, dept, repo, issue_number, event, candidate, gate, parsed)
   with_lock(gate.lock_key, function()
-    local current_gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
+    local current_gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
     if current_gate == nil then
       return
     end
@@ -240,13 +242,13 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
     local class_carrier = nil
     local class_key = nil
     if parsed.action == "escalate-to-class" then
-      local sibling_issues = package_core.fetch_recent_closed_intake_class_issues(repo)
-      class_key = package_core.intake_class_identity(parsed.reason, current, issue_number, sibling_issues)
+      local sibling_issues = intake_class.fetch_recent_closed_intake_class_issues(repo)
+      class_key = intake_class.intake_class_identity(parsed.reason, current, issue_number, sibling_issues)
       if class_key == nil then
         parsed.action = "enable"
         parsed.reason = tostring(parsed.reason or "") .. "\n\nNo stable recurring-class identity was found; enabling as an ordinary issue instead of creating a title-derived class carrier."
       else
-        class_carrier = package_core.find_open_intake_class_carrier(repo, issue_number, current, class_key)
+        class_carrier = intake_class.find_open_intake_class_carrier(repo, issue_number, current, class_key)
         table.insert(raised, "github-proxy.github_issue_comment_request")
         table.insert(raised, "github-proxy.github_issue_label_request")
         if class_carrier == nil then
@@ -255,9 +257,9 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
       end
     end
     candidate.service_class = parsed.service_class
-    local comment_request = requests_lifecycle.build_intake_decision_comment_request(package_core, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
+    local comment_request = requests_lifecycle.build_intake_decision_comment_request(devloop_prompts.output_language, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
     table.insert(raised, "github-proxy.github_issue_label_request")
-    local class_add, class_remove = package_core.intake_service_class_label_changes(parsed.service_class)
+    local class_add, class_remove = intake_service_class.intake_service_class_label_changes(parsed.service_class)
     local apply_add = { class_add[1] }
     local apply_remove = class_remove
     if is_enable(parsed.action) then
@@ -275,7 +277,7 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
     }, raised)
     devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
     if parsed.action == "escalate-to-class" then
-      local followup_comment = package_core.build_intake_class_followup_comment_request(
+      local followup_comment = intake_class.build_intake_class_followup_comment_request(
         repo,
         issue_number,
         candidate,
@@ -283,27 +285,27 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
         "folded",
         parsed.reason
       )
-      local folded_label = package_core.build_intake_class_folded_label_request(repo, issue_number, candidate)
+      local folded_label = intake_class.build_intake_class_folded_label_request(repo, issue_number, candidate)
       devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", followup_comment)
       devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", folded_label)
       if class_carrier == nil then
-        local create_request = package_core.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
+        local create_request = intake_class.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
         devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_create_request", create_request)
       end
     end
     if is_enable(parsed.action) then
-      raise_enable_successor(package_core, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
+      raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
     elseif is_tracking(parsed.action) then
-      local label_request = requests_labels.build_intake_tracking_label_request(package_core, repo, issue_number, candidate)
+      local label_request = requests_labels.build_intake_tracking_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
       devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
     else
-      local label_request = package_core.build_intake_service_class_label_request(repo, issue_number, candidate)
+      local label_request = intake_service_class.build_intake_service_class_label_request(repo, issue_number, candidate)
       devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
     end
   end)
 end
 
-local function act(package_core, event, opts)
+local function act(intake_class, intake_service_class, event, opts)
   opts = opts or {}
   local dept = opts.dept or "intake_judge"
   local candidate = event.payload or {}
@@ -323,8 +325,8 @@ local function act(package_core, event, opts)
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   local gate = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
-    gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts)
+    parsers_misc.assert_trusted_bot_configured()
+    gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts)
   end)
   if gate == nil then
     return
@@ -345,7 +347,7 @@ local function act(package_core, event, opts)
   end
 
   devloop_logging.log_codex_start(dept, candidate.proposal_id, "intake")
-  local content_fetch = context_bundle.context_fetch_from_bundle(package_core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = dept,
     repo = repo,
     issue_number = issue_number,
@@ -377,7 +379,7 @@ local function act(package_core, event, opts)
     devloop_logging.log_codex_result(dept, candidate.proposal_id, "intake", result, "action=" .. tostring(parsed.action) .. " class=" .. tostring(parsed.service_class) .. " reason=" .. tostring(parsed.reason), nil)
   end
 
-  apply_intake_decision(package_core, dept, repo, issue_number, event, candidate, gate, parsed)
+  apply_intake_decision(intake_class, intake_service_class, dept, repo, issue_number, event, candidate, gate, parsed)
 end
 
 return {

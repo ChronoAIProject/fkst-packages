@@ -10,6 +10,7 @@ local entity_view = require("devloop.github_proxy_entity_view")
 local marker_facts = require("devloop.markers.facts")
 local marker_shared = require("devloop.markers.shared")
 local parsers_misc = require("devloop.parsers.misc")
+local forge_strings = require("forge.strings")
 local request_shared = require("devloop.requests.shared")
 local sweep_bounds = require("devloop.sweep_bounds")
 
@@ -70,11 +71,11 @@ local function declined_terminal_marker_position(comments, proposal_id, terminal
 end
 
 local function has_post_terminal_non_bot_comment(comments, terminal_marker_index)
-  local trusted_bot = devloop_base.strip_bot_login_suffix(devloop_base.trusted_bot_login())
+  local trusted_bot = forge_strings.canonical_login(parsers_misc.trusted_bot_login())
   for index, comment in ipairs(comments or {}) do
     if index > terminal_marker_index then
-      local author = devloop_base.strip_bot_login_suffix(parsers_misc._comment_author_login(comment))
-      if author ~= trusted_bot then
+      local author = forge_strings.canonical_login(parsers_misc._comment_author_login(comment))
+      if forge_strings.canonical_login(author) ~= forge_strings.canonical_login(trusted_bot) then
         return true
       end
     end

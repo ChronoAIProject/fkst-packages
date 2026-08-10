@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
@@ -60,6 +61,7 @@ local operator_recovery = operator_recovery_factory.make({
   conv_reconcile = conv_reconcile,
   core = core,
   dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
+  dependency_waiver_marker = observe_issue_caps.dependency_waiver_marker,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
@@ -248,7 +250,7 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     m_claims.log_claim_admission_skip("observe_issue", proposal_id, detail)
     return false
   end
-  return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
+  return m_claims.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
 local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
@@ -402,7 +404,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
       impl_version = refusal_reentry.implementation_version,
     }
   end
-  local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
+  local payload = payloads_builders.build_devloop_ready_payload(payload_source)
   local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
     issue.number,
     command,
@@ -432,7 +434,7 @@ local function reconcile_issue_event(event, opts)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
   local function process_issue_event(_, record_authoritative_version)
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
@@ -442,7 +444,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: issue-read-failed: gh issue state view failed: " .. tostring(state_view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+    local current = parsers_issue.parse_issue_view_state(state_view.stdout)
     local authoritative_updated_at = current.updated_at
     current.updated_at = current.updated_at or issue.updated_at
     record_authoritative_version(authoritative_updated_at)
@@ -674,7 +676,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: restart-effect-decision-illegal: observe issue entry decision rejected: "
         .. tostring(decision.reason_code))
     end
-    if not m_claims.claim_issue_for_management(core, "observe_issue", issue.repo,
+    if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
       issue.number, current, proposal_id) then
       return
     end
@@ -682,7 +684,7 @@ local function reconcile_issue_event(event, opts)
       "unmanaged", "thinking", decision.cas_outcome,
       "starting consensus for opted-in issue")
 
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "observe_issue",
       repo = issue.repo,
       issue_number = issue.number,
@@ -690,7 +692,7 @@ local function reconcile_issue_event(event, opts)
       version = issue.dedup_key,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
+    local proposal = payloads_builders.build_board_proposal(issue, event.ts)
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
         .. " tag=SKIP reason=cannot-build-valid-proposal")

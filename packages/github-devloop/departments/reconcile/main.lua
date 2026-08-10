@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_issue = require("devloop.parsers.issue")
 local core, replay_fields = require("core"), require("devloop.replay_fields")
@@ -97,14 +98,14 @@ local function pipeline_thinking(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: issue-read-failed: gh issue reconcile view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
     local state = devloop_state.current_state(current.comments, reconcile.proposal_id)
     if conv_reconcile.has_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.base_version, reconcile.round) then
@@ -228,14 +229,14 @@ local function pipeline_timeout(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: issue-read-failed: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     local comments = current.comments or {}
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
     local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)

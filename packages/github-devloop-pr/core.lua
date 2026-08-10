@@ -112,7 +112,7 @@ for key, value in pairs(restart_policy) do
   if rawget(M, key) == nil then M[key] = value end
 end
 local prompt_surface = wiring.prompts()
-M.output_language = devloop_prompts.output_language
+M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
 M.judge_harness_clause = devloop_prompts.judge_harness_clause
 M.actor_harness_clause = devloop_prompts.actor_harness_clause
@@ -126,7 +126,7 @@ M.parse_review_meta_action = prompt_surface.parse_review_meta_action
 require("core.pr_label_requests").install(M)
 require("core.review_meta_requests").install(M)
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.span_conformance").install(M)
 
 return M

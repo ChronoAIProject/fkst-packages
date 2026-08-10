@@ -122,11 +122,9 @@ return {
 
   test_replay_rehydrates_prior_receipt_from_trusted_failure_comment = function()
     local proof_attempt = load_proof_attempt()
-    local ready = payloads_builders.build_devloop_ready_payload(core, h.reached())
+    local ready = payloads_builders.build_devloop_ready_payload(h.reached())
     local raw = receipt_json({ implementation_version = ready.dedup_key })
-    local request = requests_lifecycle.build_impl_failure_comment_request(
-      core,
-      "owner/repo",
+    local request = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo",
       "42",
       ready,
       "lean-proof-repair-needed",

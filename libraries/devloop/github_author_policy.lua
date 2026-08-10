@@ -4,6 +4,7 @@ local content_filter = require("forge.github.content_filter")
 local config = require("devloop.config")
 local entity_list_cache = require("devloop.entity_list_cache")
 local marker_shared = require("devloop.markers.shared")
+local parsers_misc = require("devloop.parsers.misc")
 local restart_metadata = require("devloop.restart_metadata")
 
 local M = {}
@@ -19,18 +20,17 @@ local function resolve_github_handle(github_handle)
   return github_handle
 end
 
--- Single source for the claim owner: normalize the configured bot login so all
--- downstream comparisons get the bare slug regardless of whether the deployment
--- configured "<slug>" or "<slug>[bot]". No-op for ordinary user logins.
+-- Single source for the claim owner: normalize every configured bot transport
+-- spelling to the bare slug before it enters ownership decisions.
 function M.claim_owner()
-  return devloop_base.strip_bot_login_suffix(devloop_base.assert_trusted_bot_configured() or devloop_base.trusted_bot_login())
+  return parsers_misc.canonical_login(parsers_misc.assert_trusted_bot_configured() or parsers_misc.trusted_bot_login())
 end
 
 function M.managed_bot_logins(exec)
   local raw = devloop_base.read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS", exec)
   local logins = {}
   for entry in tostring(raw or ""):gmatch("[^,%s]+") do
-    local login = devloop_base.strip_bot_login_suffix(strings.trim(entry))
+    local login = parsers_misc.canonical_login(entry)
     if login ~= nil and login ~= "" then
       logins[login] = true
     end
@@ -39,7 +39,7 @@ function M.managed_bot_logins(exec)
 end
 
 function M.is_managed_bot_login(login, managed)
-  local normalized = devloop_base.strip_bot_login_suffix(login)
+  local normalized = parsers_misc.canonical_login(login)
   return normalized ~= nil and normalized ~= "" and type(managed) == "table" and managed[normalized] == true
 end
 
@@ -50,8 +50,8 @@ end
 local function from_env(exec, github_handle)
   local resolved_handle = resolve_github_handle(github_handle)
   local bot_login = nil
-  if type(devloop_base.configured_trusted_bot_login) == "function" then
-    bot_login = devloop_base.configured_trusted_bot_login()
+  if type(parsers_misc.configured_trusted_bot_login) == "function" then
+    bot_login = parsers_misc.configured_trusted_bot_login()
   end
   if bot_login == nil or tostring(bot_login or "") == "" then
     local ok_bot = true
@@ -207,7 +207,7 @@ local function github_actor_login(value)
   local seen = {}
   local only = nil
   local function add(login)
-    local normalized = devloop_base.strip_bot_login_suffix(login)
+    local normalized = parsers_misc.canonical_login(login)
     if normalized == nil or normalized == "" then
       return
     end
@@ -249,8 +249,8 @@ local function add_authorized_candidate(logins, login, trusted_author_policy, ow
   if type(logins) ~= "table" or type(trusted_author_policy) ~= "table" then
     return
   end
-  local normalized = devloop_base.strip_bot_login_suffix(login)
-  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
+  local normalized = parsers_misc.canonical_login(login)
+  local normalized_owner = parsers_misc.canonical_login(owner)
   if normalized ~= nil and normalized ~= "" and normalized ~= normalized_owner
     and M.is_authorized(trusted_author_policy, normalized) then
     logins[normalized] = true

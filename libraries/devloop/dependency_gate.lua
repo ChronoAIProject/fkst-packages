@@ -440,7 +440,7 @@ function M.new(core)
       return nil, "gh-failed"
     end
     local ok, current = pcall(function()
-      return parsers_issue.parse_issue_view_observe(core, result.stdout)
+      return parsers_issue.parse_issue_view_observe(result.stdout)
     end)
     if not ok or type(current) ~= "table" then
       return nil, "malformed-json"

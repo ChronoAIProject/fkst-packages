@@ -136,6 +136,9 @@ JSON
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 56 "$old" 'fkst-dev:implementing' ElonSG 'Peer managed author'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 57 "$old" '__fkst_stateless__' app/fkst-other-machine 'Peer app author'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 58 "$old" '__fkst_stateless__' random-user 'Foreign author'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 59 "$old" '__fkst_stateless__' 'fkst-other-machine[bot]' 'Peer app REST spelling'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 60 "$old" '__fkst_dashboard__' ElonSG 'Peer-authored dashboard'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 61 "$old" 'fkst-dev:dependency_wait' loning 'Dependency wait standalone'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/34/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/47/comments?per_page=100)
                     num=${2#*/issues/}; num=${num%%/*}
@@ -315,6 +318,19 @@ class DogfoodBoardTest(unittest.TestCase):
             # An author this host does not recognise as a peer stays a warning — it may be an
             # authorized third party this host should have claimed — but names who filed it.
             self.assertIn("#58   [stateless   ] ⚠ STRANDED stateless 12h author=random-user", result.stdout)
+            # REST spells an app author `<login>[bot]` where GraphQL spells it `app/<login>`; both
+            # are the same peer machine and must classify the same way.
+            self.assertIn("#59   [stateless   ] peer-owned(fkst-other-machine[bot])", result.stdout)
+            self.assertNotIn("#59   [stateless   ] ⚠", result.stdout)
+            # Ownership downgrades warnings only: a tracked dashboard keeps the classification that
+            # says more than who owns it.
+            self.assertIn("#60   [dashboard   ] ✓ dashboard (tracked)", result.stdout)
+            # `dependency_wait` is the standalone form of the condition already rendered as
+            # parked for `ready` + `fkst-dev:blocked-on-dependency`; a row sits in it precisely
+            # while its gate re-evaluates to waiting, so it is parked, not unrendered.
+            self.assertIn("#61   [dependency_wait] parked(dependency-wait)", result.stdout)
+            self.assertNotIn("UNRENDERED-STATE dependency_wait", result.stdout)
+            self.assertNotIn("#60   [dashboard   ] peer-owned", result.stdout)
             self.assertIn(
                 "#38   [workflow    ] parked(workflow:software-feature-flow blocked(child-fatal-walking-skeleton))",
                 result.stdout,

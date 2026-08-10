@@ -70,7 +70,7 @@ return {
     local ready_marker = m_builders.merge_ready_marker(proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha)
     local dependency_wait = core.dependency_wait_marker(proposal_id, version, { 99 }, "waiting", "waiting-on-dependency")
     local dependency_release = core.dependency_release_marker(proposal_id, version)
-    local merged_marker = m_builders.merged_marker(core, proposal_id, pr_number, version, head_sha)
+    local merged_marker = m_builders.merged_marker(proposal_id, pr_number, version, head_sha)
 
     local trusted_bodies = {
       state_marker,

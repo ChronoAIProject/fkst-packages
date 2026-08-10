@@ -9,6 +9,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local rollup_health = require("core" .. ".rollup_health")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local topology = require("topology")
 
 local spec = {
@@ -106,7 +107,7 @@ end
 
 local function act(event)
   devloop_logging.log_entry("rollup_scan", event, "rollup", event and event.queue or "")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local branches = config.branch_config()
   local cfg = config.devloop_config()
   local repo = require_repo(cfg.repo)

@@ -155,7 +155,7 @@ local function child_history(proposal_id, issue_number, pr_number, merged)
       pr_number,
       child_version,
       "g1"
-    ) .. "\n" .. m_builders.merged_marker(core, proposal_id, pr_number, child_version, head_sha)
+    ) .. "\n" .. m_builders.merged_marker(proposal_id, pr_number, child_version, head_sha)
   end
   return issue_json(
     issue_number,
@@ -274,9 +274,15 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
     exit_code = 0,
   })
   local full_fields = "title,body,updatedAt,labels,comments,state,assignees,author"
-  t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
-    stdout = issue_json(origin_issue, "Workflow origin", {}, origin_comments), stderr = "", exit_code = 0,
-  })
+  -- The origin is read twice per materializing tick: once to plan (outside the
+  -- transition lock) and once inside the commit lock to re-check that the facts which
+  -- authorized the plan are still current. Ticks that buffer no durable effect never
+  -- reach the second read, so the spare registration is simply left unconsumed.
+  for _ = 1, 2 do
+    t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
+      stdout = issue_json(origin_issue, "Workflow origin", {}, origin_comments), stderr = "", exit_code = 0,
+    })
+  end
   t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
     stdout = ownership_json(), stderr = "", exit_code = 0,
   })

@@ -1,5 +1,3 @@
-local decompose_lib = require("devloop.decompose")
-
 local devloop_state = require("devloop.state")
 return function(M, h)
   local fact = h.fact
@@ -33,16 +31,16 @@ return function(M, h)
         },
       },
     },
-    reentry_commands = { "rereview", "reready" },
+    reentry_commands = { "reready" },
     operator_reentry = {
       kind = "external_command",
       not_autonomous_successor = true,
       resets_budget = true,
-      commands = { "rereview", "reready" },
+      commands = { "reready" },
     },
     non_durable_advance = {
       category = "terminal-hold",
-      reason = "blocked is a recovery hold: the rereview command or decompose escape can create follow-up work, but no single poll-derived durable fact is expected to advance this row to a normal successor.",
+      reason = "blocked is a recovery hold: a boundary-qualified reready command or decompose escape can create follow-up work, but no single poll-derived durable fact is expected to advance this row to a normal successor.",
     },
     budget = budget(1440, "No receiver work is expected; the row waits up to 1410 minutes for operator reentry before the 30 minute watchdog margin."),
     liveness_contract = liveness({
@@ -74,9 +72,7 @@ return function(M, h)
         resets_budget = true,
       },
     }),
-    payload_builder = function(...)
-      return decompose_lib.build_decompose_replay_payload(M, ...)
-    end,
+    payload_builder_symbol = "devloop.decompose.build_decompose_replay_payload",
     dedup_shape = "forward:decompose/<proposal_id>/<version>; replay:decompose/replay/<proposal_id>/<version>/<pr>/<expected_child_count>/<completed_child_count>",
     required_facts = {
       fact("state", "marker-read"),

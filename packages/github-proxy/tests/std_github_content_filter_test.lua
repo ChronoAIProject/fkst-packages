@@ -1,4 +1,5 @@
 local cf = require("forge.github.content_filter")
+local forge_strings = require("forge.strings")
 local t = fkst.test
 
 local MARKER = "[fkst:blocked-github-content:v1"
@@ -20,12 +21,24 @@ local function assert_marker(value, author)
 end
 
 return {
-  test_canon_login_strips_bot_suffix_trims_lowercases = function()
-    t.eq(cf.canon_login("Fkst-Bot[bot]"), "fkst-bot")
-    t.eq(cf.canon_login("Fkst-Bot[BOT]"), "fkst-bot")
-    t.eq(cf.canon_login("  Alice  "), "alice")
-    t.is_nil(cf.canon_login(nil))
-    t.is_nil(cf.canon_login(""))
+  test_content_filter_uses_the_canonical_forge_login_helper = function()
+    t.eq(forge_strings.canonical_login("app/Fkst-Bot"), "fkst-bot")
+    t.is_nil(cf.canon_login)
+  end,
+
+  test_app_authored_content_has_bare_login_authorization_parity = function()
+    local input = '{"title":"Task","body":"trusted issue body","author":{"login":"app/fkst-test-bot"},"comments":['
+      .. '{"body":"trusted comment","author":{"login":"app/fkst-test-bot"}},'
+      .. '{"body":"malformed app comment","author":{"login":"app/"}},'
+      .. '{"body":"unrelated comment","author":{"login":"app/other-bot"}}]}'
+    local out = cf.filter_gh_content_json(input, "issue", wl("fkst-test-bot"), {})
+    local decoded = decode(out)
+
+    t.eq(decoded.title, "Task")
+    t.eq(decoded.body, "trusted issue body")
+    t.eq(decoded.comments[1].body, "trusted comment")
+    assert_marker(decoded.comments[2].body, "unknown")
+    assert_marker(decoded.comments[3].body, "other-bot")
   end,
 
   test_filter_cell_idempotent_on_existing_marker = function()

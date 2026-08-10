@@ -1,7 +1,6 @@
 local S = {}
 
 function S.install(M, deps)
-local shared = deps or M
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
 local operator_commands = require("devloop.operator_commands")
@@ -35,7 +34,7 @@ local function comment_author_login(comment)
       raw = comment.user.login
     end
   end
-  return shared.strip_bot_login_suffix(raw)
+  return forge_strings.canonical_login(raw)
 end
 
 function M._comment_body(comment)
@@ -126,7 +125,9 @@ function M.has_trusted_marker(comments, dedup_key, bot_login)
   end
   local marker = M.comment_marker(dedup_key)
   for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and forge_strings.comment_body(comment):find(marker, 1, true) ~= nil then
+    if forge_strings.canonical_login(comment_author_login(comment))
+      == forge_strings.canonical_login(bot_login)
+      and forge_strings.comment_body(comment):find(marker, 1, true) ~= nil then
       return true
     end
   end
@@ -138,7 +139,9 @@ function M.has_trusted_comment_fragment(comments, fragment, bot_login)
     return false
   end
   for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and forge_strings.comment_body(comment):find(fragment, 1, true) ~= nil then
+    if forge_strings.canonical_login(comment_author_login(comment))
+      == forge_strings.canonical_login(bot_login)
+      and forge_strings.comment_body(comment):find(fragment, 1, true) ~= nil then
       return true
     end
   end
@@ -150,7 +153,9 @@ function M.trusted_comment_with_fragment(comments, fragment, bot_login)
     return nil
   end
   for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and forge_strings.comment_body(comment):find(fragment, 1, true) ~= nil then
+    if forge_strings.canonical_login(comment_author_login(comment))
+      == forge_strings.canonical_login(bot_login)
+      and forge_strings.comment_body(comment):find(fragment, 1, true) ~= nil then
       return comment
     end
   end

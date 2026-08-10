@@ -86,8 +86,7 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 
 local function build_reject_comment(event, body)
-  return requests_review.build_review_result_comment_request(core,
-    "owner/repo",
+  return requests_review.build_review_result_comment_request(core.output_language,     "owner/repo",
     "42",
     event.proposal_id,
     event.version,

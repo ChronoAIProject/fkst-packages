@@ -3,6 +3,7 @@ local t = h.t
 local core = h.core
 local contract_time = require("contract.time")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_builders = require("devloop.markers.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local terminal_retirement = require("departments.observability.terminal_retirement")
@@ -14,7 +15,7 @@ local reconcile_base_version = "github-devloop/issue/owner/repo/42/intake/reconc
 local reconcile_round = 3
 local reconcile_terminal_version = conv_reconcile.reconcile_state_version(reconcile_base_version, reconcile_round)
 
-devloop_base.configure_trusted_bot_login("fkst-test-bot")
+parsers_misc.configure_trusted_bot_login("fkst-test-bot")
 
 local function bot_comment(body, created_at)
   return {

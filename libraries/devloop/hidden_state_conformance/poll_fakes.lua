@@ -3,6 +3,7 @@ local S = {}
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local git_mechanics = require("devloop.git_mechanics")
 local git_commands = require("devloop.commands.git_ops")
 local devloop_logging = require("devloop.logging")
@@ -61,7 +62,7 @@ function S.with(core, opts, fn)
   local base_branch = opts.base_branch
   local previous_children = core.gh_issue_list_decompose_children
   local previous_branch_config = config.branch_config
-  local previous_bot_login = devloop_base.configured_trusted_bot_login()
+  local previous_bot_login = parsers_misc.configured_trusted_bot_login()
   local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
   local previous_git_is_ancestor = core.git.is_ancestor
   local previous_git_fetch_branch = core.git.fetch_branch
@@ -80,7 +81,7 @@ function S.with(core, opts, fn)
       return { exit_code = 0, stdout = "[]", stderr = "" }
     end
   end
-  devloop_base.configure_trusted_bot_login(core._test_bot_login or "fkst-test-bot")
+  parsers_misc.configure_trusted_bot_login(core._test_bot_login or "fkst-test-bot")
   git_mechanics.with_repo_ref_store_lock = function(_, locked_fn)
     return locked_fn()
   end
@@ -120,10 +121,10 @@ function S.with(core, opts, fn)
         .. tostring(upstream) .. '"}}]]',
     }
   end
-  context_bundle.context_fetch_ref_from_bundle = function(_core, args)
+  context_bundle.context_fetch_ref_from_bundle = function(args)
     return "runtime-cache:hidden-state-conformance/" .. tostring(args and args.version or "fixture")
   end
-  context_bundle.context_fetch_from_bundle = function(_core, args)
+  context_bundle.context_fetch_from_bundle = function(args)
     return "Hidden-state conformance fixture context for " .. tostring(args and args.version or "fixture")
   end
   payloads_board.board_digest_block = function()
@@ -134,7 +135,7 @@ function S.with(core, opts, fn)
   if type(previous_children) == "function" then
     core.gh_issue_list_decompose_children = previous_children
   end
-  devloop_base.configure_trusted_bot_login(previous_bot_login)
+  parsers_misc.configure_trusted_bot_login(previous_bot_login)
   git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
   config.branch_config = previous_branch_config
   core.git.is_ancestor = previous_git_is_ancestor

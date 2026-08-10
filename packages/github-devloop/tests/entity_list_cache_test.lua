@@ -41,6 +41,100 @@ return {
     t.eq(missing, nil)
   end,
 
+  test_run_if_current_poll_epoch_does_not_hold_the_writer_lock_while_running = function()
+    local repo = "owner/lock-free-poll-guard"
+    local lock_key = entity_list_cache.poll_epoch_cache_key(repo)
+    cache_set(lock_key, "")
+    local recorded, poll_epoch = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:03Z")
+    t.is_true(recorded)
+
+    local previous_with_lock = with_lock
+    local epoch_lock_held = false
+    local epoch_lock_acquisitions = 0
+    with_lock = function(key, fn)
+      if key ~= lock_key then
+        return previous_with_lock(key, fn)
+      end
+      epoch_lock_acquisitions = epoch_lock_acquisitions + 1
+      if epoch_lock_held then
+        error("with_lock lock busy: " .. key)
+      end
+      epoch_lock_held = true
+      local results = table.pack(pcall(fn))
+      epoch_lock_held = false
+      if not results[1] then
+        error(results[2])
+      end
+      return table.unpack(results, 2, results.n)
+    end
+
+    local first_ran = false
+    local second_ran = false
+    local ok, err = pcall(function()
+      local first_current = entity_list_cache.run_if_current_poll_epoch(repo, poll_epoch, function()
+        first_ran = true
+        local second_current = entity_list_cache.run_if_current_poll_epoch(repo, poll_epoch, function()
+          second_ran = true
+        end)
+        t.is_true(second_current)
+      end)
+      t.is_true(first_current)
+    end)
+    with_lock = previous_with_lock
+
+    t.is_true(ok, tostring(err))
+    t.is_true(first_ran)
+    t.is_true(second_ran)
+    t.eq(epoch_lock_acquisitions, 0)
+  end,
+
+  test_run_if_current_poll_epoch_skips_a_stale_generation = function()
+    local repo = "owner/stale-poll-guard"
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+    local older_recorded, older_epoch = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:03Z")
+    local newer_recorded = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:04Z")
+    t.is_true(older_recorded)
+    t.is_true(newer_recorded)
+
+    local ran = false
+    local current, result = entity_list_cache.run_if_current_poll_epoch(repo, older_epoch, function()
+      ran = true
+      return "unexpected"
+    end)
+
+    t.eq(current, false)
+    t.eq(result, nil)
+    t.eq(ran, false)
+  end,
+
+  test_record_poll_epoch_keeps_monotonic_sub_epochs_under_the_writer_lock = function()
+    local repo = "owner/poll-writer-lock"
+    local lock_key = entity_list_cache.poll_epoch_cache_key(repo)
+    cache_set(lock_key, "")
+    local previous_with_lock = with_lock
+    local acquired_keys = {}
+    with_lock = function(key, fn)
+      acquired_keys[#acquired_keys + 1] = key
+      return fn()
+    end
+
+    local ok, first_recorded, first_epoch, second_recorded, second_epoch = pcall(function()
+      local recorded_1, epoch_1 = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:03Z")
+      local recorded_2, epoch_2 = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:03Z")
+      return recorded_1, epoch_1, recorded_2, epoch_2
+    end)
+    with_lock = previous_with_lock
+
+    t.is_true(ok)
+    t.is_true(first_recorded)
+    t.is_true(second_recorded)
+    t.eq(first_epoch, "2026-08-10T01:02:03Z/sub-epoch/0")
+    t.eq(second_epoch, "2026-08-10T01:02:03Z/sub-epoch/1")
+    t.eq(#acquired_keys, 2)
+    t.eq(acquired_keys[1], lock_key)
+    t.eq(acquired_keys[2], lock_key)
+  end,
+
   test_shared_issue_observe_list_reuses_only_the_same_poll_snapshot = function()
     author_policy.mock_env(t, nil, {
       configure_trusted_bot_login = h.mock_author_policy_configure,
@@ -58,13 +152,13 @@ return {
       exit_code = 0,
     })
 
-    local first = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local first = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local second = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local second = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local next_poll = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local next_poll = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:03:03Z",
     })
 
@@ -93,10 +187,10 @@ return {
       exit_code = 0,
     })
 
-    local first = entity_list_cache.fetch_shared_pr_observe_list(core, repo, {
+    local first = entity_list_cache.fetch_shared_pr_observe_list(core.gh_pr_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local second = entity_list_cache.fetch_shared_pr_observe_list(core, repo, {
+    local second = entity_list_cache.fetch_shared_pr_observe_list(core.gh_pr_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
 

@@ -1,5 +1,6 @@
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local entity_highwater = require("devloop.entity_highwater")
 local entity_lib = require("devloop.entity")
@@ -83,10 +84,10 @@ return {
     t.is_true(cached.stdout:find('"updatedAt":"' .. version(1) .. '"', 1, true) ~= nil)
     t.eq(count_pr_rest_reads(), 0, "the test precondition must be a matching cached V1")
 
-    local original_assert = devloop_base.assert_trusted_bot_configured
+    local original_assert = parsers_misc.assert_trusted_bot_configured
     local original_branches = config.branch_config
     local original_parse = parsers_pr.parse_pr_view_origin
-    devloop_base.assert_trusted_bot_configured = function() end
+    parsers_misc.assert_trusted_bot_configured = function() end
     config.branch_config = function()
       return { upstream = "dev", integration = "dev" }
     end
@@ -108,7 +109,7 @@ return {
     end)
     parsers_pr.parse_pr_view_origin = original_parse
     config.branch_config = original_branches
-    devloop_base.assert_trusted_bot_configured = original_assert
+    parsers_misc.assert_trusted_bot_configured = original_assert
     if not ok then
       error(err, 0)
     end

@@ -170,7 +170,7 @@ return {
       t.eq(outcome.evidence, receipt_value.evidence)
 
       local request = requests_lifecycle.build_implementation_refusal_comment_request(
-        core, "ChronoAIProject/fkst-packages", 42, ready, outcome.reason, outcome.evidence,
+        { require_supported_implementation_refusal_reason = core.require_supported_implementation_refusal_reason, implementation_refusal_marker = core.implementation_refusal_marker, ready_split_version = core.ready_split_version, dependency_wait_marker = core.dependency_wait_marker, implement_attempt_marker = core.implement_attempt_marker }, "ChronoAIProject/fkst-packages", 42, ready, outcome.reason, outcome.evidence,
         outcome.attempt, outcome.started_at, outcome.exec_ref)
       local fact = core.implementation_refusal_fact(
         { request.body }, fixture.expected.proposal_id, fixture.expected.implementation_version)
