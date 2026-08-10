@@ -51,6 +51,63 @@ function S.install(M)
     return true
   end
 
+  function M.normalize_marker_selector(selector)
+    if type(selector) ~= "table" then
+      return nil, "invalid-marker-selector"
+    end
+    local namespace = tostring(selector.namespace or "")
+    local marker = tostring(selector.marker or "")
+    local version = tostring(selector.version or "")
+    if not safe_token(namespace) or not safe_token(marker) or not safe_token(version) then
+      return nil, "invalid-marker-selector"
+    end
+    if not valid_attr_table(selector.match) then
+      return nil, "invalid-marker-selector"
+    end
+    return {
+      namespace = namespace,
+      marker = marker,
+      version = version,
+      match = selector.match,
+    }, nil
+  end
+
+  local function body_has_marker_selector(body, selector)
+    local pattern = marker_pattern(selector.namespace, selector.marker, selector.version)
+    for candidate in tostring(body or ""):gmatch(pattern) do
+      if attrs_match(marker_attrs(candidate), selector.match) then
+        return true
+      end
+    end
+    return false
+  end
+
+  function M.marker_selector_present(body, selector)
+    local normalized, reason = M.normalize_marker_selector(selector)
+    if normalized == nil then
+      return false, reason
+    end
+    if not body_has_marker_selector(body, normalized) then
+      return false, "marker-selector-missing"
+    end
+    return true, nil
+  end
+
+  function M.trusted_marker_selector_present(comments, selector, bot_login)
+    local normalized, reason = M.normalize_marker_selector(selector)
+    if normalized == nil then
+      return false, reason
+    end
+    for _, comment in ipairs(comments or {}) do
+      if forge_strings.canonical_login(M._comment_author_login(comment))
+        == forge_strings.canonical_login(bot_login)
+        and body_has_marker_selector(M._comment_body(comment), normalized) then
+        return true, nil
+      end
+    end
+    return false, nil
+  end
+
   local function normalize_order_by(value)
     if value == nil then
       return {}
@@ -122,13 +179,11 @@ function S.install(M)
     if type(guard) ~= "table" then
       return nil, "invalid-marker-guard"
     end
-    local namespace = tostring(guard.namespace or "")
-    local marker = tostring(guard.marker or "")
-    local version = tostring(guard.version or "")
-    if not safe_token(namespace) or not safe_token(marker) or not safe_token(version) then
+    local selector = M.normalize_marker_selector(guard)
+    if selector == nil then
       return nil, "invalid-marker-guard"
     end
-    if not valid_attr_table(guard.match) or not valid_attr_table(guard.expected) then
+    if not valid_attr_table(guard.expected) then
       return nil, "invalid-marker-guard"
     end
     local order_by = normalize_order_by(guard.order_by)
@@ -136,10 +191,10 @@ function S.install(M)
       return nil, "invalid-marker-guard"
     end
     return {
-      namespace = namespace,
-      marker = marker,
-      version = version,
-      match = guard.match,
+      namespace = selector.namespace,
+      marker = selector.marker,
+      version = selector.version,
+      match = selector.match,
       expected = guard.expected,
       order_by = order_by,
     }, nil

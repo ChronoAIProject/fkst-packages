@@ -543,7 +543,13 @@ local tests = {
         "blueprint-decision",
         tostring(payload.proposal_id),
         tostring(payload.dedup_key),
+        "workflow-alpha",
+        plan_digest,
       }))
+      t.eq(request.exclusive_marker.namespace, "github-devloop-workflow")
+      t.eq(request.exclusive_marker.marker, "blueprint")
+      t.eq(request.exclusive_marker.version, "v1")
+      t.eq(request.exclusive_marker.match.origin, payload.proposal_id)
       local blueprint_marker = marker.parse_blueprint_marker(request.body, payload.proposal_id)
       t.eq(blueprint_marker.workflow, "workflow-alpha")
       t.eq(blueprint_marker.digest, plan_digest)

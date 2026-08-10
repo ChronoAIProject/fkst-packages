@@ -104,7 +104,15 @@ function M.build_blueprint_decision_comment_request(root, repo, issue_number, ca
       "blueprint-decision",
       tostring(candidate.proposal_id),
       tostring(candidate.dedup_key),
+      tostring(blueprint_id),
+      tostring(plan_digest),
     }),
+    exclusive_marker = {
+      namespace = "github-devloop-workflow",
+      marker = "blueprint",
+      version = "v1",
+      match = { origin = candidate.proposal_id },
+    },
     source_ref = base_ids.normalize_source_ref(candidate.source_ref),
   }
   return claims.attach_issue_claim(payload, candidate.source_ref), nil

@@ -67,10 +67,46 @@ local tests = {
       "blueprint-decision",
       tostring(candidate.proposal_id),
       tostring(candidate.dedup_key),
+      "workflow-one",
+      "d-1234567890",
     })
 
     t.eq(first.dedup_key, expected)
     t.eq(second.dedup_key, expected)
+  end,
+
+  test_dedup_key_covers_selected_workflow_and_digest = function()
+    local first = request_or_error("reason")
+    local other_workflow = assert(select_request.build_blueprint_decision_comment_request(
+      core,
+      "owner/repo",
+      42,
+      candidate,
+      "workflow-two",
+      "d-1234567890",
+      "reason"
+    ))
+    local other_digest = assert(select_request.build_blueprint_decision_comment_request(
+      core,
+      "owner/repo",
+      42,
+      candidate,
+      "workflow-one",
+      "d-0987654321",
+      "reason"
+    ))
+
+    t.is_true(first.dedup_key ~= other_workflow.dedup_key)
+    t.is_true(first.dedup_key ~= other_digest.dedup_key)
+  end,
+
+  test_request_declares_one_exclusive_blueprint_marker_per_origin = function()
+    local request = request_or_error("reason")
+
+    t.eq(request.exclusive_marker.namespace, "github-devloop-workflow")
+    t.eq(request.exclusive_marker.marker, "blueprint")
+    t.eq(request.exclusive_marker.version, "v1")
+    t.eq(request.exclusive_marker.match.origin, candidate.proposal_id)
   end,
 
   test_reason_is_neutralized_and_bounded = function()

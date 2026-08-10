@@ -391,6 +391,22 @@ function M.write_comment_request(payload, target)
     return
   end
 
+  local exclusive_marker = nil
+  if payload.exclusive_marker ~= nil then
+    local reason = nil
+    exclusive_marker, reason = M.normalize_marker_selector(payload.exclusive_marker)
+    if exclusive_marker == nil then
+      error("github-proxy: comment-exclusive-marker-invalid: " .. tostring(reason))
+    end
+    if payload.replace_marker ~= nil then
+      error("github-proxy: comment-exclusive-marker-replace-conflict: exclusive marker requests cannot replace comments")
+    end
+    local established, established_reason = M.marker_selector_present(payload.body, exclusive_marker)
+    if not established then
+      error("github-proxy: comment-exclusive-marker-body-invalid: " .. tostring(established_reason))
+    end
+  end
+
   if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
     log.info("github-proxy dry-run: would comment on " .. repo .. "#" .. tostring(target.number))
     return
@@ -409,6 +425,15 @@ function M.write_comment_request(payload, target)
       log.info("github-proxy: comment marker already present")
       written_comment = confirmed_existing_handoff_comment(M, repo, target, payload.dedup_key, bot_login, payload.handoff)
       return
+    elseif exclusive_marker ~= nil then
+      local marker_present, marker_reason = M.trusted_marker_selector_present(comments, exclusive_marker, bot_login)
+      if marker_reason ~= nil then
+        error("github-proxy: comment-exclusive-marker-invalid: " .. tostring(marker_reason))
+      end
+      if marker_present then
+        log.info("github-proxy: exclusive comment marker already present")
+        return
+      end
     end
     local claim_issue_number = target.kind == "issue" and target.number or payload.issue_number
     if claim_issue_number ~= nil
@@ -475,6 +500,12 @@ function M.write_comment_request(payload, target)
     local written = parse_written_comment(created.stdout)
     if written == nil then
       error("github-proxy: comment-id-missing: comment create did not return a valid comment id")
+    end
+    if exclusive_marker ~= nil then
+      local confirmed, confirm_reason = M.marker_selector_present(written.body, exclusive_marker)
+      if not confirmed then
+        error("github-proxy: comment-exclusive-marker-confirmation-missing: " .. tostring(confirm_reason))
+      end
     end
     written_comment = written
     M.invalidate_entity_after_write(repo, target.kind, target.number)
