@@ -174,30 +174,8 @@ local dependency_wait_consensus_result_fixtures = {
   },
 }
 
-local function observe_department(run)
-  local probes = {}
-  local decisions = {}
-  local apply_plans = {}
-  local original_decide_transition = restart_effects.decide_transition
-  local original_log_cas = devloop_logging.log_cas_decision
-  local original_log_apply = devloop_logging.log_apply
-
-  restart_effects.decide_transition = function(snapshot, intent)
-    local decided = original_decide_transition(snapshot, intent)
-    if intent.semantic_variant == SEMANTIC_VARIANT then
-      local legacy_current = snapshot.current
-      table.insert(probes, {
-        current = legacy_current,
-        from_states = { "thinking" },
-        to_state = "blocked",
-        incoming_version = nil,
-        target_version = nil,
-        outcome = decided.status,
-      })
-    end
-    return decided
-  end
-  devloop_logging.log_cas_decision = function(
+local function capture_cas_decisions(decisions, original_log_cas)
+  return function(
     dept,
     proposal_id,
     current,
@@ -225,6 +203,32 @@ local function observe_department(run)
       reason
     )
   end
+end
+
+local function observe_department(run)
+  local probes = {}
+  local decisions = {}
+  local apply_plans = {}
+  local original_decide_transition = restart_effects.decide_transition
+  local original_log_cas = devloop_logging.log_cas_decision
+  local original_log_apply = devloop_logging.log_apply
+
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == SEMANTIC_VARIANT then
+      local legacy_current = snapshot.current
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "thinking" },
+        to_state = "blocked",
+        incoming_version = nil,
+        target_version = nil,
+        outcome = decided.status,
+      })
+    end
+    return decided
+  end
+  devloop_logging.log_cas_decision = capture_cas_decisions(decisions, original_log_cas)
   devloop_logging.log_apply = function(
     dept,
     proposal_id,
@@ -288,34 +292,7 @@ local function observe_consensus_result_department(run)
     end
     return decision
   end
-  devloop_logging.log_cas_decision = function(
-    dept,
-    proposal_id,
-    current,
-    from_state,
-    to_state,
-    outcome,
-    reason
-  )
-    table.insert(decisions, {
-      dept = dept,
-      proposal_id = proposal_id,
-      current = current,
-      from_state = from_state,
-      to_state = to_state,
-      outcome = outcome,
-      reason = reason,
-    })
-    return original_log_cas(
-      dept,
-      proposal_id,
-      current,
-      from_state,
-      to_state,
-      outcome,
-      reason
-    )
-  end
+  devloop_logging.log_cas_decision = capture_cas_decisions(decisions, original_log_cas)
 
   local ok, result = pcall(run)
   devloop_logging.log_cas_decision = original_log_cas
