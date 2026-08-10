@@ -5,15 +5,16 @@ local testing = require("testkit_internal.testing")
 local failure_triage_cap = require("failure_triage_cap")
 local queue_starvation = require("devloop.queue_starvation")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local dashboard_commands = require("core.dashboard_commands")
 require("departments.observability.main")
 
-local function mock_env()
+local function mock_env(write_mode)
   for _ = 1, 16 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
   end
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
   for _ = 1, 16 do
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
   end
   for _, name in ipairs({ "GH_TOKEN", "GITHUB_TOKEN" }) do
     t.mock_command('if [ -n "${' .. name .. ':-}" ]; then printf present; fi', { stdout = "", stderr = "", exit_code = 0 })
@@ -68,6 +69,74 @@ local function run_fake_restoring(department, originals)
 end
 
 return {
+  test_collection_deadline_exhaustion_still_publishes_partial_dashboard = function()
+    mock_env("1")
+    local clock = 1000
+    local locator_calls = 0
+    local create_calls = 0
+    local published_input = ""
+    local originals = {
+      now = now,
+      collect_observability_entities = core.collect_observability_entities,
+      collect_recent_merged_prs = core.collect_recent_merged_prs,
+      collect_recent_merged_issues = core.collect_recent_merged_issues,
+      observability_topology_mermaid = core.observability_topology_mermaid,
+      label_get = dashboard_commands.gh_dashboard_label_get,
+      issue_list = dashboard_commands.gh_dashboard_issue_list,
+      issue_create = dashboard_commands.gh_dashboard_issue_create,
+      with_lock = with_lock,
+    }
+    now = function() return clock end
+    core.collect_observability_entities = function(_, _, _, collection_deadline)
+      clock = collection_deadline
+      return {
+        list = {},
+        counts = {},
+        stalls = {},
+        state_gap_report = { edges = {} },
+        now_seconds = clock,
+        observability_deferred = { reason = "deadline" },
+      }
+    end
+    core.collect_recent_merged_prs = function() return {} end
+    core.collect_recent_merged_issues = function() return {} end
+    core.observability_topology_mermaid = function() return nil end
+    dashboard_commands.gh_dashboard_label_get = function()
+      return { stdout = '{"name":"fkst-dashboard"}\n', stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_list = function()
+      locator_calls = locator_calls + 1
+      return { stdout = "[[]]\n", stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_create = function(_, input_file)
+      create_calls = create_calls + 1
+      published_input = file.read(input_file)
+      return { stdout = '{"number":99}\n', stderr = "", exit_code = 0 }
+    end
+    with_lock = function(_, fn) return fn() end
+
+    local ok, result = pcall(function()
+      return core.observe_devloop_entities({
+        queue = "devloop_observe_tick",
+        payload = { schema = "github-devloop.observe-tick.v1" },
+      }, {})
+    end)
+    now = originals.now
+    core.collect_observability_entities = originals.collect_observability_entities
+    core.collect_recent_merged_prs = originals.collect_recent_merged_prs
+    core.collect_recent_merged_issues = originals.collect_recent_merged_issues
+    core.observability_topology_mermaid = originals.observability_topology_mermaid
+    dashboard_commands.gh_dashboard_label_get = originals.label_get
+    dashboard_commands.gh_dashboard_issue_list = originals.issue_list
+    dashboard_commands.gh_dashboard_issue_create = originals.issue_create
+    with_lock = originals.with_lock
+    if not ok then error(result) end
+
+    t.eq(locator_calls, 1)
+    t.eq(create_calls, 1)
+    t.is_true(published_input:find("Partial observations", 1, true) ~= nil)
+  end,
+
   test_display_read_timeout_renders_partial_observability_dashboard = function()
     mock_env()
     t.mock_command(issue_list_first(core._enabled_label), { stdout = "", stderr = "timed out", exit_code = 124 })
