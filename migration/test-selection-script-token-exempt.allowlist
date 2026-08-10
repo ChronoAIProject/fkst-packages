@@ -1,0 +1,9 @@
+# Shrink-only inventory of Lua `scripts` tokens proven not to construct repository script paths.
+# Format: <repo-relative Lua path>:<line> # why=<one-line non-construction reason>
+# New entries fail against the protected base. Remove entries when the occurrence disappears.
+libraries/devloop/github_risk.lua:19 # why=Lua pattern classifies changed paths as high risk; it does not load a repository script
+packages/frontend-devloop/core.lua:25 # why=Trust-boundary label names host script ownership; it does not load a repository script
+packages/frontend-devloop/core.lua:37 # why=Capability prose names project-local scripts; it does not load a repository script
+packages/frontend-devloop/core.lua:40 # why=Capability prose names package-manager scripts; it does not load a repository script
+packages/frontend-devloop/core.lua:248 # why=Command-contract prose names script ownership; it does not load a repository script
+packages/github-devloop-integration/tests/integration_sync_conflict_test.lua:60 # why=Embedded Python fixture configures its own sys.path; the Lua unit does not load a repository script

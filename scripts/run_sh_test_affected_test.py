@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -79,9 +81,11 @@ class TestAffectedHarness:
                 "host_entry.sh",
                 "composed_manifest.sh",
                 "composed_conformance.sh",
+                "composed_test_graph_roots.sh",
                 "test_parallel.sh",
                 "test_deadline.sh",
                 "run_department.sh",
+                "test_selection.py",
                 "check_repo_intake_routing.py",
                 "intake_policy_slots.json",
             ):
@@ -96,10 +100,6 @@ class TestAffectedHarness:
                 "#!/bin/sh\n"
                 "printf '%s\\n' \"$*\" >> \"$FKST_TEST_AFFECTED_LOG\"\n"
                 "result=${FKST_TEST_AFFECTED_RUNNER_RESULT:-}\n"
-                "case \"${2:-}\" in\n"
-                "  consensus) result=${FKST_TEST_AFFECTED_RESULT_CONSENSUS:-$result} ;;\n"
-                "  github-devloop) result=${FKST_TEST_AFFECTED_RESULT_GITHUB_DEVLOOP:-$result} ;;\n"
-                "esac\n"
                 "if [ -n \"$result\" ]; then\n"
                 "  marker=FKST_LOCAL_ITERATION_RESULT:v2:$result\n"
                 "  if [ -n \"${FKST_LOCAL_ITERATION_RESULT_FILE:-}\" ]; then\n"
@@ -127,6 +127,17 @@ class TestAffectedHarness:
                     command="${1:-}"
                     shift || true
                     case "$command" in
+                      deps)
+                        if [ "${FKST_TEST_DEPS_EXIT:-0}" -ne 0 ]; then
+                          exit "$FKST_TEST_DEPS_EXIT"
+                        fi
+                        if [ -n "${FKST_TEST_DEPS_OUTPUT:-}" ]; then
+                          printf '%s\n' "$FKST_TEST_DEPS_OUTPUT"
+                        else
+                          cat "$FKST_TEST_DEPS_JSON"
+                        fi
+                        exit 0
+                        ;;
                       manifest) exit 10 ;;
                       conformance) exit 0 ;;
                       --self-test)
@@ -181,6 +192,8 @@ class TestAffectedHarness:
             )
             self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
             self._init_repo()
+            self.deps_json = Path(self.tmp) / "deps.json"
+            self._write_dependency_json()
         except BaseException:
             _robust_rmtree(self.tmp)
             raise
@@ -229,12 +242,47 @@ class TestAffectedHarness:
         self._git("commit", "-m", "integration ahead")
         self._git("checkout", "-b", "feature")
 
+    def _write_dependency_json(self) -> None:
+        payload = {
+            "ok": True,
+            "workspace_root": str(self.root),
+            "failures": [],
+            "warnings": [],
+            "units": [
+                {
+                    "name": "consensus-tests",
+                    "kind": "package",
+                    "root": str(self.root / "packages" / "consensus"),
+                    "lib_deps": [],
+                    "event_deps": [],
+                },
+                {
+                    "name": "github-devloop",
+                    "kind": "package",
+                    "root": str(self.root / "packages" / "github-devloop"),
+                    "lib_deps": ["devloop"],
+                    "event_deps": [],
+                },
+                {
+                    "name": "devloop",
+                    "kind": "library",
+                    "root": str(self.root / "libraries" / "devloop"),
+                    "lib_deps": [],
+                    "event_deps": [],
+                },
+            ],
+            "lib_edges": [{"from": "github-devloop", "to": "devloop"}],
+            "event_edges": [],
+        }
+        self.deps_json.write_text(json.dumps(payload), encoding="utf-8")
+
     def run(
         self,
         with_branch_env: bool = True,
         runner_exit: int = 0,
         runner_result: str | None = "PASS:NONE",
-        package_results: dict[str, str] | None = None,
+        deps_exit: int = 0,
+        deps_output: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.pop("FKST_LOCAL_ITERATION_RESULT_FILE", None)
@@ -249,14 +297,18 @@ class TestAffectedHarness:
         env["FKST_TEST_AFFECTED_RUNNER"] = str(self.runner)
         env["FKST_TEST_AFFECTED_LOG"] = str(self.log)
         env["FKST_TEST_AFFECTED_RUNNER_EXIT"] = str(runner_exit)
+        env["BIN"] = str(self.engine)
+        env["FKST_NO_AUTOBUILD"] = "1"
+        env["FKST_TEST_DEPS_JSON"] = str(self.deps_json)
+        env["FKST_TEST_DEPS_EXIT"] = str(deps_exit)
+        if deps_output is None:
+            env.pop("FKST_TEST_DEPS_OUTPUT", None)
+        else:
+            env["FKST_TEST_DEPS_OUTPUT"] = deps_output
         if runner_result is None:
             env.pop("FKST_TEST_AFFECTED_RUNNER_RESULT", None)
         else:
             env["FKST_TEST_AFFECTED_RUNNER_RESULT"] = runner_result
-        package_results = package_results or {}
-        for package, value in package_results.items():
-            key = "FKST_TEST_AFFECTED_RESULT_" + package.upper().replace("-", "_")
-            env[key] = value
         return subprocess.run(
             ["/bin/bash", "scripts/run.sh", "test-affected"],
             cwd=self.root,
@@ -408,6 +460,156 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_default_test_runs_target_union(self) -> None:
+        cases = (
+            ("consensus", ("consensus",)),
+            ("consensus github-devloop", ("consensus", "github-devloop")),
+            ("-v github-devloop", ("github-devloop",)),
+        )
+        for targets, expected_packages in cases:
+            with self.subTest(targets=targets):
+                h = TestAffectedHarness()
+                try:
+                    result = h.run_test_process(
+                        "cmd_check() { printf '%s\\n' check >> \"$ROOT/check-count\"; return 0; }\n"
+                        f"main test {targets}"
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertEqual(
+                        (h.root / "check-count").read_text(encoding="utf-8"),
+                        "check\n",
+                    )
+                    self.assertEqual(result.stdout.count("=== self-test ==="), 1)
+                    self.assertEqual(result.stdout.count("=== sdk-primitives ==="), 1)
+                    for package in expected_packages:
+                        self.assertIn(f"=== {package} ===", result.stdout)
+                    self.assertIn(
+                        f"OK: {len(expected_packages)} package(s)",
+                        result.stdout,
+                    )
+                    if expected_packages == ("consensus",):
+                        self.assertNotIn("=== github-devloop ===", result.stdout)
+                finally:
+                    h.close()
+
+    def test_default_test_fails_when_any_target_is_unmatched(self) -> None:
+        valid_targets = ("consensus", "github-devloop", "consensus", "github-devloop")
+        for bogus_index in range(len(valid_targets) + 1):
+            targets = list(valid_targets)
+            targets.insert(bogus_index, "missing-package")
+            with self.subTest(bogus_index=bogus_index, target_count=len(targets)):
+                h = TestAffectedHarness()
+                try:
+                    result = h.run_test_process(
+                        "cmd_check() { return 0; }\n"
+                        f"main test {shlex.join(targets)}"
+                    )
+
+                    self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+                    self.assertEqual(
+                        result_markers(result),
+                        [result_marker("FAIL", "CONFIGURATION")],
+                    )
+                    self.assertIn(
+                        "no packages matched for 'missing-package'",
+                        result.stderr + result.stdout,
+                    )
+                    self.assertNotIn("=== self-test ===", result.stdout)
+                    self.assertNotIn("=== sdk-primitives ===", result.stdout)
+                    self.assertNotIn("=== github-devloop ===", result.stdout)
+                    self.assertNotIn("test hermetic: FKST_RUNTIME_ROOT", result.stdout)
+                    self.assertNotIn("narrowed local test", result.stdout)
+                finally:
+                    h.close()
+
+    def test_default_test_cleanup_owns_only_invocation_created_roots(self) -> None:
+        root_kinds = ("runtime", "durable", "pkgroots")
+        for acquired_before_failure in range(len(root_kinds) + 1):
+            with self.subTest(acquired_before_failure=acquired_before_failure):
+                h = TestAffectedHarness()
+                try:
+                    inherited_roots = tuple(
+                        Path(h.tmp) / f"inherited-{kind}" for kind in root_kinds
+                    )
+                    created_roots = tuple(
+                        Path(h.tmp) / f"created-{kind}" for kind in root_kinds
+                    )
+                    acquired_log = Path(h.tmp) / "acquired-roots.log"
+                    for root in inherited_roots:
+                        root.mkdir()
+                        (root / "sentinel").write_text("preserve\n", encoding="utf-8")
+
+                    result = h.run_test_process(
+                        "cmd_check() { return 0; }\n"
+                        f"export TEST_HERMETIC_RUNTIME_ROOT={shlex.quote(str(inherited_roots[0]))}\n"
+                        f"export TEST_HERMETIC_DURABLE_ROOT={shlex.quote(str(inherited_roots[1]))}\n"
+                        f"export TEST_HERMETIC_PKG_ROOTS={shlex.quote(str(inherited_roots[2]))}\n"
+                        f"CREATED_RUNTIME={shlex.quote(str(created_roots[0]))}\n"
+                        f"CREATED_DURABLE={shlex.quote(str(created_roots[1]))}\n"
+                        f"CREATED_PKGROOTS={shlex.quote(str(created_roots[2]))}\n"
+                        f"ACQUIRED_LOG={shlex.quote(str(acquired_log))}\n"
+                        f"FAIL_AFTER={acquired_before_failure}\n"
+                        f"ROOT_COUNT={len(root_kinds)}\n"
+                        "mktemp() {\n"
+                        "  case \"$*\" in\n"
+                        "    *fkst-test-rt.XXXXXX*) stage=0; root=$CREATED_RUNTIME ;;\n"
+                        "    *fkst-test-durable.XXXXXX*) stage=1; root=$CREATED_DURABLE ;;\n"
+                        "    *fkst-test-pkgroots.XXXXXX*) stage=2; root=$CREATED_PKGROOTS ;;\n"
+                        "    *) command mktemp \"$@\"; return ;;\n"
+                        "  esac\n"
+                        "  if [ \"$FAIL_AFTER\" -lt \"$ROOT_COUNT\" ] && [ \"$stage\" -eq \"$FAIL_AFTER\" ]; then\n"
+                        "    return 1\n"
+                        "  fi\n"
+                        "  mkdir -p \"$root\"\n"
+                        "  printf '%s\\n' \"$stage\" >> \"$ACQUIRED_LOG\"\n"
+                        "  printf '%s\\n' \"$root\"\n"
+                        "}\n"
+                        "main test github-devloop"
+                    )
+
+                    if acquired_before_failure == len(root_kinds):
+                        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                    acquired = (
+                        acquired_log.read_text(encoding="utf-8").splitlines()
+                        if acquired_log.exists()
+                        else []
+                    )
+                    self.assertEqual(
+                        acquired,
+                        [str(index) for index in range(acquired_before_failure)],
+                    )
+                    for root in inherited_roots:
+                        self.assertTrue(
+                            (root / "sentinel").is_file(),
+                            f"inherited root deleted: {root}",
+                        )
+                    for root in created_roots[:acquired_before_failure]:
+                        self.assertFalse(
+                            root.exists(),
+                            f"invocation-created root survived: {root}",
+                        )
+                finally:
+                    h.close()
+
+    def test_default_test_target_banner_names_skipped_aggregate_gates(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\nmain test github-devloop"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            output = result.stderr + result.stdout
+            self.assertIn("not the CI gate", output)
+            self.assertIn("composed conformance", output)
+            self.assertIn("Lua coverage ratchet", output)
+            self.assertIn("G5 test-file coverage", output)
+        finally:
+            h.close()
+
     def test_default_test_types_bin_resolution_failure_as_toolchain(self) -> None:
         h = TestAffectedHarness()
         try:
@@ -478,6 +680,7 @@ class RunShTestAffectedTest(unittest.TestCase):
                 [result_marker("FAIL", "SEMANTIC")],
             )
             self.assertIn("G5 engine test coverage failed", result.stderr + result.stdout)
+            self.assertNotIn("narrowed local test: not the CI gate", result.stderr + result.stdout)
         finally:
             h.close()
 
@@ -539,7 +742,7 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_test_affected_leaves_heterogeneous_child_faults_unknown(self) -> None:
+    def test_test_affected_preserves_aggregate_semantic_fault(self) -> None:
         h = TestAffectedHarness()
         try:
             h._write("packages/consensus/core.lua", "return {changed = true}\n")
@@ -547,22 +750,19 @@ class RunShTestAffectedTest(unittest.TestCase):
 
             result = h.run(
                 runner_exit=1,
-                package_results={
-                    "consensus": "FAIL:SEMANTIC",
-                    "github-devloop": "FAIL:CONFIGURATION",
-                },
+                runner_result="FAIL:SEMANTIC",
             )
 
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
             self.assertEqual(
                 result_markers(result),
-                [result_marker("UNKNOWN", "UNKNOWN")],
+                [result_marker("FAIL", "SEMANTIC")],
             )
-            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+            self.assertEqual(h.runner_args(), ["test consensus github-devloop"])
         finally:
             h.close()
 
-    def test_test_affected_preserves_matching_child_faults(self) -> None:
+    def test_test_affected_preserves_aggregate_toolchain_fault(self) -> None:
         h = TestAffectedHarness()
         try:
             h._write("packages/consensus/core.lua", "return {changed = true}\n")
@@ -570,10 +770,7 @@ class RunShTestAffectedTest(unittest.TestCase):
 
             result = h.run(
                 runner_exit=1,
-                package_results={
-                    "consensus": "FAIL:TOOLCHAIN",
-                    "github-devloop": "FAIL:TOOLCHAIN",
-                },
+                runner_result="FAIL:TOOLCHAIN",
             )
 
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
@@ -581,6 +778,37 @@ class RunShTestAffectedTest(unittest.TestCase):
                 result_markers(result),
                 [result_marker("FAIL", "TOOLCHAIN")],
             )
+        finally:
+            h.close()
+
+    def test_test_affected_rejects_deleted_target_before_existing_package_runs(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._git("rm", "-r", "packages/consensus")
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+            h.runner.write_text(
+                "#!/usr/bin/env bash\n"
+                f". {shlex.quote(str(h.scripts / 'run.sh'))}\n"
+                "cmd_check() { return 0; }\n"
+                f"BIN={shlex.quote(str(h.engine))}\n"
+                "export BIN FKST_NO_AUTOBUILD=1\n"
+                "export FKST_TEST_ENGINE_RESULT=semantic-fail\n"
+                "main \"$@\"\n",
+                encoding="utf-8",
+            )
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "CONFIGURATION")],
+            )
+            output = result.stderr + result.stdout
+            self.assertIn("no packages matched for 'consensus'", output)
+            self.assertNotIn("=== self-test ===", output)
+            self.assertNotIn("=== sdk-primitives ===", output)
+            self.assertNotIn("=== github-devloop ===", output)
         finally:
             h.close()
 
@@ -617,25 +845,6 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_runs_full_for_broad_paths(self) -> None:
-        broad_paths = (
-            "libraries/devloop/extra.lua",
-            "scripts/helper.sh",
-            ".github/workflows/ci.yml",
-            "fkst.workspace.toml",
-        )
-        for rel in broad_paths:
-            h = TestAffectedHarness()
-            try:
-                h._write(rel, "changed\n")
-
-                result = h.run()
-
-                self.assertEqual(result.returncode, 0, rel + "\n" + result.stderr + result.stdout)
-                self.assertEqual(h.runner_args(), ["test"], rel)
-            finally:
-                h.close()
-
     def test_runs_full_for_dogfood_operator_paths(self) -> None:
         h = TestAffectedHarness()
         try:
@@ -648,7 +857,7 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_runs_each_changed_package(self) -> None:
+    def test_runs_changed_packages_through_one_gate_invocation(self) -> None:
         h = TestAffectedHarness()
         try:
             h._write("packages/consensus/core.lua", "return {changed = true}\n")
@@ -657,7 +866,7 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run()
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+            self.assertEqual(h.runner_args(), ["test consensus github-devloop"])
         finally:
             h.close()
 

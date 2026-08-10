@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generic dev runner for fkst packages.
 #
-#   scripts/run.sh test [-v|--verbose] [package]
+#   scripts/run.sh test [-v|--verbose] [package ...]
 #       Run self-test, flat package conformance, package tests, and composed
 #       graph conformance. Tests use fresh runtime/durable roots and keep only
 #       failure-relevant lines unless -v/--verbose or FKST_TEST_VERBOSE=1 is set.
@@ -211,6 +211,10 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_affected_test.py"'
+    'python3 -B "$ROOT/scripts/run_sh_test_selection_test.py"'
+    'python3 -B "$ROOT/scripts/test_selection_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_test_selection_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_test_selection.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_deadline_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_reaper_test.py"'
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
@@ -496,21 +500,43 @@ finish_test_reports() {
 }
 
 cmd_test() {
-  local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
+  local target selected matched repo_only=0 ran=0 fail=0 src_pkg pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a pkg_units=() ran_names=()
+  local -a targets=() pkg_units=() ran_names=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
   while [ $# -gt 0 ]; do
     case "$1" in
       -v|--verbose) verbose=1 ;;
+      --repo-only) repo_only=1 ;;
       -*) local_iteration_result_fail "CONFIGURATION"; echo "unknown test flag: $1" >&2; exit 2 ;;
-      *) target="$1" ;;
+      *) targets+=("$1") ;;
     esac
     shift
   done
+  if [ "$repo_only" -eq 1 ] && [ "${#targets[@]}" -gt 0 ]; then local_iteration_result_fail "CONFIGURATION"; echo "--repo-only cannot be combined with package targets" >&2; exit 2; fi
+  for target in ${targets[@]+"${targets[@]}"}; do
+    matched=0
+    for src_pkg in "$SOURCE_PACKAGES_ROOT"/*/; do
+      [ -d "$src_pkg" ] || continue
+      if [ "$(basename "$src_pkg")" = "$target" ]; then matched=1; break; fi
+    done
+    if [ "$matched" -eq 0 ]; then
+      local_iteration_result_fail "CONFIGURATION"
+      echo "no packages matched for '$target'" >&2
+      exit 1
+    fi
+  done
+  if [ "$repo_only" -eq 1 ]; then
+    echo "=== narrowed local test: not the CI gate ==="
+    echo "skipped package suites and aggregate gates after repository checks"
+    local_iteration_result_pass; return 0
+  elif [ "${#targets[@]}" -gt 0 ]; then
+    echo "=== narrowed local test: not the CI gate ==="
+    echo "skipped aggregate gates: composed conformance; Lua coverage ratchet; G5 test-file coverage"
+  fi
 
   TEST_HERMETIC_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-rt.XXXXXX")"
   TEST_HERMETIC_DURABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-durable.XXXXXX")"
@@ -550,7 +576,13 @@ cmd_test() {
     name="$(basename "$src_pkg")"
     pkg="$LOCAL_PACKAGES_ROOT/$name"
     [ -d "$pkg" ] || continue
-    if [ -n "$target" ] && [ "$name" != "$target" ]; then continue; fi
+    if [ "${#targets[@]}" -gt 0 ]; then
+      selected=0
+      for target in ${targets[@]+"${targets[@]}"}; do
+        if [ "$name" = "$target" ]; then selected=1; break; fi
+      done
+      [ "$selected" -eq 1 ] || continue
+    fi
     ran=$((ran + 1))
     rc=0; is_composed "$pkg" || rc=$?
     case "$rc" in
@@ -571,14 +603,10 @@ cmd_test() {
   done
   if [ "$ran" -eq 0 ]; then
     local_iteration_result_fail "CONFIGURATION"
-    if [ -n "$target" ]; then
-      echo "no packages matched for '$target'" >&2
-    else
-      echo "no packages matched" >&2
-    fi
+    echo "no packages matched" >&2
     exit 1
   fi
-  if [ -z "$target" ]; then
+  if [ "${#targets[@]}" -eq 0 ]; then
     if ! cmd_test_composed; then
       fail=$((fail + 1))
     fi

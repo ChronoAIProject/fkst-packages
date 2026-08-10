@@ -135,6 +135,8 @@ local_iteration_result_arm() {
   LOCAL_ITERATION_RESULT_OUTPUT_FILE="${FKST_LOCAL_ITERATION_RESULT_FILE:-}"
   unset FKST_LOCAL_ITERATION_RESULT_FILE
   LOCAL_ITERATION_RESULT_STATE_FILE=""
+  # These slots become cleanup-owned only when cmd_test creates their roots.
+  unset TEST_HERMETIC_RUNTIME_ROOT TEST_HERMETIC_DURABLE_ROOT TEST_HERMETIC_PKG_ROOTS
   trap 'local_iteration_result_finish' EXIT
   if ! LOCAL_ITERATION_RESULT_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/fkst-local-result-state.XXXXXX")"; then
     local_iteration_result_fail "INFRASTRUCTURE"

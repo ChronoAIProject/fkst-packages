@@ -8,37 +8,15 @@
 # branch topologies and across spawned-codex environments that do not carry
 # FKST_DEVLOOP_INTEGRATION_BRANCH. CI runs the full `scripts/run.sh test` (all
 # packages + composed conformance) as the comprehensive gate; this is fast local
-# feedback only. When nothing scoped is detected (no uncommitted package edits),
-# it falls back to the full suite.
+# feedback only. Selection consumes the engine's declared dependency graph and
+# fails closed to the full suite whenever that graph or a changed path cannot be
+# classified.
 
 test_affected_changed_paths() {
   {
-    git -C "$ROOT" diff --name-only HEAD
+    git -C "$ROOT" diff --no-renames --name-only HEAD
     git -C "$ROOT" ls-files --others --exclude-standard
   } | sed '/^$/d' | LC_ALL=C sort -u
-}
-
-test_affected_is_root_config() {
-  local path="$1"
-  case "$path" in
-    */*) return 1 ;;
-    Cargo.toml|Cargo.lock|fkst.workspace.toml|fkst.lock|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|pyproject.toml|poetry.lock|requirements.txt|codecov.yml)
-      return 0
-      ;;
-    *.toml|*.yml|*.yaml|*.lock|*.config.js|*.config.ts|*.config.cjs|*.config.mjs)
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
-}
-
-test_affected_is_broad_path() {
-  local path="$1"
-  case "$path" in
-    .claude/skills/dogfood-github-devloop/*) return 0 ;;
-    libraries/*|scripts/*|.github/*) return 0 ;;
-  esac
-  test_affected_is_root_config "$path"
 }
 
 test_affected_run_test() {
@@ -65,40 +43,63 @@ test_affected_run_test() {
 }
 
 cmd_test_affected() {
-  local changed_file full=0 packages="" path package status=0
-  changed_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected.XXXXXX")"
+  local changed_file deps_file selected_file full=0 packages="" path status=0
+  changed_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-paths.XXXXXX")" || {
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
+  deps_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-deps.XXXXXX")" || {
+    rm -f "$changed_file"
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
+  selected_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-selected.XXXXXX")" || {
+    rm -f "$changed_file" "$deps_file"
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
   test_affected_changed_paths > "$changed_file"
 
-  while IFS= read -r path || [ -n "$path" ]; do
-    [ -n "$path" ] || continue
-    if test_affected_is_broad_path "$path"; then
-      full=1
-    fi
-    case "$path" in
-      packages/*/*)
-        package="${path#packages/}"
-        package="${package%%/*}"
-        case " $packages " in
-          *" $package "*) ;;
-          *) packages="$packages $package" ;;
-        esac
-        ;;
-    esac
-  done < "$changed_file"
-  rm -f "$changed_file"
+  resolve_bin
+  ensure_fresh_bin
+  if ! "$BIN" deps --project-root "$ROOT" --json > "$deps_file"; then
+    full=1
+  elif ! python3 -B "$ROOT/scripts/test_selection.py" \
+      --project-root "$ROOT" \
+      --changed-paths "$changed_file" \
+      --deps-json "$deps_file" > "$selected_file"; then
+    full=1
+  else
+    while IFS= read -r path || [ -n "$path" ]; do
+      [ -n "$path" ] || continue
+      if [ "$path" = "FULL" ]; then
+        full=1
+        continue
+      fi
+      case "$path" in
+        *[!A-Za-z0-9_-]*|"") full=1 ;;
+        *) packages="$packages $path" ;;
+      esac
+    done < "$selected_file"
+  fi
+  rm -f "$changed_file" "$deps_file" "$selected_file"
 
-  if [ "$full" -eq 1 ] || [ -z "${packages# }" ]; then
+  if [ "$full" -eq 1 ]; then
     if test_affected_run_test test; then
       status=0
     else
       status=$?
     fi
+  elif [ -z "${packages# }" ]; then
+    if test_affected_run_test test --repo-only; then
+      status=0
+    else
+      status=$?
+    fi
   else
-    for package in $packages; do
-      if ! test_affected_run_test test "$package"; then
-        status=1
-      fi
-    done
+    if ! test_affected_run_test test $packages; then
+      status=1
+    fi
   fi
   return "$status"
 }
