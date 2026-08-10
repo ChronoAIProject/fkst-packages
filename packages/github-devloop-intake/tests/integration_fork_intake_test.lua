@@ -89,7 +89,7 @@ local function mock_admission_view(fields)
     state = f.state or "OPEN",
     labels = {},
     comments = {},
-    assignees = {},
+    assignees = f.assignees or {},
     author_login = f.author_login or "trusted-human",
   }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
@@ -127,6 +127,35 @@ local function created_after_grace()
 end
 
 return {
+  test_peer_app_author_with_existing_self_claim_stops_before_admission_effects = function()
+    local run_opts = opts("peer-app-author-existing-self-claim")
+    local capacity_calls = 0
+    mock_repo_env()
+    mock_admission_view({
+      assignees = { "app/fkst-test-bot" },
+      author_login = "app/ElonSG",
+    })
+
+    local result = run_admission(run_opts, nil, {
+      capacity = {
+        authorize = function()
+          capacity_calls = capacity_calls + 1
+          return true, "peer-author-admission-test"
+        end,
+        relinquish = function()
+          return true, "peer-author-admission-test"
+        end,
+        reconcile = function()
+          return true, "peer-author-admission-test"
+        end,
+      },
+    })
+
+    assert_no_fork_or_candidate(result)
+    t.eq(capacity_calls, 0)
+    t.eq(#result.writes, 0)
+  end,
+
   test_label_mode_denies_non_whitelisted_author_before_candidate_admission = function()
     local run_opts = opts("label-mode-non-whitelisted-author", {
       FKST_GITHUB_CLAIM_MODE = "label",

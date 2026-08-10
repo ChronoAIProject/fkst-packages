@@ -194,7 +194,7 @@ local function counting_capacity(counter)
   }
 end
 
-local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_issue_rows)
+local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_issue_rows, expected_capacity_calls)
   local run_opts = h.opts("peer-scan-stale-decision-" .. name)
   local counter = { calls = 0 }
   local capacity = counting_capacity(counter)
@@ -215,7 +215,7 @@ local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_
   assert_no_admission_effect(run_admission(run_opts, 81, poll_b, nil, {
     capacity = capacity,
   }))
-  t.eq(counter.calls, 1, "the next poll re-evaluates the " .. name .. " decision")
+  t.eq(counter.calls, expected_capacity_calls, "the next poll re-evaluates the " .. name .. " decision")
   t.eq(count_peer_calls(issue_peer_command), 2)
 end
 
@@ -251,12 +251,12 @@ return {
 
   test_positive_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
     local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
-    assert_peer_decision_is_rechecked("positive-peer-bot", peer_rows, "[]\n")
+    assert_peer_decision_is_rechecked("positive-peer-bot", peer_rows, "[]\n", 1)
   end,
 
   test_negative_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
     local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
-    assert_peer_decision_is_rechecked("negative-peer-bot", "[]\n", peer_rows)
+    assert_peer_decision_is_rechecked("negative-peer-bot", "[]\n", peer_rows, 0)
   end,
 
   test_unavailable_peer_activity_scan_fails_closed_before_fork = function()

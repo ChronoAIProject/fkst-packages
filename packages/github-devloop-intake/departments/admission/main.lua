@@ -26,6 +26,10 @@ local spec = {
 local reconcile_capacity = admission_shared.reconcile_capacity
 
 local function claim_with_capacity(context, authorize, repo, issue_number, current, proposal_id, admission, detail)
+  if admission == "other" or admission == "denied" then
+    context.claims.log_claim_admission_skip("admission", proposal_id, detail)
+    return false
+  end
   local granted, reason = authorize(repo, issue_number, current, proposal_id)
   if not granted then
     devloop_logging.log_cas_decision(

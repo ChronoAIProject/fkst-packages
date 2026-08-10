@@ -250,7 +250,40 @@ return {
     t.eq(ok, false)
     t.eq(count_calls("gh issue edit"), 0)
     local logs = table.concat(captured_logs, "\n")
-    t.is_true(logs:find("outcome=skip-fork-peer-bot", 1, true) ~= nil)
+    t.is_true(logs:find("outcome=skip-peer-authored", 1, true) ~= nil)
+  end,
+
+  test_managed_peer_app_author_with_existing_self_claim_skips_as_peer_authored = function()
+    local admission, detail = m_claims.claim_admission_precheck(self_current({
+      assignees = { "app/fkst-test-bot" },
+      author_login = "app/peer-bot",
+    }), {
+      owner = "fkst-test-bot",
+      status = "self",
+      claim_mode = "assignee",
+      managed = {
+        ["peer-bot"] = true,
+      },
+    })
+
+    t.eq(admission, "denied")
+    t.eq(detail.action, "skip-peer-authored")
+  end,
+
+  test_own_app_author_with_existing_self_claim_remains_held = function()
+    local admission = m_claims.claim_admission_precheck(self_current({
+      assignees = { "app/fkst-test-bot" },
+      author_login = "app/fkst-test-bot",
+    }), {
+      owner = "fkst-test-bot",
+      status = "self",
+      claim_mode = "assignee",
+      managed = {
+        ["peer-bot"] = true,
+      },
+    })
+
+    t.eq(admission, "held")
   end,
 
   test_other_author_unassigned_issue_after_grace_raises_self_assigned_fork = function()

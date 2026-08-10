@@ -413,13 +413,10 @@ function C.claim_admission_precheck(current, inputs)
       return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
     end
     if C.is_managed_bot_login(canonical_author, inputs.managed) then
-      if inputs.status == "self" then
-        return "held", detail
-      end
       return settle(
         "denied",
-        "skip-fork-peer-bot",
-        "other-authored unassigned issue belongs to a managed bot login"
+        "skip-peer-authored",
+        "issue author belongs to another managed bot login"
       )
     end
     if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then

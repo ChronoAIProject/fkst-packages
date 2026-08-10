@@ -204,7 +204,7 @@ return {
         { ["peer-bot"] = true }
       )
       t.eq(peer_admission, "denied")
-      t.eq(peer_detail.action, "skip-fork-peer-bot")
+      t.eq(peer_detail.action, "skip-peer-authored")
 
       local author_admission, author_detail = direct_carrier_admission(
         claim_mode,
@@ -265,7 +265,7 @@ return {
     }))
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("peer-bot", inputs.managed))
   end,
 
@@ -289,7 +289,7 @@ return {
     local admission, detail, inputs = admission_for(current_issue("manual-peer", {}))
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("manual-peer", inputs.managed))
     t.is_nil(inputs.trusted_author_policy)
   end,
@@ -309,7 +309,7 @@ return {
     local second_admission, second_detail, second_inputs = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(first_admission, "denied")
-    t.eq(first_detail.action, "skip-fork-peer-bot")
+    t.eq(first_detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("peer-bot", first_inputs.managed))
     t.eq(second_admission, "needs-claim")
     t.eq(second_detail.author, "peer-bot")
@@ -328,7 +328,7 @@ return {
     local admission, detail, inputs = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("peer-bot", inputs.managed))
   end,
 
@@ -347,7 +347,7 @@ return {
     local admission, detail, inputs = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("peer-bot", inputs.managed))
   end,
 
@@ -363,7 +363,7 @@ return {
     local admission, detail, inputs = admission_for(current_issue("rollup-peer", {}), repo)
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("rollup-peer", inputs.managed))
   end,
 
@@ -598,7 +598,7 @@ return {
     local admission, detail = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(admission, "denied")
-    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(detail.action, "skip-peer-authored")
     t.eq(count_calls(issue_peer_command), 1)
     t.eq(count_calls(pr_peer_command), 0)
   end,
@@ -639,7 +639,7 @@ return {
     local second_admission, second_detail, second_inputs = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(first_admission, "denied")
-    t.eq(first_detail.action, "skip-fork-peer-bot")
+    t.eq(first_detail.action, "skip-peer-authored")
     t.is_true(m_claims.is_managed_bot_login("peer-bot", first_inputs.managed))
     t.eq(second_admission, "needs-claim")
     t.eq(second_detail.author, "peer-bot")
