@@ -109,7 +109,30 @@ def packages_root(root: Path) -> Path:
     return check_repo_config.package_root(root)
 def line_count(path: Path) -> int:
     return len(read_text(path).splitlines())
-def add(violations: list[str], rule: str, message: str) -> None: violations.append(f"{rule}: {message}")
+
+
+class RoutedViolations(list[str]):
+    def __init__(self, configuration_failures: list[str]) -> None:
+        super().__init__()
+        self.configuration_failures = configuration_failures
+
+    def append(self, message: str) -> None:
+        if isinstance(message, ratchet_base.ConfigurationFailure):
+            self.configuration_failures.append(str(message))
+            return
+        super().append(message)
+
+    def extend(self, messages) -> None:
+        for message in messages:
+            self.append(message)
+
+
+def add(violations: list[str], rule: str, message: str) -> None:
+    rendered = f"{rule}: {message}"
+    if isinstance(message, ratchet_base.ConfigurationFailure):
+        violations.append(ratchet_base.ConfigurationFailure(rendered))
+        return
+    violations.append(rendered)
 
 def bracket_test_assignment_key_string_end(text: str, quote_start: int) -> int | None:
     literal = check_repo_lua.literal_span_at(text, quote_start, include_line_metadata=False)
@@ -635,12 +658,17 @@ def check_github_content_ingress(root: Path, violations: list[str]) -> None:
         add(violations, "G-GITHUB-CONTENT-INGRESS", message)
 
 
-def check_error_class_prefixes(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+def check_error_class_prefixes(
+    root: Path,
+    violations: list[str],
+    allowlist_dir: Path | None = None,
+    enforce_base: bool = True,
+) -> None:
     current = check_repo_error_class.current_sites(root, package_lua_files, read_text, rel, unclassified_error_call_lines)
     allowlist = check_repo_error_class.load_allowlist(allowlist_path(root, check_repo_error_class.ALLOWLIST, allowlist_dir))
     base_status, base_allowlist = check_repo_error_class.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
     if base_status == "unresolved":
-        add(violations, "G7", "cannot resolve dev base allowlist to enforce shrink-only error-class ratchet; ensure CI provides the dev ref")
+        add(violations, "G7", ratchet_base.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only error-class ratchet; ensure CI provides the dev ref"))
     for message in check_repo_error_class.ratchet_messages(current, allowlist, base_allowlist):
         add(violations, "G7", message)
 
@@ -701,7 +729,9 @@ def check_cross_package_require(root: Path, violations: list[str]) -> None:
 
 def check_library_layering(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
     for message in check_repo_library_layering.messages(root, package_dirs, read_text, rel, strip_lua_comments_and_strings, is_unmasked_range, allowlist_dir, enforce_base): add(violations, "G-LIB-LAYERING", message)
-def check_dependency_cycle(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None: violations.extend(f"G-DEPENDENCY-CYCLE: {message}" for message in check_repo_dependency_cycle.messages(root, read_text, strip_lua_comments_and_strings, is_unmasked_range, allowlist_dir, enforce_base))
+def check_dependency_cycle(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+    for message in check_repo_dependency_cycle.messages(root, read_text, strip_lua_comments_and_strings, is_unmasked_range, allowlist_dir, enforce_base):
+        add(violations, "G-DEPENDENCY-CYCLE", message)
 def check_gh_git_adapter_ratchet(root: Path, violations: list[str], allowlist_dir: Path | None = None) -> None:
     sources = {}
     for packages in package_roots(root):
@@ -718,13 +748,18 @@ def check_shell_out_to_self_ratchet(root: Path, violations: list[str], allowlist
     for message in check_repo_shell_out_to_self.ratchet_messages(current, allowlist):
         add(violations, "G-SHELL-OUT-TO-SELF", message)
 
-def check_code_dedup_ratchet(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+def check_code_dedup_ratchet(
+    root: Path,
+    violations: list[str],
+    allowlist_dir: Path | None = None,
+    enforce_base: bool = True,
+) -> None:
     source_map = {}
     for packages in package_roots(root):
         source_map.update(check_repo_dedup.sources(root, packages, read_text, rel))
     allowlist = check_repo_dedup.load_allowlist(allowlist_path(root, check_repo_dedup.ALLOWLIST, allowlist_dir))
     base_status, base_allowlist = check_repo_dedup.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
-    if base_status == "unresolved": add(violations, "G-DEDUP", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+    if base_status == "unresolved": add(violations, "G-DEDUP", ratchet_base.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     for message in check_repo_dedup.ratchet_messages(source_map, allowlist, base_allowlist):
         add(violations, "G-DEDUP", message)
 
@@ -738,24 +773,40 @@ def check_no_permission_control(root: Path, violations: list[str]) -> None: chec
 def is_saga_handler_source(source: str) -> bool: return check_repo_saga_handler.is_saga_handler_source(source, strip_lua_comments_and_strings)
 def saga_handler_ratchet_violations(sources: dict[str, str], allowlist: set[str], base_allowlist: set[str] | None = None) -> list[str]: return check_repo_saga_handler.ratchet_violations(sources, allowlist, strip_lua_comments_and_strings, base_allowlist)
 
-def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+def check_saga_handler_ratchet(
+    root: Path,
+    violations: list[str],
+    warnings: list[str],
+    allowlist_dir: Path | None = None,
+    enforce_base: bool = True,
+) -> None:
     allow_path = allowlist_path(root, check_repo_saga_handler.ALLOWLIST, allowlist_dir)
     allowlist = set() if not allow_path.exists() else {line.strip() for line in read_text(allow_path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
     sources = {rel(root, path): read_text(path) for packages in package_roots(root) for path in sorted(packages.glob("*/departments/*/main.lua")) if path.is_file()}
     base_status, base_allowlist = check_repo_config.allowlist_at_dev_base(root, allowlist=check_repo_saga_handler.ALLOWLIST,
         parse_allowlist_lines=check_repo_saga_handler.parse_dev_allowlist_lines) if enforce_base else ("absent", None)
-    if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+    if base_status == "unresolved":
+        violations.append(ratchet_base.configuration_failure(
+            "G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"
+        ))
     violations.extend(saga_handler_ratchet_violations(sources, allowlist, base_allowlist))
 
 VIOLATIONS_EXIT = 10
+CONFIGURATION_EXIT = 11
 
 def main(argv: list[str] | None = None) -> int:
-    config = check_repo_config.parse_args(argv); violations: list[str] = []; warnings: list[str] = []
+    config = check_repo_config.parse_args(argv)
+    configuration_failures: list[str] = []
+    violations = RoutedViolations(configuration_failures)
+    warnings: list[str] = []
     __import__("check_repo_runner").run(sys.modules[__name__], config, violations, warnings)
     for warning in warnings: print(f"warning: {warning}", file=sys.stderr)
-    if violations:
+    if violations or configuration_failures:
         print("repository check failed:", file=sys.stderr)
         for violation in violations: print(f"  {violation}", file=sys.stderr)
+        for failure in configuration_failures: print(f"  {failure}", file=sys.stderr)
+        if not violations:
+            return CONFIGURATION_EXIT
         # Typed outcome: the checks RAN and the repository violates a stated rule. A bare nonzero
         # carries no domain meaning, so callers can only read it as UNKNOWN; UNKNOWN is redriven
         # forever by the implement loop instead of failing with something an implementation can act
