@@ -15,7 +15,7 @@ local function log_batch_window(M, proposal_id, fields)
 end
 
 local function record_merged_files(M, repo, entry, merged_files)
-  local files, reason = m_mq.merge_queue_changed_files(M, repo, entry)
+  local files, reason = m_mq.merge_queue_changed_files(repo, entry)
   if files == nil then
     log_batch_window(M, entry.proposal_id, {
       "action=stop",
@@ -171,7 +171,7 @@ function C.run_merge_batch_window(M, repo, branches, first_merge_ready, queue_en
       })
       return last_merged_pr_number
     end
-    local files, file_reason = m_mq.merge_queue_changed_files(M, repo, entry)
+    local files, file_reason = m_mq.merge_queue_changed_files(repo, entry)
     if files == nil then
       log_batch_window(M, entry.proposal_id, {
         "action=stop",

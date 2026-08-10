@@ -6,6 +6,7 @@ local m_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 
 return {
   test_review_loop_true_stall_records_round_and_raises_review_reconcile = function()
@@ -31,8 +32,8 @@ return {
     h.mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
     h.mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
-      conv_rounds.review_converge_round_marker(core, event.proposal_id, "github-devloop/issue/owner/repo/42", review_version, "def456", sr_digest, 1, "base", event.narrowed_question, event.angle_digests),
-      conv_rounds.review_converge_round_marker(core, event.proposal_id, "github-devloop/issue/owner/repo/42", review_version, "def456", sr_digest, 2, "loop1", event.narrowed_question, event.angle_digests),
+      conv_rounds.review_converge_round_marker(restart_policy, event.proposal_id, "github-devloop/issue/owner/repo/42", review_version, "def456", sr_digest, 1, "base", event.narrowed_question, event.angle_digests),
+      conv_rounds.review_converge_round_marker(restart_policy, event.proposal_id, "github-devloop/issue/owner/repo/42", review_version, "def456", sr_digest, 2, "loop1", event.narrowed_question, event.angle_digests),
     })
 
     local result = h.run_review_loop(event, h.opts("review-loop-true-stall"))

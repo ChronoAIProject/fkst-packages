@@ -11,7 +11,7 @@ local replay_fields = require("devloop.replay_fields")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
-local replayer = require("devloop.replayer")
+local replayer = assert(rawget(core, "replayer"))
 local github_commands = require("forge.github").new(function() end)
 local git_mechanics = require("devloop.git_mechanics")
 local awaiting_pr_replayer = require("core.awaiting_pr_replayer")
@@ -667,7 +667,7 @@ return {
       table.insert(raised, { queue = queue, payload = payload })
     end
     local ok, err = pcall(function()
-      t.eq(replayer.replay_from_table(core, "observe_issue", {
+      t.eq(replayer.replay_from_table("observe_issue", {
         repo = repo,
         number = issue_number,
         source_ref = entity_lib.issue_source_ref(repo, issue_number),

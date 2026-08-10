@@ -11,7 +11,6 @@ local git_commands = require("devloop.commands.git_ops")
 local pr_commands = require("devloop.commands.prs")
 -- `awaiting-pr` is the issue-side `dependency_wait` twin: poll-reconcile the delegated PR's terminal fact and never drive `github-devloop-pr` internal lifecycle queues; the PR package owns those queues.
 local S, replay_fields = {}, require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
 local forge_validators = require("devloop.forge_validators")
 local contract_time = require("contract.time")
 local contract_strings = require("contract.strings")
@@ -37,7 +36,7 @@ function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_co
   return false
 end
 
-function S.install(M)
+function S.install(M, replay_log_decline)
 local child_terminal_states = {
   merged = true,
   ["closed-unmerged"] = true,
@@ -45,7 +44,7 @@ local child_terminal_states = {
 }
 local canonical_pr_is_merged, origin_matches_delegation, canonical_merged_child_state, merged_child_landed_on_upstream
 local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason)
-  return replayer.replay_log_decline(M, "stuck", dept, proposal_id, state, from_state, to_state, outcome, reason)
+  return replay_log_decline("stuck", dept, proposal_id, state, from_state, to_state, outcome, reason)
 end
 
 local function raise_effects(dept, proposal_id, apply_state, version, label_changes, effects)

@@ -224,7 +224,11 @@ function M.ready_split_version(version)
 end
 
 function M.install(root_module)
-  local resolver = dependency_gate.new(root_module)
+  local resolver = dependency_gate.new({
+    github_graphql = function(...) return root_module.github_graphql(...) end,
+    gh_blocked_by = function(...) return root_module.gh_blocked_by(...) end,
+    delegated_blocker_merged = function(...) return root_module.delegated_blocker_merged(...) end,
+  })
   for k, v in pairs(resolver) do
     M[k] = v
   end

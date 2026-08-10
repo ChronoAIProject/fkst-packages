@@ -11,6 +11,7 @@ local context_bundle = require("devloop.context_bundle")
 
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -328,7 +329,7 @@ local function mock_reviewing_liveness_replay(version)
 end
 
 local function review_converge_round_marker()
-  return conv_rounds.review_converge_round_marker(core,
+  return conv_rounds.review_converge_round_marker(restart_policy,
     review_proposal_id,
     issue_proposal_id,
     reviewed_version,

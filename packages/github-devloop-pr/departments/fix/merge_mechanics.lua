@@ -205,7 +205,7 @@ function M.make(core)
   end
 
   local function current_predecessors_for_fix(repo, integration_branch, fix, current_pr)
-    local predecessors, reason = m_mq.merge_queue_predecessors(core, repo, integration_branch, {
+    local predecessors, reason = m_mq.merge_queue_predecessors(repo, integration_branch, {
       pr_number = fix.pr_number,
       pr = current_pr,
     })

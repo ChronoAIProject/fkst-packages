@@ -27,6 +27,7 @@ local observation_support = require("testkit_internal.old_behavior_observation_s
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local review_loop_department = require("departments.review_loop.main")
 
@@ -285,7 +286,7 @@ end
 
 local function visible_round_marker(event, issue_version)
   return conv_rounds.review_converge_round_marker(
-    core,
+    restart_policy,
     event.proposal_id,
     PROPOSAL_ID,
     issue_version,
