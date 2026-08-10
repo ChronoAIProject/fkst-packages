@@ -8,6 +8,7 @@ local devloop_logging = require("devloop.logging")
 local admission_core = require("core.admission")
 local admission_shared = require("core.admission_shared")
 local replay_authorization = require("core.replay_authorization")
+local dashboard = require("devloop.dashboard")
 
 local spec = {
   consumes = { "github-proxy.github_issue_observed" },
@@ -49,6 +50,11 @@ local function act_issue_observed(context, event)
     end
 
     local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+    if dashboard.is_anchor_body(current.body) then
+      admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
+      devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-dashboard-anchor", "fresh issue body carries the producer-owned dashboard anchor marker")
+      return
+    end
     devloop_logging.log_forged_markers("replay_admission", proposal_id, current.comments)
     local progress_visible = admission_shared.has_trusted_progress(current, proposal_id)
     local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
