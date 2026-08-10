@@ -1,5 +1,6 @@
 local h = require("tests.proxy_integration_helpers")
 local t = h.t
+local core = h.core
 local opts = h.opts
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
@@ -50,7 +51,111 @@ local function run(request, name)
   }))
 end
 
+local function resume_thread(thread)
+  local ok, value = coroutine.resume(thread)
+  if not ok then
+    error(value, 0)
+  end
+  return value
+end
+
 return {
+  test_overlapping_conflicting_requests_serialize_before_exclusion_read = function()
+    local first = event("workflow-alpha", "digest-alpha")
+    local conflicting = event("workflow-beta", "digest-beta")
+    local comments = {}
+    local reads, creates = 0, 0
+    local held_locks = {}
+    local contender_waited = false
+    local first_written, conflicting_written = nil, nil
+    local old_with_lock = with_lock
+    local old_read_env = core.read_env
+    local old_github = core.github
+
+    with_lock = function(key, fn)
+      while held_locks[key] do
+        contender_waited = true
+        coroutine.yield("waiting-for-lock")
+      end
+      held_locks[key] = true
+      local result = fn()
+      held_locks[key] = nil
+      return result
+    end
+    core.read_env = function(name)
+      if name == "FKST_GITHUB_WRITE" then return "1" end
+      if name == "FKST_GITHUB_BOT_LOGIN" then return "fkst-test-bot" end
+      return ""
+    end
+    core.github = function()
+      return {}
+    end
+
+    local target = {
+      kind = "issue",
+      number = 42,
+      number_field = "issue_number",
+      view_label = "GitHub issue REST comments",
+      comment_label = "GitHub issue comment",
+      view_comments = function()
+        reads = reads + 1
+        local rendered = {}
+        for index, comment in ipairs(comments) do
+          rendered[#rendered + 1] = '{"id":' .. tostring(index)
+            .. ',"body":"' .. json_string(comment.body)
+            .. '","user":{"login":"' .. comment.author_login .. '"}}'
+        end
+        local snapshot = "[[" .. table.concat(rendered, ",") .. "]]\n"
+        if reads == 1 then
+          coroutine.yield("after-comment-read")
+        end
+        return { exit_code = 0, stdout = snapshot, stderr = "" }
+      end,
+      comment_create = function(_github, _repo, _number, path)
+        creates = creates + 1
+        local body = file.read(path)
+        comments[#comments + 1] = { body = body, author_login = "fkst-test-bot" }
+        return {
+          exit_code = 0,
+          stdout = '{"id":' .. tostring(creates) .. ',"body":"' .. json_string(body)
+            .. '","user":{"login":"fkst-test-bot"}}\n',
+          stderr = "",
+        }
+      end,
+    }
+
+    local ok, err = pcall(function()
+      local first_thread = coroutine.create(function()
+        first_written = core.write_comment_request(first.payload, target)
+      end)
+      local conflicting_thread = coroutine.create(function()
+        conflicting_written = core.write_comment_request(conflicting.payload, target)
+      end)
+
+      t.eq(resume_thread(first_thread), "after-comment-read")
+      t.eq(resume_thread(conflicting_thread), "waiting-for-lock")
+      resume_thread(first_thread)
+      t.eq(coroutine.status(first_thread), "dead")
+      resume_thread(conflicting_thread)
+      t.eq(coroutine.status(conflicting_thread), "dead")
+    end)
+    core.github = old_github
+    core.read_env = old_read_env
+    with_lock = old_with_lock
+    if not ok then
+      error(err, 0)
+    end
+
+    t.is_true(contender_waited)
+    t.eq(reads, 2)
+    t.eq(creates, 1)
+    t.eq(#comments, 1)
+    t.is_true(first_written ~= nil)
+    t.is_nil(conflicting_written)
+    t.is_true(comments[1].body:find(blueprint_marker("workflow-alpha", "digest-alpha"), 1, true) ~= nil)
+    t.is_nil(comments[1].body:find(blueprint_marker("workflow-beta", "digest-beta"), 1, true))
+  end,
+
   test_first_trusted_marker_wins_and_conflicting_reliable_replay_is_rejected = function()
     local first = event("workflow-alpha", "digest-alpha")
     local conflicting = event("workflow-beta", "digest-beta")
