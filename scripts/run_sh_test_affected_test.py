@@ -113,6 +113,9 @@ class TestAffectedHarness:
                 "    printf '%s\\n' \"$marker\" >&2\n"
                 "  fi\n"
                 "fi\n"
+                "if [ -n \"${FKST_TEST_AFFECTED_RUNNER_STDOUT:-}\" ]; then\n"
+                "  printf '%s\\n' \"$FKST_TEST_AFFECTED_RUNNER_STDOUT\"\n"
+                "fi\n"
                 "exit \"${FKST_TEST_AFFECTED_RUNNER_EXIT:-0}\"\n",
                 encoding="utf-8",
             )
@@ -271,6 +274,7 @@ class TestAffectedHarness:
         with_branch_env: bool = True,
         runner_exit: int = 0,
         runner_result: str | None = "PASS:NONE",
+        runner_stdout: str | None = None,
         package_results: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -290,6 +294,10 @@ class TestAffectedHarness:
             env.pop("FKST_TEST_AFFECTED_RUNNER_RESULT", None)
         else:
             env["FKST_TEST_AFFECTED_RUNNER_RESULT"] = runner_result
+        if runner_stdout is None:
+            env.pop("FKST_TEST_AFFECTED_RUNNER_STDOUT", None)
+        else:
+            env["FKST_TEST_AFFECTED_RUNNER_STDOUT"] = runner_stdout
         package_results = package_results or {}
         for package, value in package_results.items():
             key = "FKST_TEST_AFFECTED_RESULT_" + package.upper().replace("-", "_")
@@ -375,6 +383,29 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertEqual(
                 h.runner_args(),
                 ["test frontend-devloop", "test github-devloop"],
+            )
+        finally:
+            h.close()
+
+    def test_failed_runner_replays_stdout_diagnostic_to_stderr(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(
+                runner_exit=1,
+                runner_result="FAIL:SEMANTIC",
+                runner_stdout="G-RESTART-PREFLIGHT: checker-checked-cochange",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                "G-RESTART-PREFLIGHT: checker-checked-cochange",
+                result.stderr,
+            )
+            self.assertNotIn(
+                "G-RESTART-PREFLIGHT: checker-checked-cochange",
+                result.stdout,
             )
         finally:
             h.close()

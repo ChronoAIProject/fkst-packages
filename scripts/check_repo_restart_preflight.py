@@ -14,6 +14,7 @@ import tomllib
 from typing import Any, Iterable
 
 import check_repo_intent_bounded_replay as intent_replay
+import ratchet_base
 from intent_bounded_replay.normalize import loads_json
 
 INVENTORY = "migration/restart-lifecycle.inventory.json"
@@ -641,16 +642,20 @@ def repository_messages(
     root = Path(root)
     selected = base_ref or selected_base_ref(root)
     if selected is None:
-        return ["protected-base-unresolved: configure GITHUB_BASE_REF or FKST_RESTART_PREFLIGHT_BASE_REF"]
+        return [ratchet_base.configuration_failure(
+            "protected-base-unresolved: configure GITHUB_BASE_REF or FKST_RESTART_PREFLIGHT_BASE_REF"
+        )]
     base = protected_merge_base(root, selected)
     if base is None:
-        return [f"protected-base-unresolved: cannot resolve merge base for {selected}"]
+        return [ratchet_base.configuration_failure(
+            f"protected-base-unresolved: cannot resolve merge base for {selected}"
+        )]
 
     try:
         paths = _tracked_paths(root, head_ref)
         changed = _changed_paths(root, base, head_ref)
     except RuntimeError as error:
-        return [f"protected-base-unresolved: {error}"]
+        return [ratchet_base.configuration_failure(f"protected-base-unresolved: {error}")]
 
     watched, writer_tokens, messages = _inventory_contract(root, head_ref)
     messages.extend(_tracked_attestation_messages(root, head_ref, paths))
