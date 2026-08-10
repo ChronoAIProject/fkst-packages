@@ -10,6 +10,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local opts = h.opts
 local reviewing = h.reviewing
 local merge_ready = h.merge_ready
@@ -194,9 +195,9 @@ return {
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
-      conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 1, "base", "Same review question", angle_digests),
-      conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 2, "loop1", "Same review question", angle_digests),
-      conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 3, "loop2", "Same review question", angle_digests),
+      conv_rounds.review_converge_round_marker(restart_policy, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 1, "base", "Same review question", angle_digests),
+      conv_rounds.review_converge_round_marker(restart_policy, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 2, "loop1", "Same review question", angle_digests),
+      conv_rounds.review_converge_round_marker(restart_policy, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 3, "loop2", "Same review question", angle_digests),
       command,
     }, "devloop-owner-repo-42-01HY", "feedface")
 

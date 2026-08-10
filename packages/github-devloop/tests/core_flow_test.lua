@@ -14,6 +14,7 @@ local v_fixing = require("devloop.validators.fixing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
 local decompose_lib = require("devloop.decompose")
 local prompt_installers = require("devloop.prompts")
@@ -188,7 +189,7 @@ return {
     t.eq(conv_reconcile.is_supported_reconcile(reconcile), true)
     t.eq(conv_reconcile.is_supported_reconcile(copy_table(reconcile, { terminal_cause = "unknown" })), false)
     local reconcile_marker = conv_reconcile.reconcile_marker(proposal_id, base_version, 3, "drop", "no-semantic-progress")
-    t.eq(conv_reconcile.has_reconcile_marker(core, { reconcile_marker }, proposal_id, base_version, 3), true)
+    t.eq(conv_reconcile.has_reconcile_marker({ reconcile_marker }, proposal_id, base_version, 3), true)
     t.eq(conv_reconcile.reconcile_state_version(base_version, 3), base_version .. "/loop/3")
     local live_thinking_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
     local terminal_version = conv_reconcile.reconcile_terminal_state_version(live_thinking_version, 3)
@@ -245,7 +246,7 @@ return {
     t.eq(terminal_version, live_reviewing_version .. "/review-loop/10")
 
     local marker = conv_reconcile.review_reconcile_marker(issue_proposal_id, issue_version, 3, "drop", "no-semantic-progress")
-    t.eq(conv_reconcile.has_review_reconcile_marker(core, { marker }, issue_proposal_id, issue_version, 3), true)
+    t.eq(conv_reconcile.has_review_reconcile_marker({ marker }, issue_proposal_id, issue_version, 3), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="review-reconcile:' .. issue_version .. '/review-loop/3"', 1, true) ~= nil)
 
@@ -292,7 +293,7 @@ return {
     t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
 
     local marker = conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "drop")
-    t.eq(conv_reconcile.has_fix_reconcile_marker(core, { marker }, issue_proposal_id, issue_version), true)
+    t.eq(conv_reconcile.has_fix_reconcile_marker({ marker }, issue_proposal_id, issue_version), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="fix-reconcile:' .. issue_version .. '"', 1, true) ~= nil)
@@ -331,7 +332,7 @@ return {
       angle_digests = bare_angle_digests,
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
-    local marker = conv_rounds.review_converge_round_marker(core,
+    local marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id,
       issue_version,
@@ -342,9 +343,9 @@ return {
       event.narrowed_question,
       event.angle_digests
     )
-    local bare_facts = conv_rounds.review_converge_round_facts(core, { marker }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
+    local bare_facts = conv_rounds.review_converge_round_facts(restart_policy, { marker }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
     t.eq(#bare_facts, 1)
-    local forged_review_marker = conv_rounds.review_converge_round_marker(core,
+    local forged_review_marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id,
       issue_version,
@@ -375,7 +376,7 @@ return {
     t.is_true(comment.body:find("delete: abstain", 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
-    local facts = conv_rounds.review_converge_round_facts(core, { comment.body }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
+    local facts = conv_rounds.review_converge_round_facts(restart_policy, { comment.body }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].round, 2)
     t.eq(facts[1].dedup, event.dedup_key .. "/loop/2")

@@ -1,7 +1,7 @@
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local convergence_shared = require("devloop.convergence.shared")
 local contract_time = require("contract.time")
-local replayer = require("devloop.replayer")
+local replayer
 local m_rrc = require("devloop.restart_responsibility_contract")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
@@ -10,6 +10,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_logging = require("devloop.logging")
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local t = h.t
 local span = require("core.span_conformance")
 local hidden_state_conformance = require("devloop.hidden_state_conformance")
@@ -185,7 +186,7 @@ return {
     facts.now_seconds = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at) + 60
 
     local raised = capture_raises(function()
-      local issued = replayer.replay_from_table(core, "observe_issue", entity, state, row, facts)
+      local issued = replayer.replay_from_table("observe_issue", entity, state, row, facts)
       t.eq(issued, false)
     end)
     t.eq(find_raise(raised, "devloop_ready"), nil)
@@ -196,10 +197,10 @@ return {
     local fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
       restart_consumer_sources = core.restart_consumer_sources,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept)
       seen[dept] = true
       return false
     end
@@ -232,6 +233,7 @@ return {
     local fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
       restart_consumer_sources = core.restart_consumer_sources,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
     replayer.replay_from_table = function()
@@ -347,10 +349,10 @@ return {
     local fake_core
     fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept, issue, state, row, facts)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept, issue, state, row, facts)
       if state.state ~= "impl-failed" or facts.impl_failure == nil then
         return false
       end
@@ -401,10 +403,10 @@ return {
     local fake_core
     fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept, issue, state, row, facts)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept, issue, state, row, facts)
       if state.state ~= "impl-failed" or facts["hidden-durable-trigger"] == nil then
         return false
       end
