@@ -326,7 +326,7 @@ function M.new()
   })
 
   local claim_ports = setmetatable({
-    claim_issue_for_management = function(_core, _dept, _repo, number)
+    claim_issue_for_management = function(_dept, _repo, number)
       local current = issue(number)
       local claim_state = claims.issue_claim_state(current.assignees, claims.claim_owner(), current.labels)
       if claim_state == "self" then

@@ -516,7 +516,7 @@ local function replay_blocked(M, dept, issue, state, row, facts)
     decomposed = decomposed,
     proposal_id = proposal_id,
   })
-  local payload = decompose_lib.build_decompose_replay_payload(M, decomposed, facts.fix_feedback, fields.source_ref, completed_count)
+  local payload = decompose_lib.build_decompose_replay_payload(M.restart_policy, decomposed, facts.fix_feedback, fields.source_ref, completed_count)
   if payload == nil then
     return log_skip(M, dept, proposal_id, state, "blocked", "decomposed", "skip-foreign(decompose-binding)", "trusted fix feedback for decomposed replay is not visible")
   end

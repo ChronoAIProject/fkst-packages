@@ -440,7 +440,7 @@ function C.log_claim_admission_skip(dept, proposal_id, detail)
   log_claim(dept, proposal_id, detail.action, detail.reason)
 end
 
-function C.claim_issue_for_management(M, dept, repo, issue_number, current, proposal_id, admission, detail)
+function C.claim_issue_for_management(dept, repo, issue_number, current, proposal_id, admission, detail)
   if admission == nil then
     admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
   end
@@ -471,7 +471,7 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if claim_mode ~= "label"
     and parsers_misc.canonical_login(author) ~= parsers_misc.canonical_login(owner) then
     local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
-    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
+    if forks.has_trusted_issue_create_parent_marker(current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
@@ -485,13 +485,13 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
       log_claim(dept, proposal_id, "skip-fork-grace", reason)
       return false
     end
-    current = forks.rederive_issue_state(M, repo, issue_number)
-    local request, request_reason = forks.build_fork_issue_create_request(M, repo, issue_number, current, base_ids.issue_source_ref(repo, issue_number))
+    current = forks.rederive_issue_state(repo, issue_number)
+    local request, request_reason = forks.build_fork_issue_create_request(repo, issue_number, current, base_ids.issue_source_ref(repo, issue_number))
     if request == nil then
       log_claim(dept, proposal_id, "skip-fork-" .. tostring(request_reason or "invalid"), "fork request could not be built from current issue")
       return false
     end
-    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, request.dedup_key, owner, managed) then
+    if forks.has_trusted_issue_create_parent_marker(current and current.comments, request.dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
@@ -521,14 +521,14 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if config.claim_mode() == "label" then
     local active_label = C.claimed_label()
     github().issue_add_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     if C.verify_issue_claim(repo, issue_number, owner) then
       log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
       return true
     end
 
     github().issue_remove_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
     return false
   end
@@ -545,14 +545,14 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     end
     error(assign_error, 0)
   end
-  M.invalidate_entity_after_write(repo, "issue", issue_number)
+  github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   if C.verify_issue_claim(repo, issue_number, owner) then
     log_claim(dept, proposal_id, "claim-won", "assignee claim verified after assign")
     return true
   end
 
   github().issue_unassign(repo, issue_number, owner, 30)
-  M.invalidate_entity_after_write(repo, "issue", issue_number)
+  github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   log_claim(dept, proposal_id, "claim-lost", "assignee claim lost after assign verification")
   return false
 end

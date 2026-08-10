@@ -70,6 +70,6 @@ require("devloop.state").install(M)
 require("core.replay_authorization").install(M)
 require("core.admission").install(M)
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 
 return M

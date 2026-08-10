@@ -40,7 +40,6 @@ local function claim_with_capacity(context, authorize, repo, issue_number, curre
     return false
   end
   if context.claims.claim_issue_for_management(
-    core,
     "admission",
     repo,
     issue_number,
