@@ -30,7 +30,7 @@ function M.make(core, deps)
   end
 
   local function merge_queue_head_all(repo, base_branch)
-    local head, entries = m_mq.merge_queue_head(core, repo, base_branch); return head, entries or {}
+    local head, entries = m_mq.merge_queue_head(repo, base_branch); return head, entries or {}
   end
 
   local function chain_merge_queue_if_non_empty(repo, branches, merged_pr_number)

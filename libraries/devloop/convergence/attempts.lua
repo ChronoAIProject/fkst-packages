@@ -136,7 +136,7 @@ function C.build_decompose_exhausted_comment_request(target, proposal_id, state,
     tostring(attempt),
   }), normalized)
 end
-function C.timeout_attempt_round(M, comments, proposal_id, issue_version, state_name)
+function C.timeout_attempt_round(comments, proposal_id, issue_version, state_name)
   if type(comments) ~= "table" then
     return 0
   end
@@ -158,7 +158,7 @@ function C.timeout_attempt_round(M, comments, proposal_id, issue_version, state_
   return max_seen
 end
 
-function C.timeout_attempt_v2_round(M, comments, proposal_id, row, generation_key)
+function C.timeout_attempt_v2_round(comments, proposal_id, row, generation_key)
   if type(comments) ~= "table" then
     return 0
   end
@@ -180,7 +180,7 @@ function C.timeout_attempt_v2_round(M, comments, proposal_id, row, generation_ke
   return max_seen
 end
 
-function C.has_decompose_exhausted_marker(M, comments, proposal_id, issue_version)
+function C.has_decompose_exhausted_marker(comments, proposal_id, issue_version)
   if type(comments) ~= "table" then
     return false
   end

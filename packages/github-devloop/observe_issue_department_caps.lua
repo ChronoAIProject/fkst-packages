@@ -3,6 +3,7 @@ local core = require("core")
 return {
   dependency_hold_fact = function(...) return core.dependency_hold_fact(...) end,
   dependency_waiver_marker = core.dependency_waiver_marker,
+  replayer = assert(rawget(core, "replayer")),
   restart_policy = assert(rawget(core, "restart_policy")),
   restart_effect_facade = require("core.restart_effect_facade"),
   restart_effects = require("core.restart_effects"),
