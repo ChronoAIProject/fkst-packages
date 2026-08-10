@@ -694,9 +694,9 @@ def repository_messages(
         base_status, base_allowlist, base_messages = _base_allowlist(root, protected_base)
         messages.extend(base_messages)
         if base_status == "unresolved":
-            messages.append(
+            messages.append(ratchet_base.configuration_failure(
                 f"cannot resolve protected base {ALLOWLIST} to enforce the shrink-only ratchet"
-            )
+            ))
         elif base_allowlist is not None:
             growth = allowlist - base_allowlist
     manifests: dict[str, dict[str, Any]] = {}
@@ -748,7 +748,7 @@ def repository_messages(
         bound_messages = (
             [f"{entry} has no structurally valid manifest"]
             if artifact is None
-            else [f"cannot resolve protected merge-base for {entry}"]
+            else [ratchet_base.configuration_failure(f"cannot resolve protected merge-base for {entry}")]
             if protected_base is None
             else _bound_manifest_messages(root, artifact, entry, protected_base)
         )

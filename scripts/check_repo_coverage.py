@@ -711,7 +711,9 @@ def repository_messages_for_uncovered(
         return [f"invalid Lua coverage ratchet input: {exc}"]
     messages: list[str] = []
     if base_status == "unresolved":
-        messages.append("cannot resolve coverage base allowlist to enforce shrink-only ratchet; ensure CI provides GITHUB_BASE_REF or FKST_LUA_COVERAGE_BASE_REF")
+        import ratchet_base
+
+        messages.append(ratchet_base.configuration_failure("cannot resolve coverage base allowlist to enforce shrink-only ratchet; ensure CI provides GITHUB_BASE_REF or FKST_LUA_COVERAGE_BASE_REF"))
     messages.extend(ratchet_messages(uncovered, allowlist, base_allowlist, base_ref or "base"))
     for message in stale_allowlist_messages(uncovered, allowlist):
         print(f"warning: {message}", file=sys.stderr)
