@@ -1,0 +1,14 @@
+# Sites that invoke external IO directly inside a with_lock critical section.
+# Format: <path>:<line>:<kind>|why=<one-line justification>
+# Shrink-only: new sites fail CI, and an entry that no longer matches a site fails
+# too, so the inventory can only get smaller. Remove an entry when the read moves
+# outside the lock and only the currency re-check plus its protected write remain.
+#
+# "justified" means the in-lock IO IS the protected write this lock exists to
+# serialize, not a read-for-decision. "needs-redesign" means the safe shrink is more
+# than a mechanical application of the principle and is tracked separately.
+packages/github-devloop-integration/departments/sync_scan/main.lua:196:forge_handle|why=justified: the critical section IS the branch-pair merge-and-push it serializes; key is github-devloop/branch-sync/<repo>/<upstream>/<integration>, disjoint from the per-entity transition keys
+packages/github-devloop-integration/departments/pr_freshness_scan/main.lua:332:forge_handle|why=justified: the critical section IS the managed-branch refresh push it serializes; key is github-devloop/pr-freshness/<repo>/<branch>, disjoint from the per-entity transition keys
+packages/github-devloop-integration/departments/sync_conflict/main.lua:542:forge_handle|why=needs-redesign(#3520-class): conflict resolution reads and pushes under one branch-pair lock; splitting it needs a per-effect currency design, not a mechanical move
+packages/github-devloop-integration/departments/sync_conflict/main.lua:542:spawn_codex|why=needs-redesign(#3520-class): the resolver codex runs inside the branch-pair lock; moving it out requires re-validating the conflict base at commit rather than relying on the hold
+packages/github-devloop/departments/consensus_result/main.lua:298:forge_handle|why=needs-redesign(#3520-class): per-issue transition key with a forge read inside; this is the storm-relevant family and needs the plan/commit split plus a currency re-check

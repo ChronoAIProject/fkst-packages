@@ -1,10 +1,12 @@
 local h = require("tests.proxy_integration_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local t = h.t
 local opts = h.opts
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local mock_repo_label_list = h.mock_repo_label_list
 local count_calls = h.count_calls
+local active_claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local added_label = "adapter-reviewing"
 local removed_label = "adapter-pr-open"
@@ -34,6 +36,7 @@ local function label_event(extra)
     },
     claim = {
       owner = "fkst-test-bot",
+      label = active_claim_spec.name,
       source_ref = {
         kind = "external",
         ref = "owner/x#issue/42",
@@ -116,7 +119,8 @@ return {
     mock_bot_env()
     mock_pr_comment_view({})
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -138,7 +142,8 @@ return {
     mock_repo_label_list({ added_label, removed_label })
     t.mock_command("gh pr edit", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -157,7 +162,8 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_current, marker_superseded })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -177,7 +183,8 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_current_timestamp, marker_newer_same_state })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -216,7 +223,8 @@ return {
     mock_repo_label_list({ "adapter-merge-ready", "adapter-reviewing" })
     t.mock_command("gh pr edit", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -255,7 +263,8 @@ return {
     mock_bot_env()
     mock_pr_comment_view({ marker_fix_9, marker_fix_10 })
     t.mock_command("gh api repos/owner/x/issues/42", {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+      stdout = '{"labels":[{"name":"' .. active_claim_spec.name
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })

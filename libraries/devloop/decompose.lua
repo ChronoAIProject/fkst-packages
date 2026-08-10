@@ -216,10 +216,10 @@ function C.decompose_children_complete(comments, issues, proposal_id, version, p
   return completed_count >= count, completed_count
 end
 
-function C.build_decompose_replay_payload(M, fact, comments_or_feedback, source_ref, completed_count)
+function C.build_decompose_replay_payload(restart_policy, fact, comments_or_feedback, source_ref, completed_count)
   local feedback = comments_or_feedback
   if type(feedback) == "table" and feedback[1] ~= nil then
-    feedback = M.fixing_replay_feedback_fact(comments_or_feedback, fact.proposal_id, fact.version)
+    feedback = restart_policy.fixing_replay_feedback_fact(comments_or_feedback, fact.proposal_id, fact.version)
   end
   local payload = payloads_builders.build_devloop_decompose_payload({
     proposal_id = fact.proposal_id,
@@ -228,7 +228,7 @@ function C.build_decompose_replay_payload(M, fact, comments_or_feedback, source_
     review_proposal_id = feedback and feedback.review_proposal_id or nil,
     review_dedup_key = feedback and feedback.review_dedup_key or nil,
     head_sha = feedback and feedback.reviewed_head_sha or nil,
-    round = M.version_fix_round(fact.version),
+    round = restart_policy.version_fix_round(fact.version),
     source_ref = source_ref,
   })
   payload.expected_child_count = fact.count

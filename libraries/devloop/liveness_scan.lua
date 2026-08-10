@@ -226,7 +226,7 @@ local function rate_limit_deferred_outcome(result)
 end
 
 function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
-  local list = entity_list_cache.fetch_shared_issue_observe_list(M, repo, {
+  local list = entity_list_cache.fetch_shared_issue_observe_list(M.gh_issue_list_observe_opts, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })
@@ -241,7 +241,7 @@ function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
 end
 
 function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
-  local list = entity_list_cache.fetch_shared_pr_observe_list(M, repo, {
+  local list = entity_list_cache.fetch_shared_pr_observe_list(M.gh_pr_list_observe_opts, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })

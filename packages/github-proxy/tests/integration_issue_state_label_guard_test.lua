@@ -13,10 +13,12 @@ local count_calls = h.count_calls
 local proposal_id = "github-devloop/issue/owner/x/42"
 local stale_version = "ready/consensus-github-devloop/issue/owner/x/42/2026-07-19T00-00-00Z"
 local fresh_version = "ready/consensus-github-devloop/issue/owner/x/42/2026-07-19T00-05-00Z"
+local active_claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 
 local function issue_claim(number, ownership)
   t.mock_command("gh api repos/owner/x/issues/" .. tostring(number or 42), {
-    stdout = ownership or '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n',
+    stdout = ownership or '{"labels":[{"name":"' .. active_claim_spec.name
+      .. '","description":"' .. active_claim_spec.description .. '"}]}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -90,6 +92,7 @@ local function label_event(add_labels, remove_labels, extra)
     },
     claim = {
       owner = "fkst-test-bot",
+      label = active_claim_spec.name,
       source_ref = {
         kind = "external",
         ref = "owner/x#issue/42",
@@ -134,14 +137,16 @@ local function has_arg_pair(rendered, flag, value)
     or text:find(tostring(flag) .. " " .. tostring(value), 1, true) ~= nil
 end
 
-local function run_label(event, name, issue_number, ownership, claim_mode)
+local function run_label(event, name, issue_number, ownership)
   mock_write_env("1")
   mock_bot_env()
-  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
-    stdout = claim_mode or "",
-    stderr = "",
-    exit_code = 0,
-  })
+  for _ = 1, 4 do
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
   issue_claim(issue_number, ownership)
   return t.run_department("departments/github_issue_label/main.lua", event, opts(name, {
     FKST_GITHUB_WRITE = "1",
@@ -262,6 +267,7 @@ return {
       },
       claim = {
         owner = "fkst-test-bot",
+        label = active_claim_spec.name,
         source_ref = {
           kind = "external",
           ref = "owner/x#issue/43",
@@ -286,7 +292,7 @@ return {
     t.eq(count_calls("gh issue edit"), 1)
   end,
 
-  test_issue_label_rejects_label_claim_after_managed_assignee_appears = function()
+  test_issue_label_ignores_assignees_when_the_active_label_is_held = function()
     mock_label_apply()
     local label = claim_carriers.derived_label("fkst-test-bot")
     local event = label_event({ "manual-label" }, {}, {
@@ -298,19 +304,15 @@ return {
     })
 
     local result = run_label(event, "issue-label-managed-peer-claim", 42,
-      '{"assignees":[{"login":"ElonSG"}],"labels":[{"name":"' .. label .. '"}]}\n', "label")
+      '{"assignees":[{"login":"ElonSG"}],"labels":[{"name":"' .. label
+        .. '","description":"' .. active_claim_spec.description .. '"}]}\n')
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue edit"), 0)
+    t.eq(count_calls("gh issue edit"), 1)
   end,
 
   test_issue_label_rejects_claim_label_derived_from_different_owner = function()
     mock_label_apply()
-    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
     local label = claim_carriers.derived_label("peer")
     local event = label_event({ "manual-label" }, {}, {
       claim = {
@@ -321,13 +323,13 @@ return {
     })
 
     local result = run_label(event, "issue-label-mismatched-owner-label", 42,
-      '{"assignees":[{"login":"human"}],"labels":[{"name":"' .. label .. '"}]}\n', "label")
+      '{"assignees":[{"login":"human"}],"labels":[{"name":"' .. label .. '"}]}\n')
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
-  test_issue_label_rejects_assignee_claim_from_different_owner = function()
+  test_issue_label_rejects_claim_without_an_active_label = function()
     mock_label_apply()
     local event = label_event({ "manual-label" }, {}, {
       claim = {
@@ -336,39 +338,11 @@ return {
       },
     })
 
-    local result = run_label(event, "issue-label-mismatched-assignee-owner", 42,
+    local result = run_label(event, "issue-label-missing-claim-label", 42,
       '{"assignees":[{"login":"peer-bot"}],"labels":[]}\n')
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
-  test_issue_label_rejects_label_carrier_in_assignee_mode = function()
-    mock_label_apply()
-    local label = claim_carriers.derived_label("fkst-test-bot")
-    local event = label_event({ "manual-label" }, {}, {
-      claim = {
-        owner = "fkst-test-bot",
-        label = label,
-        source_ref = { kind = "external", ref = "owner/x#issue/42" },
-      },
-    })
-
-    local result = run_label(event, "issue-label-carrier-in-assignee-mode", 42,
-      '{"assignees":[{"login":"human"}],"labels":[{"name":"' .. label .. '"}]}\n')
-
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue edit"), 0)
-  end,
-
-  test_issue_label_rejects_assignee_carrier_in_label_mode = function()
-    mock_label_apply()
-    local event = label_event({ "manual-label" }, {})
-
-    local result = run_label(event, "issue-assignee-carrier-in-label-mode", 42,
-      '{"assignees":[{"login":"fkst-test-bot"}],"labels":[]}\n', "label")
-
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue edit"), 0)
-  end,
 }

@@ -28,6 +28,17 @@
 
 这门**统一并命名**了已有的「核实数据再建叙事」「competence 轴·审证据不审叙事」「BEAUTY GATE·ground-truth 非代理」「HARD GATE 快筛②」——都是实事求是的不同面。违背它产出的东西（错 issue / 错叙事 / 错修复）须整体撤回，不抢救「kernel」。
 
+## 主张准入门：先交 validity witness，再让 claim 驱动动作（CLAIM-ADMISSION GATE）
+
+**观察值不是主张；ERROR、scope 不明与真正的 ABSENCE 不得塌成同一个 `0`。** 在「实事求是」要求证据先于结论、「competence·审证据不审叙事」要求 evidence-gated 的基础上，本门专门钉死 **claim boundary**：下列四类 claim 未交齐各自的 validity witness，一律不准进入事实账、归因、设计、清理、重启、file 或任何其他动作；诚实输出只能是 `UNKNOWN`，且 **`UNKNOWN` 不得驱动进入事实账、归因、设计、清理、重启、file 等 substantive / state-changing action，却必须驱动收集缺失的 validity witness**。instrument-side 的 typed observation 归其 natural owner；本节只管 operator instruction layer 的 claim admission。本门是读者与 adversarial review 检查的 prose gate〔软〕，不是 mechanical enforcement；机械一半须在 instrument 的 natural owner 以 typed observation 另行落地〔硬·separate increment〕。
+
+- **negative claim**（「没有在跑」「从未发生」「一个也没有」）：只有同时交齐三项 witness 才可准入：instrument 的 exit status；**positive control**（用同一 instrument 与 query shape 对 known-present target 运行，保持 production scope 不变，并核实 exit status 与预期 non-zero output）；**scope/time-basis witness**，证明 query 的 population、identity domain 与 time basis 正是 intended scope（含 units、timezone、clock source），且 window boundaries 从系统自身产生的事实（process start time、file mtime、API timestamps）导出而非 hand-typed time string，并随结果明示 basis。一个 count 在 counter 被证明会 count 之前不是证据；`0` 不自证 ABSENCE。
+- **identity claim**（「这个 process / file / row 就是我指的那个」）：只有 match 绑定 exact identity、而非会碰撞的 substring，且排除 querying command 自身，才可准入。路径片段、名称片段与同一 pipeline 的 `grep` 都不是 identity witness。
+- **currency claim**（把 note / doc / memory 当作现在仍成立的 constraint）：只有读完整 record，并从其正文确认 status 仍 current，才可准入。headline 不是 record；written guidance 的存在不证明它仍生效。
+- **causal claim**（「X caused Y」）：只有给出连接 X→Y 的 mechanism，并排除 nearest alternative，才可准入。temporal adjacency 不是 mechanism；它最有说服力的时刻，恰是最容易把相邻误作因果的时刻。
+
+**规则必须按 claim kind 设门，不按 failure mode / command 名枚举。** session 中已经写过一条 per-failure rule；它抓住后续两次，却漏掉另三次，因为每次 miss 都来自一条新发明、规则未点名其失败方式的 command。instrument failure 的形状是开放的，逐条补 `pgrep` / `find` / `git log` / glob / `ps|grep` 规则必然漏；被主张的逻辑种类是封闭的，故唯一可收敛的 gate 是在 claim 出口要求上述 witness。缺 witness 就停在 `UNKNOWN`，绝不让 confirmation bias 从同一个模糊 observation 中挑出最顺手的故事。⟦AI:FKST⟧
+
 ## 误解/受骗账本：每次被骗都入账 + 导出机制避免 + 构建 harness（实事求是的机械执行面·非新增第 N 条）
 
 **每一次「我误解了 / 我被骗了」——把「看起来可信」当真、而它是假（stale 数据当 fresh、plausible 叙事当已核实、未核实前提当事实、别人的归因当根因、字段/单位误读、假绿当真绿）——都必须入账，并从这一条**导出「如何从机制上避免这一类」的 harness**。** 这不是新增第 N 条,是「实事求是」根门 + 「competence 轴·审证据不审叙事」 + 「有问题不可怕:discover→root-cause→harness-ify」在**我自己的认知失败**上的机械执行面。心法：被骗一次不可耻(骗术必然会来)；**不入账、或入账了不导出 harness,才是真失败**——因为同一形状的骗术会换张脸再来,一次次骗到同一个我。

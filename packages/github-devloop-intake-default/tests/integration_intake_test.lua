@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local t = h.t
@@ -9,6 +10,7 @@ local count_calls = h.count_calls
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
+local intake_class = require("core.intake_class")
 
 local context_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
 local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.intake"
@@ -328,9 +330,7 @@ return {
   test_judge_skips_issue_claimed_by_other_login = function()
     local payload = candidate()
     mock_bot_env()
-    mock_intake_judge_view({}, {}, {
-      assignees_json = '{"login":"other-bot"}',
-    })
+    mock_intake_judge_view({ claim_carriers.derived_label("other-bot") }, {})
 
     local result = run_judge(payload, opts("intake-claimed-by-other"))
     t.eq(result.exit_code, 0)
@@ -486,7 +486,7 @@ return {
       {
         number = 77,
         title = "Class fix needed: recurring class widget sync",
-        body = core.intake_class_carrier_marker("fingerprint:widget-sync"),
+        body = intake_class.intake_class_carrier_marker("fingerprint:widget-sync"),
         labels = {},
       },
     })
@@ -512,7 +512,7 @@ return {
       title = "Repair widget sync timeout residual",
       body = "Another instance after #80 and #81; this title differs from the class carrier.",
     })
-    local class_key = core.intake_class_identity(
+    local class_key = intake_class.intake_class_identity(
       "Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.",
       { title = "Earlier instance" },
       99,
@@ -528,11 +528,11 @@ return {
       {
         number = 77,
         title = "Class fix needed: recurring class retry policy",
-        body = core.intake_class_carrier_marker(class_key),
+        body = intake_class.intake_class_carrier_marker(class_key),
         labels = {},
       },
     })
-    t.eq(class_key, core.intake_class_identity(
+    t.eq(class_key, intake_class.intake_class_identity(
       "Cites #80 and #82 as prior siblings; Rule of Three requires class-level retry policy.",
       { title = "Current instance" },
       42,
@@ -542,7 +542,7 @@ return {
         { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
       }
     ))
-    t.eq(class_key, core.intake_class_identity(
+    t.eq(class_key, intake_class.intake_class_identity(
       "Prior occurrences #80 and #82 share the widget-sync failure fingerprint; open a broader timeout/backoff fix.",
       { title = "Current instance" },
       42,
@@ -579,7 +579,7 @@ return {
       sibling_issues
     )
     mock_recent_closed_class_siblings(sibling_issues)
-    t.is_nil(core.intake_class_identity(
+    t.is_nil(intake_class.intake_class_identity(
       "Prior occurrences #80 and #81 look related, but no structured fingerprint is available.",
       { title = "Repair widget sync timeout residual" },
       42,

@@ -43,6 +43,7 @@ public = [
   "devloop.convergence.reconcile",
   "devloop.convergence.rounds",
   "devloop.convergence.shared",
+  "devloop.dashboard",
   "devloop.decompose",
   "devloop.dependency_gate",
   "devloop.dependency_graphql",

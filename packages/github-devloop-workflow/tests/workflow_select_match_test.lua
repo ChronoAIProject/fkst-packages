@@ -1,5 +1,6 @@
 local core = require("core")
 local base_ids = require("devloop.base_ids")
+local claim_carriers = require("devloop.claim_carriers")
 local blueprint = require("core.blueprint")
 local digest = require("core.digest")
 local devloop_base = require("devloop.base")
@@ -18,6 +19,20 @@ local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local candidate_queue = "github-devloop-intake.devloop_intake_candidate"
 local restart_projection = owner_pending_projection.frozen_projection()
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+
+local function claimed_labels(labels)
+  local selected = {}
+  local has_claim = false
+  for _, label in ipairs(labels or {}) do
+    table.insert(selected, label)
+    has_claim = has_claim or claim_carriers.is_claim_family(label)
+  end
+  if not has_claim then
+    table.insert(selected, claim_spec.name)
+  end
+  return selected
+end
 
 local function catalog_versioned_status(current, source_states, target_state, incoming_version)
   return restart_cas_catalog.resolve("cas.base_versioned_legacy_v1", {
@@ -78,7 +93,7 @@ local function issue_view_stdout(fields)
     json_string(f.created_at or "2026-06-03T01:00:00Z"),
     json_string(f.updated_at or "2026-06-03T01:02:03Z"),
     json_string(f.state or "OPEN"),
-    encode_labels(f.labels or {}),
+    encode_labels(claimed_labels(f.labels)),
     encode_comments(f.comments or {}),
     json_string(f.assignee or "fkst-test-bot"),
     json_string(f.author_login or "fkst-test-bot")
@@ -167,6 +182,14 @@ local function mock_env(root)
     stderr = "",
     exit_code = 0,
   })
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+        .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_issue_view(current, times)

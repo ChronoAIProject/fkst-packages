@@ -109,7 +109,7 @@ local function observe_department(run, fixture)
     end
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
-  devloop_claims.claim_issue_for_management = function(M, dept, repo, issue_number, current, proposal_id)
+  devloop_claims.claim_issue_for_management = function(dept, repo, issue_number, current, proposal_id)
     sequence = sequence + 1
     local boundary = {
       sequence = sequence,
@@ -120,7 +120,7 @@ local function observe_department(run, fixture)
       proposal_id = proposal_id,
     }
     table.insert(boundary_calls, boundary)
-    boundary.outcome = original_claim_issue(M, dept, repo, issue_number, current, proposal_id)
+    boundary.outcome = original_claim_issue(dept, repo, issue_number, current, proposal_id)
     return boundary.outcome
   end
 
@@ -244,6 +244,7 @@ local function mock_current_issue(event, fixture)
     table.insert(labels, "fkst-dev:" .. fixture.current_state)
   end
   h.mock_issue_state(labels, "OPEN", comments)
+  h.mock_claim_label_binding("owner/repo", "fkst-test-bot")
   for _ = 1, fixture.context_bundle_builds or 1 do
     h.mock_context_bundle(event)
   end

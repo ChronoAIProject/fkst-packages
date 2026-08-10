@@ -1,8 +1,9 @@
 local content_filter = require("forge.github.content_filter")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local core = require("core")
 local strings = require("contract.strings")
 local t = fkst.test
+local claim_label = claim_carriers.derived_label("fkst-test-bot")
 
 local function load_department()
   local old_pipeline = pipeline
@@ -14,7 +15,7 @@ end
 local function pr_json(model)
   model.read_count = model.read_count + 1
   local author = model.authors[math.min(model.read_count, #model.authors)]
-  local labels = model.claimed and '[{"name":"fkst-dev:claimed:fkst-test-bot"}]' or "[]"
+  local labels = model.claimed and '[{"name":"' .. claim_label .. '"}]' or "[]"
   local provenance = ""
   if not model.omit_provenance then
     local is_cross_repository = model.is_cross_repository
@@ -199,10 +200,10 @@ local function run_event(github, event, options)
   local ok, err = pcall(function()
     load_department().make_department({ github = github }, {
       claimed_label = function()
-        return "fkst-dev:claimed:fkst-test-bot"
+        return claim_label
       end,
       issue_claim_state = function(labels)
-        return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+        return claim_carriers.classify_labels(labels, claim_label)
       end,
     }).pipeline(event)
   end)

@@ -1,4 +1,4 @@
-local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
 local h = require("tests.devloop_core_helpers")
@@ -6,8 +6,8 @@ local core = h.core
 local t = h.t
 
 local bare_label = "fkst-dev:claimed"
-local derived_label = "fkst-dev:claimed:fkst-test-bot"
-local peer_label = "fkst-dev:claimed:peer-bot"
+local derived_label = claim_carriers.derived_label("fkst-test-bot")
+local peer_label = claim_carriers.derived_label("peer-bot")
 
 local function mock_identity(login, exclusive, reads)
   for _ = 1, reads or 8 do
@@ -25,30 +25,15 @@ local function mock_identity(login, exclusive, reads)
 end
 
 return {
-  test_strip_bot_login_suffix_is_nil_safe_and_no_op_for_users = function()
-    t.eq(devloop_base.strip_bot_login_suffix("octocat"), "octocat")
-    t.eq(devloop_base.strip_bot_login_suffix("chronoai-bot[bot]"), "chronoai-bot")
-    t.eq(devloop_base.strip_bot_login_suffix(nil), nil)
-    t.eq(devloop_base.strip_bot_login_suffix("user[bot]name"), "user[bot]name")
-  end,
-
-  test_configure_trusted_bot_login_normalizes_bracket_bot_suffix = function()
-    t.eq(devloop_base.configure_trusted_bot_login("chronoai-bot[bot]"), "chronoai-bot")
-    t.eq(devloop_base.trusted_bot_login(), "chronoai-bot")
-    t.eq(devloop_base.configure_trusted_bot_login("plain-bot"), "plain-bot")
-    t.eq(devloop_base.trusted_bot_login(), "plain-bot")
-    devloop_base.configure_trusted_bot_login(nil)
-  end,
-
-  test_comment_author_login_normalizes_bracket_bot_suffix = function()
-    t.eq(parsers_misc.comment_author_login({ author_login = "chronoai-bot[bot]" }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login({ author = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login({ user = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
+  test_comment_author_login_is_canonicalized_at_the_trust_boundary = function()
+    t.eq(parsers_misc.comment_author_login({ author_login = "chronoai-bot[bot]" }), "chronoai-bot[bot]")
+    t.eq(parsers_misc.canonical_login(parsers_misc.comment_author_login({ author = { login = "chronoai-bot[bot]" } })), "chronoai-bot")
+    t.eq(parsers_misc.canonical_login(parsers_misc.comment_author_login({ user = { login = "chronoai-bot[bot]" } })), "chronoai-bot")
     t.eq(parsers_misc.comment_author_login({ author_login = "octocat" }), "octocat")
   end,
 
   test_authorless_comment_is_not_trusted = function()
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
     t.is_nil(parsers_misc.comment_author_login({ body = "authorless" }))
     t.eq(parsers_misc._is_trusted_comment({ body = "authorless" }), false)
   end,
@@ -72,7 +57,7 @@ return {
   test_claim_owner_returns_bare_slug_for_bracket_bot_config = function()
     mock_identity("chronoai-bot[bot]", "", 1)
     t.eq(m_claims.claim_owner(), "chronoai-bot")
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
   test_derived_posture_treats_bare_label_as_foreign = function()
@@ -87,15 +72,15 @@ return {
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
     })
     t.eq(payload.claim.label, derived_label)
-    t.eq(payload.claim.owner, nil)
+    t.eq(payload.claim.owner, "fkst-test-bot")
   end,
 
   test_bracket_bot_author_is_trusted_after_normalization = function()
-    devloop_base.configure_trusted_bot_login("chronoai-bot")
+    parsers_misc.configure_trusted_bot_login("chronoai-bot")
     t.eq(parsers_misc._is_trusted_comment({
       author_login = "chronoai-bot[bot]",
       body = "x",
     }), true)
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 }

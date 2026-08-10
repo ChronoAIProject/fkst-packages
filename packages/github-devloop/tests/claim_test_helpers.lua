@@ -1,4 +1,5 @@
 local entity_list_cache = require("devloop.entity_list_cache")
+local claim_carriers = require("devloop.claim_carriers")
 local m_claims = require("devloop.claims")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 
@@ -6,8 +7,10 @@ local M = {}
 local poll_sequence = 0
 
 function M.mock_bot(login, write_mode, write_reads)
+  local selected_login = login or "fkst-test-bot"
+  local claim_spec = claim_carriers.active_label_spec(false, selected_login)
   fkst.test.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-    stdout = login or "fkst-test-bot",
+    stdout = selected_login,
     stderr = "",
     exit_code = 0,
   })
@@ -26,6 +29,14 @@ function M.mock_bot(login, write_mode, write_reads)
   for _ = 1, write_reads or 2 do
     fkst.test.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
       stdout = write_mode or "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, write_reads or 4 do
+    fkst.test.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+        .. claim_spec.description .. '"}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -55,7 +66,6 @@ function M.claim_with_poll_epoch(core, dept, repo, issue_number, current, propos
     m_claims.claim_admission_inputs(current, repo, poll_epoch)
   )
   return m_claims.claim_issue_for_management(
-    core,
     dept,
     repo,
     issue_number,

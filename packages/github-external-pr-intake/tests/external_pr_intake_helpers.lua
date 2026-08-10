@@ -1,5 +1,5 @@
 local strings = require("contract.strings")
-local claim_labels = require("devloop.claim_labels")
+local claim_carriers = require("devloop.claim_carriers")
 local t = fkst.test
 
 local package_root = "packages/github-external-pr-intake"
@@ -311,13 +311,13 @@ local function run_pipeline(opts)
   end
 
   local module = load_department()
-  local claim_label = "fkst-dev:claimed:fkst-test-bot"
+  local claim_label = claim_carriers.derived_label("fkst-test-bot")
   local claims = {
     claimed_label = function()
       return claim_label
     end,
     issue_claim_state = function(labels)
-      return claim_labels.classify(labels, claim_label)
+      return claim_carriers.classify_labels(labels, claim_label)
     end,
   }
   local dept = module.make_department({ github = github }, claims)

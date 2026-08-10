@@ -17,7 +17,8 @@ local REPO = "owner/repo"
 local ISSUE_NUMBER = 2275
 local PR_NUMBER = 2281
 local BOT = "fkst-test-bot"
-local ACTIVE_CLAIM_LABEL = "fkst-dev:claimed:" .. BOT
+local ACTIVE_CLAIM_SPEC = claim_carriers.active_label_spec(false, BOT)
+local ACTIVE_CLAIM_LABEL = ACTIVE_CLAIM_SPEC.name
 local INTEGRATION_BRANCH = "integration/dev"
 local INTEGRATION_SHA = "1111111111111111111111111111111111111111"
 local PR_HEAD_SHA = "2222222222222222222222222222222222222222"
@@ -158,8 +159,7 @@ local function baseline(overrides)
       source_ref = fields.source_ref or core.pr_freshness_source_ref(REPO, PR_NUMBER),
     },
     final_mutation = fields.final_mutation,
-    claim_mode = fields.claim_mode,
-    claim_label = fields.claim_label,
+    claim_label = fields.claim_label or ACTIVE_CLAIM_SPEC,
   }
 end
 
@@ -321,13 +321,12 @@ local function make_github(fixture)
   return github, model
 end
 
-local function mock_env(write_mode, claim_mode)
+local function mock_env(write_mode)
   local values = {
     FKST_GITHUB_WRITE = write_mode or "1",
     FKST_GITHUB_BOT_LOGIN = BOT,
     FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
     FKST_DEVLOOP_INTEGRATION_BRANCH = INTEGRATION_BRANCH,
-    FKST_GITHUB_CLAIM_MODE = claim_mode or "",
     FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
   }
   for name, value in pairs(values) do
@@ -377,7 +376,7 @@ local function count_raises(raises, queue)
 end
 
 local function run_fixture(fixture, write_mode)
-  mock_env(write_mode, fixture.claim_mode)
+  mock_env(write_mode)
   local normalized_parent = require("forge.github.issue").normalize_issue(
     fixture.parent,
     entity_lib.issue_source_ref(REPO, ISSUE_NUMBER)
@@ -507,8 +506,6 @@ return {
   test_exhausted_original_pr_fails_closed_on_claim_label_owner_collision = function()
     local spec = claim_carriers.active_label_spec(false, BOT)
     local fixture = baseline({
-      claim_mode = "label",
-      assignees = { "human" },
       parent_labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr", spec.name },
       claim_label = {
         name = spec.name,

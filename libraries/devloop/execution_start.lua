@@ -57,7 +57,7 @@ function E.execution_intake_hand_off(request)
   }
 end
 
-function E.build_execution_start_proposal(core, repo, issue_number, request, current, event_ts, dept)
+function E.build_execution_start_proposal(repo, issue_number, request, current, event_ts, dept)
   local issue = {
     repo = repo,
     number = issue_number,
@@ -80,8 +80,8 @@ function E.build_execution_start_proposal(core, repo, issue_number, request, cur
   return v_validate_proposal.validate_proposal(proposal) and proposal or nil
 end
 
-function E.build_execution_start_effects(core, repo, issue_number, request, current, event_ts, dept)
-  local proposal = E.build_execution_start_proposal(core, repo, issue_number, request, current, event_ts, dept)
+function E.build_execution_start_effects(output_language, repo, issue_number, request, current, event_ts, dept)
+  local proposal = E.build_execution_start_proposal(repo, issue_number, request, current, event_ts, dept)
   if proposal == nil then
     return nil
   end
@@ -92,7 +92,7 @@ function E.build_execution_start_effects(core, repo, issue_number, request, curr
   }
   return {
     proposal = proposal,
-    thinking_comment_request = requests_lifecycle.build_observe_comment_request(core.output_language, issue_ref, proposal),
+    thinking_comment_request = requests_lifecycle.build_observe_comment_request(output_language, issue_ref, proposal),
     thinking_label_request = requests_labels.build_thinking_label_request(issue_ref, proposal),
   }
 end

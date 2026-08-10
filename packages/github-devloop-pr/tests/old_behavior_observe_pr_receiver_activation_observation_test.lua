@@ -11,13 +11,14 @@ local m_claims = require("devloop.claims")
 local m_facts = require("devloop.markers.facts")
 local operator_commands = require("devloop.operator_commands")
 local parsers_pr = require("devloop.parsers.pr")
-local replay = require("devloop.replayer")
+local replay
 local requests_review = require("devloop.requests.review")
 local testing = require("testkit_internal.testing")
 local observe_pr_module = require("departments.observe_pr.main")
 
 local t = h.t
 local core = h.core
+replay = assert(rawget(core, "replayer"))
 local restart_policy = assert(rawget(core, "restart_policy"))
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42

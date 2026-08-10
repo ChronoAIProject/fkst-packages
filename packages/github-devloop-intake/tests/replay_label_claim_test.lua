@@ -4,6 +4,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local testing = require("testkit_internal.testing")
 local t = h.t
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local function mock_claim_identity()
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -70,7 +71,7 @@ local function label_claim_admission_department()
         body = "",
         updated_at = "2026-07-31T01:02:03Z",
         state = "OPEN",
-        labels = { "fkst-dev:claimed:fkst-test-bot", "fkst-class:expedite" },
+        labels = { claim_label, "fkst-class:expedite" },
         comments = {},
       }, nil
     end,
@@ -92,7 +93,7 @@ return {
     }
     local authorization, reason = replay_authorization.authorize({
       state = "OPEN",
-      labels = { "fkst-dev:claimed:fkst-test-bot" },
+      labels = { claim_label },
       comments = {},
     }, "github-devloop/issue/owner/repo/42", source_ref, {
       lineage = { terminal_dead_letter = terminal },

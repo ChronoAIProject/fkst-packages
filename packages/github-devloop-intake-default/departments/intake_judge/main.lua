@@ -1,5 +1,6 @@
-local core = require("core")
 local default_intake = require("devloop.intake.default")
+local intake_class = require("core.intake_class")
+local intake_service_class = require("core.intake_service_class")
 local devloop_logging = require("devloop.logging")
 local saga = require("workflow.saga")
 local prompts = require("devloop.prompts").new({ prompts = { intake = default_intake.prompt } }, { intake = true, intake_parser = true })
@@ -21,7 +22,7 @@ local function intake_judge_done(_event)
 end
 
 local function act_intake_judge(event)
-  return default_intake.act(core, event, {
+  return default_intake.act(intake_class, intake_service_class, event, {
     dept = "intake_judge",
     prompts = prompts,
   })

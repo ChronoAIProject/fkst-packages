@@ -1,11 +1,8 @@
 local core = require("core")
-<<<<<<< HEAD
-local claim_labels = require("devloop.claim_labels")
-=======
-local forge_strings = require("forge.strings")
->>>>>>> 64323e14ecdb072282dfe7dec51469d8a77edcd4
+local claim_carriers = require("devloop.claim_carriers")
 local strings = require("contract.strings")
 local t = fkst.test
+local claim_label = claim_carriers.derived_label("fkst-test-bot")
 
 local function load_department()
   local old_pipeline = pipeline
@@ -219,10 +216,10 @@ local function run_event(github, event, write_enabled)
   local ok, err = pcall(function()
     load_department().make_department({ github = github }, {
       claimed_label = function()
-        return "fkst-dev:claimed:fkst-test-bot"
+        return claim_label
       end,
       issue_claim_state = function(labels)
-        return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+        return claim_carriers.classify_labels(labels, claim_label)
       end,
     }).pipeline(event)
   end)
@@ -329,7 +326,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   local claim = first_kind(candidate_github.operations, "issue_add_label")
   t.eq(claim.repo, "owner/repo")
   t.eq(claim.issue_number, 7)
-  t.eq(claim.label, "fkst-dev:claimed:fkst-test-bot")
+  t.eq(claim.label, claim_label)
   t.eq(claim.timeout, 30)
 
   local create = first_kind(candidate_github.operations, "issue_create")

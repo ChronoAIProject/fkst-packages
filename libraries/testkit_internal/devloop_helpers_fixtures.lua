@@ -70,6 +70,10 @@ function M.new(deps)
   local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.worktree is required")
   local entity_read_mocks = deps.entity_read_mocks
     or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
+  local claim_label_spec = deps.claim_label_spec
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.claim_label_spec is required")
+  local claim_label_is_family = deps.claim_label_is_family
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.claim_label_is_family is required")
   local mode = deps.mode or "standard"
   local mock_review_result_pr_name_only = deps.mock_review_result_pr_name_only == true
   local payloads_predicates = deps.payloads_predicates
@@ -90,25 +94,77 @@ function M.new(deps)
       tonumber(source_issue) or (entity and entity.issue_number) or 42
   end
 
+  local function mock_claim_label_binding(repo, login, times)
+    local selected_repo = repo or "owner/repo"
+    local claim_spec = claim_label_spec(login or "fkst-test-bot")
+    for _ = 1, times or 8 do
+      helpers.t.mock_command("gh api repos/" .. selected_repo .. "/labels/" .. claim_spec.name, {
+        stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+          .. claim_spec.description .. '"}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+  end
+
+  local function with_default_claim_label(labels, default_label)
+    local selected = {}
+    local has_claim = false
+    for _, label in ipairs(labels or { default_label }) do
+      if label ~= nil then
+        table.insert(selected, label)
+        has_claim = has_claim or claim_label_is_family(label)
+      end
+    end
+    if not has_claim then
+      table.insert(selected, claim_label_spec("fkst-test-bot").name)
+    end
+    return selected
+  end
+
+  local function wrap_claimed_issue_fixture(name, label_index, default_label)
+    local base_fixture = helpers[name]
+    helpers[name] = function(...)
+      local args = table.pack(...)
+      args[label_index] = with_default_claim_label(args[label_index], default_label)
+      return base_fixture(table.unpack(args, 1, args.n))
+    end
+  end
+
+  for _, fixture in ipairs({
+    { "mock_issue_state", 1, "fkst-dev:enabled" },
+    { "mock_issue_result", 1, "fkst-dev:thinking" },
+    { "mock_issue_loop", 1, "fkst-dev:thinking" },
+    { "mock_issue_reconcile", 1, "fkst-dev:thinking" },
+    { "mock_issue_implement", 1, "fkst-dev:ready" },
+    { "mock_issue_reviewing", 1, "fkst-dev:pr-open" },
+    { "mock_issue_review", 1, "fkst-dev:reviewing" },
+    { "mock_issue_decompose", 1, "fkst-dev:blocked" },
+    { "mock_issue_fix", 1, "fkst-dev:fixing" },
+    { "mock_issue_fix_for_event", 2, "fkst-dev:fixing" },
+    { "mock_issue_review_meta", 1, "fkst-dev:review-meta" },
+    { "mock_issue_merge", 1, "fkst-dev:merge-ready" },
+  }) do
+    wrap_claimed_issue_fixture(fixture[1], fixture[2], fixture[3])
+  end
+
   local function mock_default_issue_claim(repo, number)
     local selected_repo = repo or "owner/repo"
     local selected_number = number or 42
+    local claim_spec = claim_label_spec("fkst-test-bot")
     entity_read_mocks.mock_issue_read_forms(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      labels = { "fkst-dev:claimed:fkst-test-bot" },
+      labels = { claim_spec.name },
       author_login = "fkst-test-bot",
     })
     entity_read_mocks.mock_issue_view_selector(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      labels = { "fkst-dev:claimed:fkst-test-bot" },
+      labels = { claim_spec.name },
       author_login = "fkst-test-bot",
-<<<<<<< HEAD
     }, "labels,author", 30)
-=======
-    }, "assignees,author,labels", 30)
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
+    mock_claim_label_binding(selected_repo, "fkst-test-bot")
   end
 
   local function encoded_comment_json(comment_id, body, author_login)
@@ -120,8 +176,17 @@ function M.new(deps)
 
   local base_run_department = helpers.run_department
 
-  helpers.run_department = function(...)
-    return base_run_department(...)
+  helpers.run_department = function(path, event, run_opts)
+    local payload = event and event.payload or {}
+    local repo = payload.repo
+      or (run_opts and run_opts.env and run_opts.env.FKST_GITHUB_REPO)
+      or issue_identity_from_payload(payload)
+    local login = run_opts
+      and run_opts.env
+      and run_opts.env.FKST_GITHUB_BOT_LOGIN
+      or "fkst-test-bot"
+    mock_claim_label_binding(repo, login)
+    return base_run_department(path, event, run_opts)
   end
 
   if mode == "decompose" then
@@ -446,14 +511,17 @@ function M.new(deps)
     return helpers.find_raise(handoff.raises, queue)
   end
 
-  helpers.mock_bot_env = function(...)
+  helpers.mock_bot_env = function(login, ...)
     if type(helpers.reset_pr_helper_state) == "function" then
       helpers.reset_pr_helper_state()
     end
-    return base_mock_bot_env(...)
+    local result = base_mock_bot_env(login, ...)
+    mock_claim_label_binding("owner/repo", login or "fkst-test-bot", 16)
+    return result
   end
 
   helpers.mock_context_bundle = mock_context_bundle
+  helpers.mock_claim_label_binding = mock_claim_label_binding
   helpers.mock_default_issue_claim = mock_default_issue_claim
   helpers.issue_identity_from_payload = issue_identity_from_payload
   helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for

@@ -1,4 +1,5 @@
 local capacity = require("core.intake_capacity")
+local claim_carriers = require("devloop.claim_carriers")
 local t = fkst.test
 
 local owner = "fkst-test-bot"
@@ -243,7 +244,7 @@ local function issue(number)
     title = "Fixture issue " .. tostring(number),
     body = "Production-shaped intake capacity fixture",
     state = state,
-    labels = current_owner ~= "" and { "fkst-dev:claimed:" .. current_owner } or {},
+    labels = current_owner ~= "" and { claim_carriers.derived_label(current_owner) } or {},
     comments = comments,
     assignees = {},
     author_login = configured_owner,
@@ -326,7 +327,7 @@ function M.new()
   })
 
   local claim_ports = setmetatable({
-    claim_issue_for_management = function(_core, _dept, _repo, number)
+    claim_issue_for_management = function(_dept, _repo, number)
       local current = issue(number)
       local claim_state = claims.issue_claim_state(current.labels)
       if claim_state == "self" then

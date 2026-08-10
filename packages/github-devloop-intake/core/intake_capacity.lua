@@ -478,9 +478,7 @@ function C.production(_M)
     end,
     owner = claims.claim_owner,
     assert_owner_binding = function(repo)
-      if claims.claim_mode_active() == "label" then
-        claims.assert_current_claim_label_binding(repo)
-      end
+      claims.assert_current_claim_label_binding(repo)
     end,
     list_open_claim_numbers = function(repo, owner)
       local listed = result_required(
@@ -489,13 +487,8 @@ function C.production(_M)
         "capacity claim list"
       )
       local numbers = {}
-<<<<<<< HEAD
-      for _, current in ipairs(parsers_issue.parse_issue_list_intake(nil, listed.stdout)) do
-        if claims.issue_claim_state(current.labels) == "self" then
-=======
       for _, current in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
-        if claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
->>>>>>> 64323e14ecdb072282dfe7dec51469d8a77edcd4
+        if claims.issue_claim_state(current.labels) == "self" then
           table.insert(numbers, current.number)
         end
       end

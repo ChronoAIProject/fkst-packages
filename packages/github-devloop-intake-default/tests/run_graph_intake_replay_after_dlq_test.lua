@@ -172,11 +172,7 @@ local function mock_claim_verify()
     number = issue_number,
     labels = { active_label },
     author_login = owner,
-<<<<<<< HEAD
   }, "labels,author")
-=======
-  }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function mock_claim_write()

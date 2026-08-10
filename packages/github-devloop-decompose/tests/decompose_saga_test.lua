@@ -26,7 +26,7 @@ local function blocked_comments(event, extra)
 end
 
 local function mock_write_env_real()
-  for _ = 1, 4 do
+  for _ = 1, 12 do
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
       stdout = "1",
       stderr = "",

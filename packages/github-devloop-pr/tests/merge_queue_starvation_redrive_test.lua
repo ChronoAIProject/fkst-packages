@@ -5,6 +5,7 @@ local contract_time = require("contract.time")
 local payloads_builders = require("devloop.payloads.builders")
 local m_builders = require("devloop.markers.builders")
 local m_mq = require("devloop.merge_queue")
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -113,11 +114,10 @@ local function mock_queue_pr(event, created_at)
   })
 end
 
-<<<<<<< HEAD
 local function mock_claimed_issue_for_event(event)
   local entity = entity_lib.parse_entity_proposal_id(event.proposal_id)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", entity.issue_number), {
-    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"' .. claim_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -156,8 +156,6 @@ local function merged_comments_for_event(event)
   return comments
 end
 
-=======
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 return {
   test_queue_starvation_scheduler_does_not_label_aged_later_entry_as_head = function()
     local fifo_head = merge_ready()

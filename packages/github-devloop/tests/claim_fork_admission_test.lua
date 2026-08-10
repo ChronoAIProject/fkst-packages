@@ -1,4 +1,5 @@
 local m_claims = require("devloop.claims")
+local claim_carriers = require("devloop.claim_carriers")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
 local forks = require("devloop.forks")
@@ -278,7 +279,7 @@ return {
     t.eq(#raised, 1)
     t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
     t.eq(raised[1].payload.schema, "github-proxy.issue-create.v1")
-    t.eq(raised[1].payload.labels[1], "fkst-dev:claimed:fkst-test-bot")
+    t.eq(raised[1].payload.labels[1], claim_carriers.derived_label("fkst-test-bot"))
     t.eq(raised[1].payload.assignees, nil)
     t.eq(raised[1].payload.dedup_key, forks.fork_issue_dedup_key("owner/repo", 43))
     t.eq(raised[1].payload.post_create_blocked_by.blocked_issue_number, 43)

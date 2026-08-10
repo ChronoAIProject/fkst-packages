@@ -280,11 +280,7 @@ function M.new(ctx, funcs)
     ctx.pending_result_issue = mock_result_issue_value(labels or { "fkst-dev:thinking" }, selected, fields)
     entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:thinking" }, selected, fields)
     entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
-<<<<<<< HEAD
     entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,author")
-=======
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   end
 
   local function mock_issue_loop(labels, comments, extra)
@@ -361,11 +357,7 @@ function M.new(ctx, funcs)
     local selected = with_default_state_marker(labels or { "fkst-dev:pr-open" }, comments)
     entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:pr-open" }, selected, fields)
     entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:pr-open" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
-<<<<<<< HEAD
     entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:pr-open" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,author")
-=======
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:pr-open" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   end
 
   local function mock_issue_review(labels, comments, extra)

@@ -182,7 +182,14 @@ return {
 
   test_observe_tokenless_authorized_other_author_denies_before_peer_scan_or_fork = function()
     local run_opts = opts("observe-authorized-other-author-fork")
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "trusted-human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
+    h.mock_unclaimed_issue_state(
+      { "fkst-dev:enabled" },
+      "OPEN",
+      {},
+      {},
+      "trusted-human",
+      os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
+    )
     t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
       stdout = "[]",
       stderr = "",

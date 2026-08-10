@@ -83,11 +83,7 @@ local function mock_runtime_and_pr_view()
     number = 42,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-<<<<<<< HEAD
   }, "labels,author")
-=======
-  }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 return {

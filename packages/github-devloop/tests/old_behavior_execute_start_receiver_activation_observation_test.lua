@@ -7,6 +7,7 @@ local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local testing = require("testkit_internal.testing")
 local execute_start_department = require("departments.execute_start.main")
+local claim_carriers = require("devloop.claim_carriers")
 
 local t = h.t
 local JSON_NULL = observation_support.JSON_NULL
@@ -31,6 +32,8 @@ local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local REQUEST_VERSION = "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
 local EVENT_QUEUE = "github-devloop.devloop_execute_request"
+local ACTIVE_CLAIM_LABEL = claim_carriers.derived_label("fkst-test-bot")
+local FOREIGN_CLAIM_LABEL = claim_carriers.derived_label("other-login")
 
 local EFFECTS = {
   ["github-proxy.github_issue_comment_request"] = {
@@ -77,9 +80,9 @@ local function current_issue(extra)
     created_at = "2026-06-03T01:00:00Z",
     updated_at = "2026-06-03T01:02:03Z",
     state = "OPEN",
-    labels = {},
+    labels = { ACTIVE_CLAIM_LABEL },
     comments = {},
-    assignees = { "fkst-test-bot" },
+    assignees = {},
     author_login = "fkst-test-bot",
   }
   for key, value in pairs(extra or {}) do
@@ -126,7 +129,7 @@ local FIXTURES = json_array({
   },
   {
     disposition = "claim-not-acquired",
-    issue = current_issue({ assignees = { "other-login" } }),
+    issue = current_issue({ labels = { FOREIGN_CLAIM_LABEL } }),
     expected_status = "rejected",
     expected_reason = "claim-not-acquired",
     expected_cas = "skip-claimed-by-other",

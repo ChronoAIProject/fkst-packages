@@ -92,15 +92,8 @@ add("comment:issue:row-replay", "observe_issue", "process_issue_event.restart_re
 add("label:issue:row-replay", "observe_issue", "process_issue_event.restart_replay_labels", "label", "lifecycle-authoritative", "restart-row-replay/state-label-families")
 add("comment:pr:row-replay", "observe_issue", "process_issue_event.restart_replay_pr_comments", "comment", "lifecycle-authoritative", "restart-row-replay/pr-comment-marker-families")
 add("adapter:github.issue-create-fork", "observe_issue", "claim_issue_for_management.fork_request", "adapter", "grantless-non-lifecycle", "fork-issue-create:v1;dedup=fork/original")
-<<<<<<< HEAD
-add("adapter:github.claim-label-add", "observe_issue", "claim_issue_for_management.add_claim_label", "adapter", "grantless-non-lifecycle", "claim-label/add/fkst-dev:claimed[:owner]")
-add("adapter:github.claim-label-remove", "observe_issue", "claim_issue_for_management.remove_claim_label", "adapter", "grantless-non-lifecycle", "claim-label/remove/fkst-dev:claimed[:owner]")
-=======
 add("adapter:github.claim-label-add", "observe_issue", "claim_issue_for_management.add_claim_label", "adapter", "grantless-non-lifecycle", "claim-label/add/fkst-dev:claimed[:owner-digest]")
 add("adapter:github.claim-label-remove", "observe_issue", "claim_issue_for_management.remove_claim_label", "adapter", "grantless-non-lifecycle", "claim-label/remove/fkst-dev:claimed[:owner-digest]")
-add("adapter:github.issue-assign", "observe_issue", "claim_issue_for_management.assign", "adapter", "grantless-non-lifecycle", "assignee-claim/assign/self")
-add("adapter:github.issue-unassign", "observe_issue", "claim_issue_for_management.unassign", "adapter", "grantless-non-lifecycle", "assignee-claim/unassign/self")
->>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
 add("comment:issue:row-replay", "liveness_scan", "scan.restart_replay_issue_comments", "comment", "lifecycle-authoritative", "restart-row-replay/issue-comment-marker-families")
 add("comment:pr:row-replay", "liveness_scan", "scan.restart_replay_pr_comments", "comment", "lifecycle-authoritative", "restart-row-replay/pr-comment-marker-families")
 add("comment:issue:reconcile-blocked", "reconcile", "pipeline_thinking.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+reconcile:v1;dedup=reconcile/comment")

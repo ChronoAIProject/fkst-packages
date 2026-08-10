@@ -10,6 +10,7 @@ local core = h.core
 local opts = h.opts
 local find_raise = h.find_raise
 local json_string = h.json_string
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local function run_handoff(payload, name)
   return h.run_department("departments/comment_handoff/main.lua", {
@@ -66,10 +67,11 @@ return {
     local source_ref = entity_lib.pr_source_ref("owner/repo", 7)
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
-      stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"labels":[{"name":"' .. claim_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
+    h.mock_claim_label_binding("owner/repo", "fkst-test-bot")
     mock_marker_comment("IC_reviewing_1", core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", version))
     local result = run_handoff({
       schema = "github-proxy.comment-written.v1",

@@ -1,4 +1,5 @@
 local fixtures = require("tests.external_pr_intake_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local strings = fixtures.strings
 local t = fixtures.t
 local package_root = fixtures.package_root
@@ -23,6 +24,7 @@ local candidate_event = fixtures.candidate_event
 local count_open_bridge_issues = fixtures.count_open_bridge_issues
 local count_pr_bridge_markers = fixtures.count_pr_bridge_markers
 local resume_thread = fixtures.resume_thread
+local claim_label = claim_carriers.derived_label("fkst-test-bot")
 
 return {
   test_candidate_creates_one_bridge_issue_and_pr_marker = function()
@@ -34,7 +36,7 @@ return {
     local marker = write_of_kind(writes, "pr_comment")
 
     t.eq(count_kind(writes, "issue_add_label"), 1)
-    t.eq(write_of_kind(writes, "issue_add_label").label, "fkst-dev:claimed:fkst-test-bot")
+    t.eq(write_of_kind(writes, "issue_add_label").label, claim_label)
     t.eq(count_kind(writes, "issue_create"), 1)
     t.eq(count_kind(writes, "pr_comment"), 1)
     t.eq(count_kind(writes, "issue_close"), 0)
@@ -182,13 +184,12 @@ return {
     local ok, err = pcall(function()
       local first_module = load_department()
       local second_module = load_department()
-      local claim_labels = require("devloop.claim_labels")
       local claims = {
         claimed_label = function()
-          return "fkst-dev:claimed:fkst-test-bot"
+          return claim_label
         end,
         issue_claim_state = function(labels)
-          return claim_labels.classify(labels, "fkst-dev:claimed:fkst-test-bot")
+          return claim_carriers.classify_labels(labels, claim_label)
         end,
       }
       local first_dept = first_module.make_department({ github = github }, claims)

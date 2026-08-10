@@ -134,11 +134,7 @@ local function mock_claimed_issue_for_event(event, times)
       number = entity.issue_number,
       assignees = { "fkst-test-bot" },
       author_login = "fkst-test-bot",
-<<<<<<< HEAD
     }, "labels,author")
-=======
-    }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   end
 end
 

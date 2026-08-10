@@ -1,10 +1,12 @@
 local h = require("tests.devloop_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local t = h.t
 local core = h.core
 local opts = h.opts
 local issue = h.issue
 local run_observe = h.run_observe
 local mock_issue_state = h.mock_issue_state
+local mock_unclaimed_issue_state = h.mock_unclaimed_issue_state
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 local find_raise = h.find_raise
@@ -27,7 +29,7 @@ local function mock_claim_env()
   end
 end
 
-local active_label = "fkst-dev:claimed:fkst-test-bot"
+local active_label = claim_carriers.derived_label("fkst-test-bot")
 
 local function encode_labels_json(labels)
   local rendered = {}
@@ -57,7 +59,7 @@ end
 return {
   test_managed_unassigned_issue_is_reclaimed_before_replay = function()
     mock_claim_env()
-    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", nil, {})
+    mock_unclaimed_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", nil, {})
     mock_add_self()
     mock_claim_view({ active_label })
 

@@ -56,7 +56,7 @@ local function initial_event()
   }
 end
 
-local function mock_runtime_and_context(claim_mode)
+local function mock_runtime_and_context()
   for _ = 1, 8 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), {
       stdout = "fkst-test-bot",
@@ -68,14 +68,6 @@ local function mock_runtime_and_context(claim_mode)
       stderr = "",
       exit_code = 0,
     })
-<<<<<<< HEAD
-=======
-    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), {
-      stdout = claim_mode or "",
-      stderr = "",
-      exit_code = 0,
-    })
->>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"), {
       stdout = "",
       stderr = "",

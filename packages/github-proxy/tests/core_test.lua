@@ -315,14 +315,13 @@ return {
       '{"title":"Issue","body":"Body","state":"open","updated_at":"2026-06-03T01:02:03Z","labels":[{"name":"bug"}],"assignees":[{"login":"fkst-test-bot"}]}',
       '[[{"id":1,"body":"first","user":{"login":"a"}},{"id":2,"body":"second","user":{"login":"b"}}],[{"id":3,"body":"third","user":{"login":"c"}}]]'
     )
-    local state = core.parse_issue_state(adapted)
-    t.eq(state.labels[1], "bug")
-    t.eq(state.assignees[1], "fkst-test-bot")
-    t.eq(#state.comments, 3)
-    t.eq(state.comments[1].body, "first")
-    t.eq(state.comments[2].body, "second")
-    t.eq(state.comments[3].body, "third")
     local decoded = json.decode(adapted)
+    t.eq(decoded.labels[1].name, "bug")
+    t.eq(decoded.assignees[1].login, "fkst-test-bot")
+    t.eq(#decoded.comments, 3)
+    t.eq(decoded.comments[1].body, "first")
+    t.eq(decoded.comments[2].body, "second")
+    t.eq(decoded.comments[3].body, "third")
     t.eq(decoded.state, "OPEN")
     t.eq(decoded.updatedAt, "2026-06-03T01:02:03Z")
   end,
@@ -429,9 +428,8 @@ return {
     local result = core.fetch_rest_issue_view("owner/repo", 4)
     t.eq(result.exit_code, 0)
     local decoded = json.decode(result.stdout)
-    local state = core.parse_issue_state(result.stdout)
     t.eq(decoded.title, "Issue")
-    t.eq(#state.comments, 0)
+    t.eq(#decoded.comments, 0)
   end,
 
   test_rest_pr_view_adapter_maps_states_and_repository_facts = function()

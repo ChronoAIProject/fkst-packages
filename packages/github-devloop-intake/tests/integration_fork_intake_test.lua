@@ -12,9 +12,10 @@ local entity_list_cache = require("devloop.entity_list_cache")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local testing = require("testkit_internal.testing")
 local admission_department = require("departments.admission.main")
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 local poll_sequence = 0
 
-local function mock_repo_env(claim_mode)
+local function mock_repo_env()
   h.mock_bot_env()
   author_policy.mock_env(t, nil, {
     configure_trusted_bot_login = h.mock_author_policy_configure,
@@ -26,13 +27,6 @@ local function mock_repo_env(claim_mode)
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
-  for _ = 1, 4 do
-    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
-      stdout = claim_mode or "",
-      stderr = "",
-      exit_code = 0,
-    })
-  end
   t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
     stdout = "[]",
     stderr = "",
@@ -127,13 +121,12 @@ local function created_after_grace()
 end
 
 return {
-  test_label_mode_denies_non_whitelisted_author_before_candidate_admission = function()
-    local run_opts = opts("label-mode-non-whitelisted-author", {
-      FKST_GITHUB_CLAIM_MODE = "label",
+  test_label_claim_protocol_denies_non_whitelisted_author_before_candidate_admission = function()
+    local run_opts = opts("label-claim-non-whitelisted-author", {
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "",
       FKST_GITHUB_AUTHORIZED_LOGINS = "",
     })
-    mock_repo_env("label")
+    mock_repo_env()
     mock_admission_view({ author_login = "drive-by" })
     cache_set(entity_highwater.key("github-devloop-intake/admission", source_ref()), "")
     local claim_label = claim_carriers.active_label_spec(false, "fkst-test-bot")
@@ -146,13 +139,13 @@ return {
     local result = run_admission(run_opts, nil, {
       capacity = {
         authorize = function()
-          return true, "label-mode-author-admission-test"
+          return true, "label-author-admission-test"
         end,
         relinquish = function()
-          return true, "label-mode-author-admission-test"
+          return true, "label-author-admission-test"
         end,
         reconcile = function()
-          return true, "label-mode-author-admission-test"
+          return true, "label-author-admission-test"
         end,
       },
     })
@@ -183,7 +176,7 @@ return {
     local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
     t.eq(request.external_effect_saga, "fork-and-block")
     t.eq(request.external_effect_step, "create-fork")
-    t.eq(request.labels[1], "fkst-dev:claimed:fkst-test-bot")
+    t.eq(request.labels[1], claim_label)
     t.eq(request.parent_comment_target.issue_number, 42)
     t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
     t.eq(request.post_create_blocked_by.external_effect_saga, "fork-and-block")

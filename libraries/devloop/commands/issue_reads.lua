@@ -7,11 +7,7 @@ local validators = require("devloop.commands.validators")
 local issue_view_fields = {
   intake_judge = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone",
   view_state = "title,createdAt,updatedAt,labels,state,comments,assignees,author",
-<<<<<<< HEAD
   claim = "labels,author",
-=======
-  claim = "assignees,author,labels",
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   result = "labels,comments",
   loop = "title,updatedAt,labels,comments,state,author",
   meta = "title,labels,comments,author",

@@ -52,8 +52,27 @@ local mock_merge_command = fixture.mock_merge_command
 local mock_issue_close_for = fixture.mock_issue_close_for
 local mock_queue_list = fixture.mock_queue_list
 local predecessor_set_for = fixture.predecessor_set_for
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 
 return {
+  test_slice6_merge_queue_order_and_entry_bytes_are_frozen = function()
+    local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aaa111")
+    local newer = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
+    mock_bot_env()
+    mock_queue_list({ 7, 9 })
+    mock_queue_pr(newer, "2026-06-03T02:00:00Z")
+    mock_queue_pr(older, "2026-06-03T01:00:00Z")
+
+    local head, entries = m_mq.merge_queue_head("owner/repo", "dev")
+    local bytes = observation.canonical_json({
+      head = head,
+      entries = entries,
+      predecessor_set = m_mq.merge_queue_predecessor_set(entries),
+    })
+    t.eq(sha256.hex(bytes), "032a221da898da59884ebee3bdd9cb8f8bc10b14a79f2e359413f672a387a2e7")
+  end,
+
   test_merge_queue_head_orders_by_trusted_merge_ready_time_then_pr_number = function()
     local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aaa111")
     local newer = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
@@ -62,7 +81,7 @@ return {
     mock_queue_pr(older, "2026-06-03T01:00:00Z")
     mock_queue_pr(newer, "2026-06-03T02:00:00Z")
 
-    local head = m_mq.merge_queue_head(core, "owner/repo", "dev")
+    local head = m_mq.merge_queue_head("owner/repo", "dev")
     t.eq(head.pr_number, 9)
     t.eq(head.proposal_id, older.proposal_id)
 
@@ -72,14 +91,14 @@ return {
     mock_queue_list({ 3, 2 })
     mock_queue_pr(left, "2026-06-03T01:00:00Z")
     mock_queue_pr(right, "2026-06-03T01:00:00Z")
-    head = m_mq.merge_queue_head(core, "owner/repo", "dev")
+    head = m_mq.merge_queue_head("owner/repo", "dev")
     t.eq(head.pr_number, 2)
 
     mock_bot_env()
     mock_queue_list({ 9, 7 })
     mock_queue_pr(older, "2026-06-03T01:00:00Z", "fixing", older.version .. "/fix/1")
     mock_queue_pr(newer, "2026-06-03T02:00:00Z")
-    head = m_mq.merge_queue_head(core, "owner/repo", "dev")
+    head = m_mq.merge_queue_head("owner/repo", "dev")
     t.eq(head.pr_number, 7)
     t.eq(head.proposal_id, newer.proposal_id)
   end,
@@ -92,7 +111,7 @@ return {
     mock_queue_pr(undated, "")
     mock_queue_pr(dated, "2026-06-03T01:00:00Z")
 
-    local head = m_mq.merge_queue_head(core, "owner/repo", "dev")
+    local head = m_mq.merge_queue_head("owner/repo", "dev")
     t.eq(head.pr_number, 9)
     t.eq(head.proposal_id, dated.proposal_id)
   end,

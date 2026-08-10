@@ -2,12 +2,16 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
 local opts = h.opts
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
+local intake_class = require("core.intake_class")
+local intake_service_class = require("core.intake_service_class")
 
 local context_runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
 local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.intake"
@@ -246,7 +250,7 @@ local function assert_class_label(payload, expected_key, class)
   t.eq(tostring(payload.target_number), "42")
   t.eq(payload.add_labels[1], "fkst-class:" .. class)
   t.is_nil(payload.label_colors)
-  for _, other in ipairs(core.intake_service_class_labels()) do
+  for _, other in ipairs(intake_service_class.intake_service_class_labels()) do
     if other ~= "fkst-class:" .. class then
       t.is_true(has_value(payload.remove_labels, other))
     end
@@ -264,7 +268,7 @@ local function assert_enable_successor(raises, offset, payload, expected_key, se
   t.eq(enabled_label.add_labels[1], "fkst-dev:enabled")
   t.eq(enabled_label.add_labels[2], "fkst-class:" .. service_class)
   t.eq(enabled_label.label_colors["fkst-dev:enabled"], "1D76DB")
-  for _, other in ipairs(core.intake_service_class_labels()) do
+  for _, other in ipairs(intake_service_class.intake_service_class_labels()) do
     if other ~= "fkst-class:" .. service_class then
       t.is_true(has_value(enabled_label.remove_labels, other))
     end
@@ -297,6 +301,7 @@ return {
     local result = run_judge(payload, opts("golden-judge-enable"))
 
     t.eq(result.exit_code, 0)
+    t.eq(sha256.hex(observation.canonical_json(result.raises)), "de2638a2ad7ccff538541e829aa1ad627d12d80b2b0b39dd035bb8a1cfb8c3a9")
     assert_queues(result.raises, {
       "github-proxy.github_issue_comment_request",
       "github-proxy.github_issue_label_request",
@@ -378,7 +383,7 @@ return {
       { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
       { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
     }
-    local class_key = core.intake_class_identity(reason, current, 42, siblings)
+    local class_key = intake_class.intake_class_identity(reason, current, 42, siblings)
     h.mock_bot_env()
     mock_intake_judge_view({}, {}, current)
     mock_intake_codex("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ " .. reason)
@@ -388,6 +393,7 @@ return {
     local result = run_judge(payload, opts("golden-judge-escalate"))
 
     t.eq(result.exit_code, 0)
+    t.eq(sha256.hex(observation.canonical_json(result.raises)), "fc3960eeb292e9aef975532b40d37b2e78efd8f71ce7db33a04fd504aacd18ad")
     assert_queues(result.raises, {
       "github-proxy.github_issue_comment_request",
       "github-proxy.github_issue_comment_request",
@@ -426,7 +432,7 @@ return {
     t.eq(#create.labels, 0)
     t.eq(create.parent_comment_target.repo, "owner/repo")
     t.eq(create.parent_comment_target.issue_number, "42")
-    t.is_true(create.body:find(core.intake_class_carrier_marker(class_key), 1, true) ~= nil)
+    t.is_true(create.body:find(intake_class.intake_class_carrier_marker(class_key), 1, true) ~= nil)
     assert_source_ref(create)
     assert_class_label(result.raises[5].payload, base_ids.dedup_key({
       "intake",

@@ -116,11 +116,7 @@ local function mock_malformed_fixing_pr()
     number = malformed_issue_number,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-<<<<<<< HEAD
   }, "labels,author", 8)
-=======
-  }, "assignees,author,labels", 8)
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function mock_target_fixing_pr()
@@ -172,11 +168,7 @@ local function mock_target_fixing_pr()
     number = 42,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-<<<<<<< HEAD
   }, "labels,author", 8)
-=======
-  }, "assignees,author,labels", 8)
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function liveness_tick(ts)

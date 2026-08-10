@@ -1,4 +1,5 @@
 local fixtures = require("tests.observability_test_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local h = fixtures.h
 local t = fixtures.t
 local core = fixtures.core
@@ -105,7 +106,10 @@ return {
   end,
 
   test_orphan_reaper_skips_foreign_owned_parent_without_write = function()
-    assert_orphan_reaper_skips_parent_owned_by({ assignees = { "human" }, author = "fkst-test-bot" })
+    assert_orphan_reaper_skips_parent_owned_by({
+      labels = { claim_carriers.derived_label("human") },
+      author = "fkst-test-bot",
+    })
   end,
 
   test_orphan_reaper_skips_unassigned_foreign_author_parent_without_write = function()

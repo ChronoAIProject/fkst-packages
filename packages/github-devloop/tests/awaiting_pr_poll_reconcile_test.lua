@@ -11,10 +11,11 @@ local replay_fields = require("devloop.replay_fields")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
-local replayer = require("devloop.replayer")
+local replayer = assert(rawget(core, "replayer"))
 local github_commands = require("forge.github").new(function() end)
 local git_mechanics = require("devloop.git_mechanics")
 local awaiting_pr_replayer = require("core.awaiting_pr_replayer")
+local claim_carriers = require("devloop.claim_carriers")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -34,6 +35,20 @@ local other_rollup_head_sha = "3333333333333333333333333333333333333333"
 local original_branch = devloop_base.implement_branch(repo, issue_number, core.implementation_base_version(version))
 local replacement_version = version .. "/reimplement/1"
 local replacement_branch = devloop_base.implement_branch(repo, issue_number, replacement_version)
+local active_claim_label = claim_carriers.derived_label("fkst-test-bot")
+
+local function claimed_labels(labels)
+  local selected = {}
+  local has_claim = false
+  for _, label in ipairs(labels or {}) do
+    table.insert(selected, label)
+    has_claim = has_claim or claim_carriers.is_claim_family(label)
+  end
+  if not has_claim then
+    table.insert(selected, active_claim_label)
+  end
+  return selected
+end
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -229,7 +244,7 @@ local function mock_reads(issue_comments, pr_comments, opts)
   entity_mocks.mock_issue_view_selector(t, {
     repo = repo,
     number = issue_number,
-    labels = options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+    labels = claimed_labels(options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" }),
     comments = issue_comments,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
@@ -265,7 +280,7 @@ local function run_observe(issue_comments, pr_comments, opts)
       title = "Implement decision recorder",
       state = "OPEN",
       updated_at = "2026-06-03T01:02:03Z",
-      labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+      labels = claimed_labels({ "fkst-dev:enabled", "fkst-dev:awaiting-pr" }),
       dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
       source_ref = entity_lib.issue_source_ref(repo, issue_number),
     },
@@ -667,7 +682,7 @@ return {
       table.insert(raised, { queue = queue, payload = payload })
     end
     local ok, err = pcall(function()
-      t.eq(replayer.replay_from_table(core, "observe_issue", {
+      t.eq(replayer.replay_from_table("observe_issue", {
         repo = repo,
         number = issue_number,
         source_ref = entity_lib.issue_source_ref(repo, issue_number),

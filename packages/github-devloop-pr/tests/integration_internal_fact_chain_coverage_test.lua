@@ -11,6 +11,7 @@ local replay_fields = require("devloop.replay_fields")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local decompose_lib = require("devloop.decompose")
 local m_builders = require("devloop.markers.builders")
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 local opts = h.opts
 local reviewing = h.reviewing
 local review_reached = h.review_reached
@@ -79,11 +80,7 @@ local function mock_issue_result_view(labels, comments, extra)
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = fields.repo,
     number = fields.number,
-<<<<<<< HEAD
   }, "labels,author")
-=======
-  }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
 end
 
 local function mock_decompose_child_issue_list(event, indexes)
@@ -265,7 +262,7 @@ end
 local function run_observe_pr_direct(run_opts)
   mock_branch_config_env()
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
-    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"' .. claim_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

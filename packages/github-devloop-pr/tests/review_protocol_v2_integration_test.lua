@@ -86,11 +86,7 @@ local function run_observe_pr_with_comments(comments)
     number = 42,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-<<<<<<< HEAD
   }, "labels,author")
-=======
-  }, "assignees,author,labels")
->>>>>>> d295cdfd1ae35c5356810aff077f525933c86fc8
   entity_read_mocks.mock_pr_read_forms(t, {
     repo = "owner/repo",
     number = 7,

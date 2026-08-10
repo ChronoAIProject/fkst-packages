@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local t = h.t
 local core = h.core
@@ -25,7 +26,7 @@ end
 
 local function mock_self_owned_issue()
   t.mock_command(core.gh_issue_view_claim_cmd(repo, 42), {
-    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"' .. claim_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

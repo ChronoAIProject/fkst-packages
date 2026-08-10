@@ -4,7 +4,7 @@ local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
-local active_label = "fkst-dev:claimed:fkst-test-bot"
+local active_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local function mock_bot_env()
   for _ = 1, 6 do
@@ -122,6 +122,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    h.mock_claim_label_binding("owner/repo", "fkst-test-bot")
 
     local admitted = run_admission(43)
 

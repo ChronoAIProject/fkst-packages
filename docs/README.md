@@ -16,6 +16,8 @@ Docs are split by audience:
     platform via `.fkst-*-ref` pins + `.fkst/local-packages/`, and host-repo conformance with zero rebuild.
   - [`user/global-host-profiles.md`](user/global-host-profiles.md) — XDG-style host-local
     environment profiles for no-repo-pollution FKST runs.
+  - [`user/github-app-permissions.md`](user/github-app-permissions.md) — GitHub App repository and
+    organization permissions, derived from the enforced `gh`/`git` adapter egress inventory.
 
 - **[`dev/`](dev/)** — for **contributors** developing the system: design specs, architecture, and
   methodology. Read these to *change* fkst.

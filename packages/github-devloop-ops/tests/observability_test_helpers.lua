@@ -1,4 +1,5 @@
 local h = require("tests.devloop_ops_helpers")
+local claim_carriers = require("devloop.claim_carriers")
 local t = h.t
 local core = h.core
 require("departments.observability.main")
@@ -6,6 +7,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local decompose_lib = require("devloop.decompose")
 local m_builders = require("devloop.markers.builders")
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
 local function opts(name, extra)
   local env = {
     FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
@@ -49,6 +51,14 @@ local function mock_env(bot_login, write_mode)
   for _, name in ipairs({ "GH_TOKEN", "GITHUB_TOKEN" }) do
     t.mock_command('if [ -n "${' .. name .. ':-}" ]; then printf present; fi', {
       stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 16 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+        .. claim_spec.description .. '"}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -148,6 +158,7 @@ local function mock_issue_view(comments, state, extra)
     title = extra.title or "Observed issue",
     state = state or extra.state or "OPEN",
     comments = comments,
+    labels = extra.labels or { claim_spec.name },
     assignees = extra.assignees or {},
     author_login = extra.author or "fkst-test-bot",
   }, "title,body,comments,labels,state,stateReason,assignees,author")

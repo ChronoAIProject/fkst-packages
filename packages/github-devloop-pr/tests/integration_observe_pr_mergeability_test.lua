@@ -7,6 +7,7 @@ local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -29,7 +30,7 @@ end
 
 local function mock_self_owned_issue()
   t.mock_command(core.gh_issue_view_claim_cmd(repo, 42), {
-    stdout = '{"labels":[{"name":"fkst-dev:claimed:fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stdout = '{"labels":[{"name":"' .. claim_label .. '"}],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

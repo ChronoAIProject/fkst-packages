@@ -1,3 +1,5 @@
+local claim_carriers = require("devloop.claim_carriers")
+
 return require("testkit_internal.devloop_fixtures").new({
   core = require("core"),
   entity_read_mocks = require("tests.entity_read_mock_helpers"),
@@ -9,4 +11,8 @@ return require("testkit_internal.devloop_fixtures").new({
   pr_safety = require("devloop.pr_safety"),
   consensus_call = require("devloop.consensus_call"),
   projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state")),
+  claim_label_spec = function(owner)
+    return claim_carriers.active_label_spec(false, owner)
+  end,
+  claim_label_is_family = claim_carriers.is_claim_family,
 })

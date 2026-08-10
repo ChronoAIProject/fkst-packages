@@ -412,9 +412,7 @@ local function read_matching_parent(github, source_repo, pr_number, origin)
   if m_claims.issue_claim_state(parent.labels) ~= "self" then
     return nil, "fail-closed(parent-claim)", "parent issue is not held by the current self-only claim"
   end
-  if m_claims.claim_mode_active() == "label" then
-    m_claims.assert_current_claim_label_binding(source_repo, github)
-  end
+  m_claims.assert_current_claim_label_binding(source_repo, github)
   return parent, nil, nil
 end
 

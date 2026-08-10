@@ -1,4 +1,5 @@
 local core = require("core")
+local claim_carriers = require("devloop.claim_carriers")
 local devloop_base = require("devloop.base")
 local marker_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
@@ -8,6 +9,20 @@ local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
 
 local candidate_queue = "github-devloop-intake.devloop_intake_candidate"
+local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+
+local function claimed_labels(labels)
+  local selected = {}
+  local has_claim = false
+  for _, label in ipairs(labels or {}) do
+    table.insert(selected, label)
+    has_claim = has_claim or claim_carriers.is_claim_family(label)
+  end
+  if not has_claim then
+    table.insert(selected, claim_spec.name)
+  end
+  return selected
+end
 
 local function json_string(value)
   return tostring(value or "")
@@ -53,7 +68,7 @@ local function issue_view_stdout(fields)
     json_string(f.created_at or "2026-06-03T01:00:00Z"),
     json_string(f.updated_at or "2026-06-03T01:02:03Z"),
     json_string(f.state or "OPEN"),
-    encode_labels(f.labels),
+    encode_labels(claimed_labels(f.labels)),
     encode_comments(f.comments),
     json_string(f.assignee or "fkst-test-bot"),
     json_string(f.author_login or "fkst-test-bot")
@@ -69,7 +84,7 @@ local function issue_list_stdout(issues)
       json_string(issue.title or "Issue"),
       json_string(issue.body or ""),
       json_string(issue.updated_at or "2026-06-03T01:02:03Z"),
-      encode_labels(issue.labels or {}),
+      encode_labels(claimed_labels(issue.labels)),
       json_string(issue.assignee or "fkst-test-bot"),
       json_string(issue.author_login or "fkst-test-bot"),
       json_string(issue.closed_at or "2026-06-02T01:02:03Z")
@@ -99,6 +114,14 @@ local function mock_env()
     stderr = "",
     exit_code = 0,
   })
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+        .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_issue_view(current, times)

@@ -5,6 +5,7 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local h = require("tests.devloop_helpers")
 local parsers_issue = require("devloop.parsers.issue")
 local t = h.t
+local claim_label = require("devloop.claim_carriers").derived_label("fkst-test-bot")
 
 local intake_fields = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone"
 
@@ -173,7 +174,7 @@ return {
       2784,
       "34,35",
       '{"number":36,"title":"Moved"}',
-      { "fkst-dev:claimed:fkst-test-bot" },
+      { claim_label },
       "1"
     )
 

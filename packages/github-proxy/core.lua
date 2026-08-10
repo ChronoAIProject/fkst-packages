@@ -332,23 +332,6 @@ function M.has_label(labels, expected)
   return false
 end
 
-function M.parse_issue_state(gh_json_stdout)
-  local decoded = json.decode(gh_json_stdout or "{}")
-  local labels = {}
-  for _, label in ipairs(decoded.labels or {}) do
-    if type(label) == "table" and label.name ~= nil then
-      table.insert(labels, tostring(label.name))
-    elseif type(label) == "string" then
-      table.insert(labels, label)
-    end
-  end
-  return {
-    labels = labels,
-    comments = M.parse_issue_comments(gh_json_stdout),
-    assignees = M.assignee_logins(decoded.assignees),
-  }
-end
-
 function M.parse_issue_list(gh_json_stdout)
   return M.parse_entity_list(gh_json_stdout, "issue")
 end

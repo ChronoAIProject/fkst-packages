@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local claim_carriers = require("devloop.claim_carriers")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -130,20 +131,27 @@ end
 local function mock_issue_view(labels, comments, owner_login, repo, extra)
   local target_repo = repo or "owner/repo"
   local fields = extra or {}
+  local selected_labels = {}
+  local has_claim = false
+  for _, label in ipairs(labels or {}) do
+    table.insert(selected_labels, label)
+    has_claim = has_claim or claim_carriers.is_claim_family(label)
+  end
+  if not has_claim then
+    table.insert(selected_labels, claim_carriers.derived_label(owner_login or core._test_bot_login))
+  end
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = target_repo,
-    labels = labels,
+    labels = selected_labels,
     comments = comments,
-    assignees = owner_login ~= nil and { owner_login } or nil,
+    assignees = {},
     author_login = owner_login,
     updated_at = fields.updated_at or issue_updated_at,
   }, "title,createdAt,updatedAt,labels,state,comments,assignees,author")
 end
 
 local function mock_issue_view_other_owned()
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,createdAt,updatedAt,labels,state,comments,assignees,author", {
-    stdout = '{"updatedAt":"' .. issue_updated_at .. '","labels":[],"comments":[],"assignees":[{"login":"human"}],"author":{"login":"fkst-test-bot"}}\n',
-  })
+  mock_issue_view({ claim_carriers.derived_label("human") })
 end
 
 local function mock_fetch_and_heads(current_branch_sha, managed_branch, current_integration_sha)

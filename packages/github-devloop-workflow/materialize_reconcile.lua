@@ -12,6 +12,7 @@ local generator = require("core.generator")
 local materialization = require("core.materialization")
 local actions = require("core.materialize.actions")
 local child_status = require("core.materialize.child_status")
+local currency = require("core.materialize.currency")
 local discovery = require("core.materialize.discovery")
 local lease = require("core.materialize.lease")
 
@@ -33,16 +34,50 @@ local function log_decision(proposal_id, from_state, to_state, outcome, reason)
   discovery.log_decision(M.DEPT, proposal_id, from_state, to_state, outcome, reason)
 end
 
-local function run_origin_unit_of_work(fn)
+local function new_origin_unit()
   local pending = {}
+  local guards = {}
+  local durable = 0
   local unit = {}
 
+  -- A commit guard re-validates, against the freshly read origin, the specific fact
+  -- that authorized an effect. The coarse currency token cannot cover everything: it
+  -- deliberately ignores labels, and it is computed before the generator runs, so an
+  -- effect whose authorization is narrower than "the origin did not move" registers
+  -- its own predicate here and is re-checked inside the commit lock.
+  function unit.guard(check, reason)
+    guards[#guards + 1] = { check = check, reason = reason }
+  end
+
+  -- Returns the reason of the first guard that no longer holds, or nil when the whole
+  -- buffered plan is still authorized by the fresh snapshot.
+  function unit.stale_reason(fresh_ctx)
+    for _, guard in ipairs(guards) do
+      if not guard.check(fresh_ctx) then
+        return guard.reason
+      end
+    end
+    return nil
+  end
+
   function unit.raise_request(proposal_id, queue, request)
+    durable = durable + 1
     pending[#pending + 1] = {
       kind = "raise",
       proposal_id = proposal_id,
       queue = queue,
       request = request,
+    }
+  end
+
+  -- Lease writes (assignee release, origin close) go straight to GitHub instead of
+  -- through a request queue, so they are buffered like raises and applied under the
+  -- same commit gate: a superseded plan must not release a claim it no longer owns.
+  function unit.lease_action(apply)
+    durable = durable + 1
+    pending[#pending + 1] = {
+      kind = "lease",
+      apply = apply,
     }
   end
 
@@ -57,23 +92,42 @@ local function run_origin_unit_of_work(fn)
     }
   end
 
-  local ok, outcome = pcall(fn, unit)
-  if not ok then
-    return false, outcome
+  function unit.has_durable_effects()
+    return durable > 0
   end
-  -- Publish all fallible effects before recording decisions as applied. A commit
-  -- failure remains tick-fatal and cannot leave a success fact for a rejected raise.
-  for _, effect in ipairs(pending) do
-    if effect.kind == "raise" then
-      actions.raise_request(effect.proposal_id, effect.queue, effect.request)
+
+  function unit.discard()
+    pending = {}
+    guards = {}
+    durable = 0
+  end
+
+  -- Lease writes go first and stay per-origin fallible: a GitHub write that fails for
+  -- one origin discards that origin's buffered raises and lets the tick continue.
+  function unit.apply_leases()
+    for _, effect in ipairs(pending) do
+      if effect.kind == "lease" then
+        effect.apply()
+      end
     end
   end
-  for _, effect in ipairs(pending) do
-    if effect.kind == "decision" then
-      log_decision(effect.proposal_id, effect.from_state, effect.to_state, effect.outcome, effect.reason)
+
+  function unit.publish()
+    -- Publish all fallible effects before recording decisions as applied. A commit
+    -- failure remains tick-fatal and cannot leave a success fact for a rejected raise.
+    for _, effect in ipairs(pending) do
+      if effect.kind == "raise" then
+        actions.raise_request(effect.proposal_id, effect.queue, effect.request)
+      end
+    end
+    for _, effect in ipairs(pending) do
+      if effect.kind == "decision" then
+        log_decision(effect.proposal_id, effect.from_state, effect.to_state, effect.outcome, effect.reason)
+      end
     end
   end
-  return true, outcome
+
+  return unit
 end
 
 local function origin_error_class(err)
@@ -274,6 +328,14 @@ local function perform_materialize(core, deps, repo, issue_number, origin, bluep
   end
 
   local planned_child_dedup = materialization.child_dedup_key(origin, slot.id, predecessor_ref_digest)
+  -- Both plan shapes below write this one ledger key, and the planning read that
+  -- authorized them is minutes old by the time the generator returns, so both re-assert
+  -- at commit that the key is still unwritten.
+  unit.guard(function(fresh_ctx)
+    local existing_now = actions.best_fact_for_key(fresh_ctx.facts, key)
+    return existing_now == nil or existing_now.state ~= "created"
+  end, "another run already recorded a created materialization for slot " .. tostring(slot.id))
+
   local wrote_existing, existing_reason = actions.record_existing_child_or_created_marker(
     core,
     deps,
@@ -299,6 +361,23 @@ local function perform_materialize(core, deps, repo, issue_number, origin, bluep
   if wrote_existing then
     return true
   end
+
+  -- Only from here does the plan CREATE a child, and only a create-shaped plan may
+  -- treat create-intent as an exclusion. github-proxy publishes its create-intent
+  -- marker before it creates and never removes it afterwards, so intent is visible
+  -- forever on a normally created child; guarding the reconcile shapes above with
+  -- intent-absence would suppress their ledger catch-up permanently. Here the absence
+  -- is a real precondition, because record_existing_child_or_created_marker already
+  -- returned "wait" when intent is visible without a child. Intent appearing between
+  -- planning and commit therefore means an overlapping run reached the create first.
+  unit.guard(function(fresh_ctx)
+    return not actions.has_trusted_issue_create_intent(
+      core,
+      fresh_ctx.current,
+      planned_child_dedup,
+      discovery.trusted_comments
+    )
+  end, "another run already published a create intent for slot " .. tostring(slot.id))
 
   local generator_result = generator.run_slot_generator(generator_deps(core, deps), {
     origin_proposal_id = origin,
@@ -376,120 +455,193 @@ local function perform_materialize(core, deps, repo, issue_number, origin, bluep
   return ok
 end
 
-local function process_origin(core, deps, repo, issue_number, event, catalog, unit)
-  local origin = base_ids.proposal_id(repo, issue_number)
-  return with_lock(devloop_entity.observe_lock_key(repo, issue_number), function()
-    local current = discovery.read_issue(core, deps, repo, issue_number)
-    if tostring(current.state or ""):upper() ~= "OPEN" then
-      unit.log_decision(origin, "tick", "discover", "skip-closed", "issue is not open")
-      return "skip"
-    end
-    -- Successful and configuration-error terminals are monotonic. A blocked terminal
-    -- is a derived child verdict, so each poll must recompute it from current child
-    -- facts: a child can recover and merge after the workflow recorded child-fatal.
-    local terminal_fact = discovery.latest_terminal(core, current, origin)
-    local label_projection = discovery.latest_label_projection(core, current, origin)
-    if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
-      if tostring(terminal_fact.state or "") == "done" then
-        if reconcile_done_projection(repo, issue_number, origin, current.labels, unit) then
+-- Planning: every source read, child-status read, dependency-gate resolution and the
+-- slot generator (a codex run measured in minutes) happen here, WITHOUT the origin's
+-- transition lock. Effects are buffered into `unit` and applied later by commit_origin
+-- under a re-read currency check, so the lock no longer spans network or codex IO that
+-- tempfails observe_issue / admission / rollup_scan on the same issue.
+local function plan_origin(core, deps, repo, issue_number, event, catalog, unit, current, origin)
+  if tostring(current.state or ""):upper() ~= "OPEN" then
+    unit.log_decision(origin, "tick", "discover", "skip-closed", "issue is not open")
+    return "skip"
+  end
+  -- Successful and configuration-error terminals are monotonic. A blocked terminal
+  -- is a derived child verdict, so each poll must recompute it from current child
+  -- facts: a child can recover and merge after the workflow recorded child-fatal.
+  local terminal_fact = discovery.latest_terminal(core, current, origin)
+  local label_projection = discovery.latest_label_projection(core, current, origin)
+  if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
+    if tostring(terminal_fact.state or "") == "done" then
+      if reconcile_done_projection(repo, issue_number, origin, current.labels, unit) then
+        -- Releasing the claim and closing the origin are irreversible, and what
+        -- authorizes them is the merged label projection matching the done terminal.
+        -- Currency deliberately excludes labels, so this effect re-validates its own
+        -- authorization against the fresh snapshot inside the commit lock.
+        unit.guard(function(fresh_ctx)
+          local fresh_terminal = discovery.latest_terminal(core, fresh_ctx.current, origin)
+          return fresh_terminal ~= nil
+            and tostring(fresh_terminal.state or "") == "done"
+            and actions.done_label_request(repo, issue_number, origin, fresh_ctx.current.labels) == nil
+        end, "merged label projection no longer authorizes the irreversible done cleanup")
+        unit.lease_action(function()
           lease.release_done_claim(core, deps, repo, issue_number, origin)
           lease.close_done_origin(core, deps, repo, issue_number, origin)
-        end
-      else
-        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+        end)
       end
-      unit.log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
-      return "skip"
+    else
+      reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
     end
-    if not verify_claim(core, deps, repo, issue_number, origin) then
-      unit.log_decision(origin, "claim", "materialize", "skip-claim-lost", "origin materialization lease is not self-held")
-      return "skip"
-    end
+    unit.log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
+    return "skip"
+  end
+  if not verify_claim(core, deps, repo, issue_number, origin) then
+    unit.log_decision(origin, "claim", "materialize", "skip-claim-lost", "origin materialization lease is not self-held")
+    return "skip"
+  end
 
-    local blueprint_fact = discovery.latest_blueprint(core, current, origin)
-    if blueprint_fact == nil then
-      unit.log_decision(origin, "discover", "blueprint", "skip-no-blueprint", "no trusted workflow blueprint marker")
-      return "skip"
-    end
+  local blueprint_fact = discovery.latest_blueprint(core, current, origin)
+  if blueprint_fact == nil then
+    unit.log_decision(origin, "discover", "blueprint", "skip-no-blueprint", "no trusted workflow blueprint marker")
+    return "skip"
+  end
 
-    local record = catalog and catalog.valid and catalog.valid[blueprint_fact.workflow] or nil
-    if record == nil or type(record.blueprint) ~= "table" then
-      return terminal(core, deps, repo, issue_number, origin, "error", "workflow-not-in-catalog", unit)
-    end
-    local current_digest = digest.blueprint_digest(record.blueprint)
-    if current_digest ~= blueprint_fact.digest then
-      return terminal(core, deps, repo, issue_number, origin, "error", "blueprint-digest-mismatch", unit)
-    end
+  local record = catalog and catalog.valid and catalog.valid[blueprint_fact.workflow] or nil
+  if record == nil or type(record.blueprint) ~= "table" then
+    return terminal(core, deps, repo, issue_number, origin, "error", "workflow-not-in-catalog", unit)
+  end
+  local current_digest = digest.blueprint_digest(record.blueprint)
+  if current_digest ~= blueprint_fact.digest then
+    return terminal(core, deps, repo, issue_number, origin, "error", "blueprint-digest-mismatch", unit)
+  end
 
-    local facts = discovery.materialization_facts(core, current, origin)
-    local created_marker = actions.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, discovery.trusted_comments, unit.log_decision, unit.raise_request)
-    if created_marker == "wait" then
+  local facts = discovery.materialization_facts(core, current, origin)
+  local created_marker = actions.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, discovery.trusted_comments, unit.log_decision, unit.raise_request)
+  if created_marker == "wait" then
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    return "wait"
+  end
+  if created_marker then
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    return "created-marker"
+  end
+
+  local decision = frontier.compute_frontier(
+    record.blueprint,
+    actions.ledger_for_frontier(repo, facts),
+    child_status.reader(core, deps, repo)
+  )
+  devloop_logging.log_line("info", M.DEPT, origin, "FRONTIER", {
+    "action=" .. tostring(decision.action),
+    "slot=" .. tostring(decision.slot or ""),
+    "reason=" .. tostring(decision.reason_code or decision.why or ""),
+  })
+  if decision.action == "wait" then
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    unit.log_decision(origin, "frontier", "wait", "skip-wait", decision.why or "frontier-waits")
+    return "wait"
+  end
+  if decision.action == "terminal" then
+    if terminal_fact ~= nil
+      and tostring(terminal_fact.state or "") == "blocked"
+      and tostring(decision.state or "error") == "blocked" then
+      reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+      if tostring(terminal_fact.reason_code or "") == tostring(decision.reason_code or "frontier-terminal") then
+        return "terminal"
+      end
+    end
+    return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal", unit)
+  end
+  if decision.action == "materialize" then
+    local resolve_dependencies = deps.dependency_gate or core.dependency_gate
+    if type(resolve_dependencies) ~= "function" then
+      error("github-devloop-workflow: dependency-gate-unavailable: workflow materialization requires the shared dependency gate")
+    end
+    local dependency_is_satisfied = deps.dependency_gate_is_satisfied or dependency_gate.dependency_gate_is_satisfied
+    if type(dependency_is_satisfied) ~= "function" then
+      error("github-devloop-workflow: dependency-gate-predicate-unavailable: workflow materialization requires the shared dependency predicate")
+    end
+    local dependency = resolve_dependencies(repo, issue_number)
+    if type(dependency) ~= "table" then
+      error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
+    end
+    if not dependency_is_satisfied(dependency) then
       reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+      unit.log_decision(
+        origin,
+        "frontier",
+        "dependency-gate",
+        "skip-wait(" .. tostring(dependency.kind or "unavailable") .. ")",
+        dependency.reason or "dependency-unresolved"
+      )
       return "wait"
     end
-    if created_marker then
+    local outcome = perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event, unit)
+    if outcome ~= "terminal" then
       reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
-      return "created-marker"
     end
+    return outcome
+  end
+  return terminal(core, deps, repo, issue_number, origin, "error", "unknown-frontier-action", unit)
+end
 
-    local decision = frontier.compute_frontier(
-      record.blueprint,
-      actions.ledger_for_frontier(repo, facts),
-      child_status.reader(core, deps, repo)
-    )
-    devloop_logging.log_line("info", M.DEPT, origin, "FRONTIER", {
-      "action=" .. tostring(decision.action),
-      "slot=" .. tostring(decision.slot or ""),
-      "reason=" .. tostring(decision.reason_code or decision.why or ""),
-    })
-    if decision.action == "wait" then
-      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
-      unit.log_decision(origin, "frontier", "wait", "skip-wait", decision.why or "frontier-waits")
-      return "wait"
+-- Commit: the only section that holds the origin's transition lock. It re-reads the
+-- origin, republishes the buffered plan when the facts that authorized it are still
+-- current, and otherwise discards the whole plan (effects AND their decision facts,
+-- so a discarded raise can never leave an "applied" record behind).
+local function commit_origin(core, deps, repo, issue_number, unit, planned_currency, outcome, origin, entered_commit)
+  return with_lock(devloop_entity.observe_lock_key(repo, issue_number), function()
+    local fresh = discovery.read_issue(core, deps, repo, issue_number)
+    local changed = currency.changed_part(planned_currency, currency.origin_currency(core, fresh, origin))
+    local stale = changed ~= nil
+      and ("origin " .. changed .. " moved while the plan was being computed")
+      or unit.stale_reason({
+        current = fresh,
+        facts = discovery.materialization_facts(core, fresh, origin),
+      })
+    if stale ~= nil then
+      unit.discard()
+      log_decision(
+        origin,
+        "commit",
+        "materialize",
+        "skip-stale(origin-facts-changed)",
+        stale
+      )
+      return "skip-stale"
     end
-    if decision.action == "terminal" then
-      if terminal_fact ~= nil
-        and tostring(terminal_fact.state or "") == "blocked"
-        and tostring(decision.state or "error") == "blocked" then
-        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
-        if tostring(terminal_fact.reason_code or "") == tostring(decision.reason_code or "frontier-terminal") then
-          return "terminal"
-        end
-      end
-      return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal", unit)
-    end
-    if decision.action == "materialize" then
-      local resolve_dependencies = deps.dependency_gate or core.dependency_gate
-      if type(resolve_dependencies) ~= "function" then
-        error("github-devloop-workflow: dependency-gate-unavailable: workflow materialization requires the shared dependency gate")
-      end
-      local dependency_is_satisfied = deps.dependency_gate_is_satisfied or dependency_gate.dependency_gate_is_satisfied
-      if type(dependency_is_satisfied) ~= "function" then
-        error("github-devloop-workflow: dependency-gate-predicate-unavailable: workflow materialization requires the shared dependency predicate")
-      end
-      local dependency = resolve_dependencies(repo, issue_number)
-      if type(dependency) ~= "table" then
-        error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
-      end
-      if not dependency_is_satisfied(dependency) then
-        reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
-        unit.log_decision(
-          origin,
-          "frontier",
-          "dependency-gate",
-          "skip-wait(" .. tostring(dependency.kind or "unavailable") .. ")",
-          dependency.reason or "dependency-unresolved"
-        )
-        return "wait"
-      end
-      local outcome = perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event, unit)
-      if outcome ~= "terminal" then
-        reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
-      end
-      return outcome
-    end
-    return terminal(core, deps, repo, issue_number, origin, "error", "unknown-frontier-action", unit)
+    unit.apply_leases()
+    entered_commit()
+    unit.publish()
+    return outcome
   end)
+end
+
+local function process_origin(core, deps, repo, issue_number, event, catalog)
+  local origin = base_ids.proposal_id(repo, issue_number)
+  local unit = new_origin_unit()
+  -- Planning and the currency re-read are per-origin fallible: one bad origin logs
+  -- ORIGIN_FAILURE and the tick continues. Publishing is not: a rejected effect stays
+  -- tick-fatal so no origin can record a success fact for an effect that never landed.
+  local committing = false
+  local function entered_commit()
+    committing = true
+  end
+  local ok, outcome = pcall(function()
+    local current = discovery.read_issue(core, deps, repo, issue_number)
+    local planned_currency = currency.origin_currency(core, current, origin)
+    local planned = plan_origin(core, deps, repo, issue_number, event, catalog, unit, current, origin)
+    if not unit.has_durable_effects() then
+      -- A decision-only outcome protects no durable state, so it never takes the lock.
+      entered_commit()
+      unit.publish()
+      return planned
+    end
+    return commit_origin(core, deps, repo, issue_number, unit, planned_currency, planned, origin, entered_commit)
+  end)
+  if not ok and committing then
+    error(outcome, 0)
+  end
+  return ok, outcome
 end
 
 local function act(core, event, opts)
@@ -519,9 +671,7 @@ local function act(core, event, opts)
   })
   for _, issue in ipairs(issues) do
     if issue.number ~= nil then
-      local ok, err = run_origin_unit_of_work(function(unit)
-        return process_origin(core, deps, repo, issue.number, event, catalog, unit)
-      end)
+      local ok, err = process_origin(core, deps, repo, issue.number, event, catalog)
       if not ok then
         log_origin_failure(repo, issue.number, event, err)
       end

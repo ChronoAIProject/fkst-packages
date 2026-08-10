@@ -89,6 +89,10 @@ class TestAffectedHarness:
             test_affected = REPO_ROOT / "scripts" / "test_affected.sh"
             if test_affected.exists():
                 shutil.copy2(test_affected, self.scripts / "test_affected.sh")
+            shutil.copy2(
+                REPO_ROOT / "scripts" / "test_affected.py",
+                self.scripts / "test_affected.py",
+            )
             local_iteration_result = REPO_ROOT / "scripts" / "local_iteration_result.sh"
             if local_iteration_result.exists():
                 shutil.copy2(local_iteration_result, self.scripts / "local_iteration_result.sh")
@@ -98,6 +102,7 @@ class TestAffectedHarness:
                 "result=${FKST_TEST_AFFECTED_RUNNER_RESULT:-}\n"
                 "case \"${2:-}\" in\n"
                 "  consensus) result=${FKST_TEST_AFFECTED_RESULT_CONSENSUS:-$result} ;;\n"
+                "  frontend-devloop) result=${FKST_TEST_AFFECTED_RESULT_FRONTEND_DEVLOOP:-$result} ;;\n"
                 "  github-devloop) result=${FKST_TEST_AFFECTED_RESULT_GITHUB_DEVLOOP:-$result} ;;\n"
                 "esac\n"
                 "if [ -n \"$result\" ]; then\n"
@@ -219,6 +224,38 @@ class TestAffectedHarness:
         self._git("checkout", "-b", "dev")
         self._write("packages/consensus/core.lua", "return {}\n")
         self._write("packages/github-devloop/core.lua", "return {}\n")
+        self._write("packages/frontend-devloop/core.lua", "return {}\n")
+        self._write(
+            "packages/consensus/fkst.toml",
+            'kind = "package"\nname = "consensus"\n\n[lib_deps]\n'
+            'libraries = ["consensus"]\n',
+        )
+        self._write(
+            "packages/github-devloop/fkst.toml",
+            'kind = "package.composed"\nname = "github-devloop"\n\n[lib_deps]\n'
+            'libraries = ["devloop"]\n',
+        )
+        self._write(
+            "packages/frontend-devloop/fkst.toml",
+            'kind = "package.composed"\nname = "frontend-devloop"\n\n'
+            '[lib_deps]\nlibraries = []\n\n[event_deps]\n'
+            'packages = ["github-devloop"]\n',
+        )
+        self._write(
+            "libraries/workflow/fkst.toml",
+            'kind = "library"\nname = "workflow"\n\n[lib_deps]\n'
+            'libraries = ["contract"]\n',
+        )
+        self._write(
+            "libraries/devloop/fkst.toml",
+            'kind = "library"\nname = "devloop"\n\n[lib_deps]\n'
+            'libraries = ["workflow"]\n',
+        )
+        self._write(
+            "libraries/consensus/fkst.toml",
+            'kind = "library"\nname = "consensus"\n\n[lib_deps]\n'
+            'libraries = ["workflow"]\n',
+        )
         self._write("scripts/helper.sh", "#!/bin/sh\n")
         self._write("README.md", "fixture\n")
         self._git("add", ".")
@@ -315,7 +352,10 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run()
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
             self.assertEqual(result_markers(result), [result_marker("PASS", "NONE")])
         finally:
             h.close()
@@ -332,7 +372,10 @@ class RunShTestAffectedTest(unittest.TestCase):
                 result_markers(result),
                 [result_marker("FAIL", "SEMANTIC")],
             )
-            self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 
@@ -348,7 +391,10 @@ class RunShTestAffectedTest(unittest.TestCase):
                 result_markers(result),
                 [result_marker("UNKNOWN", "UNKNOWN")],
             )
-            self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 
@@ -558,7 +604,10 @@ class RunShTestAffectedTest(unittest.TestCase):
                 result_markers(result),
                 [result_marker("UNKNOWN", "UNKNOWN")],
             )
-            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test consensus", "test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 
@@ -572,6 +621,7 @@ class RunShTestAffectedTest(unittest.TestCase):
                 runner_exit=1,
                 package_results={
                     "consensus": "FAIL:TOOLCHAIN",
+                    "frontend-devloop": "FAIL:TOOLCHAIN",
                     "github-devloop": "FAIL:TOOLCHAIN",
                 },
             )
@@ -596,7 +646,10 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run(with_branch_env=False)
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 
@@ -617,9 +670,50 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_runs_full_for_broad_paths(self) -> None:
+    def test_library_change_selects_reverse_dependency_closure(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("libraries/devloop/extra.lua", "return {}\n")
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
+        finally:
+            h.close()
+
+    def test_library_dependency_change_reaches_package_consumers(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("libraries/workflow/extra.lua", "return {}\n")
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                h.runner_args(),
+                ["test consensus", "test frontend-devloop", "test github-devloop"],
+            )
+        finally:
+            h.close()
+
+    def test_unknown_library_falls_back_to_full(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("libraries/unknown/extra.lua", "return {}\n")
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(h.runner_args(), ["test"])
+        finally:
+            h.close()
+
+    def test_runs_full_for_independently_broad_paths(self) -> None:
         broad_paths = (
-            "libraries/devloop/extra.lua",
             "scripts/helper.sh",
             ".github/workflows/ci.yml",
             "fkst.workspace.toml",
@@ -657,7 +751,10 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run()
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test consensus", "test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 
@@ -669,7 +766,10 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run()
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(
+                h.runner_args(),
+                ["test frontend-devloop", "test github-devloop"],
+            )
         finally:
             h.close()
 

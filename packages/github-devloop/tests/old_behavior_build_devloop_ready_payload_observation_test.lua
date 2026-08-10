@@ -10,6 +10,7 @@ local observation_support = require("testkit_internal.old_behavior_observation_s
 local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local observe_issue_department = require("departments.observe_issue.main")
+local claim_carriers = require("devloop.claim_carriers")
 
 local t = h.t
 local core = h.core
@@ -41,6 +42,7 @@ local BLOCKED_TIMEOUT_VERSION = conv_reconcile.timeout_reconcile_state_version(
   "implementing",
   3
 )
+local ACTIVE_CLAIM_LABEL = claim_carriers.derived_label("fkst-test-bot")
 
 local function trusted_comment(body, id, created_at)
   return {
@@ -60,7 +62,7 @@ local FIXTURES = {
     name = "impl-failed",
     state = "impl-failed",
     state_version = READY_VERSION,
-    labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+    labels = { "fkst-dev:enabled", "fkst-dev:impl-failed", ACTIVE_CLAIM_LABEL },
     comments = function()
       return json_array({
         trusted_comment(core.state_marker(PROPOSAL_ID, "impl-failed", READY_VERSION), "IC_state_impl_failed"),
@@ -75,7 +77,7 @@ local FIXTURES = {
     name = "blocked-open-pr",
     state = "blocked",
     state_version = BLOCKED_REVIEW_VERSION,
-    labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+    labels = { "fkst-dev:enabled", "fkst-dev:blocked", ACTIVE_CLAIM_LABEL },
     comments = function()
       return json_array({
         trusted_comment(m_builders.pr_link_marker(
@@ -107,7 +109,7 @@ local FIXTURES = {
     name = "blocked-implementing-timeout-without-pr",
     state = "blocked",
     state_version = BLOCKED_TIMEOUT_VERSION,
-    labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+    labels = { "fkst-dev:enabled", "fkst-dev:blocked", ACTIVE_CLAIM_LABEL },
     comments = function()
       return json_array({
         trusted_comment(core.state_marker(PROPOSAL_ID, "implementing", READY_VERSION), "IC_state_implementing"),

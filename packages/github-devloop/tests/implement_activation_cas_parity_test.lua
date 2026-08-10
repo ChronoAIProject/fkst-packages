@@ -194,8 +194,8 @@ local function observe_department(run, opts)
     })
     return state, reason
   end
-  m_mq.wip_capacity_allows_start = function(M, repo, current_issue_number)
-    local allowed, reason, count, maximum = original_wip_capacity_allows_start(M, repo, current_issue_number)
+  m_mq.wip_capacity_allows_start = function(repo, current_issue_number)
+    local allowed, reason, count, maximum = original_wip_capacity_allows_start(repo, current_issue_number)
     sequence = sequence + 1
     table.insert(boundary_calls, {
       sequence = sequence,

@@ -1,7 +1,6 @@
 local core = require("core")
 local devloop_claims = require("devloop.claims")
 local ports_seam = require("forge.ports")
-local forge_strings = require("forge.strings")
 local saga = require("workflow.saga")
 
 local M = {}
@@ -151,30 +150,9 @@ local function reconcile_created_bridge_issue(github, repo, pr_number, managed, 
   return canonical
 end
 
-<<<<<<< HEAD
 local function ensure_claim(github, repo, pr, claims)
   local state = claims.issue_claim_state(pr.labels)
   if state == "self" then
-=======
-local function self_only_claim(pr, self_login)
-  if self_login == nil or self_login == "" then
-    return false
-  end
-  local seen = false
-  for _, assignee in ipairs(pr.assignees or {}) do
-    local login = forge_strings.canonical_login(assignee)
-    if forge_strings.canonical_login(login) == forge_strings.canonical_login(self_login) then
-      seen = true
-    elseif login ~= nil and login ~= "" then
-      return false
-    end
-  end
-  return seen
-end
-
-local function ensure_claim(github, repo, pr, self_login)
-  if self_only_claim(pr, self_login) then
->>>>>>> 64323e14ecdb072282dfe7dec51469d8a77edcd4
     return true, pr
   end
   if state == "other" then

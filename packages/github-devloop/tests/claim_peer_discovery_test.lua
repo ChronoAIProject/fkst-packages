@@ -1,4 +1,5 @@
 local m_claims = require("devloop.claims")
+local claim_carriers = require("devloop.claim_carriers")
 local h = require("tests.devloop_core_helpers")
 local t = h.t
 local author_policy = require("testkit_internal.github_author_policy")
@@ -22,8 +23,10 @@ local function count_calls(command)
 end
 
 local function mock_bot(login)
+  local selected_login = login or "fkst-test-bot"
+  local claim_spec = claim_carriers.active_label_spec(false, selected_login)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-    stdout = login or "fkst-test-bot",
+    stdout = selected_login,
     stderr = "",
     exit_code = 0,
   })
@@ -37,6 +40,14 @@ local function mock_bot(login)
     stderr = "",
     exit_code = 0,
   })
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+        .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_authorized_login(login, managed_bot_logins, opts)
@@ -107,11 +118,10 @@ local function direct_discovery_admission(handle, policy, poll_key)
   })
 end
 
-local function direct_carrier_admission(claim_mode, author, managed, authorized)
+local function direct_label_admission(author, managed, authorized)
   return m_claims.claim_admission_precheck(current_issue(author, {}), {
     owner = "fkst-test-bot",
     status = "unassigned",
-    claim_mode = claim_mode,
     managed = managed or {},
     trusted_author_policy = github_author_policy.from_logins(authorized or { "fkst-test-bot" }),
   })
@@ -200,25 +210,21 @@ local function mock_repo_peer_scan(issue_rows, pr_rows, opts)
 end
 
 return {
-  test_author_and_peer_admission_is_carrier_independent = function()
-    for _, claim_mode in ipairs({ "assignee", "label" }) do
-      local peer_admission, peer_detail = direct_carrier_admission(
-        claim_mode,
-        "peer-bot",
-        { ["peer-bot"] = true }
-      )
-      t.eq(peer_admission, "denied")
-      t.eq(peer_detail.action, "skip-fork-peer-bot")
+  test_author_and_peer_admission_remains_independent_from_label_ownership = function()
+    local peer_admission, peer_detail = direct_label_admission(
+      "peer-bot",
+      { ["peer-bot"] = true }
+    )
+    t.eq(peer_admission, "denied")
+    t.eq(peer_detail.action, "skip-fork-peer-bot")
 
-      local author_admission, author_detail = direct_carrier_admission(
-        claim_mode,
-        "drive-by",
-        {},
-        { "fkst-test-bot" }
-      )
-      t.eq(author_admission, "denied")
-      t.eq(author_detail.action, "skip-non-whitelisted-author")
-    end
+    local author_admission, author_detail = direct_label_admission(
+      "drive-by",
+      {},
+      { "fkst-test-bot" }
+    )
+    t.eq(author_admission, "denied")
+    t.eq(author_detail.action, "skip-non-whitelisted-author")
   end,
 
   test_repo_peer_snapshot_accessor_requires_a_nonempty_poll_epoch = function()
@@ -435,7 +441,7 @@ return {
     mock_bot("fkst-test-bot")
     mock_authorized_login("trusted-human")
     local current = current_issue("trusted-human", {})
-    current.labels = { "fkst-dev:claimed:fkst-test-bot" }
+    current.labels = { claim_carriers.derived_label("fkst-test-bot") }
 
     local admission = admission_for(current, repo)
 
