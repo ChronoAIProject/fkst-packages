@@ -2,7 +2,7 @@
 -- durable facts a replay row declares, leaving replayer.lua to select and execute
 -- replay strategies. Extracted from replayer.lua as a pure structural refactor
 -- (Step 0.0 line-budget containment); behavior is unchanged.
-local m_facts = require("devloop.markers.facts")
+local m_facts, entity_lib = require("devloop.markers.facts"), require("devloop.entity")
 local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local parsers_pr = require("devloop.parsers.pr")
 local forge_validators = require("devloop.forge_validators")
@@ -30,8 +30,8 @@ local function snapshot_with_pr_comments(current_pr)
   return snapshot
 end
 
-local function snapshot_from_issue_comments(M, repo, proposal_id, comments)
-  return M.linked_pr_surface_snapshot(repo, proposal_id, comments or {})
+local function snapshot_from_issue_comments(replay_sources, repo, proposal_id, comments)
+  return replay_sources.linked_pr_surface_snapshot(repo, proposal_id, comments or {})
 end
 
 local function validate_required_fact(required)
@@ -61,24 +61,24 @@ local function current_pr_fact(facts)
   return find_linked_pr(facts.snapshot, link.pr_number)
 end
 
-local function child_pr_delegation_fact(M, facts)
+local function child_pr_delegation_fact(facts)
   return facts.pr_delegation
     or facts["pr-delegation"]
     or m_facts.pr_delegation_fact(facts.snapshot.comments, facts.proposal_id, facts.state and facts.state.version)
 end
 
-local function fetch_child_state_fact(M, facts)
+local function fetch_child_state_fact(replay_sources, facts)
   if facts.child_state ~= nil then
     return facts.child_state
   end
-  local delegation = child_pr_delegation_fact(M, facts)
+  local delegation = child_pr_delegation_fact(facts)
   if delegation == nil then
     return nil
   end
   facts.pr_delegation = delegation
   facts["pr-delegation"] = delegation
   if facts.current_pr == nil then
-    local view = M.fetch_pr_view_origin(facts.issue.repo, delegation.pr_number, nil, {
+    local view = replay_sources.issue_lifecycle_facts.fetch_pr_view_origin(facts.issue.repo, delegation.pr_number, nil, {
       force_fresh = true,
       consumer = "replay_child_state",
     })
@@ -88,11 +88,11 @@ local function fetch_child_state_fact(M, facts)
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
     facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
   end
-  facts.child_state = require("devloop.entity").current_entity_state(facts.current_pr.comments, delegation.proposal_id)
+  facts.child_state = entity_lib.current_entity_state(facts.current_pr.comments, delegation.proposal_id)
   return facts.child_state
 end
 
-local function require_marker_fact(M, facts, family)
+local function require_marker_fact(restart_policy, replay_sources, facts, family)
   if family == "state" then
     return facts.state
   end
@@ -100,13 +100,13 @@ local function require_marker_fact(M, facts, family)
     return m_facts.pr_link_fact(facts.snapshot.comments, facts.proposal_id) or (facts._synthetic_pr_link ~= true and facts.link or nil)
   end
   if family == "pr-delegation" then
-    return child_pr_delegation_fact(M, facts)
+    return child_pr_delegation_fact(facts)
   end
   if family == "child-state" then
-    return fetch_child_state_fact(M, facts)
+    return fetch_child_state_fact(replay_sources, facts)
   end
   if family == "converge-round" then
-    return M.latest_complete_converge_round(
+    return restart_policy.latest_complete_converge_round(
       facts.snapshot.comments,
       facts.proposal_id,
       facts.state.version,
@@ -114,21 +114,21 @@ local function require_marker_fact(M, facts, family)
     )
   end
   if family == "dependency-release" then
-    return M.dependency_release_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return replay_sources.issue_lifecycle_facts.dependency_release_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "dependency-wait" then
-    return M.dependency_hold_fact(facts.snapshot.comments, facts.proposal_id)
+    return replay_sources.issue_lifecycle_facts.dependency_hold_fact(facts.snapshot.comments, facts.proposal_id)
   end
   if family == "review-result" then
     return m_facts.review_reject_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "fix-feedback" then
-    return M.fixing_replay_feedback_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return restart_policy.fixing_replay_feedback_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "review-meta" then
     local current_pr = current_pr_fact(facts)
     if current_pr ~= nil and forge_validators.is_git_sha(current_pr.head_sha) then
-      return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
+      return restart_policy.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
     end
     return m_facts.review_meta_fix_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
@@ -137,7 +137,7 @@ local function require_marker_fact(M, facts, family)
     if current_pr == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
       return nil
     end
-    return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
+    return restart_policy.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "merge-gate" then
     local observation = m_fix_feedback_observation.observe(
@@ -153,7 +153,7 @@ local function require_marker_fact(M, facts, family)
     if current_pr == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
       return nil
     end
-    return m_mgw.merge_gate_wait_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
+    return m_mgw.merge_gate_wait_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "decomposed" then
     local link = facts.link
@@ -170,10 +170,10 @@ local function require_marker_fact(M, facts, family)
     if facts.state.state == "implementing" then
       attempt_version = transition_version.strip_timeout_suffixes(attempt_version)
     end
-    return M.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, attempt_version)
+    return replay_sources.issue_lifecycle_facts.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, attempt_version)
   end
   if family == "impl-failure" then
-    return M.impl_failure_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return replay_sources.issue_lifecycle_facts.impl_failure_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "merge-ready" then
     local current_pr = current_pr_fact(facts)
@@ -198,7 +198,7 @@ local function require_marker_fact(M, facts, family)
   error("github-devloop: replay-marker-fact-family-unsupported: unsupported replay marker fact family: " .. tostring(family))
 end
 
-local function gather_fetch_before_compare_fact(M, facts, entity, family)
+local function gather_fetch_before_compare_fact(replay_sources, facts, entity, family)
   if family == "pr-head" then
     if facts.link ~= nil and facts.current_pr ~= nil then
       facts.snapshot = snapshot_with_pr_comments(facts.current_pr)
@@ -206,7 +206,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
       table.insert(facts.snapshot.prs, { number = facts.link.pr_number, current = facts.current_pr })
       facts.snapshot.state = facts.state
     else
-      facts.snapshot = snapshot_from_issue_comments(M, entity.repo, facts.proposal_id, facts.current and facts.current.comments or {})
+      facts.snapshot = snapshot_from_issue_comments(replay_sources, entity.repo, facts.proposal_id, facts.current and facts.current.comments or {})
       facts.link = m_facts.pr_link_fact(facts.snapshot.comments, facts.proposal_id)
     end
     return true
@@ -215,7 +215,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
     return true
   end
   if family == "decompose-children" then
-    local child_list = M.gh_issue_list_decompose_children(entity.repo, facts.proposal_id, 30)
+    local child_list = replay_sources.issue_lifecycle_facts.gh_issue_list_decompose_children(entity.repo, facts.proposal_id, 30)
     if child_list.exit_code ~= 0 then
       error("github-devloop: gh-issue-child-list-failed: gh issue decompose child list failed: " .. tostring(child_list.stderr))
     end
@@ -263,7 +263,7 @@ local function store_gathered_marker_fact(facts, family, value)
   end
 end
 
-local function gather_required_facts(M, row, entity, state, provided)
+local function gather_required_facts(restart_policy, replay_sources, row, entity, state, provided)
   local gathered = {}
   for key, value in pairs(provided or {}) do
     gathered[key] = value
@@ -289,7 +289,7 @@ local function gather_required_facts(M, row, entity, state, provided)
   for _, required in ipairs(row.required_facts or {}) do
     validate_required_fact(required)
     if required.freshness == "fetch-before-compare" then
-      gather_fetch_before_compare_fact(M, gathered, entity, required.family)
+      gather_fetch_before_compare_fact(replay_sources, gathered, entity, required.family)
     end
   end
 
@@ -297,7 +297,7 @@ local function gather_required_facts(M, row, entity, state, provided)
 
   for _, required in ipairs(row.required_facts or {}) do
     if required.freshness == "marker-read" then
-      store_gathered_marker_fact(gathered, required.family, require_marker_fact(M, gathered, required.family))
+      store_gathered_marker_fact(gathered, required.family, require_marker_fact(restart_policy, replay_sources, gathered, required.family))
     end
   end
 
@@ -306,8 +306,8 @@ end
 
 F.find_linked_pr = find_linked_pr
 F.gather_required_facts = gather_required_facts
-function F.gather_replay_required_facts(M, row, entity, state, facts)
-  return gather_required_facts(M, row, entity, state, facts or {})
+function F.gather_replay_required_facts(restart_policy, replay_sources, row, entity, state, facts)
+  return gather_required_facts(restart_policy, replay_sources, row, entity, state, facts or {})
 end
 
 return F

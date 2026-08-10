@@ -224,12 +224,12 @@ function C.is_supported_fix_reconcile(payload)
     and source_refs.has_bounded_source_ref(payload.source_ref, devloop_base._max_key_len)
 end
 
-function C.is_supported_timeout_reconcile(M, payload)
+function C.is_supported_timeout_reconcile(restart_policy, payload)
   if type(payload) ~= "table" then
     return false
   end
   local repo, issue_number = base_ids.parse_proposal_id(payload.proposal_id)
-  local row = replay_fields.restart_transition_row(M.restart_transition_table(), payload.state)
+  local row = replay_fields.restart_transition_row(restart_policy.restart_transition_table(), payload.state)
   return payload.schema == "github-devloop.timeout-reconcile.v1"
     and repo ~= nil
     and issue_number ~= nil
@@ -332,7 +332,7 @@ function C.timeout_reconcile_marker(proposal_id, issue_version, state_name, roun
     .. '" source_ref="' .. safe_attr(source_ref.ref or "", devloop_base._max_key_len)
     .. '" -->'
 end
-function C.has_reconcile_marker(M, comments, proposal_id, base_version, round)
+function C.has_reconcile_marker(comments, proposal_id, base_version, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -388,7 +388,7 @@ function C.reconcile_fact_for_terminal_version(comments, proposal_id, terminal_v
   return nil
 end
 
-function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_version, round)
+function C.has_review_reconcile_marker(comments, issue_proposal_id, issue_version, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -407,9 +407,16 @@ function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_ver
   return false
 end
 
+<<<<<<< HEAD
 function C.fix_reconcile_fact(comments, proposal_id, issue_version, expected_action)
   if type(comments) ~= "table" then
     return nil
+=======
+function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
+  local n = valid_round(devloop_state.version_fix_round(issue_version))
+  if n == nil or type(comments) ~= "table" then
+    return false
+>>>>>>> 2bddee3d25ce7cca25c871e1368e641ac8fb95ef
   end
   local expected_version = issue_version ~= nil and tostring(issue_version) or nil
   local best = nil
@@ -461,7 +468,7 @@ function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
   return C.fix_reconcile_fact(comments, proposal_id, issue_version) ~= nil
 end
 
-function C.has_timeout_reconcile_marker(M, comments, proposal_id, issue_version, state_name, round)
+function C.has_timeout_reconcile_marker(comments, proposal_id, issue_version, state_name, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -532,12 +539,12 @@ function C.timeout_reconcile_fact_for_terminal_version_from_states(comments, pro
   return nil
 end
 
-function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id, terminal_version)
-  if type(M) ~= "table" or type(M.restart_transition_table) ~= "function" then
+function C.timeout_reconcile_fact_for_terminal_version(restart_policy, comments, proposal_id, terminal_version)
+  if type(restart_policy) ~= "table" or type(restart_policy.restart_transition_table) ~= "function" then
     return nil
   end
   local allowed = {}
-  for _, row in ipairs(M.restart_transition_table()) do
+  for _, row in ipairs(restart_policy.restart_transition_table()) do
     if row.terminal == false then
       allowed[row.from_state] = true
     end

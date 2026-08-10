@@ -5,6 +5,8 @@ local core = h.core
 local opts = h.opts
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local dashboard = require("devloop.dashboard")
+local gh_argv = require("testkit_internal.gh_argv_mock")
 
 local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
@@ -59,7 +61,34 @@ local function run_admission(event, run_opts)
   return t.run_department("departments/admission/main.lua", event or entity_changed(42), run_opts)
 end
 
+local function count_calls(needle)
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if gh_argv.call_contains(call, needle) then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 return {
+  test_admission_skips_dashboard_anchor_before_claim_or_label_writes = function()
+    h.mock_bot_env()
+    mock_repo_env()
+    mock_issue(46, {
+      body = "generated board\n" .. dashboard.marker("anchor", "2026-08-08T00:00:00Z"),
+      assignees = {},
+    })
+    local result = run_admission(entity_changed(46), opts("intake-admission-dashboard-anchor", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("--add-assignee"), 0)
+    t.eq(count_calls("--add-label"), 0)
+  end,
+
   test_admission_filters_non_issue_closed_known_hold_and_trusted_marker = function()
     local cases = {
       { name = "pr", event = entity_changed(42, { type = "pr" }), view = nil },

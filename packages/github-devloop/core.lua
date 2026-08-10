@@ -107,6 +107,7 @@ M.restart_lifecycle_states = {
   "blocked",
   "merged",
 }
+local package_replayer
 local restart_runtime = {
   dependency_hold_fact = function(...) return M.dependency_hold_fact(...) end,
   dependency_release_fact = function(...) return M.dependency_release_fact(...) end,
@@ -115,7 +116,7 @@ local restart_runtime = {
     return M.implementing_version_mismatch_budget_exhausted(...)
   end,
   replay_from_table_classified = function(...)
-    return require("devloop.replayer").replay_from_table_classified(M, ...)
+    return package_replayer.replay_from_table_classified(...)
   end,
   restart_lifecycle_states = M.restart_lifecycle_states,
   stall_suspect_age_minutes = function(...) return M.stall_suspect_age_minutes(...) end,
@@ -123,18 +124,16 @@ local restart_runtime = {
 local restart_policy = wiring.restart_policy(restart_runtime)
 require("devloop.restart.issue.pr_partition_contract").install(M)
 local ready_split_replayers = require("core.ready_split").install(M)
-local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
-M.replayer_registry = {
+local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M, function(...)
+  return package_replayer.replay_log_decline(...)
+end)
+local package_replayers = {
   dependency_wait = ready_split_replayers.dependency_wait,
   ready = ready_split_replayers.ready,
   ["awaiting-pr"] = awaiting_pr_replayers["awaiting-pr"],
 }
 require("core.liveness_bounds").install(M)
-require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
 rawset(M, "restart_policy", restart_policy)
-for key, value in pairs(restart_policy) do
-  if rawget(M, key) == nil then M[key] = value end
-end
 local prompt_surface = wiring.prompts()
 M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
@@ -152,6 +151,35 @@ end
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.implement_attempt").install(M)
+package_replayer = require("devloop.replayer").new(restart_policy, {
+  package_replayers = package_replayers,
+  linked_pr_surface_snapshot = M.linked_pr_surface_snapshot,
+  issue_lifecycle_facts = {
+    dependency_hold_fact = function(...) return M.dependency_hold_fact(...) end,
+    dependency_release_fact = function(...) return M.dependency_release_fact(...) end,
+    fetch_pr_view_origin = function(...) return M.fetch_pr_view_origin(...) end,
+    gh_issue_list_decompose_children = function(...) return M.gh_issue_list_decompose_children(...) end,
+    latest_implement_attempt_fact = M.latest_implement_attempt_fact,
+    impl_failure_fact = M.impl_failure_fact,
+  },
+  issue_retry_policy = {
+    impl_failure_retry_allowed = M.impl_failure_retry_allowed,
+    next_impl_retry_attempt = M.next_impl_retry_attempt,
+    implementation_retry_attempt = M.implementation_retry_attempt,
+    ready_payload_inner_version = M.ready_payload_inner_version,
+  },
+}, {
+  authorization = {
+    authorize_true_stall_drop = M.authorize_thinking_true_stall_drop,
+  },
+  git = M.git,
+  output_language = M.output_language,
+})
+rawset(M, "replayer", package_replayer)
+require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
+for key, value in pairs(restart_policy) do
+  if rawget(M, key) == nil then M[key] = value end
+end
 require("core.ratchet_slice_ledger").install(M)
 require("core.dependencies").install(M)
 require("core.span_conformance").install(M)

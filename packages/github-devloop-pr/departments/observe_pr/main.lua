@@ -17,7 +17,6 @@ local core, saga, replay_fields = require("core"), require("workflow.saga"), req
 local forge_validators = require("devloop.forge_validators")
 local operator_commands = require("devloop.operator_commands")
 local decompose_lib = require("devloop.decompose")
-local replayer = require("devloop.replayer")
 local config = require("devloop.config")
 local v_pr = require("devloop.validators.pr")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
@@ -32,6 +31,7 @@ local liveness_scan = require("devloop.liveness_scan")
 local M = {}
 local restart_policy = observe_pr_caps.restart_policy
 local restart_transition_table = restart_policy.restart_transition_table
+local replayer = observe_pr_caps.replayer
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_pr" },
@@ -148,7 +148,7 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
         current_pr.comments, origin.proposal_id, state.version)
     end
   end
-  return replayer.replay_from_table(core, "observe_pr", {
+  return replayer.replay_from_table("observe_pr", {
     repo = origin.repo,
     number = origin.issue_number,
     source_ref = origin.issue_number ~= nil and entity_lib.issue_source_ref(origin.repo, origin.issue_number) or source_ref,

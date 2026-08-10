@@ -10,6 +10,7 @@ local strings = require("contract.strings")
 local config = require("devloop.config")
 local m_mq = require("devloop.merge_queue")
 local devloop_logging = require("devloop.logging")
+local sweep_bounds = require("devloop.sweep_bounds")
 
 local detector = "queue-starvation"
 local merge_recent_threshold_minutes = 360
@@ -32,7 +33,7 @@ local function format_timestamp(seconds)
   return os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(seconds) or now())
 end
 
-local function snapshot_path(M, repo, window_key)
+local function snapshot_path(repo, window_key)
   local safe_repo = base_ids.safe_repo(repo):gsub("/", "-"):gsub("%-+", "-")
   local safe_window = strings.sanitize_key(tostring(window_key or "unknown"), false):gsub("[/%s]+", "-")
   safe_window = safe_window:gsub("[^%w%._%-]", "-"):gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
@@ -76,8 +77,8 @@ local function entity_json(entity, age_minutes)
     .. "}"
 end
 
-local function write_snapshot(M, repo, window_key, evidence)
-  local path = snapshot_path(M, repo, window_key)
+local function write_snapshot(repo, window_key, evidence)
+  local path = snapshot_path(repo, window_key)
   local closed = {}
   for _, issue in ipairs(evidence.recent_closed or {}) do
     table.insert(closed, issue_json(issue))
@@ -99,16 +100,16 @@ local function marker_attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
 end
 
-local function merged_fact_from_issue(M, issue)
+local function merged_fact_from_issue(issue)
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue and issue.comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:merged:v1.-%-%->") do
       local proposal_id = marker_attr(marker, "proposal")
       local pr_number = marker_attr(marker, "pr")
       local version = marker_attr(marker, "version")
       local head_sha = marker_attr(marker, "head_sha")
-      if strings.is_bounded_string(proposal_id, M._max_key_len)
+      if strings.is_bounded_string(proposal_id, devloop_base._max_key_len)
         and forge_validators.is_positive_pr_number(pr_number)
-        and strings.is_bounded_string(version, M._max_dedup_len)
+        and strings.is_bounded_string(version, devloop_base._max_dedup_len)
         and forge_validators.is_git_sha(head_sha) then
         return {
           proposal_id = proposal_id,
@@ -134,11 +135,11 @@ local function has_label(issue, label)
   return false
 end
 
-local function run_observability_adapter(M, read_fn, limits, deadline, error_class)
+local function run_observability_adapter(read_fn, limits, deadline, error_class)
   local label = error_class or "GitHub observability command"
-  local timeout = M.observability_call_timeout(limits, deadline)
+  local timeout = sweep_bounds.sweep_call_timeout(limits, deadline)
   if timeout <= 0 then
-    local deferred = M.observability_deadline_deferred_result(label)
+    local deferred = sweep_bounds.sweep_deadline_deferred_result(label, "observability deadline exhausted")
     deferred.stderr = "observability deadline exhausted"
     return deferred
   end
@@ -149,9 +150,8 @@ local function run_observability_adapter(M, read_fn, limits, deadline, error_cla
   return result
 end
 
-function C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadline)
+function C.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
   local listed = run_observability_adapter(
-    M,
     function(timeout)
       return github().issue_list_recent_closed(repo, recent_closed_limit, timeout)
     end,
@@ -159,16 +159,15 @@ function C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadlin
     deadline,
     "GitHub recent closed merged issue list"
   )
-  if M.observability_result_deferred(listed) then
+  if sweep_bounds.sweep_result_deferred(listed) then
     return nil, nil, "deadline"
   end
   local issues = parsers_issue.parse_issue_list_recent_closed(listed.stdout)
   local merged = {}
   for _, issue in ipairs(issues) do
     local fact = nil
-    if has_label(issue, M._merged_label) then
+    if has_label(issue, devloop_base._merged_label) then
       local view = run_observability_adapter(
-        M,
         function(timeout)
           return github().issue_view(repo, issue.number, "title,body,comments,labels,state,stateReason,assignees,author", timeout)
         end,
@@ -176,13 +175,13 @@ function C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadlin
         deadline,
         "GitHub recent closed merged issue view"
       )
-      if M.observability_result_deferred(view) then
+      if sweep_bounds.sweep_result_deferred(view) then
         return nil, nil, "deadline"
       end
       local current = parsers_issue.parse_issue_view_observe(view.stdout)
       current.closed_at = issue.closed_at
       current.number = issue.number
-      fact = merged_fact_from_issue(M, current)
+      fact = merged_fact_from_issue(current)
     end
     if fact ~= nil then
       table.insert(merged, {
@@ -223,9 +222,9 @@ local function newest_recent_merge(merged, now_seconds)
   return newest
 end
 
-local function merge_queue_head_entity(M, repo, now_seconds)
+local function merge_queue_head_entity(repo, now_seconds)
   local branches = config.branch_config()
-  local _, entries = m_mq.merge_queue_head(M, repo, branches.integration)
+  local _, entries = m_mq.merge_queue_head(repo, branches.integration)
   local head, age = m_mq.merge_queue_starvation_candidate(entries, m_mq._merge_ready_starvation_threshold_minutes, now_seconds)
   if head == nil then
     return nil
@@ -308,15 +307,15 @@ function C.queue_starvation_redrive_payload(repo, evidence)
   }, evidence.window_key)
 end
 
-local function raise_redrive(M, redrive)
+local function raise_redrive(redrive_queue, redrive)
   if redrive == nil then
     return
   end
-  if type(M.pr_package_queue) ~= "function" then
+  if type(redrive_queue) ~= "function" then
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=pr-redrive-queue-unavailable")
     return
   end
-  local ok, queue = pcall(M.pr_package_queue, "devloop_merge_queue_tick")
+  local ok, queue = pcall(redrive_queue, "devloop_merge_queue_tick")
   if not ok or queue == nil or tostring(queue) == "" then
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=pr-redrive-queue-unavailable")
     return
@@ -385,9 +384,9 @@ function C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
   }
 end
 
-function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_seconds)
+function C.observe_queue_starvation(redrive_queue, repo, _entities, limits, deadline, now_seconds)
   local ok, queue_head = pcall(function()
-    return merge_queue_head_entity(M, repo, now_seconds)
+    return merge_queue_head_entity(repo, now_seconds)
   end)
   if not ok then
     log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=merge-queue-source-failed")
@@ -399,7 +398,7 @@ function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_se
   end
 
   local ok, recent_closed, merged, source_status = pcall(function()
-    return C.queue_starvation_recent_closed_merged_issues(M, repo, limits, deadline)
+    return C.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
   end)
   if not ok or recent_closed == nil then
     local reason = source_status == "deadline" and "recent-merge-source-deferred" or "recent-merge-source-failed"
@@ -421,7 +420,7 @@ function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_se
   evidence.incident_identity = stable_incident_identity(queue_head)
   local redrive = C.queue_starvation_redrive_payload(repo, evidence)
   if newest ~= nil and newest.age_minutes <= merge_recent_threshold_minutes then
-    raise_redrive(M, redrive)
+    raise_redrive(redrive_queue, redrive)
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=suppress"
       .. " reason=recent-merge"
       .. " last_merge_age_minutes=" .. tostring(newest.age_minutes)
@@ -434,10 +433,10 @@ function C.observe_queue_starvation(M, repo, _entities, limits, deadline, now_se
       redrive = redrive,
     }
   end
-  local snapshot = write_snapshot(M, repo, evidence.window_key, evidence)
+  local snapshot = write_snapshot(repo, evidence.window_key, evidence)
   local request = C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
   devloop_logging.log_raise("observability", detector .. "/merge-ready", "github-proxy.github_issue_create_request", request)
-  raise_redrive(M, redrive)
+  raise_redrive(redrive_queue, redrive)
   log.info("github-devloop dept=observability tag=QUEUE_STARVATION"
     .. " action=raise"
     .. " queue_head=" .. tostring(queue_head.entity and queue_head.entity.proposal_id or "")
