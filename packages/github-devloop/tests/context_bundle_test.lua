@@ -6,6 +6,8 @@ local fixtures = require("tests.production_fixture_helpers")
 require("tests.context_bundle_probe_helpers")
 local core = h.core
 local context_bundle = require("devloop.context_bundle")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local t = h.t
 local max_bundle_file_len = 10 * 1024 * 1024
 
@@ -64,6 +66,35 @@ local function assert_consensus_safe_context_key(key)
 end
 
 return {
+  test_slice4_context_bundle_bytes_and_fetch_order_are_frozen = function()
+    local root = runtime_root("slice4-characterization")
+    local result = run_probe("round_trip", root)
+    local function normalize(value, runtime_root_value)
+      if type(value) == "string" then
+        local escaped_runtime_root = runtime_root_value:gsub("([^%w])", "%%%1")
+        return value:gsub(escaped_runtime_root, "<RUNTIME_ROOT>")
+          :gsub("%.bundle%-tmp%.[%w._-]+", ".bundle-tmp.<TEMP>")
+      end
+      if type(value) ~= "table" then
+        return value
+      end
+      local normalized = {}
+      for key, field in pairs(value) do
+        normalized[key] = normalize(field, runtime_root_value)
+      end
+      return normalized
+    end
+    local normalized = normalize(result, root)
+    local second_root = runtime_root("slice4-characterization-repeat")
+    local second = normalize(run_probe("round_trip", second_root), second_root)
+    local difference = observation.first_difference(normalized, second, "$")
+    if difference ~= nil then
+      error("slice4 context characterization is nondeterministic: " .. difference)
+    end
+    local bytes = observation.canonical_json(normalized)
+    t.eq(sha256.hex(bytes), "9d6561d34992b6dcd34295fb701cc9c50afb8c70d5222596e3313e7d673eef1d")
+  end,
+
   test_context_bundle_cache_keys_bound_realistic_pr_review_proposal_id = function()
     local proposal_id = "github-devloop/pr-review/ChronoAIProject/fkst-packages/2376452037/223/ready-consensus-github-devloop-issue-ChronoAIProject-fkst-packages-221-2026-06-10T20-13-08Z-2548858339"
     local version = proposal_id .. "/review/loop/17/review-meta/2026-06-10T21-14-55Z-9988776655"

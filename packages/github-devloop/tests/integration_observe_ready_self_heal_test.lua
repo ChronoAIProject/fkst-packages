@@ -260,7 +260,7 @@ return {
 
   test_observe_issue_ready_self_heal_does_not_duplicate_after_implementing = function()
     local event = reached()
-    local ready_payload = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready_payload = payloads_builders.build_devloop_ready_payload(event)
     local branch = devloop_base.implement_branch("owner/repo", 42, ready_payload.dedup_key)
     local run_opts = opts("observe-issue-ready-self-heal-advanced")
     local exec_ref = core.implement_exec_ref(event.proposal_id, ready_payload.dedup_key)
@@ -293,7 +293,7 @@ return {
 
   test_observe_issue_legacy_pr_open_canonicalizes_instead_of_issue_side_reviewing_redrive = function()
     local event = reached()
-    local ready_payload = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready_payload = payloads_builders.build_devloop_ready_payload(event)
     local comments = {
       core.state_marker(event.proposal_id, "pr-open", ready_payload.dedup_key),
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready_payload.dedup_key, "dev"),
@@ -326,7 +326,7 @@ return {
 
   test_observe_issue_pr_open_timeout_redrive_canonicalizes_legacy_issue_state = function()
     local event = reached()
-    local ready_payload = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready_payload = payloads_builders.build_devloop_ready_payload(event)
     local comments = {
       {
         body = core.state_marker(event.proposal_id, "pr-open", ready_payload.dedup_key),
@@ -414,7 +414,7 @@ return {
 
   test_observe_issue_missing_reviewing_label_does_not_change_pr_local_state = function()
     local event = reached()
-    local ready_payload = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready_payload = payloads_builders.build_devloop_ready_payload(event)
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {
       core.state_marker(event.proposal_id, "pr-open", ready_payload.dedup_key),
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready_payload.dedup_key, "dev"),
@@ -432,7 +432,7 @@ return {
 
   test_observe_issue_linked_pr_fetch_failure_fails_closed = function()
     local event = reached()
-    local ready_payload = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready_payload = payloads_builders.build_devloop_ready_payload(event)
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
       core.state_marker(event.proposal_id, "pr-open", ready_payload.dedup_key),
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready_payload.dedup_key, "dev"),

@@ -121,10 +121,10 @@ function S.with(core, opts, fn)
         .. tostring(upstream) .. '"}}]]',
     }
   end
-  context_bundle.context_fetch_ref_from_bundle = function(_core, args)
+  context_bundle.context_fetch_ref_from_bundle = function(args)
     return "runtime-cache:hidden-state-conformance/" .. tostring(args and args.version or "fixture")
   end
-  context_bundle.context_fetch_from_bundle = function(_core, args)
+  context_bundle.context_fetch_from_bundle = function(args)
     return "Hidden-state conformance fixture context for " .. tostring(args and args.version or "fixture")
   end
   payloads_board.board_digest_block = function()

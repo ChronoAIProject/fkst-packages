@@ -516,7 +516,7 @@ return {
 
   test_issue_reimplement_command_reenters_impl_failed = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
@@ -544,7 +544,7 @@ return {
     local event = issue()
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, {
+    local ready_version = payloads_builders.build_devloop_ready_payload({
       proposal_id = proposal_id,
       dedup_key = inner_version,
       source_ref = event.source_ref,

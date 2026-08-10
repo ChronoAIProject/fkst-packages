@@ -244,7 +244,7 @@ local function capture(fixture)
     table.insert(comments, m_builders.review_result_marker(review_id, PROPOSAL_ID, "approve", review_dedup))
   end
   if fixture.merged_marker then
-    table.insert(comments, m_builders.merged_marker(core, PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))
+    table.insert(comments, m_builders.merged_marker(PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))
   end
   if fixture.merging_marker then
     table.insert(comments, m_builders.merging_marker(PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))

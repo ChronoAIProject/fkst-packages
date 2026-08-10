@@ -7,10 +7,11 @@ local requests_lifecycle = require("devloop.requests.lifecycle")
 local M = {}
 
 function M.publish(core, repo, issue_number, outcome)
+  local refusal_inputs = require("implement_department_caps")
   local precursor_missing = outcome.reason == "precursor-missing"
   local target_state = precursor_missing and "dependency_wait" or "blocked"
   local comment_request = requests_lifecycle.build_implementation_refusal_comment_request(
-    core,
+    refusal_inputs,
     repo,
     issue_number,
     outcome.ready,

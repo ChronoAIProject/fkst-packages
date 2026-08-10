@@ -290,7 +290,7 @@ end
 
 local function observe_impl_failed_reimplement()
   local event = h.reached()
-  local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
   return run_reimplement_case({
     name = "restart-operator-reentry-impl-failed",
     event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
@@ -306,7 +306,7 @@ end
 
 local function observe_blocked_open_pr_reimplement()
   local event = h.reached()
-  local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
   local blocked_version = ready_version .. "/review-loop/3"
   return run_reimplement_case({
     name = "restart-operator-reentry-blocked-open-pr",
@@ -326,7 +326,7 @@ end
 
 local function observe_blocked_implementation_refusal_reimplement()
   local event = h.reached()
-  local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
   return run_reimplement_case({
     name = "restart-operator-reentry-blocked-implementation-refusal",
     event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
@@ -351,7 +351,7 @@ end
 local function observe_blocked_timeout_reimplement()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
   local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
-  local ready_version = payloads_builders.build_devloop_ready_payload(core, {
+  local ready_version = payloads_builders.build_devloop_ready_payload({
     proposal_id = proposal_id,
     dedup_key = inner_version,
     source_ref = event.source_ref,
@@ -566,7 +566,7 @@ end
 
 local function observe_ready_reready_row_replay()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:ready" } })
-  local ready_version = payloads_builders.build_devloop_ready_payload(core, h.reached()).dedup_key
+  local ready_version = payloads_builders.build_devloop_ready_payload(h.reached()).dedup_key
   local comments = {
     trusted_comment(
       h.projected_state_comment(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),

@@ -44,14 +44,14 @@ function C.angle_display_text(item)
   return "- " .. angle .. ": " .. verdict .. C.display_separator .. digest
 end
 
-function C.build_convergence_display(M, header, unresolved, round)
+function C.build_convergence_display(output_language, header, unresolved, round)
   local lines = {
-    header .. tostring(round) .. comment_strings.comment_string(M.output_language, "convergence_suffix"),
+    header .. tostring(round) .. comment_strings.comment_string(output_language, "convergence_suffix"),
   }
   local question = C.bounded_neutralized_text(unresolved and unresolved.narrowed_question or "", C.max_display_question_len)
   if question ~= "" then
     table.insert(lines, "")
-    table.insert(lines, comment_strings.comment_string(M.output_language, "narrowed_question_label") .. question)
+    table.insert(lines, comment_strings.comment_string(output_language, "narrowed_question_label") .. question)
   end
   local angle_lines = {}
   if type(unresolved) == "table" and type(unresolved.angle_digests) == "table" then
@@ -64,7 +64,7 @@ function C.build_convergence_display(M, header, unresolved, round)
   end
   if #angle_lines > 0 then
     table.insert(lines, "")
-    table.insert(lines, comment_strings.comment_string(M.output_language, "angle_stances_label"))
+    table.insert(lines, comment_strings.comment_string(output_language, "angle_stances_label"))
     for _, line in ipairs(angle_lines) do
       table.insert(lines, line)
     end
@@ -76,7 +76,7 @@ function C.build_convergence_display(M, header, unresolved, round)
   return body
 end
 
-function C.build_verdict_summary(M, angle_results)
+function C.build_verdict_summary(output_language, angle_results)
   if type(angle_results) ~= "table" then
     return nil
   end
@@ -94,7 +94,7 @@ function C.build_verdict_summary(M, angle_results)
   if #parts == 0 then
     return nil
   end
-  local summary = comment_strings.comment_string(M.output_language, "verdict_summary_label") .. table.concat(parts, " ")
+  local summary = comment_strings.comment_string(output_language, "verdict_summary_label") .. table.concat(parts, " ")
   if #summary > C.max_verdict_summary_len then
     summary = base_ids.truncate_utf8(summary, C.max_verdict_summary_len)
   end

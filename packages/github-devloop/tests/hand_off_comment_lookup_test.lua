@@ -23,7 +23,7 @@ local function verify(hand_off, expected)
   author_policy.mock_env(t, nil, {
     configure_trusted_bot_login = h.mock_author_policy_configure,
   })
-  return payloads_predicates.verified_hand_off_state(core, "owner/repo", hand_off, expected)
+  return payloads_predicates.verified_hand_off_state("owner/repo", hand_off, expected)
 end
 
 return {

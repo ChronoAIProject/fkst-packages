@@ -44,8 +44,7 @@ local function fixing_event(version)
 end
 
 local function reject_comment(event)
-  return requests_review.build_review_result_comment_request(core,
-    "owner/repo",
+  return requests_review.build_review_result_comment_request(core.output_language,     "owner/repo",
     "42",
     event.proposal_id,
     event.version,

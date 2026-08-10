@@ -85,9 +85,7 @@ local function operator_dependency_waiver_contract(opts)
   local forbidden_ready_marker = projected_state_comment(proposal_id, "ready", version)
   local request = nil
   if options.operator_dependency_waiver_request_body == nil then
-    request = operator_commands.build_operator_issue_dependency_waiver_comment_request(
-      core,
-      options.repo or "owner/repo",
+    request = operator_commands.build_operator_issue_dependency_waiver_comment_request(core.dependency_waiver_marker, options.repo or "owner/repo",
       options.issue_number or 42,
       command,
       proposal_id,

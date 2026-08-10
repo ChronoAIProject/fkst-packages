@@ -106,7 +106,7 @@ local function child_comments(state, child_version, opts)
   local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
     .. "\n" .. h.state_comment(parent, state, effective_version)
   if state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
+    body = body .. "\n" .. m_builders.merged_marker(parent, pr_number, effective_version, head_sha)
   end
   return {
     comment(body, core._test_bot_login, "2026-06-03T01:04:03Z"),
@@ -123,7 +123,7 @@ local function child_merged_comments_with_kept_promotion()
   return {
     comment(m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch)
       .. "\n" .. core.state_marker(parent, "merged", version)
-      .. "\n" .. m_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
+      .. "\n" .. m_builders.merged_marker(parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
 

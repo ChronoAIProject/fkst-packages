@@ -61,6 +61,7 @@ local operator_recovery = operator_recovery_factory.make({
   conv_reconcile = conv_reconcile,
   core = core,
   dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
+  dependency_waiver_marker = observe_issue_caps.dependency_waiver_marker,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
@@ -403,7 +404,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
       impl_version = refusal_reentry.implementation_version,
     }
   end
-  local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
+  local payload = payloads_builders.build_devloop_ready_payload(payload_source)
   local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
     issue.number,
     command,
@@ -683,7 +684,7 @@ local function reconcile_issue_event(event, opts)
       "unmanaged", "thinking", decision.cas_outcome,
       "starting consensus for opted-in issue")
 
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "observe_issue",
       repo = issue.repo,
       issue_number = issue.number,
@@ -691,7 +692,7 @@ local function reconcile_issue_event(event, opts)
       version = issue.dedup_key,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
+    local proposal = payloads_builders.build_board_proposal(issue, event.ts)
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
         .. " tag=SKIP reason=cannot-build-valid-proposal")

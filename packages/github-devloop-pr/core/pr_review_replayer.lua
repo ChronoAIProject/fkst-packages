@@ -23,7 +23,7 @@ local linked_pr_terminal = require("core.linked_pr_terminal")
 local with_current_classification = ci_verdict.with_current_classification
 
 function S.install(M)
-local function raise_fix_reviewing(opts) return requests_review.raise_fix_reviewing(M, opts) end
+local function raise_fix_reviewing(opts) return requests_review.raise_fix_reviewing(M.output_language, opts) end
 local terminal = linked_pr_terminal.install(M)
 local linked_pr_state = terminal.linked_pr_state
 local terminal_linked_pr_action = terminal.terminal_linked_pr_action
@@ -87,8 +87,7 @@ local function add_issue_label_effect(issue, proposal_id, to_state, version, sou
 end
 
 local function fix_comment_from_feedback(issue, pr_number, version, feedback, source_ref)
-  return requests_review.build_merge_gate_fix_comment_request(M,
-    issue.repo,
+  return requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, issue.repo,
     issue.number,
     {
       proposal_id = feedback.proposal_id or feedback.issue_proposal_id or feedback.parent_proposal_id,
@@ -408,7 +407,7 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
     local effects = {
       {
         queue = "github-proxy.github_pr_comment_request",
-        payload = requests_review.build_reviewing_comment_request(M, issue.repo, issue.number, {
+        payload = requests_review.build_reviewing_comment_request(M.output_language, issue.repo, issue.number, {
           proposal_id = proposal_id,
           impl_version = fact.version,
         }, link.pr_number, source_ref),
@@ -513,8 +512,7 @@ raise_reviewing_for_current_head = function(dept, issue, state, proposal_id, lin
   end
   local review_version = devloop_state.next_review_loop_version(state.version)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
-  local request = requests_review.build_merge_head_reviewing_comment_request(M,
-    issue.repo,
+  local request = requests_review.build_merge_head_reviewing_comment_request(M.output_language,     issue.repo,
     issue.number,
     {
       proposal_id = proposal_id,
@@ -586,7 +584,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
   if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
     local fix_version = devloop_state.fix_version_from_review_version(state.version)
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
-    local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, fix_version, mergeable_reason, current_pr.base_ref_oid, source_ref)
+    local request = requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, issue.repo, issue.number, merge_ready, fix_version, mergeable_reason, current_pr.base_ref_oid, source_ref)
     local effects = {
       { queue = "github-proxy.github_pr_comment_request", payload = request },
     }
@@ -634,7 +632,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
         end
         if admission.kind ~= "admit" then return true end
         local current = admission.current_pr
-        local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, admission.version, admission.reason, current.base_ref_oid, source_ref, nil, {
+        local request = requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, issue.repo, issue.number, merge_ready, admission.version, admission.reason, current.base_ref_oid, source_ref, nil, {
           ci_failure_key = admission.ci_failure_key,
           gate_failure_excerpt = admission.gate_failure_excerpt,
         })
@@ -708,7 +706,7 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
         proposal_id = proposal_id,
       })
       fields.version = review_version
-      local reviewing_comment = requests_review.build_reviewing_comment_request(M, issue.repo, issue.number, {
+      local reviewing_comment = requests_review.build_reviewing_comment_request(M.output_language, issue.repo, issue.number, {
         proposal_id = fields.proposal_id,
         impl_version = fields.version,
       }, fields.pr_number, fields.source_ref)
@@ -765,7 +763,7 @@ local function replay_reviewing(dept, issue, state, row, facts, tools)
   if tostring(fields.version or "") ~= tostring(state.version or "") or dept == "observe_pr" then
     table.insert(effects, {
       queue = "github-proxy.github_pr_comment_request",
-      payload = requests_review.build_reviewing_comment_request(M, issue.repo, issue.number, {
+      payload = requests_review.build_reviewing_comment_request(M.output_language, issue.repo, issue.number, {
         proposal_id = fields.proposal_id,
         impl_version = fields.version,
       }, fields.pr_number, fields.source_ref, delivery_dedup_key),

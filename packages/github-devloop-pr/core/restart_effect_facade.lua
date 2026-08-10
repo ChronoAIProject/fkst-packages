@@ -20,7 +20,7 @@ local function serialize_review_activation_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_review.build_reviewing_comment_request(
-    args.core,
+    args.core.output_language,
     args.repo,
     args.issue_number,
     args.origin,
@@ -41,7 +41,7 @@ local function serialize_review_loop_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_review.build_review_converge_round_comment_request(
-    args.core,
+    args.core.output_language,
     args.repo,
     args.issue_number,
     args.unresolved,
@@ -68,7 +68,7 @@ local function serialize_review_result_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_review.build_review_result_comment_request(
-    args.core,
+    args.core.output_language,
     args.repo,
     args.issue_number,
     args.issue_proposal_id,
@@ -110,7 +110,7 @@ local function serialize_fix_reviewing_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_review.build_fix_reviewing_comment_request(
-    args.core,
+    args.core.output_language,
     args.repo,
     args.issue_number,
     args.fix,
@@ -181,7 +181,8 @@ local function serialize_observe_pr_fix_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_review.build_merge_gate_fix_comment_request(
-    args.core, args.repo, args.issue_number, args.comment_origin,
+    args.core.merge_gate_reason_class, args.core.output_language,
+    args.repo, args.issue_number, args.comment_origin,
     args.fix_version, args.reason, nil, args.source_ref, nil,
     { gate_failure_excerpt = args.reason })
 end
@@ -377,7 +378,7 @@ local function serialize_merge_comment(args)
     return nil, "invalid-serializer-arguments"
   end
   return requests_lifecycle.build_merging_comment_request(
-    args.core, args.repo, args.merge_ready
+    args.core.output_language, args.repo, args.merge_ready
   )
 end
 

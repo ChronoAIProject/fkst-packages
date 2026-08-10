@@ -7,6 +7,10 @@ ratchet, or checker is changed by this document.
 `1958d57b1366dec3521157f2c562d024947208ec` by M0 below. All counts in this specification are
 measurements at that exported tree unless explicitly marked `INFERRED`.
 
+**Floor-correction ref:** `bb6bf832f1fce9e9bb5b02fcd34eeab7b72b72e1`. Post-slice values in
+Sections 3.1 and 5.1 were measured at this ref. Planning-ref arithmetic is retained where it
+describes the original slice ledger, but `501` is not a structural floor or a completion target.
+
 **Decision:** this is one campaign because its read sites, threaded parameters, ambient bindings,
 and installer calls are different projections of the same composed-table coupling. It is not a
 campaign to make four unrelated inventory totals say zero. Its executable endpoint is:
@@ -14,15 +18,16 @@ campaign to make four unrelated inventory totals say zero. Its executable endpoi
 - the real devloop ambient surface is absent from every package-composed core;
 - every production `libraries/devloop` function and department-local helper counted by
   `core-param` has a narrow input;
-- the four checker totals reach their measured campaign floors of `501`, `0`, `104`, and `0`
-  respectively [M1, M3, M4];
+- `core-param`, `devloop-godlib`, and `ambient-surface` reach their measured campaign endpoints of
+  `0`, `104`, and `0` respectively [M1, M4]; `service-locator` is reported as a lexical observation
+  and has no numeric campaign floor;
 - the source census, including checker-blind installers, reaches zero [M4]; and
 - behavior, source-shape conformance, package exports, effects, transitions, markers, and raised
   events remain unchanged.
 
-The normalized campaign contains **575 distinct obligations**, not the rounded `660` from the
-prior triage and not the committed-baseline sum of `1,205` [M1, M4]. An obligation is defined in
-Section 4; it is not an estimate of edited lines, commits, or engineering time.
+The planning-ref normalization contains **575 distinct obligations**, not the rounded `660` from
+the prior triage and not the committed-baseline sum of `1,205` [M1, M4]. An obligation is defined
+in Section 4; it is not an estimate of edited lines, commits, or engineering time.
 
 ## 1. Scope and hard boundaries
 
@@ -94,11 +99,17 @@ raw regex occurrence of `core.<identifier>`. It is not an AST read and it does n
 binding source. Strings, comments, function definitions, package-submodule require strings,
 package-owned members, forge members, and unbound names all count.
 
-Verified current metrics: `51` requires plus `489` member matches, total `540` [M1]. The committed
-ceiling is one require higher, total `541` [M1]. Only `37` current member occurrences resolve to
-the devloop ambient providers in this campaign, and exactly two files lose their last remaining
-`core.*` match when those occurrences move [M3]. The campaign movement is therefore `39`, not
-`540` or `541`.
+At the planning ref, the checker measured `51` requires plus `489` member matches, total `540`
+[M1]. M3 classified `37` member occurrences by an exact list of prompt/restart/liveness provider
+names and found two files with no other `core.*` match. That second result established only two
+lexical require candidates: it did not inspect bare `core` uses and did not prove either require
+was removable in that slice.
+
+At the floor-correction ref, the checker's actual output is `50` requires plus `448` member
+matches, total `498`; the committed ceiling remains `52 + 489 = 541`. The `37` M3 target-member
+occurrences are now zero. This metric is a lexical shrink-only counter, not a semantic partition:
+the current `498` includes 107 member matches in files with no `require("core")`, one match in a
+comment, and nine require matches in files with no `core.<identifier>` match.
 
 ### 3.2 `migration/core-param.inventory`
 
@@ -168,9 +179,9 @@ To deduplicate unlike counters, normalize them into source obligations:
 This normalization deliberately does not claim one obligation equals one edited line or one PR.
 Deleting one last install call can retire many export-name obligations at once.
 
-### 4.2 Current raw overlap
+### 4.2 Planning-ref raw overlap
 
-The four current checker totals sum to `1,200` [M1]. Exact pairwise duplicates are [M4]:
+The four planning-ref checker totals sum to `1,200` [M1]. Exact pairwise duplicates are [M4]:
 
 | Same underlying obligation | First artifact | Second artifact | Count |
 |---|---|---:|---:|
@@ -179,21 +190,23 @@ The four current checker totals sum to `1,200` [M1]. Exact pairwise duplicates a
 | Explicit logging/partition binding name | `devloop-godlib` | `ambient-surface` | 15 |
 | `dependency_gate.lua` typed `function M.new(core)` occurrence | `core-param` | `devloop-godlib` | 1 |
 
-There is no triple overlap. The normalized union of **all current raw units**, including
-structural floors, is `1,152 = 1,200 - 24 - 8 - 15 - 1` [M4].
+There is no triple overlap. At the planning ref, the normalized union of **all raw units**,
+including units outside the direct campaign target, is `1,152 = 1,200 - 24 - 8 - 15 - 1` [M4].
 
 ### 4.3 Actionable artifact union
 
-Measured movement from current values to campaign floors is [M4]:
+The original planning-ref movement ledger was [M4]:
 
-| Artifact | Current | Campaign floor | Raw movement |
+| Artifact | Planning value | Endpoint or planning residue | Planned direct movement |
 |---|---:|---:|---:|
-| `service-locator` | 540 | 501 | 39 |
+| `service-locator` | 540 | 501 (arithmetic residue, not a floor) | 39 |
 | `core-param` | 275 | 0 | 275 |
 | `devloop-godlib` | 193 | 104 | 89 |
 | `ambient-surface` | 192 | 0 | 192 |
 
-The raw actionable sum is `595`. Within that sum, the actionable duplicates are the eight
+The service-locator `39` is the planning-ref set attributed to the named prompt/restart work, not
+proof that the complement is structurally fixed. The raw planned sum is `595`. Within that sum,
+the actionable duplicates are the eight
 installer definitions, fifteen binding names, and twenty-four exact install calls. The
 `dependency_gate` overlap is not subtracted here because its `M` write belongs to the typed-export
 floor, while its broad `core` parameter remains actionable. Thus the deduplicated actionable
@@ -223,16 +236,47 @@ The real ambient symbol surface is `219` unique names: `210` visible in the unio
 
 ## 5. Floors and honest cost
 
-### 5.1 `service-locator`: floor `501`; do not drive it to zero here
+### 5.1 `service-locator`: no verified structural floor; do not target a residual count here
 
-Removing the `37` devloop-bound member occurrences leaves `452` other member matches. Removing
-the only two requires whose files then contain no other `core.*` match leaves `49` requires.
-The campaign floor is therefore `501 = 452 + 49` [M3, M4]. Those residuals govern package-owned
-and non-devloop shapes outside this campaign. Migrating them would expand scope without dissolving
-another devloop ambient binding.
+The original claim was that removing `37` named devloop-provider member matches and two associated
+requires would leave a structural floor of `501 = 452 + 49`. That claim is false. M3 defined the
+`452` only as the complement of a provider-name list, not as occurrences that cannot be narrowed.
+It also called a require removable when its file had no other `core.*` match, although the file
+still passed the bare `core` value. Slice 2 removed all thirty remaining target members but
+only zero requires, producing `50 + 452 = 502`, not `49 + 452 = 501`.
 
-**Recommendation:** reclassify the residual artifact as a broader package-core lexical ratchet.
-Do not count its `501` floor as unfinished ambient-M work.
+The checker and inventory were unchanged from the planning ref through the correction ref. The
+measured history is:
+
+| Ref | Milestone | Requires | Member matches | Total |
+|---|---|---:|---:|---:|
+| `8ffcd070` | specification landed | 51 | 489 | 540 |
+| `06086b8b` | Slice 1 landed | 50 | 482 | 532 |
+| `ddc3e46f` | Slice 2 landed | 50 | 452 | 502 |
+| `475e78ec` | Slice 3 landed | 50 | 452 | 502 |
+| `bb6bf832` | Slice 4 landed | 50 | 448 | 498 |
+
+Slice 4 itself did not remove the four units: its parent already measured `498`. Intervening commit
+`4683ecf8` narrowed bot-login normalization and removed four raw
+`core.strip_bot_login_suffix` matches from `github-external-pr-intake` and
+`github-ratchet-migration-slicer`. No service-locator migration, checker change, or inventory change
+caused that drop. This is direct evidence that unrelated interface narrowing changes the lexical
+residual.
+
+No positive structural floor is established. The checker's mechanical minimum is zero: it has no
+exemption set and describes itself as driving the read-side debt to zero. The current occurrences
+are a heterogeneous observation across nineteen packages, including package-owned reads, broad
+parameters in helper files, and lexical false positives. No source invariant proves that any
+fixed subset must remain, and this campaign does not need such a proof.
+
+**Scope consequence:** Slices 5 through 9 must not add work whose sole purpose is lowering the
+current `498`. They continue to narrow the named `core-param` owners and retire the named ambient
+install surfaces. The service-locator value is remeasured and reported after each slice; incidental
+decreases are expected and no exact final value is required. Completion is established by the
+ambient-name source census and the three semantically bounded checker endpoints, not by reaching
+`501` or zero in this lexical counter. Migrating unrelated package-owned reads, forge-installed
+bindings, or lexical false positives belongs to a separate, broader DI decision with its own
+evidence.
 
 ### 5.2 `core-param`: floor `0`; zero is the endpoint
 
@@ -260,7 +304,9 @@ those calls is behavior-preserving only after the exhaustive consumer census in 
 
 ### 5.5 Work that should not be done
 
-- Do not migrate the `501` service-locator residuals as part of this campaign.
+- Do not migrate service-locator occurrences merely because they remain in the lexical residual;
+  only occurrences reached by a named slice responsibility and the ambient source census are in
+  scope.
 - Do not rename or rewrite the `104` typed devloop exports to satisfy a lexical metric.
 - Do not convert the generic `workflow_internal.liveness` providers. Keep their existing owner and
   invoke them on a private typed liveness record rather than the package-composed core.
@@ -357,8 +403,13 @@ Migrate every library and department consumer atomically; delete the ambient dev
 the review-replay mutation, all direct calls, and all nested ambient-target calls. Do not extract
 codex predecessor/dispatch sequences from their scanned department sources.
 
-**Measured movement [M3-M5]:** `service-locator -31` (`30` members plus one now-unused require),
-`core-param -5`, `devloop-godlib -26`, `ambient-surface 0`; **82 obligations retired**.
+**Planning movement [M3-M5]:** `service-locator -31` (`30` members plus one require candidate),
+`core-param -5`, `devloop-godlib -26`, `ambient-surface 0`; 82 planned obligations.
+
+**Landed movement at `ddc3e46f`:** `service-locator -30` (thirty members and zero requires),
+`core-param -5`, `devloop-godlib -26`, `ambient-surface 0`; **81 obligations retired in this
+slice**. The `review_meta` require remained because bare `core` uses remained. Its removal is
+contingent on the slice that removes its final real use; it cannot support a fixed floor.
 
 **Verification:** restart table byte/value equality, replay-fact equality, liveness judgment
 parity, timeout decision parity, hidden-state conformance, span conformance, restart sink inventory,
@@ -395,8 +446,10 @@ integration, and ops readers. Parsed values and errors remain identical.
 request modules listed by M5. Keep each function in its existing owner; use one request-specific
 record only when direct typed requires do not carry per-package facts.
 
-**Measured movement [M5]:** `core-param -74`; all other campaign counters unchanged;
-**74 obligations retired**.
+**Planning movement [M5]:** `core-param -74`; all other campaign counters unchanged;
+**74 obligations retired**. The Slice 4 commit itself left `service-locator` at its parent's
+`50 + 448 = 498`; the four-unit decline from the Slice 3 milestone occurred in intervening commit
+`4683ecf8`, as recorded in Section 5.1.
 
 **Verification:** exact request bodies, labels, dedup keys, source refs, handoff markers, raised
 event arrays, context fetch behavior, affected package suites, full suite, all four checkers, and
@@ -558,8 +611,10 @@ Every PR records:
 
 The campaign is complete only when one fresh run proves all of the following:
 
-- focused checker totals are exactly `501`, `0`, `104`, and `0` [M4];
-- all `575` normalized obligations have been retired by the ordered slice ledger [M4, M5];
+- `core-param`, `devloop-godlib`, and `ambient-surface` are exactly `0`, `104`, and `0`; the fresh
+  `service-locator` value is reported without an asserted floor;
+- every named source obligation in the ordered slice ledger is absent; the planning-ref `575`
+  normalization is accounting context, not a live completion counter [M4, M5];
 - the ambient source census reports no package-composed target passed to any of the fourteen
   ambient-mutating devloop definitions, no review-replay mutation, and no nested ambient target
   [M4];
@@ -568,11 +623,14 @@ The campaign is complete only when one fresh run proves all of the following:
 - the full test suite and repository check exit zero; and
 - no behavior or source-shape invariant changed.
 
-`VERIFIED` at specification time: checker implementations and exclusions; committed/current
-values; raw overlap; `37` target service occurrences; two removable requires; `57/104` godlib
-write split; `168` tracked ambient names; `219` real ambient names; `14` ambient-mutating devloop
-definitions; `41` ambient-target install call sites; `548` actionable artifact union; `27` blind
-obligations; `575` normalized total; slice partition arithmetic; exact exports; same-source scan.
+`VERIFIED` at the planning ref: checker implementations and exclusions; committed/current values;
+raw overlap; `37` target service member occurrences; two lexical require candidates; `57/104`
+godlib write split; `168` tracked ambient names; `219` real ambient names; `14` ambient-mutating
+devloop definitions; `41` ambient-target install call sites; `548` planned actionable artifact
+union; `27` blind obligations; `575` planning normalization; slice partition arithmetic; exact
+exports; same-source scan. `VERIFIED` at the correction ref: service-locator `50 + 448 = 498`, zero
+remaining M3 target-member occurrences, unchanged checker and inventory, and no positive structural
+floor supported by the checker or source census.
 
 `INFERRED` until implementation: behavior-preserving reachability of the `core-param` and
 `ambient-surface` zero floors; adequacy of each named seam; final behavior equality. An inference
@@ -582,8 +640,10 @@ must not be used to skip a slice's no-op gate or verification.
 
 - No runtime bug was diagnosed during this specification. Measurement-premise defects were found;
   this task does not repair them.
-- The committed service and godlib ceilings are stale relative to current source by one and four
-  units respectively [M1]. Progress claims must use current checker output.
+- At the planning ref, the committed service and godlib ceilings exceeded source by one and four
+  units respectively [M1]. Progress claims must use fresh checker output.
+- `501` was an arithmetic complement at the planning ref, not a structural floor. It must not be
+  used to scope or complete Slices 5 through 9.
 - `dept_core_arg_call_sites` includes definitions; calling all `127` units call sites is false
   [M2].
 - `devloop-godlib.m_writes` conflates `57` ambient writes with `104` typed exports; targeting zero
@@ -624,8 +684,9 @@ Output totals:
 ```text
 committed: service=52+489=541 core-param=148+127=275
 committed: godlib=8+165+24+0=197 ambient=24+168=192
-current:   service=51+489=540 core-param=148+127=275
-current:   godlib=8+161+24+0=193 ambient=24+168=192
+planning:  service=51+489=540 core-param=148+127=275
+planning:  godlib=8+161+24+0=193 ambient=24+168=192
+correction-ref service=50+448=498
 ```
 
 ### M2 - checker semantics and definition/call split
@@ -656,7 +717,7 @@ PY
 # {'metric_total': 127, 'definitions': 14, 'call_expressions': 113}
 ```
 
-### M3 - service target and removable requires
+### M3 - planning-ref service target and lexical require candidates
 
 ```bash
 # Provider names are extracted from the eight mutating devloop provider files with the same
@@ -683,34 +744,40 @@ for path in s._department_files(root):
         owner = next((key for key, names in providers.items() if name in names), None)
         if owner:
             counts[owner] += 1; target_files.add(path)
-removable = []
+lexical_require_candidates = []
 all_names = set().union(*providers.values())
 for path in target_files:
     names = [m.group(0).split('.', 1)[1] for m in s._CORE_MEMBER.finditer(path.read_text())]
-    if all(name in all_names for name in names): removable.append(path.as_posix())
+    if all(name in all_names for name in names): lexical_require_candidates.append(path.as_posix())
 print(dict(counts), 'members=', sum(counts.values()))
-print('removable_requires=', len(removable), sorted(removable))
+print('lexical_require_candidates=', len(lexical_require_candidates), sorted(lexical_require_candidates))
 PY
 # {'prompts': 7, 'restart': 12, 'liveness': 17, 'pr_review_replay': 1} members=37
-# removable_requires=2: implement/attempt.lua and review_meta/main.lua
+# lexical_require_candidates=2: implement/attempt.lua and review_meta/main.lua
 ```
 
-### M4 - floors, overlaps, blind surface, and true total
+This command proves only that those files have no `core.<identifier>` outside the provider-name
+set. It does not search for bare `core` uses and therefore does not prove that both requires can be
+removed with the target members. Landed Slice 2 evidence disproved that stronger interpretation.
+At the correction ref, the same target-member classification prints `{} members= 0`.
+
+### M4 - planning movements, overlaps, blind surface, and normalized total
 
 ```bash
 python3 -B - <<'PY'
 # Values below are first asserted by the owning regexes and source enumerations shown after this
 # arithmetic block. Keeping the arithmetic executable prevents a narrative total from drifting.
-current = {'service': 540, 'core_param': 275, 'godlib': 193, 'ambient': 192}
-floors = {'service': 501, 'core_param': 0, 'godlib': 104, 'ambient': 0}
-movement = {key: current[key] - floors[key] for key in current}
+planning = {'service': 540, 'core_param': 275, 'godlib': 193, 'ambient': 192}
+movement = {'service': 39, 'core_param': 275, 'godlib': 89, 'ambient': 192}
+residual = {key: planning[key] - movement[key] for key in planning}
 overlap = {'installer_defs': 8, 'binding_names': 15, 'install_calls': 24}
 artifact_union = sum(movement.values()) - sum(overlap.values())
 blind = {'binding_names': 9, 'installer_defs': 1, 'install_calls': 17}
 true_total = artifact_union + sum(blind.values())
-print(current, floors, movement)
+print(planning, movement, 'planning_residual_not_floor', residual)
 print('artifact_union', artifact_union, 'blind', blind, 'true_total', true_total)
 assert movement == {'service': 39, 'core_param': 275, 'godlib': 89, 'ambient': 192}
+assert residual == {'service': 501, 'core_param': 0, 'godlib': 104, 'ambient': 0}
 assert artifact_union == 548 and true_total == 575
 PY
 ```
