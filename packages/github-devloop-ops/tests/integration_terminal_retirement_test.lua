@@ -748,6 +748,51 @@ return {
     end
   end,
 
+  test_contradictory_proof_is_not_reinterpreted_as_no_pr_authority = function()
+    local conflicting_delegations = {
+      bot_comment(m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/7",
+        7,
+        delegated_version,
+        "g1"
+      )),
+      bot_comment(m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/8",
+        8,
+        delegated_version,
+        "g2"
+      )),
+    }
+    local conflicting_decomposition = {
+      bot_comment(decompose.decomposed_marker(
+        proposal_id,
+        reconcile_terminal_version,
+        delegated_pr_number,
+        2
+      )),
+      bot_comment(decompose.decomposed_marker(
+        proposal_id,
+        reconcile_terminal_version,
+        delegated_pr_number,
+        3
+      )),
+    }
+
+    for _, extra_comments in ipairs({ conflicting_delegations, conflicting_decomposition }) do
+      mock_env("1")
+      local comments = reconcile_drop_comments(extra_comments)
+      local department, model = fake_department(comments, "OPEN", "blocked")
+      mock_census(comments, "OPEN", "blocked")
+
+      local result = run_tick(department)
+
+      t.eq(receipt_raise(result), nil)
+      t.eq(#close_writes(model), 0)
+    end
+  end,
+
   test_dry_run_logs_would_retire_and_performs_no_github_writes = function()
     mock_env("")
     local comments = declined_comments()

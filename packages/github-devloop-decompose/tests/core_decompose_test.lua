@@ -237,6 +237,23 @@ return {
       decompose_lib.decomposed_marker(proposal_id, version, 7, 3),
     }
 
-    t.eq(decompose_lib.decomposed_fact(comments, proposal_id, version, 7), nil)
+    local fact, status = decompose_lib.decomposed_fact(comments, proposal_id, version, 7)
+
+    t.eq(fact, nil)
+    t.eq(status, "conflict")
+  end,
+
+  test_decomposed_fact_distinguishes_validity_from_absence = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local marker = decompose_lib.decomposed_marker(proposal_id, version, 7, 2)
+
+    local fact, valid_status = decompose_lib.decomposed_fact({ marker }, proposal_id, version, 7)
+    local absent, absent_status = decompose_lib.decomposed_fact({}, proposal_id, version, 7)
+
+    t.eq(fact.count, 2)
+    t.eq(valid_status, "valid")
+    t.eq(absent, nil)
+    t.eq(absent_status, "absent")
   end,
 }

@@ -97,7 +97,7 @@ end
 
 function C.decomposed_fact(comments, proposal_id, version, pr_number)
   if type(comments) ~= "table" then
-    return nil
+    return nil, "absent"
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:decomposed:v1.-%-%->"
   local fact = nil
@@ -126,13 +126,16 @@ function C.decomposed_fact(comments, proposal_id, version, pr_number)
           elseif candidate.version == fact.version
             and candidate.pr_number == fact.pr_number
             and candidate.count ~= fact.count then
-            return nil
+            return nil, "conflict"
           end
         end
       end
     end
   end
-  return fact
+  if fact ~= nil then
+    return fact, "valid"
+  end
+  return nil, "absent"
 end
 
 function C.parse_decompose_child_issue_list(stdout)

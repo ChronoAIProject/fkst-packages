@@ -726,7 +726,7 @@ end
 
 function C.pr_delegation_fact(comments, proposal_id, version, delegation)
   if type(comments) ~= "table" then
-    return nil
+    return nil, "absent"
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-delegation:v1.-%-%->"
   local fact = nil
@@ -761,12 +761,15 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
           or candidate.pr_number ~= fact.pr_number
           or candidate.version ~= fact.version
           or candidate.delegation ~= fact.delegation then
-          return nil
+          return nil, "conflict"
         end
       end
     end
   end
-  return fact
+  if fact ~= nil then
+    return fact, "valid"
+  end
+  return nil, "absent"
 end
 
 function C.pr_origin_fact(comments)

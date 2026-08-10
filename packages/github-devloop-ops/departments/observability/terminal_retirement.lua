@@ -108,9 +108,9 @@ local function has_post_terminal_non_bot_comment_after(comments, terminal_create
 end
 
 local function delegation_for_parent_terminal(issue, proposal_id, terminal_version)
-  local delegation = marker_facts.pr_delegation_fact(issue.comments, proposal_id)
+  local delegation, status = marker_facts.pr_delegation_fact(issue.comments, proposal_id)
   if delegation == nil then
-    return nil, false
+    return nil, status ~= "absent"
   end
   local expected_terminal_version = transition_version.next_blocked(
     delegation.version,
@@ -367,15 +367,9 @@ local function delegated_reconcile_drop_retirement_fact(
     return nil, ineligible("delegated-fix-reconcile-missing")
   end
   local pr_terminal_version = fix_reconcile.version
-  local milestone_opts = {
-    domain = "github-devloop-pr",
-    lineage_base = pr_terminal_version,
-  }
   if transition_version.strip_suffixes(pr_terminal_version)
       ~= transition_version.strip_suffixes(delegation.version)
-    or not devloop_state.reached(pr.comments, proposal_id, "blocked", milestone_opts)
-    or not devloop_state.has_state_marker(pr.comments, proposal_id, "blocked", pr_terminal_version)
-    or devloop_state.reached(pr.comments, proposal_id, "closed-unmerged", milestone_opts) then
+    or not devloop_state.is_current_state(pr.comments, proposal_id, "blocked", pr_terminal_version) then
     return nil, ineligible("delegated-pr-state-mismatch")
   end
   local pr_state = {
@@ -468,10 +462,8 @@ local function reconcile_drop_retirement_fact(issue, proposal_id, terminal_versi
   if dwell == nil then
     return nil, failure
   end
-  if marker_facts.pr_delegation_fact(issue.comments, proposal_id) ~= nil then
-    return nil, ineligible("reconcile-terminal-pr-delegation-present", dwell.elapsed_minutes)
-  end
-  if decompose.decomposed_fact(issue.comments, proposal_id, terminal_version) ~= nil then
+  local _, decomposed_status = decompose.decomposed_fact(issue.comments, proposal_id, terminal_version)
+  if decomposed_status ~= "absent" then
     return nil, ineligible("reconcile-terminal-decomposed-present", dwell.elapsed_minutes)
   end
   if has_post_terminal_non_bot_comment(issue.comments, dwell.marker_index) then

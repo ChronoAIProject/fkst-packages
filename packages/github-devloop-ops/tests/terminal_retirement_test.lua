@@ -483,6 +483,77 @@ return {
     end
   end,
 
+  test_delegated_terminal_requires_blocked_to_be_the_current_pr_state = function()
+    local pr = delegated_pr()
+    table.insert(pr.comments, bot_comment(
+      core.state_marker(
+        proposal_id,
+        "reviewing",
+        transition_version.next_fix(delegated_version)
+      ),
+      "2026-07-30T00:03:00Z"
+    ))
+
+    local decision = decide_delegated(delegated_parent(), pr, delegated_children())
+
+    t.eq(decision.decision, "ineligible")
+    t.eq(decision.reason, "delegated-pr-state-mismatch")
+  end,
+
+  test_no_pr_retirement_rejects_contradictory_delegation_evidence = function()
+    local comments = {
+      bot_comment(m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/7",
+        7,
+        delegated_version,
+        "g1"
+      ), "2026-07-30T00:02:00Z"),
+      bot_comment(m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/8",
+        8,
+        delegated_version,
+        "g2"
+      ), "2026-07-30T00:03:00Z"),
+    }
+
+    local decision = terminal_retirement.decide(
+      blocked_issue(nil, nil, comments),
+      expected_reconcile_terminal(),
+      contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z")
+    )
+
+    t.eq(decision.decision, "ineligible")
+    t.eq(decision.reason, "reconcile-terminal-pr-delegation-mismatch")
+  end,
+
+  test_no_pr_retirement_rejects_contradictory_decomposition_evidence = function()
+    local comments = {
+      bot_comment(decompose.decomposed_marker(
+        proposal_id,
+        reconcile_terminal_version,
+        delegated_pr_number,
+        2
+      ), "2026-07-30T00:02:00Z"),
+      bot_comment(decompose.decomposed_marker(
+        proposal_id,
+        reconcile_terminal_version,
+        delegated_pr_number,
+        3
+      ), "2026-07-30T00:03:00Z"),
+    }
+
+    local decision = terminal_retirement.decide(
+      blocked_issue(nil, nil, comments),
+      expected_reconcile_terminal(),
+      contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z")
+    )
+
+    t.eq(decision.decision, "ineligible")
+    t.eq(decision.reason, "reconcile-terminal-decomposed-present")
+  end,
+
   test_delegated_terminal_requires_one_exact_trusted_child_fact_per_index = function()
     local missing_identity = delegated_children()
     missing_identity[1].number = nil
