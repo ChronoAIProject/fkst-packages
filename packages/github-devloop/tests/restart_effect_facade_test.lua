@@ -70,7 +70,7 @@ local function old_effects()
   local source = request()
   h.mock_context_bundle(source)
   local effects = execution_start.build_execution_start_effects(
-    core,
+    core.output_language,
     "owner/repo",
     42,
     source,

@@ -248,7 +248,6 @@ return {
     t.eq(admission, "other")
     t.eq(detail.action, "skip-claimed-by-other")
     t.eq(m_claims.claim_issue_for_management(
-      core,
       "admission",
       "owner/repo",
       42,
@@ -297,7 +296,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -316,7 +315,7 @@ return {
     mock_env("fkst-test-bot", "label", "1")
     mock_claim_label_binding("fkst-dev-label-mode-ownership-claim owner=peer-bot")
 
-    local ok, err = pcall(m_claims.claim_issue_for_management, core,
+    local ok, err = pcall(m_claims.claim_issue_for_management,
       "claim_mode",
       "owner/repo",
       42,
@@ -349,7 +348,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -366,7 +365,7 @@ return {
   test_label_mode_self_owned_short_circuits_without_writes = function()
     mock_env("fkst-test-bot", "label", "1")
     mock_claim_label_binding()
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -515,7 +514,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -547,7 +546,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -579,7 +578,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,

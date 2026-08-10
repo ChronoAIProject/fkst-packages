@@ -152,13 +152,13 @@ return {
       exit_code = 0,
     })
 
-    local first = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local first = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local second = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local second = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local next_poll = entity_list_cache.fetch_shared_issue_observe_list(core, repo, {
+    local next_poll = entity_list_cache.fetch_shared_issue_observe_list(core.gh_issue_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:03:03Z",
     })
 
@@ -187,10 +187,10 @@ return {
       exit_code = 0,
     })
 
-    local first = entity_list_cache.fetch_shared_pr_observe_list(core, repo, {
+    local first = entity_list_cache.fetch_shared_pr_observe_list(core.gh_pr_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
-    local second = entity_list_cache.fetch_shared_pr_observe_list(core, repo, {
+    local second = entity_list_cache.fetch_shared_pr_observe_list(core.gh_pr_list_observe_opts, repo, {
       poll_key = "2026-06-03T01:02:03Z",
     })
 

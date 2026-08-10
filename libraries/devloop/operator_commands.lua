@@ -14,7 +14,6 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local marker_facts = require("devloop.markers.facts")
 local pr_partition = require("devloop.restart.issue.pr_partition_contract")
-local command_prs = require("devloop.commands.prs")
 
 local ai_sentinel = "⟦AI:FKST⟧"
 local rereview_state_modes = {
@@ -725,12 +724,8 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
   if source_fact == nil then
     return false, "source-lineage-changed", true
   end
-  local snapshot_reader = {
-    _max_dedup_len = devloop_base._max_dedup_len,
-    gh_pr_view_freshness = command_prs.gh_pr_view_freshness,
-  }
   local snapshot = entity_lib.linked_pr_delegation_surface_snapshot(
-    snapshot_reader,
+    devloop_base._max_dedup_len,
     fact.source_repo,
     fact.proposal_id,
     source_issue.comments,

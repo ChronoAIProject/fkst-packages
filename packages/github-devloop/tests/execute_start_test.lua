@@ -2,6 +2,8 @@ local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local execution_start = require("devloop.execution_start")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -105,9 +107,10 @@ return {
     local current = current_issue()
     h.mock_context_bundle(request)
 
-    local effects = execution_start.build_execution_start_effects(core, "owner/repo", 42, request, current, "2026-06-03T01:02:04Z", "intake_judge")
+    local effects = execution_start.build_execution_start_effects(core.output_language, "owner/repo", 42, request, current, "2026-06-03T01:02:04Z", "intake_judge")
 
     t.is_true(effects ~= nil)
+    t.eq(sha256.hex(observation.canonical_json(effects)), "1f39664eb997003f5e5cf6b11ae1d0a777d2d3cf16a8b3d062fb889c14f479f7")
     local raises = {
       { queue = "github-proxy.github_issue_comment_request", payload = effects.thinking_comment_request },
       { queue = "github-proxy.github_issue_label_request", payload = effects.thinking_label_request },

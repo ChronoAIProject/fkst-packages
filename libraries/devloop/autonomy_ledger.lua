@@ -154,8 +154,8 @@ function C.autonomy_merge_rounds(version)
   return restart_metadata.version_loop_round(version) + restart_metadata.version_fix_round(version)
 end
 
-function C.autonomy_post_merge_probe_gate(M, pr, opts)
-  local green, reason = M.evaluate_ci_status_gate(pr, opts)
+function C.autonomy_post_merge_probe_gate(evaluate_ci_status_gate, pr, opts)
+  local green, reason = evaluate_ci_status_gate(pr, opts)
   if green then
     return "pass", reason
   end
@@ -461,11 +461,11 @@ function C.autonomy_attempt_denominator(comments, repo, issue_number, opts)
   return C.autonomy_attempt_projection(comments, repo, issue_number, opts).total_attempts
 end
 
-function C.autonomy_result_record(M, repo, issue_number, merge_ready, issue, post_merge_pr)
+function C.autonomy_result_record(evaluate_ci_status_gate, repo, issue_number, merge_ready, issue, post_merge_pr)
   local human_touch_count = 0
   local post_merge_probe = "pending"
   if post_merge_pr ~= nil then
-    post_merge_probe = C.autonomy_post_merge_probe_gate(M, post_merge_pr, {
+    post_merge_probe = C.autonomy_post_merge_probe_gate(evaluate_ci_status_gate, post_merge_pr, {
       repo = repo,
       dept = "merge",
       proposal_id = tostring(merge_ready.proposal_id),
@@ -712,7 +712,7 @@ function C.autonomy_result_fact(comments, proposal_id, pr_number, version, head_
   return nil
 end
 
-function C.autonomy_audit_valid_autonomous_merge(M, fact, opts)
+function C.autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts)
   if type(fact) ~= "table" then
     return nil
   end
@@ -729,7 +729,7 @@ function C.autonomy_audit_valid_autonomous_merge(M, fact, opts)
     head_sha = head_sha,
     status_check_rollup = type(opts) == "table" and opts.status_check_rollup or {},
   }
-  local green, reason = M.evaluate_ci_status_gate(pr, {
+  local green, reason = evaluate_ci_status_gate(pr, {
     repo = repo,
     dept = "autonomy-auditor",
     proposal_id = tostring(fact.proposal_id or ""),
@@ -776,12 +776,12 @@ function C.autonomy_audit_valid_autonomous_merge(M, fact, opts)
   }
 end
 
-function C.autonomy_audited_result_fact(M, comments, proposal_id, pr_number, version, head_sha, opts)
+function C.autonomy_audited_result_fact(evaluate_ci_status_gate, comments, proposal_id, pr_number, version, head_sha, opts)
   local fact = C.autonomy_result_fact(comments, proposal_id, pr_number, version, head_sha)
   if fact == nil then
     return nil
   end
-  local audit = C.autonomy_audit_valid_autonomous_merge(M, fact, opts or {})
+  local audit = C.autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts or {})
   if type(audit) == "table" and audit.valid_autonomous_merge ~= nil then
     local state = tostring(audit.valid_autonomous_merge)
     if not audit_states[state] then
