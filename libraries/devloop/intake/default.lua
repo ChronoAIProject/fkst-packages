@@ -225,7 +225,31 @@ local function read_current_for_candidate(intake_service_class, dept, repo, issu
   }
 end
 
+-- Recurring-class discovery is two repo-wide GitHub searches, and neither reads state
+-- that this issue's transition lock protects: carrier creation races between different
+-- issues are not serialized by a per-issue lock in the first place. It therefore runs
+-- before the commit lock, on the same snapshot the codex judged. A snapshot that drifts
+-- afterwards cannot apply this plan at all, because the in-lock re-read rejects the
+-- decision once the title/body-derived dedup key no longer matches.
+local function plan_class_escalation(intake_class, repo, issue_number, current, parsed)
+  local sibling_issues = intake_class.fetch_recent_closed_intake_class_issues(repo)
+  local class_key = intake_class.intake_class_identity(parsed.reason, current, issue_number, sibling_issues)
+  if class_key == nil then
+    parsed.action = "enable"
+    parsed.reason = tostring(parsed.reason or "") .. "\n\nNo stable recurring-class identity was found; enabling as an ordinary issue instead of creating a title-derived class carrier."
+    return { class_key = nil, carrier = nil }
+  end
+  return {
+    class_key = class_key,
+    carrier = intake_class.find_open_intake_class_carrier(repo, issue_number, current, class_key),
+  }
+end
+
 local function apply_intake_decision(intake_class, intake_service_class, dept, repo, issue_number, event, candidate, gate, parsed)
+  local class_plan = nil
+  if parsed.action == "escalate-to-class" then
+    class_plan = plan_class_escalation(intake_class, repo, issue_number, gate.current, parsed)
+  end
   with_lock(gate.lock_key, function()
     local current_gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
     if current_gate == nil then
@@ -239,21 +263,13 @@ local function apply_intake_decision(intake_class, intake_service_class, dept, r
     local raised = {
       "github-proxy.github_issue_comment_request",
     }
-    local class_carrier = nil
-    local class_key = nil
+    local class_carrier = class_plan ~= nil and class_plan.carrier or nil
+    local class_key = class_plan ~= nil and class_plan.class_key or nil
     if parsed.action == "escalate-to-class" then
-      local sibling_issues = intake_class.fetch_recent_closed_intake_class_issues(repo)
-      class_key = intake_class.intake_class_identity(parsed.reason, current, issue_number, sibling_issues)
-      if class_key == nil then
-        parsed.action = "enable"
-        parsed.reason = tostring(parsed.reason or "") .. "\n\nNo stable recurring-class identity was found; enabling as an ordinary issue instead of creating a title-derived class carrier."
-      else
-        class_carrier = intake_class.find_open_intake_class_carrier(repo, issue_number, current, class_key)
-        table.insert(raised, "github-proxy.github_issue_comment_request")
-        table.insert(raised, "github-proxy.github_issue_label_request")
-        if class_carrier == nil then
-          table.insert(raised, "github-proxy.github_issue_create_request")
-        end
+      table.insert(raised, "github-proxy.github_issue_comment_request")
+      table.insert(raised, "github-proxy.github_issue_label_request")
+      if class_carrier == nil then
+        table.insert(raised, "github-proxy.github_issue_create_request")
       end
     end
     candidate.service_class = parsed.service_class

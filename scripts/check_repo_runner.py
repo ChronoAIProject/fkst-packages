@@ -16,6 +16,7 @@ import check_repo_devloop_decouple
 import check_repo_devloop_installer
 import check_repo_error_class
 import check_repo_fanout_only
+import check_repo_lock_scope
 import check_repo_service_locator
 import check_repo_ambient_surface
 import check_repo_core_param
@@ -121,6 +122,11 @@ def check_version_suffix(c, root, violations, allowlist_dir=None, enforce_base=T
         c.add(violations, "G-VERSION-SUFFIX", message)
 
 
+def check_lock_scope(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+    for message in check_repo_lock_scope.repository_messages(root, allowlist_dir, enforce_base):
+        c.add(violations, "G-LOCK-SCOPE", message)
+
+
 def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
     package_roots = c.package_roots(root)
     raisers = set().union(*[
@@ -215,6 +221,7 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
     check_content_truncation(c, root, violations, allowlists, enforce_base)
     check_dept_failure_surface(c, root, violations, allowlists, enforce_base)
     check_version_suffix(c, root, violations, allowlists, enforce_base)
+    check_lock_scope(c, root, violations, allowlists, enforce_base)
     for message in check_repo_coverage.repository_messages(root):
         c.add(violations, "G-COVERAGE", message)
     integration_allowlist = None
