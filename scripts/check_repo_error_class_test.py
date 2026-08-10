@@ -72,12 +72,12 @@ class ErrorClassRatchetTest(unittest.TestCase):
 
             violations: list[str] = []
             with mock.patch.object(error_class, "allowlist_at_dev_base", return_value=("absent", None)):
-                check_repo.check_error_class_prefixes(root, violations, [])
+                check_repo.check_error_class_prefixes(root, violations)
             self.assertEqual(violations, [])
 
             (migration / "error-class.allowlist").write_text("", encoding="utf-8")
             with mock.patch.object(error_class, "allowlist_at_dev_base", return_value=("absent", None)):
-                check_repo.check_error_class_prefixes(root, violations, [])
+                check_repo.check_error_class_prefixes(root, violations)
 
         self.assertEqual(len(violations), 1)
         self.assertTrue(violations[0].startswith("G7: "))

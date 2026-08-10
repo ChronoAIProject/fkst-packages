@@ -193,13 +193,13 @@ class DedupRatchetTest(unittest.TestCase):
 
             violations: list[str] = []
             with mock.patch.object(check_repo.check_repo_dedup, "allowlist_at_dev_base", return_value=("present", set(groups))):
-                check_repo.check_code_dedup_ratchet(root, violations, [])
+                check_repo.check_code_dedup_ratchet(root, violations)
 
             self.assertEqual(violations, [])
 
             (root / "packages" / "two" / "core.lua").write_text("return {}\n", encoding="utf-8")
             with mock.patch.object(check_repo.check_repo_dedup, "allowlist_at_dev_base", return_value=("present", set(groups))):
-                check_repo.check_code_dedup_ratchet(root, violations, [])
+                check_repo.check_code_dedup_ratchet(root, violations)
 
         self.assertEqual(len(violations), 1)
         self.assertTrue(violations[0].startswith("G-DEDUP: "))

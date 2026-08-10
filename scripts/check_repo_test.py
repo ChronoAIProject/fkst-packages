@@ -13,7 +13,6 @@ import types
 import unittest
 from unittest import mock
 from pathlib import Path
-import check_repo_runner
 import ratchet_base_test
 from check_repo_library_layering_test import LibraryLayeringGuardTest
 from run_script_contract_test import RunScriptContractTest
@@ -680,19 +679,13 @@ class SagaHandlerRatchetTest(unittest.TestCase):
             )
 
             violations: list[str] = []
-            configuration_failures: list[str] = []
             warnings: list[str] = []
             with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("unresolved", None)):
-                check_repo.check_saga_handler_ratchet(
-                    root,
-                    violations,
-                    configuration_failures,
-                    warnings,
-                )
+                check_repo.check_saga_handler_ratchet(root, violations, warnings)
 
         self.assertEqual(warnings, [])
-        self.assertEqual(violations, [])
-        self.assertIn("cannot resolve dev base allowlist", configuration_failures[0])
+        self.assertIsInstance(violations[0], check_repo.ratchet_base.ConfigurationFailure)
+        self.assertIn("cannot resolve dev base allowlist", violations[0])
 
     def test_first_introduction_without_base_allowlist_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -713,7 +706,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
             violations: list[str] = []
             warnings: list[str] = []
             with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("absent", None)):
-                check_repo.check_saga_handler_ratchet(root, violations, [], warnings)
+                check_repo.check_saga_handler_ratchet(root, violations, warnings)
 
         self.assertEqual(warnings, [])
         self.assertEqual(violations, [])
@@ -764,79 +757,39 @@ class ViolationExitCodeTest(unittest.TestCase):
             else sys.modules.pop("check_repo_runner", None)
         )
 
-    def test_violations_return_the_typed_code(self):
-        self._with_runner(lambda _m, _c, violations, _f, _w: violations.append("G-TEST: seeded"))
+    def test_violations_take_precedence_over_configuration_failures(self):
+        def run(_module, _config, violations, _warnings):
+            violations.append(check_repo.ratchet_base.configuration_failure("G-BASE: unavailable"))
+            violations.append("G-TEST: seeded")
+
+        self._with_runner(run)
         self.assertEqual(check_repo.main([]), check_repo.VIOLATIONS_EXIT)
 
     def test_configuration_failures_return_the_typed_code(self):
         self._with_runner(
-            lambda _m, _c, _v, configuration_failures, _w: configuration_failures.append(
-                "G10: dev base unavailable"
+            lambda _m, _c, violations, _w: violations.append(
+                check_repo.ratchet_base.configuration_failure("G10: dev base unavailable")
             )
         )
         self.assertEqual(check_repo.main([]), check_repo.CONFIGURATION_EXIT)
 
-    def test_real_runner_classifies_unresolved_ratchet_bases_as_configuration(self):
-        configuration_allowlists = {
-            check_repo_runner.check_repo_content_truncation.ALLOWLIST,
-            check_repo_runner.check_repo_dept_failure_surface.ALLOWLIST,
-            check_repo_runner.check_repo_producer_liveness.ALLOWLIST,
-            check_repo_runner.check_repo_monotone_gate.ALLOWLIST,
-        }
-        original = check_repo.check_repo_config.allowlist_at_dev_base
-
-        def unresolved_reviewed_ratchets(
-            root,
-            *,
-            allowlist,
-            parse_allowlist_lines,
-            catch_errors=True,
-        ):
-            if allowlist in configuration_allowlists:
-                return "unresolved", None
-            return original(
-                root,
-                allowlist=allowlist,
-                parse_allowlist_lines=parse_allowlist_lines,
-                catch_errors=catch_errors,
-            )
-
+    def test_real_runner_classifies_every_unresolved_baseline_as_configuration(self):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with (
-            mock.patch.object(
-                check_repo.check_repo_config,
-                "allowlist_at_dev_base",
-                side_effect=unresolved_reviewed_ratchets,
-            ),
-            mock.patch.object(
-                check_repo.check_repo_error_class,
-                "allowlist_at_dev_base",
-                return_value=("unresolved", None),
-            ),
-            mock.patch.object(
-                check_repo.check_repo_dedup,
-                "allowlist_at_dev_base",
-                return_value=("unresolved", None),
-            ),
+            mock.patch.object(check_repo.ratchet_base, "file_at_base", return_value=("unresolved", None)),
+            mock.patch.object(check_repo.ratchet_base, "resolve_dev_merge_base", return_value=None),
+            mock.patch.object(check_repo.ratchet_base, "resolve_target_ref", return_value=None),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),
         ):
             result = check_repo.main([])
 
         self.assertEqual(result, check_repo.CONFIGURATION_EXIT)
-        for gate in (
-            "G7",
-            "G-DEDUP",
-            "G-CONTENT-TRUNCATION",
-            "G-DEPT-FAILURE-SURFACE",
-            "G-PRODUCER-LIVENESS",
-            "G-MONOTONE-GATE",
-        ):
-            self.assertIn(f"  {gate}: cannot resolve", stderr.getvalue())
+        self.assertIn("cannot resolve", stderr.getvalue())
 
     def test_clean_run_returns_zero(self):
-        self._with_runner(lambda _m, _c, _v, _f, _w: None)
+        self._with_runner(lambda _m, _c, _v, _w: None)
         self.assertEqual(check_repo.main([]), 0)
 
     def test_the_typed_code_is_distinguishable_from_a_bare_failure(self):

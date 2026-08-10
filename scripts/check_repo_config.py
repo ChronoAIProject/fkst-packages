@@ -14,6 +14,8 @@ import ratchet_base
 
 
 ParsedAllowlist = TypeVar("ParsedAllowlist")
+ConfigurationFailure = ratchet_base.ConfigurationFailure
+configuration_failure = ratchet_base.configuration_failure
 
 
 OWN_REPO_ROOT = Path(__file__).resolve().parents[1]

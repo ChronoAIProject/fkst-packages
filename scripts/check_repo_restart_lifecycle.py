@@ -447,7 +447,7 @@ def shrink_only_messages(
     if status == "absent":
         return []
     if status == "unresolved":
-        return [f"{ALLOWLIST}: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"]
+        return [ratchet_base.configuration_failure(f"{ALLOWLIST}: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")]
     base_lines = {line.strip() for line in (base_text or "").splitlines() if line.strip()}
     current_set = set(current_lines)
     additions = sorted(current_set - base_lines)
