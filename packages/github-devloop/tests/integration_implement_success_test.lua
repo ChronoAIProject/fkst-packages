@@ -435,9 +435,9 @@ return {
     mock_candidate_local_red(worktree, "candidate failed\n")
     mock_base_probe(worktree, {
       check = {
-        stdout = "",
-        stderr = local_iteration_marker("SEMANTIC_FAIL")
-          .. "make: *** No rule to make target 'preflight'. Stop.\n",
+        stdout = "repository check failed:\n"
+          .. "  G10: cannot resolve dev base allowlist to enforce shrink-only ratchet\n",
+        stderr = local_iteration_marker("SEMANTIC_FAIL"),
         exit_code = 2,
       },
     })
@@ -446,7 +446,8 @@ return {
 
     local failure = assert_impl_failure_without_publication(result, "base-local-iteration-failed")
     t.is_true(failure.payload.body:find("base_sha=abc123", 1, true) ~= nil)
-    t.is_true(failure.payload.body:find("No rule to make target 'preflight'", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find("G10: cannot resolve dev base allowlist", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find(local_iteration_marker("SEMANTIC_FAIL"), 1, true) ~= nil)
     local pinned_add = false
     for _, call in ipairs(t.command_calls()) do
       local rendered = tostring(call.rendered or "")
