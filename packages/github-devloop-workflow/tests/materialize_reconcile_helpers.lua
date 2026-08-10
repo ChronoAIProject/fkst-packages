@@ -145,9 +145,9 @@ local function child_body_with_blueprint(slot_id, spec, child_dedup, bp)
   return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
 end
 
-local function raise_capture(fn)
+local function raise_capture(fn, lock)
   local old_with_lock = with_lock
-  with_lock = function(_key, locked)
+  with_lock = lock or function(_key, locked)
     return locked()
   end
   local ok, result = pcall(fn)
@@ -176,10 +176,13 @@ local function run_with(fakes)
       list_open_issues = function()
         return fake.issues or { { number = origin_issue, title = "Workflow origin" } }
       end,
-      read_issue = function()
+      read_issue = function(...)
+        if type(fake.read_issue) == "function" then
+          return fake.read_issue(...)
+        end
         return fake.current or issue()
       end,
-      verify_issue_claim = function()
+      verify_issue_claim = fake.verify_issue_claim or function()
         return fake.claim ~= false
       end,
       dependency_gate = fake.dependency_gate or function()
@@ -228,7 +231,7 @@ local function run_with(fakes)
   }))
   local result = raise_capture(function()
     return testing.run_fake(dept, event())
-  end)
+  end, fake.with_lock)
   return result.raises
 end
 
