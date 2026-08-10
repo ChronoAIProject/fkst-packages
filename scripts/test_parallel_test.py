@@ -206,7 +206,8 @@ install_test_clock() {{
     mv "$next" "$clock_values" || return 1
     if [ "${{ASSERT_UNIT_ROOTS_CLEAN_AT_FINAL_CLOCK:-0}}" = 1 ] \
         && [ ! -s "$clock_values" ]; then
-      if [ -e "${{FKST_RUNTIME_ROOT:-}}" ] || [ -e "${{FKST_DURABLE_ROOT:-}}" ]; then
+      if compgen -G "$roots_parent/rt.*" >/dev/null \
+          || compgen -G "$roots_parent/durable.*" >/dev/null; then
         printf 'cleanup-pending\n' >>"$timing_events"
       else
         printf 'cleanup-complete\n' >>"$timing_events"
@@ -416,6 +417,7 @@ printf 'rc=%s\n' "$?"
                 snippet = self._fixture_setup(root) + f"""
 install_test_clock \
   '1700000010000000000 {start_ns}' '1700000010060000000 {end_ns}'
+ASSERT_UNIT_ROOTS_CLEAN_AT_FINAL_CLOCK=1
 real_mktemp="$(command -v mktemp)"
 SETUP_FAILURE={failure}
 mktemp() {{
@@ -440,6 +442,14 @@ printf 'rc=%s\n' "$?"
                 self.assertEqual(record["exit_status"], 1)
                 self.assertEqual(
                     record["elapsed_ms"], (end_ns - start_ns) / 1_000_000
+                )
+                expected_events = ["clock"]
+                if failure == "coverage":
+                    expected_events.append("conformance")
+                expected_events.extend(["cleanup-complete", "clock"])
+                self.assertEqual(
+                    (root / "timing-events").read_text().splitlines(),
+                    expected_events,
                 )
 
     def test_timing_write_failure_does_not_change_unit_exit_status(self) -> None:
