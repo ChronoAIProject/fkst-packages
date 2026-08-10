@@ -5,6 +5,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local C = {}
 local transition_version = require("contract.transition_version")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local payloads_shared = require("devloop.payloads.shared")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 
@@ -100,7 +101,7 @@ function C.has_converge_replay(caps, current, proposal_id, state, source_ref)
     or conv_rounds.terminal_cause(facts, round) ~= nil
 end
 
-local function visible_true_stall(M, issue, state, facts)
+local function visible_true_stall(issue, state, facts)
     local current = facts and facts.current or issue
     local proposal_id = facts and facts.proposal_id
     local source_ref = (facts and facts.source_ref) or (issue and issue.source_ref)
@@ -125,20 +126,20 @@ local function visible_true_stall(M, issue, state, facts)
     }, round, epoch_version, terminal_cause)
 end
 
-function C.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, log_skip, raise_effects)
+function C.replay_thinking_true_stall_blocked(authorization, dept, issue, state, facts, log_skip, raise_effects)
     local proposal_id = facts and facts.proposal_id
     local current = facts and facts.current or issue
-    local reconcile = visible_true_stall(M, issue, state, facts)
+    local reconcile = visible_true_stall(issue, state, facts)
     if reconcile == nil then
       return nil
     end
-    if conv_reconcile.has_reconcile_marker(M, current.comments, proposal_id, reconcile.base_version, reconcile.round) then
+    if conv_reconcile.has_reconcile_marker(current.comments, proposal_id, reconcile.base_version, reconcile.round) then
       return log_skip(dept, proposal_id, state, "thinking", "blocked", "skip-idempotent(reconcile marker already visible)", "reconcile result marker for visible true-stall round is already visible")
     end
     local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
     local action = "drop"
     local reason = tostring(reconcile.terminal_cause) .. "-after-" .. tostring(reconcile.round) .. "-rounds"
-    local decision, effects = M.authorize_true_stall_drop({
+    local decision, effects = authorization.authorize_true_stall_drop({
       issue = issue,
       proposal_id = proposal_id,
       state = state,
@@ -150,7 +151,7 @@ function C.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, log_
     if decision.status == "idempotent" or decision.status == "stale" then
       return log_skip(dept, proposal_id, state, "thinking", "blocked", decision.cas_outcome, "current marker cannot be reconciled from thinking")
     end
-    local add_labels, remove_labels = M.state_label_changes("blocked")
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision(dept, proposal_id, state, "thinking", "blocked", decision.cas_outcome, reason)
     return raise_effects(dept, proposal_id, "blocked", decision.incoming_version, { add = add_labels, remove = remove_labels }, effects)
 end

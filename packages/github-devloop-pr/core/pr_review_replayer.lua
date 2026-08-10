@@ -22,7 +22,7 @@ local ci_verdict = require("core.ci_verdict")
 local linked_pr_terminal = require("core.linked_pr_terminal")
 local with_current_classification = ci_verdict.with_current_classification
 
-function S.install(M)
+function S.install(M, restart_policy)
 local function raise_fix_reviewing(opts) return requests_review.raise_fix_reviewing(M.output_language, opts) end
 local terminal = linked_pr_terminal.install(M)
 local linked_pr_state = terminal.linked_pr_state
@@ -208,7 +208,7 @@ end
 local function review_converge_fact(facts, state, link, current_pr)
   local review_proposal = devloop_base.pr_review_proposal_id(facts.issue.repo, link.pr_number, state.version, current_pr.head_sha)
   local source_ref = entity_lib.pr_source_ref(facts.issue.repo, link.pr_number)
-  local records = conv_rounds.review_converge_round_facts(M,
+  local records = conv_rounds.review_converge_round_facts(restart_policy,
     comments_for_pr_facts(facts, current_pr),
     review_proposal,
     facts.proposal_id,

@@ -49,7 +49,7 @@ function K.liveness_timeout_attempt(row, state, facts)
   local comments = facts and facts.current and facts.current.comments or nil
   local from_state = row and row.from_state
   local version = state and state.version
-  local durable_round = conv_attempts.timeout_attempt_round(policy, comments, proposal_id, version, from_state)
+  local durable_round = conv_attempts.timeout_attempt_round(comments, proposal_id, version, from_state)
   local version_round = policy.version_timeout_round(version, from_state)
   return math.max(durable_round or 0, version_round or 0)
 end
@@ -254,7 +254,7 @@ function K.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     devloop_logging.log_cas_decision(dept, proposal_id, facts and facts.fresh_current_state or state, row.from_state, row.driving_queue, "stale_timeout_noop(" .. tostring(mismatch) .. ")", "timeout watchdog lineage no longer matches freshly derived current state")
     return true
   end
-  if row.from_state == "blocked" and conv_attempts.has_decompose_exhausted_marker(policy, comments, proposal_id, state and state.version) then
+  if row.from_state == "blocked" and conv_attempts.has_decompose_exhausted_marker(comments, proposal_id, state and state.version) then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "blocked", row.driving_queue, "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
     return true
   end
