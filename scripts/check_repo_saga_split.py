@@ -481,6 +481,6 @@ def repository_messages(root: Path) -> list[str]:
         parse_allowlist_lines=parse_dev_allowlist_lines,
     )
     if base_status == "unresolved":
-        messages.append("allowlist-base-unresolved: cannot resolve dev base allowlist to enforce shrink-only ratchet")
+        messages.append(check_repo_config.configuration_failure("allowlist-base-unresolved: cannot resolve dev base allowlist to enforce shrink-only ratchet"))
     messages.extend(ratchet_messages(leaks, allowlist, base_allowlist))
     return messages

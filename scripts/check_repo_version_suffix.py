@@ -253,7 +253,7 @@ def repository_messages(
     )
     messages: list[str] = []
     if base_status == "unresolved":
-        messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        messages.append(check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref"))
     messages.extend(ratchet_messages(current, allowlist, base_allowlist))
     return messages
 
