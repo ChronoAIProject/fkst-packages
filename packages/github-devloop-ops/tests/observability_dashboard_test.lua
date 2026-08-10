@@ -123,6 +123,104 @@ local function dashboard_fixture()
 end
 
 return {
+  test_dashboard_publication_reserve_matches_worst_case_update_plan = function()
+    mock_env("1")
+    local old_body = "old\n" .. core.dashboard_marker("old", "2026-06-01T00:00:00Z")
+    local calls = {}
+    local originals = {
+      label_get = dashboard_commands.gh_dashboard_label_get,
+      label_create = dashboard_commands.gh_dashboard_label_create,
+      issue_list = dashboard_commands.gh_dashboard_issue_list,
+      issue_get = dashboard_commands.gh_dashboard_issue_get,
+      issue_update = dashboard_commands.gh_dashboard_issue_update,
+    }
+    dashboard_commands.gh_dashboard_label_get = function()
+      table.insert(calls, "label-get")
+      return { stdout = "", stderr = "not found", exit_code = 1 }
+    end
+    dashboard_commands.gh_dashboard_label_create = function()
+      table.insert(calls, "label-create")
+      return { stdout = '{"name":"fkst-dashboard"}\n', stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_list = function()
+      table.insert(calls, "issue-list")
+      return { stdout = dashboard_issue_list_stdout(old_body), stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_get = function()
+      table.insert(calls, "issue-get")
+      return {
+        stdout = '{"number":99,"title":"fkst-dev board","author":{"login":"fkst-test-bot"},"body":"'
+          .. encode_body(old_body) .. '"}\n',
+        stderr = "",
+        exit_code = 0,
+      }
+    end
+    dashboard_commands.gh_dashboard_issue_update = function()
+      table.insert(calls, "issue-update")
+      return { stdout = '{"number":99}\n', stderr = "", exit_code = 0 }
+    end
+
+    local limits = core.observability_limits()
+    local deadline = now() + limits.wall_clock_budget
+    local ok, result = pcall(function()
+      return core.publish_observability_dashboard("owner/repo", dashboard_fixture(), limits, deadline)
+    end)
+    dashboard_commands.gh_dashboard_label_get = originals.label_get
+    dashboard_commands.gh_dashboard_label_create = originals.label_create
+    dashboard_commands.gh_dashboard_issue_list = originals.issue_list
+    dashboard_commands.gh_dashboard_issue_get = originals.issue_get
+    dashboard_commands.gh_dashboard_issue_update = originals.issue_update
+    if not ok then error(result) end
+
+    t.eq(result, "updated")
+    local reserved_calls = core.observability_dashboard_publication_reserve(limits, deadline)
+      / core.observability_call_timeout(limits, deadline)
+    t.eq(reserved_calls, #calls)
+  end,
+
+  test_dashboard_publication_reserve_bounds_worst_case_create_plan = function()
+    mock_env("1")
+    local calls = {}
+    local originals = {
+      label_get = dashboard_commands.gh_dashboard_label_get,
+      label_create = dashboard_commands.gh_dashboard_label_create,
+      issue_list = dashboard_commands.gh_dashboard_issue_list,
+      issue_create = dashboard_commands.gh_dashboard_issue_create,
+    }
+    dashboard_commands.gh_dashboard_label_get = function()
+      table.insert(calls, "label-get")
+      return { stdout = "", stderr = "not found", exit_code = 1 }
+    end
+    dashboard_commands.gh_dashboard_label_create = function()
+      table.insert(calls, "label-create")
+      return { stdout = '{"name":"fkst-dashboard"}\n', stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_list = function()
+      table.insert(calls, "issue-list")
+      return { stdout = dashboard_issue_list_stdout(nil), stderr = "", exit_code = 0 }
+    end
+    dashboard_commands.gh_dashboard_issue_create = function()
+      table.insert(calls, "issue-create")
+      return { stdout = '{"number":99}\n', stderr = "", exit_code = 0 }
+    end
+
+    local limits = core.observability_limits()
+    local deadline = now() + limits.wall_clock_budget
+    local ok, result = pcall(function()
+      return core.publish_observability_dashboard("owner/repo", dashboard_fixture(), limits, deadline)
+    end)
+    dashboard_commands.gh_dashboard_label_get = originals.label_get
+    dashboard_commands.gh_dashboard_label_create = originals.label_create
+    dashboard_commands.gh_dashboard_issue_list = originals.issue_list
+    dashboard_commands.gh_dashboard_issue_create = originals.issue_create
+    if not ok then error(result) end
+
+    t.eq(result, "created")
+    local reserved_calls = core.observability_dashboard_publication_reserve(limits, deadline)
+      / core.observability_call_timeout(limits, deadline)
+    t.is_true(#calls <= reserved_calls)
+  end,
+
   test_dashboard_publish_defers_without_gh_calls_when_deadline_exhausted = function()
     mock_env("1")
     local gh_calls = 0

@@ -148,7 +148,7 @@ return {
     t.eq(classification.actionable, true)
   end,
 
-  test_blocked_with_pending_required_and_failed_optional_check_remains_blocked = function()
+  test_blocked_with_pending_required_and_completed_head_failure_is_own_ci_red = function()
     mock_check_runs('{"total_count":2,"check_runs":[{"name":"test","status":"in_progress","conclusion":null,"head_sha":"def456"},{"name":"lint","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
     local ok, reason = core.evaluate_ci_merge_gate(pr({
       merge_state_status = "BLOCKED",
@@ -160,7 +160,7 @@ return {
       proposal_id = "github-devloop/issue/owner/repo/42",
     })
     t.eq(ok, false)
-    t.eq(reason, "merge-state-blocked")
+    t.eq(reason, "own-ci-red")
   end,
 
   test_unstable_without_rollup_remains_merge_state_wait = function()
@@ -274,7 +274,7 @@ return {
     t.eq(classification.reason, "own-ci-red")
   end,
 
-  test_rollup_red_optional_head_failures_without_required_check_are_unknown = function()
+  test_rollup_red_head_failures_without_required_check_are_own_ci_red = function()
     mock_check_runs('{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"failure","head_sha":"def456"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
     local classification = core.classify_pr_ci_gate(pr({
       status_check_rollup = {
@@ -284,13 +284,14 @@ return {
       repo = "owner/repo",
       proposal_id = "github-devloop/issue/owner/repo/42",
     })
-    t.eq(classification.kind, "CI_UNKNOWN")
+    t.eq(classification.kind, "OWN_CI_RED")
     t.eq(classification.merge_blocking, true)
-    t.eq(classification.actionable, false)
-    t.eq(classification.reason, "ci-unknown")
+    t.eq(classification.actionable, true)
+    t.eq(classification.reason, "own-ci-red")
+    t.is_true(classification.ci_failure_key ~= nil)
   end,
 
-  test_pending_required_check_wins_over_failed_optional_head_check = function()
+  test_completed_head_failure_wins_over_pending_required_check = function()
     mock_check_runs('{"total_count":2,"check_runs":[{"name":"test","status":"in_progress","conclusion":null,"head_sha":"def456"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
     local classification = core.classify_pr_ci_gate(pr({
       status_check_rollup = {
@@ -300,10 +301,10 @@ return {
       repo = "owner/repo",
       proposal_id = "github-devloop/issue/owner/repo/42",
     })
-    t.eq(classification.kind, "CHECKS_PENDING")
+    t.eq(classification.kind, "OWN_CI_RED")
     t.eq(classification.merge_blocking, true)
-    t.eq(classification.actionable, false)
-    t.eq(classification.reason, "checks-pending")
+    t.eq(classification.actionable, true)
+    t.eq(classification.reason, "own-ci-red")
   end,
 
   test_empty_rollup_fallback_pending_required_commit_check_run = function()

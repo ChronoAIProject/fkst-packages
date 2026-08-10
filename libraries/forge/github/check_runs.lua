@@ -365,16 +365,15 @@ local function stable_run_app_slug(run)
   return ""
 end
 
-local function failing_head_runs(runs, head_sha, required_names)
+local function failing_head_runs(runs, head_sha)
   if type(runs) ~= "table" or not gitref.is_git_sha(head_sha) then
     return nil
   end
-  local required = required_names ~= nil and required_name_set(required_names) or nil
   local expected = tostring(head_sha):lower()
   local failing = {}
   for _, run in ipairs(runs) do
     local name = C.check_run_name(run)
-    if (required == nil or required[name]) and run_matches_head(run, expected) then
+    if run_matches_head(run, expected) then
       local state, conclusion = C.check_run_state(run)
       if state == "COMPLETED" and not green_required_check_conclusions[conclusion] then
         table.insert(failing, {
@@ -428,8 +427,8 @@ local function run_output_excerpt(run)
   return table.concat(parts, " ")
 end
 
-function C.required_head_ci_failure_summary(runs, head_sha, required_names, limit)
-  local failing = failing_head_runs(runs, head_sha, required_names)
+function C.head_ci_failure_summary(runs, head_sha, limit)
+  local failing = failing_head_runs(runs, head_sha)
   if failing == nil or #failing == 0 then
     return nil
   end
@@ -474,7 +473,7 @@ function C.required_head_check_run_status(runs, head_sha, required_names)
     if run_matches_head(run, expected) then
       local name = C.check_run_name(run)
       local state, conclusion = C.check_run_state(run)
-      if required[name] ~= nil and state == "COMPLETED" then
+      if state == "COMPLETED" then
         if not green_required_check_conclusions[conclusion] then
           return "red"
         end
@@ -498,8 +497,8 @@ function C.required_head_check_run_status(runs, head_sha, required_names)
   return "green"
 end
 
-function C.required_head_ci_failure_key(runs, head_sha, required_names)
-  local failing = failing_head_runs(runs, head_sha, required_names)
+function C.head_ci_failure_key(runs, head_sha)
+  local failing = failing_head_runs(runs, head_sha)
   if failing == nil or #failing == 0 then
     return nil
   end
