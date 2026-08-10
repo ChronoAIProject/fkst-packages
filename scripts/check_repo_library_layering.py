@@ -147,6 +147,6 @@ def messages(
     base_status, base_allowlist = allowlist_at_dev_base(root) if enforce_base else ("absent", None)
     result: list[str] = []
     if base_status == "unresolved":
-        result.append("cannot resolve dev base allowlist to enforce shrink-only library-layering ratchet; ensure CI provides the dev ref")
+        result.append(check_repo_config.configuration_failure("cannot resolve dev base allowlist to enforce shrink-only library-layering ratchet; ensure CI provides the dev ref"))
     result.extend(ratchet_messages(current, allowlist, base_allowlist))
     return result

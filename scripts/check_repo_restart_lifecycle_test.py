@@ -358,7 +358,12 @@ class RestartLifecycleRatchetTest(unittest.TestCase):
         def mutate(inventory):
             inventory['production_writer_sites'][0]['path'] = 'packages/missing.lua'
             inventory['unobserved_sites'][0]['path'] = 'packages/missing.lua'
-        messages = self.messages_for(mutate=mutate)
+        with mock.patch.object(
+            ratchet.ratchet_base,
+            'file_at_base',
+            return_value=('absent', None),
+        ):
+            messages = self.messages_for(mutate=mutate)
         self.assertTrue(any('site_id writer:1: path does not exist' in m for m in messages), messages)
 
     def test_retired_site_uses_protected_base_provenance(self):
@@ -380,6 +385,25 @@ class RestartLifecycleRatchetTest(unittest.TestCase):
                 return_value=('present', 'local function can_reach() return true end\n'),
             ):
                 self.assertEqual(ratchet.repository_messages(root, enforce_base=False), [])
+
+    def test_unresolved_protected_base_provenance_is_configuration_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            site = {
+                'site_id': 'fact:retired',
+                'path': 'libraries/devloop/state.lua',
+                'symbol': 'can_reach',
+            }
+            with mock.patch.object(
+                ratchet.ratchet_base,
+                'file_at_base',
+                return_value=('unresolved', None),
+            ):
+                messages = ratchet.validate_site_provenance(site, 'retired site', root)
+
+        self.assertEqual(len(messages), 1)
+        self.assertIsInstance(messages[0], ratchet.ratchet_base.ConfigurationFailure)
+        self.assertIn('cannot resolve protected base provenance', messages[0])
 
 
 class MalformedInventoryTest(unittest.TestCase):
