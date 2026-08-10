@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local entity_highwater = require("devloop.entity_highwater")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local dependency_gate_lib = require("devloop.dependency_gate")
 local base_ids = require("devloop.base_ids")
 local context_bundle = require("devloop.context_bundle")
@@ -33,7 +34,8 @@ local devloop_state = require("devloop.state")
 local operator_recovery_factory = require("departments.observe_issue.operator_recovery")
 local log = log
 local M = {}
-local restart_transition_table = core.restart_transition_table
+local restart_policy = observe_issue_caps.restart_policy
+local restart_transition_table = restart_policy.restart_transition_table
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
@@ -59,11 +61,13 @@ local operator_recovery = operator_recovery_factory.make({
   conv_reconcile = conv_reconcile,
   core = core,
   dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
+  dependency_waiver_marker = observe_issue_caps.dependency_waiver_marker,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
   replayer = replayer,
   replay_fields = replay_fields,
+  restart_policy = restart_policy,
 })
 local maybe_apply_issue_rereview_command = operator_recovery.maybe_apply_issue_rereview_command
 local maybe_apply_issue_reready_command = operator_recovery.maybe_apply_issue_reready_command
@@ -117,10 +121,10 @@ local function issue_local_pr_bound_state_matches_link(issue_state, link)
     return transition_version.strip_suffixes(issue_state.version) == transition_version.strip_suffixes(link.impl_version)
   end
   if issue_state.state == "fixing" then
-    return core.fixing_version_matches_link(issue_state.version, link.impl_version)
+    return restart_policy.fixing_version_matches_link(issue_state.version, link.impl_version)
   end
   if issue_state.state == "review-meta" or issue_state.state == "merge-ready" or issue_state.state == "merging" then
-    return core.fixing_version_matches_link(issue_state.version, link.impl_version)
+    return restart_policy.fixing_version_matches_link(issue_state.version, link.impl_version)
   end
   return false
 end
@@ -205,24 +209,24 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     and issue_state.state == state.state
     and tostring(issue_state.version or "") == tostring(state.version or "")
   local timeout_surface = issue.source == "liveness-scan" and "issue_liveness_scan" or "issue"
-  if state_is_issue_local and core.restart_observe_timeout_due(row, timeout_surface, state, facts, now()) then
-    return core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
+  if state_is_issue_local and restart_policy.restart_observe_timeout_due(row, timeout_surface, state, facts, now()) then
+    return restart_policy.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
   end
   if issue.source ~= "liveness-scan"
     and state_is_issue_local
-    and core.restart_observe_replay_due(row, "issue", state, facts, now()) then
+    and restart_policy.restart_observe_replay_due(row, "issue", state, facts, now()) then
     local delivery = replayer.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
     if delivery ~= nil then
       facts.redrive_delivery = delivery
     end
     return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
   end
-  if core.restart_row_observable_on(row, "issue")
+  if restart_policy.restart_row_observable_on(row, "issue")
     and state_is_issue_local
     and replayer.replay_from_table(core, "observe_issue", issue, state, row, facts) then
     return true
   end
-  if core.restart_row_observable_on(row, "issue") then
+  if restart_policy.restart_row_observable_on(row, "issue") then
     return false
   end
   if issue_state == nil
@@ -230,7 +234,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     or tostring(issue_state.version or "") ~= tostring(state.version or "") then
     return false
   end
-  return core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
+  return restart_policy.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
 end
 
 local function ensure_managed_issue_claim(issue, proposal_id, current, state)
@@ -400,7 +404,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
       impl_version = refusal_reentry.implementation_version,
     }
   end
-  local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
+  local payload = payloads_builders.build_devloop_ready_payload(payload_source)
   local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
     issue.number,
     command,
@@ -430,7 +434,7 @@ local function reconcile_issue_event(event, opts)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
   local function process_issue_event(_, record_authoritative_version)
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
@@ -440,7 +444,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: issue-read-failed: gh issue state view failed: " .. tostring(state_view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+    local current = parsers_issue.parse_issue_view_state(state_view.stdout)
     local authoritative_updated_at = current.updated_at
     current.updated_at = current.updated_at or issue.updated_at
     record_authoritative_version(authoritative_updated_at)
@@ -680,7 +684,7 @@ local function reconcile_issue_event(event, opts)
       "unmanaged", "thinking", decision.cas_outcome,
       "starting consensus for opted-in issue")
 
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "observe_issue",
       repo = issue.repo,
       issue_number = issue.number,
@@ -688,7 +692,7 @@ local function reconcile_issue_event(event, opts)
       version = issue.dedup_key,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
+    local proposal = payloads_builders.build_board_proposal(issue, event.ts)
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
         .. " tag=SKIP reason=cannot-build-valid-proposal")

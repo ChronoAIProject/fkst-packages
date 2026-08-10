@@ -107,7 +107,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
     end
     predecessor_set = position.predecessor_set
   end
-  local comment_request = requests_review.build_merge_gate_fix_comment_request(core, repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set, {
+  local comment_request = requests_review.build_merge_gate_fix_comment_request(core.merge_gate_reason_class, core.output_language, repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set, {
     ci_failure_key = ci_failure_key,
     gate_failure_excerpt = gate_failure_excerpt,
   })
@@ -161,7 +161,7 @@ local function raise_reviewing_for_current_head(repo, issue_number, merge_ready,
     return
   end
   local current_head_sha = tostring(current_pr.head_sha or "")
-  local comment_request = requests_review.build_merge_head_reviewing_comment_request(core, repo, issue_number, merge_ready, merge_ready.reviewed_head_sha, current_head_sha, review_version, source_ref)
+  local comment_request = requests_review.build_merge_head_reviewing_comment_request(core.output_language, repo, issue_number, merge_ready, merge_ready.reviewed_head_sha, current_head_sha, review_version, source_ref)
   local label_request = issue_number ~= nil and requests_labels.build_merge_head_reviewing_label_request(repo, issue_number, merge_ready, current_head_sha, review_version, entity_lib.issue_source_ref(repo, issue_number)) or nil
   local add_labels, remove_labels = devloop_state.state_label_changes("reviewing")
   devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "reviewing", "applied", reason)
@@ -291,7 +291,7 @@ local function ensure_pr_ready_for_merge(repo, merge_ready, current_pr)
   return read_merge_pr(repo, merge_ready.pr_number, "gh-pr-ready-recheck-failed: PR ready recheck failed")
 end
 local function build_merging_body(merge_ready)
-  return requests_bodies.build_merging_comment_body(core, merge_ready)
+  return requests_bodies.build_merging_comment_body(core.output_language, merge_ready)
 end
 local function write_merging_marker(repo, merge_ready, comments, grant, snapshot, restart_effects)
   if m_facts.merging_fact(comments, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha) ~= nil then
@@ -317,7 +317,7 @@ end
 local function build_merged_requests(repo, issue_number, merge_ready, merged_pr)
   local merged_source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
   local autonomy_record = issue_number ~= nil and autonomy_ledger.autonomy_result_record(core, repo, issue_number, merge_ready, nil, merged_pr) or nil
-  local merged_body = requests_bodies.build_merged_comment_body(core, merge_ready, autonomy_record)
+  local merged_body = requests_bodies.build_merged_comment_body(core.output_language, merge_ready, autonomy_record)
   local comment_request = entity_lib.build_entity_comment_request({
     kind = "pr",
     repo = repo,
@@ -800,6 +800,7 @@ local merge_queue_tick = merge_queue_tick_factory.make(core, {
   entity_lib = entity_lib,
   merge_batch = merge_batch,
   merge_queue = m_mq,
+  parsers_misc = parsers_misc,
   merge_ready_validator = v_merge_ready,
   payloads_builders = payloads_builders,
   process_merge_ready_locked = process_merge_ready_locked,
@@ -829,7 +830,7 @@ local function process_merge_ready_event(event)
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     process_merge_ready_locked(repo, issue_number, merge_ready, branches)
   end)

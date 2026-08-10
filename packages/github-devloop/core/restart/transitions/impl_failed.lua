@@ -1,4 +1,3 @@
-local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 return function(M, h)
   local fact = h.fact
@@ -75,7 +74,7 @@ return function(M, h)
       lineage_keys = { "state.version", "impl-failure.dedup", "source_ref" },
       successors = {},
     }),
-    payload_builder = payloads_builders.build_devloop_ready_payload,
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_ready_payload",
     dedup_shape = "ready/<impl-failure inner dedup> with impl_retry_attempt=<impl-failure.attempt+1>",
     required_facts = { fact("state", "marker-read"), fact("impl-failure", "marker-read"), fact("dependency-release", "marker-read") },
     advancing_facts = {

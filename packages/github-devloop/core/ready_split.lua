@@ -60,7 +60,7 @@ function M.raise_ready_split_effects(dept, issue, proposal_id, from_version, to_
     handoff_version = to_version,
     effects = state_effects,
     body_before_marker = "github-devloop ready split canonicalized"
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label") .. tostring(gate and gate.reason or "ready_split_rederive")
+      .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_inline_label") .. tostring(gate and gate.reason or "ready_split_rederive")
       .. "\n\n" .. ready_split_canonicalized_marker(
         proposal_id,
         from_version,
@@ -178,7 +178,9 @@ local function raise_dependency_release(M, dept, issue, proposal_id, state, comm
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
   end
   if release_fact == nil then
-    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_release_comment_request(M,
+    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_release_comment_request(
+      require("core.dependencies"),
+      M.output_language,
       issue.repo, issue.number, proposal_id, state.version, gate, issue.source_ref
     ))
   end
@@ -222,7 +224,7 @@ local function raise_dependency_wait_hold(M, dept, issue, proposal_id, state, cu
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
   end
   if dependency_hold == nil then
-    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_hold_comment_request(M, issue.repo, issue.number, proposal_id, state.version, gate, marker, issue.source_ref))
+    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", requests_lifecycle.build_dependency_hold_comment_request(M.output_language, issue.repo, issue.number, proposal_id, state.version, gate, marker, issue.source_ref))
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo, issue.number, { M._blocked_on_dependency_label }, {},
       base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(state.version), tostring(gate.hold_kind) }), issue.source_ref
     ))
@@ -242,7 +244,7 @@ local function raise_dependency_gate_blocked(M, dept, issue, proposal_id, state,
     repo = issue.repo,
     issue_number = issue.number,
     body = "github-devloop dependency gate blocked"
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. tostring(gate.reason or "dependency-gate-unresolvable")
+      .. "\n\n" .. comment_strings.comment_string(M.output_language, "reason_block_label") .. "\n" .. tostring(gate.reason or "dependency-gate-unresolvable")
       .. "\n\n" .. devloop_state.state_marker(proposal_id, "blocked", state.version),
     dedup_key = base_ids.dedup_key({ "dependency", "blocked", tostring(proposal_id), tostring(state.version), tostring(gate.kind), tostring(gate.reason) }),
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
@@ -385,7 +387,7 @@ function M.replay_ready_state(dept, issue, state, row, facts)
     state.version,
     row
   )
-  local ready_payload = payloads_builders.build_devloop_ready_payload(M, {
+  local ready_payload = payloads_builders.build_devloop_ready_payload({
     proposal_id = fields.proposal_id,
     dedup_key = next_ready_redrive_version(state.version, redrive_round),
     source_ref = fields.source_ref,

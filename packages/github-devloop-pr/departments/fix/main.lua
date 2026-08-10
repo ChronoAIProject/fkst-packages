@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
@@ -22,6 +23,7 @@ local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
 local fix_caps = require("fix_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
+local restart_policy = fix_caps.restart_policy
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -30,8 +32,8 @@ local review_meta_caps = {
 }
 
 local dispatch_liveness = {
-  restart_transition_table = function(...) return core.restart_transition_table(...) end,
-  restart_row_receiver_liveness = function(...) return core.restart_row_receiver_liveness(...) end,
+  restart_transition_table = function(...) return restart_policy.restart_transition_table(...) end,
+  restart_row_receiver_liveness = function(...) return restart_policy.restart_row_receiver_liveness(...) end,
 }
 
 local payloads_builders = require("devloop.payloads.builders")
@@ -246,7 +248,7 @@ local function run_fix_attempt(plan)
   local dispatch = function()
   local codex_started_at = now()
   devloop_logging.log_codex_start("fix", plan.fix.proposal_id, "fix")
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = "fix",
     repo = plan.repo,
     issue_number = plan.issue_number,
@@ -597,7 +599,7 @@ local function act_fix(event)
 
   local attempt_plan = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
 
     local pr_view = devloop_commands.gh_pr_view_fix(repo, fix.pr_number, 30)
@@ -797,7 +799,7 @@ local function act_fix(event)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-fix-view-failed: gh issue fix view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_fix(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_fix(issue_view.stdout)
     end
 
     local speculative_predecessors = nil

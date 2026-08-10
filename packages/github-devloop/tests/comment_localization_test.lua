@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local convergence_shared = require("devloop.convergence.shared")
 local comment_strings = require("devloop.strings")
@@ -8,6 +9,8 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local core = h.core
 local t = h.t
 
@@ -24,7 +27,7 @@ local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, i
 local review_dedup_key = "consensus:" .. review_proposal_id .. "/review"
 
 local function ready_payload()
-  return payloads_builders.build_devloop_ready_payload(core, reached())
+  return payloads_builders.build_devloop_ready_payload(reached())
 end
 
 local function collect_markers(body)
@@ -77,18 +80,17 @@ local function comment_cases()
     },
   }
   return {
-    { id = "thinking", request = requests_lifecycle.build_observe_comment_request(core, { repo = "owner/repo", number = 42, source_ref = source_ref() }, { proposal_id = issue_proposal_id, dedup_key = "v1" }) },
-    { id = "result", request = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", reached_with_angles) },
-    { id = "converge", request = requests_lifecycle.build_converge_round_comment_request(core, "owner/repo", "42", unresolved({
+    { id = "thinking", request = requests_lifecycle.build_observe_comment_request(core.output_language, { repo = "owner/repo", number = 42, source_ref = source_ref() }, { proposal_id = issue_proposal_id, dedup_key = "v1" }) },
+    { id = "result", request = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", reached_with_angles) },
+    { id = "converge", request = requests_lifecycle.build_converge_round_comment_request(core.output_language, "owner/repo", "42", unresolved({
       narrowed_question = "Narrow question?",
       angle_digests = { { angle = "minimal", verdict = "abstain", digest = "digest" } },
     }), 2, converge_marker) },
     { id = "reconcile", request = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-actionable-framing") },
-    { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
-    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
-    { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
-    { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request(core, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
+    { id = "implementing", request = requests_lifecycle.build_implementing_comment_request(core.implement_attempt_marker, core.output_language, "owner/repo", "42", ready, "/tmp/worktree", "devloop-owner-repo-42", "abc123", "dev", "abc123") },
+    { id = "impl-failure", request = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "no-changes", "", nil, "UNKNOWN", false) },
+    { id = "dependency-hold", request = requests_lifecycle.build_dependency_hold_comment_request(core.output_language, "owner/repo", "42", issue_proposal_id, issue_version, gate, dependency_marker, source_ref()) },
+    { id = "dependency-release", request = requests_lifecycle.build_dependency_release_comment_request({ dependency_gate_note_markers = core.dependency_gate_note_markers, dependency_release_marker = core.dependency_release_marker }, core.output_language, "owner/repo", "42", issue_proposal_id, issue_version, dependency_void_gate, source_ref()) },
   }
 end
 
@@ -116,9 +118,9 @@ local audited_english_skeletons = {
 }
 
 local function render_cases(lang)
-  comment_strings.configure_output_lang(core, lang)
+  comment_strings.configure_output_lang(core.output_language, lang)
   local rendered = comment_cases()
-  comment_strings.configure_output_lang(core, nil)
+  comment_strings.configure_output_lang(core.output_language, nil)
   return rendered
 end
 
@@ -127,6 +129,31 @@ local function body_of(case)
 end
 
 return {
+  test_localized_comment_and_resource_bytes_are_frozen = function()
+    local corpus = {
+      en = render_cases("en"),
+      zh = render_cases("zh"),
+      resources = {
+        en = comment_strings.comment_strings("en"),
+        zh = comment_strings.comment_strings("zh"),
+      },
+    }
+    t.eq(
+      sha256.hex(observation.canonical_json(corpus)),
+      "f51e9b0f732887649173d3642ead28ea02c3d35853818a580b0e67b8f735aca4"
+    )
+  end,
+
+  test_output_language_override_is_composition_local = function()
+    local other_owner = { output_language = function() return "en" end }
+    comment_strings.configure_output_lang(core.output_language, "zh")
+    comment_strings.configure_output_lang(other_owner.output_language, "en")
+    t.eq(comment_strings.comment_string(core.output_language, "reason_inline_label"), "原因：")
+    t.eq(comment_strings.comment_string(other_owner.output_language, "reason_inline_label"), "Reason: ")
+    comment_strings.configure_output_lang(core.output_language, nil)
+    comment_strings.configure_output_lang(other_owner.output_language, nil)
+  end,
+
   test_comment_template_audit_has_complete_language_table = function()
     local en = comment_strings.comment_strings("en")
     local zh = comment_strings.comment_strings("zh")
@@ -190,7 +217,7 @@ return {
           .. h.projected_state_comment(issue_proposal_id, "ready", issue_version)
           .. "\n" .. m_builders.result_marker(issue_proposal_id, "approve", "consensus:v1")
           .. "\n" .. core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }
     local review_comments = {
@@ -202,7 +229,7 @@ return {
           .. "\n" .. m_builders.merge_ready_marker(issue_proposal_id, 7, issue_version, review_proposal_id, review_dedup_key, "def456")
           .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, review_dedup_key, "fix", issue_version .. "/fix/1", "missing guard")
           .. "\n" .. m_builders.merge_gate_marker(issue_proposal_id, 7, issue_version .. "/fix/1", review_proposal_id, review_dedup_key, "def456", "abc123", "rollup-red"),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }
     local implementation_comments = {
@@ -212,7 +239,7 @@ return {
           .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, 7, "devloop-owner-repo-42", "impl:v1", "dev")
           .. "\n" .. core.impl_failure_marker(
             issue_proposal_id, "impl:v1", "codex-failed", nil, "UNKNOWN", true),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }
 
@@ -223,7 +250,7 @@ return {
       {
         body = "noise " .. cjk_probe .. "\n"
           .. core.dependency_waiver_marker(issue_proposal_id, issue_version, 7, "operator-waiver"),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }, issue_proposal_id, issue_version, 7).reason, "operator-waiver")
     t.eq(m_facts.review_reject_fact(review_comments, issue_proposal_id, issue_version .. "/fix/1").blocking_gap, "missing guard")

@@ -5,12 +5,13 @@ local contract_time = deps.contract_time
 local conv_reconcile = deps.conv_reconcile
 local core = deps.core
 local dependency_hold_fact = deps.dependency_hold_fact
+local dependency_waiver_marker = deps.dependency_waiver_marker
 local devloop_logging = deps.devloop_logging
 local devloop_state = deps.devloop_state
 local operator_commands = deps.operator_commands
 local replayer = deps.replayer
 local replay_fields = deps.replay_fields
-local restart_transition_table = core.restart_transition_table
+local restart_transition_table = deps.restart_policy.restart_transition_table
 local M = {}
 
 local function thinking_state_budget_exceeded(state)
@@ -234,7 +235,7 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
   end
 
   local comment_request = operator_commands.build_operator_issue_dependency_waiver_comment_request(
-    core,
+    dependency_waiver_marker,
     issue.repo,
     issue.number,
     command,

@@ -181,7 +181,7 @@ local function observe_fixing_head_renormalization()
   local current_head = "feedface"
   local review_proposal = devloop_base.pr_review_proposal_id(repo, pr_number, previous_version, reviewed_head)
   local review_dedup = "consensus:" .. review_proposal .. "/review"
-  local feedback = requests_review.build_review_result_comment_request(core, repo, issue_number,
+  local feedback = requests_review.build_review_result_comment_request(core.output_language, repo, issue_number,
     event.proposal_id, version, {
       proposal_id = review_proposal,
       decision = "reject",

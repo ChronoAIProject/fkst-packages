@@ -22,6 +22,6 @@ return {
       liveness_signal_producers = {},
     })
 
-    t.eq(shared.source_contains("core.lua", 'M.restart_package_name = "github-devloop"'), true)
+    t.eq(shared.source_contains("core.lua", "local restart_policy = wiring.restart_policy(restart_runtime)"), true)
   end,
 }

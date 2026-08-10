@@ -45,7 +45,7 @@ local function redacted_original_state_for(logins, author_login)
     content_filter.build_whitelist(logins),
     {}
   )
-  return parsers_issue.parse_issue_view_state(core, filtered), filtered
+  return parsers_issue.parse_issue_view_state(filtered), filtered
 end
 
 local function find_duplicate_comment(raises)

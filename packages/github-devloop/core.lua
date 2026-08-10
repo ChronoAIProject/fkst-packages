@@ -3,7 +3,6 @@ local wiring = require("core.devloop_wiring")
 local devloop_prompts = require("devloop.prompts")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
-local workflow_ports = require("devloop.adapters.workflow_ports")
 local _hidden_state_conformance = require("devloop.hidden_state_conformance")
 
 
@@ -97,7 +96,6 @@ require("devloop.gate").install({ sources = wiring.gate_sources() })
 require("core.pr_delegation").install(M)
 require("core.impl_failure").install(M)
 require("core.implementation_refusal").install(M)
-M.restart_package_name = "github-devloop"
 M.restart_lifecycle_states = {
   "thinking",
   "dependency_wait",
@@ -109,30 +107,21 @@ M.restart_lifecycle_states = {
   "blocked",
   "merged",
 }
-M.restart_source_root = "packages/github-devloop/"
-M.restart_consumer_sources = {
-  "packages/github-devloop/departments/observe_issue/main.lua",
-  "packages/github-devloop/departments/liveness_scan/main.lua",
-  "packages/github-devloop/core/awaiting_pr_replayer.lua",
-  "packages/github-devloop/core/ready_split.lua",
-  "libraries/devloop/decompose.lua",
+local restart_runtime = {
+  dependency_hold_fact = function(...) return M.dependency_hold_fact(...) end,
+  dependency_release_fact = function(...) return M.dependency_release_fact(...) end,
+  dependency_release_marker = function(...) return M.dependency_release_marker(...) end,
+  implementing_version_mismatch_budget_exhausted = function(...)
+    return M.implementing_version_mismatch_budget_exhausted(...)
+  end,
+  replay_from_table_classified = function(...)
+    return require("devloop.replayer").replay_from_table_classified(M, ...)
+  end,
+  restart_lifecycle_states = M.restart_lifecycle_states,
+  stall_suspect_age_minutes = function(...) return M.stall_suspect_age_minutes(...) end,
 }
-require("devloop.restart").install(M, wiring.restart(M))
+local restart_policy = wiring.restart_policy(restart_runtime)
 require("devloop.restart.issue.pr_partition_contract").install(M)
-local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
-M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
-local restart_liveness_resolved = require("devloop.liveness").with_restart_policy({
-  runtime_provenance = {
-    proposal_id = "github-devloop/issue/provenance/repo/1",
-    version = "restart-liveness-provenance",
-    marker_created_at = "2026-06-03T00:00:00Z",
-  },
-})
-restart_liveness_resolved.workflow_ports = workflow_ports.from_devloop(M)
-require("workflow_internal.restart_liveness_contract").install(M, restart_liveness_resolved)
-local restart_responsibility_contract = require("devloop.restart_responsibility_contract")
-M.restart_responsibility_inventory_errors = function(...) return restart_responsibility_contract.restart_responsibility_inventory_errors(M, ...) end
-M.strict_restart_responsibility_contract_errors = function(...) return restart_responsibility_contract.strict_restart_responsibility_contract_errors(M, ...) end
 local ready_split_replayers = require("core.ready_split").install(M)
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
 M.replayer_registry = {
@@ -141,9 +130,13 @@ M.replayer_registry = {
   ["awaiting-pr"] = awaiting_pr_replayers["awaiting-pr"],
 }
 require("core.liveness_bounds").install(M)
-require("devloop.liveness").install(M, wiring.liveness(M))
+require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
+rawset(M, "restart_policy", restart_policy)
+for key, value in pairs(restart_policy) do
+  if rawget(M, key) == nil then M[key] = value end
+end
 local prompt_surface = wiring.prompts()
-M.output_language = devloop_prompts.output_language
+M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
 M.judge_harness_clause = devloop_prompts.judge_harness_clause
 M.actor_harness_clause = devloop_prompts.actor_harness_clause

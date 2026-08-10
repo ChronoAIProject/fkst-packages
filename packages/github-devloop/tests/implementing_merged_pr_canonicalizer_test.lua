@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
@@ -119,15 +120,15 @@ end
 local function incident_2828_authoritative_state()
   local selected = INCIDENT_2828_DIAGNOSIS.selected_marker
   local losing = INCIDENT_2828_DIAGNOSIS.losing_marker
-  local previous_trusted_login = devloop_base.configured_trusted_bot_login()
-  devloop_base.configure_trusted_bot_login(selected.source.author_login)
+  local previous_trusted_login = parsers_misc.configured_trusted_bot_login()
+  parsers_misc.configure_trusted_bot_login(selected.source.author_login)
   local ok, state = pcall(devloop_state.current_state, {
     comment(selected.source.marker_body, selected.created_at,
       selected.source.author_login, selected.source.comment_id),
     comment(losing.source.marker_body, losing.created_at,
       losing.source.author_login, losing.source.comment_id),
   }, INCIDENT_2828_DIAGNOSIS.proposal_id)
-  devloop_base.configure_trusted_bot_login(previous_trusted_login)
+  parsers_misc.configure_trusted_bot_login(previous_trusted_login)
   if not ok then
     error(state)
   end
@@ -357,8 +358,8 @@ end
 
 local function run_incident_2828_terminal_child_poll(labels, extra_comments, fixture)
   local trusted_login = INCIDENT_2828_DIAGNOSIS.selected_marker.source.author_login
-  local previous_trusted_login = devloop_base.configured_trusted_bot_login()
-  devloop_base.configure_trusted_bot_login(trusted_login)
+  local previous_trusted_login = parsers_misc.configured_trusted_bot_login()
+  parsers_misc.configure_trusted_bot_login(trusted_login)
   local ok, result = pcall(function()
     mock_env(nil, trusted_login)
     mock_incident_2828_reads(labels, extra_comments)
@@ -380,7 +381,7 @@ local function run_incident_2828_terminal_child_poll(labels, extra_comments, fix
       },
     }, h.opts(fixture))
   end)
-  devloop_base.configure_trusted_bot_login(previous_trusted_login)
+  parsers_misc.configure_trusted_bot_login(previous_trusted_login)
   if not ok then
     error(result)
   end

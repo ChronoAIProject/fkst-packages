@@ -6,6 +6,22 @@
 # "STUCK 8h"). now=`date +%s` is already zone-independent, so only the parse side needed fixing.
 epoch_utc() { [ -z "${1:-}" ] && { echo 0; return; }; TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || echo 0; }
 
+issue_author_ownership() { # $1 issue author login -> "peer" | "other" | "" (self/unknown)
+  local author="$1"
+  [ -n "$author" ] || return 1
+  [ "$author" = "$BOT" ] && return 1
+  case ",$MANAGED_BOT_LOGINS," in
+    *",$author,"*) echo peer; return 0 ;;
+  esac
+  # A managed peer often files under an app login absent from this host's MANAGED list. The two
+  # GitHub surfaces spell the same app differently — REST returns `<login>[bot]`, GraphQL returns
+  # `app/<login>` — so both spellings have to be recognised or the row warns on one surface only.
+  case "$author" in
+    app/*|*\[bot\]|*-bot) echo peer; return 0 ;;
+  esac
+  echo other
+}
+
 issue_label_has() { # $1 comma-separated labels, $2 label
   case ",$1," in
     *",$2,"*) return 0 ;;
@@ -34,6 +50,11 @@ issue_recency_class() { # $1 issue-number, $2 labels, $3 state, $4 age-hours, $5
   case "$st" in
     tracking|pr-open) echo "tracking/umbrella" ;;
     blocked|impl-failed|merged|declined) echo "parked($st)" ;;
+    # Standalone `dependency_wait` is the same condition already parked for
+    # `ready` + `fkst-dev:blocked-on-dependency`: a row stays in it exactly while its gate
+    # re-evaluates to waiting — `satisfied` cascades it to `ready`, and `cycle` /
+    # `unresolvable` move it to `blocked` — so persisting here IS the waiting state.
+    dependency_wait|dependency-wait) echo "parked(dependency-wait)" ;;
     thinking|ready|implementing|stalled-thinking)
       if [ "$st" = "ready" ] && issue_label_has "$labels" "fkst-dev:blocked-on-dependency"; then
         echo "parked(dependency-wait)"
@@ -224,16 +245,16 @@ board_one() { # $1 name, $2 stale_hours
   fi
   echo "── issues (by fkst-dev state) ──"
   local issue_rows issue_rc
-  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
+  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.user.login)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
   if [ "$issue_rc" -ne 0 ]; then
     issue_rows=$(gh issue list --repo "$REPO" --state open --limit 200 \
-      --json number,updatedAt,labels,title \
-      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
+      --json number,updatedAt,labels,title,author \
+      -q '.[]|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updatedAt)\t\(if ($labels|length)>0 then ($labels[0]|sub("^fkst-dev:";"")) elif $dash then "dashboard" else "stateless" end)\t\(.author.login)\t\(.title[0:42])"' 2>/dev/null); issue_rc=$?
   fi
   if [ "$issue_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (issues: REST and GraphQL both failed) — cross-check: gh issue list --repo $REPO --state open"
   else
-  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label title; do
+  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label author title; do
     [ -z "$num" ] && continue
     local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$created")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
@@ -273,6 +294,19 @@ board_one() { # $1 name, $2 stale_hours
             cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
           fi
           ;;
+      esac
+    fi
+    # Ownership is decided by the issue author, exactly as claims.lua does: an issue authored by
+    # another managed bot is skipped here by design (`skip-fork-peer-bot`), so flagging it as this
+    # host's problem sends the operator to investigate work that is not theirs.
+    local ownership
+    if ownership=$(issue_author_ownership "$author"); then
+      # Ownership only downgrades a warning. A row that already classified as something informative
+      # — a tracked dashboard, a parked terminal — keeps that classification, which says more than
+      # who owns it.
+      case "$ownership:$cls" in
+        peer:⚠*) cls="peer-owned($author)" ;;
+        other:⚠*) cls="$cls author=$author" ;;
       esac
     fi
     printf "  #%-4s [%-12s] %s\n" "$num" "$st" "$cls"

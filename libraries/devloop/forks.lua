@@ -22,7 +22,7 @@ function F.managed_fork_trust_set(core, bot_login, managed)
       if trusted then trust_set[login] = true end
     end
   end
-  local normalized = devloop_base.strip_bot_login_suffix(bot_login)
+  local normalized = parsers_misc.canonical_login(bot_login)
   if normalized ~= nil and normalized ~= "" then
     trust_set[normalized] = true
   end
@@ -187,7 +187,7 @@ function F.rederive_issue_state(core, repo, issue_number)
   if view.exit_code ~= 0 then
     error("github-devloop: fork-source-state-read-failed: gh issue source_ref state recheck failed: " .. tostring(view.stderr))
   end
-  return parsers_issue.parse_issue_view_state(core, view.stdout)
+  return parsers_issue.parse_issue_view_state(view.stdout)
 end
 
 function F.rederive_issue_is_open(core, repo, issue_number)

@@ -96,7 +96,7 @@ return {
     t.eq(reviewing.reviewing_hand_off.comment_id, "IC_reviewing_1")
     t.eq(reviewing.reviewing_hand_off.marker_version, version)
     t.eq(reviewing.reviewing_hand_off.event_version, version)
-    t.eq(v_reviewing.is_supported_reviewing(core, reviewing), true)
+    t.eq(v_reviewing.is_supported_reviewing(reviewing), true)
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.eq(label.expected_proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(label.expected_state, "reviewing")
@@ -164,7 +164,7 @@ return {
     t.eq(reviewing.pr_number, 7)
     t.eq(reviewing.version, version)
     t.eq(reviewing.reviewing_hand_off.comment_id, "IC_pr_native_reviewing_1")
-    t.eq(v_reviewing.is_supported_reviewing(core, reviewing), true)
+    t.eq(v_reviewing.is_supported_reviewing(reviewing), true)
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.eq(label.expected_proposal_id, proposal_id)
     t.eq(label.expected_state, "reviewing")

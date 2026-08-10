@@ -137,7 +137,7 @@ local function install_intake_surface(target)
   target.build_intake_class_followup_comment_request = function(...) return intake_class.build_intake_class_followup_comment_request(target, ...) end
   target.build_intake_class_folded_label_request = function(...) return intake_class.build_intake_class_folded_label_request(target, ...) end
   target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
-  target.output_language = devloop_prompts.output_language
+  target.output_language = function(...) return devloop_prompts.output_language(...) end
   target.prompt_preamble = devloop_prompts.prompt_preamble
   target.judge_harness_clause = devloop_prompts.judge_harness_clause
   target.actor_harness_clause = devloop_prompts.actor_harness_clause

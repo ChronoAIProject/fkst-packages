@@ -117,22 +117,28 @@ JSON
                       *created_at*) active=$old; stateless=$old ;;
                       *) active=$fresh; stateless=$fresh ;;
                     esac
-                    printf '%s\\t%s\\t%s\\t%s\\n' 33 "$old" 'fkst-dev:ready,fkst-dev:blocked-on-dependency' 'Dependency held'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 34 "$active" 'fkst-dev:ready' 'Actionable ready commented'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 35 2026-06-27T00:00:00Z 'fkst-dev:blocked' 'Terminal blocked'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 36 2026-06-27T00:00:00Z 'fkst-dev:implementing,fkst-dev:blocked-on-dependency' 'Implementing stale'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 37 "$stateless" '__fkst_stateless__' 'Stateless commented'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 38 2026-06-27T00:00:00Z '__fkst_stateless__' 'Workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 39 2026-06-27T00:00:00Z '__fkst_stateless__' 'Forged workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 40 2026-06-27T00:00:00Z '__fkst_stateless__' 'Peer workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 41 2026-06-27T00:00:00Z '__fkst_stateless__' 'Peer devloop parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 42 2026-06-27T00:00:00Z '__fkst_stateless__' 'Untrusted foreign marker'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 43 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting label frozen blocked'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 44 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting child cascade'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 45 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting terminal timeout'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 46 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' 'Awaiting unavailable marker'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 47 "$old" 'fkst-dev:ready' 'Actionable ready untouched'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 48 "$old" '__fkst_stateless__' 'Stateless untouched'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 33 "$old" 'fkst-dev:ready,fkst-dev:blocked-on-dependency' loning 'Dependency held'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 34 "$active" 'fkst-dev:ready' loning 'Actionable ready commented'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 35 2026-06-27T00:00:00Z 'fkst-dev:blocked' loning 'Terminal blocked'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 36 2026-06-27T00:00:00Z 'fkst-dev:implementing,fkst-dev:blocked-on-dependency' loning 'Implementing stale'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 37 "$stateless" '__fkst_stateless__' loning 'Stateless commented'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 38 2026-06-27T00:00:00Z '__fkst_stateless__' loning 'Workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 39 2026-06-27T00:00:00Z '__fkst_stateless__' loning 'Forged workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 40 2026-06-27T00:00:00Z '__fkst_stateless__' loning 'Peer workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 41 2026-06-27T00:00:00Z '__fkst_stateless__' loning 'Peer devloop parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 42 2026-06-27T00:00:00Z '__fkst_stateless__' loning 'Untrusted foreign marker'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 43 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' loning 'Awaiting label frozen blocked'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 44 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' loning 'Awaiting child cascade'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 45 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' loning 'Awaiting terminal timeout'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 46 2026-06-27T00:00:00Z 'fkst-dev:awaiting-pr' loning 'Awaiting unavailable marker'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 47 "$old" 'fkst-dev:ready' loning 'Actionable ready untouched'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 48 "$old" '__fkst_stateless__' loning 'Stateless untouched'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 56 "$old" 'fkst-dev:implementing' ElonSG 'Peer managed author'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 57 "$old" '__fkst_stateless__' app/fkst-other-machine 'Peer app author'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 58 "$old" '__fkst_stateless__' random-user 'Foreign author'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 59 "$old" '__fkst_stateless__' 'fkst-other-machine[bot]' 'Peer app REST spelling'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 60 "$old" '__fkst_dashboard__' ElonSG 'Peer-authored dashboard'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 61 "$old" 'fkst-dev:dependency_wait' loning 'Dependency wait standalone'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/34/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/47/comments?per_page=100)
                     num=${2#*/issues/}; num=${num%%/*}
@@ -301,6 +307,30 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertIn("#36   [implementing] ⚠ STUCK implementing 12h", result.stdout)
             self.assertIn("#37   [stateless   ] ⚠ STRANDED stateless 12h", result.stdout)
             self.assertIn("#48   [stateless   ] ⚠ STRANDED stateless 12h", result.stdout)
+
+            # Ownership comes from the issue author, the same discriminator claims.lua uses: a row
+            # authored by another managed bot is skipped here by design, so warning on it sends the
+            # operator to investigate work that is not theirs.
+            self.assertIn("#56   [implementing] peer-owned(ElonSG)", result.stdout)
+            self.assertNotIn("#56   [implementing] ⚠", result.stdout)
+            self.assertIn("#57   [stateless   ] peer-owned(app/fkst-other-machine)", result.stdout)
+            self.assertNotIn("#57   [stateless   ] ⚠", result.stdout)
+            # An author this host does not recognise as a peer stays a warning — it may be an
+            # authorized third party this host should have claimed — but names who filed it.
+            self.assertIn("#58   [stateless   ] ⚠ STRANDED stateless 12h author=random-user", result.stdout)
+            # REST spells an app author `<login>[bot]` where GraphQL spells it `app/<login>`; both
+            # are the same peer machine and must classify the same way.
+            self.assertIn("#59   [stateless   ] peer-owned(fkst-other-machine[bot])", result.stdout)
+            self.assertNotIn("#59   [stateless   ] ⚠", result.stdout)
+            # Ownership downgrades warnings only: a tracked dashboard keeps the classification that
+            # says more than who owns it.
+            self.assertIn("#60   [dashboard   ] ✓ dashboard (tracked)", result.stdout)
+            # `dependency_wait` is the standalone form of the condition already rendered as
+            # parked for `ready` + `fkst-dev:blocked-on-dependency`; a row sits in it precisely
+            # while its gate re-evaluates to waiting, so it is parked, not unrendered.
+            self.assertIn("#61   [dependency_wait] parked(dependency-wait)", result.stdout)
+            self.assertNotIn("UNRENDERED-STATE dependency_wait", result.stdout)
+            self.assertNotIn("#60   [dashboard   ] peer-owned", result.stdout)
             self.assertIn(
                 "#38   [workflow    ] parked(workflow:software-feature-flow blocked(child-fatal-walking-skeleton))",
                 result.stdout,

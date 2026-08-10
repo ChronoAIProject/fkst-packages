@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
@@ -6,6 +7,7 @@ local contract_time = require("contract.time")
 local m_builders = require("devloop.markers.builders")
 local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
+local restart_policy = assert(rawget(core, "restart_policy"))
 
 local function copy_value(value)
   if type(value) ~= "table" then
@@ -155,7 +157,7 @@ local function install_generic_restart_liveness_model(row)
       restart_transition_table = function(...)
         return model.restart_transition_table(...)
       end,
-      trusted_bot_login = devloop_base.trusted_bot_login,
+      trusted_bot_login = parsers_misc.trusted_bot_login,
     },
   })
   return model
@@ -372,8 +374,8 @@ return {
   end,
 
   test_runtime_provenance_rejects_declared_source_drift = function()
-    local original = core.actionable_epoch_resolve
-    core.actionable_epoch_resolve = function(row, state)
+    local original = restart_policy.actionable_epoch_resolve
+    restart_policy.actionable_epoch_resolve = function(row, state)
       return {
         status = "actionable",
         epoch_ms = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at) * 1000,
@@ -384,7 +386,7 @@ return {
       }
     end
     local ok, errors = pcall(core.strict_restart_liveness_contract_errors, { rows_by_state(core.restart_transition_table()).dependency_wait })
-    core.actionable_epoch_resolve = original
+    restart_policy.actionable_epoch_resolve = original
     if not ok then
       error(errors)
     end

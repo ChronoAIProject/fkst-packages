@@ -5,7 +5,7 @@ local core = h.core
 local t = h.t
 
 local function ready()
-  return payloads_builders.build_devloop_ready_payload(core, h.reached())
+  return payloads_builders.build_devloop_ready_payload(h.reached())
 end
 
 local function legacy_failure(value, reason)

@@ -104,21 +104,15 @@ end
 return {
   test_operator_reimplement_delivery_identity_is_replay_stable_and_command_distinct = function()
     local event = reached()
-    local normal_ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local normal_ready = payloads_builders.build_devloop_ready_payload(event)
     local first_key = command_key(trusted_command("IC_reimplement_first"))
     local second_key = command_key(trusted_command("IC_reimplement_second"))
 
-    local first = payloads_builders.build_devloop_ready_payload(
-      core,
-      operator_ready_source(event, first_key)
+    local first = payloads_builders.build_devloop_ready_payload(operator_ready_source(event, first_key)
     )
-    local replay = payloads_builders.build_devloop_ready_payload(
-      core,
-      operator_ready_source(event, first_key)
+    local replay = payloads_builders.build_devloop_ready_payload(operator_ready_source(event, first_key)
     )
-    local second = payloads_builders.build_devloop_ready_payload(
-      core,
-      operator_ready_source(event, second_key)
+    local second = payloads_builders.build_devloop_ready_payload(operator_ready_source(event, second_key)
     )
 
     t.eq(first.implementation_version, normal_ready.dedup_key)
@@ -130,7 +124,7 @@ return {
 
   test_distinct_reimplement_commands_deliver_and_admit_under_unchanged_failure = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local first_command = trusted_command("IC_reimplement_delivery_first", "2026-08-01T01:00:00Z")
     local second_command = trusted_command("IC_reimplement_delivery_second", "2026-08-01T01:02:00Z")
 

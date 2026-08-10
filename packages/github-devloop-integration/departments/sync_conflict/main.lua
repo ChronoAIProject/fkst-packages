@@ -1,5 +1,6 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local error_facts = require("contract.error_facts")
 local core = require("core")
 local config = require("devloop.config")
@@ -261,7 +262,7 @@ local function record_sync_conflict_attempt(git, conflict, runtime)
       })
       return attempt
     end
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local written, pushed, commit_sha = write_sync_conflict_attempt_ledger(git, conflict, ledger, attempt, runtime)
     if written or sync_conflict_attempt_commit_visible(git, conflict, commit_sha) then
       return attempt
@@ -315,7 +316,7 @@ local function push_if_real(git, conflict, worktree)
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(git, conflict.repo, { conflict.integration_branch }, "branch fetch")
   local rechecked_integration_sha = git_mechanics.remote_head(git, conflict.integration_branch, "remote branch head", "unsafe remote branch head")
   if rechecked_integration_sha ~= conflict.integration_sha then
@@ -423,7 +424,7 @@ local function recover_exhausted_pr_freshness(github, git, conflict)
     return false
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local pr = read_pr_freshness(github, source_repo, pr_number, "PR freshness terminal re-read")
   local pr_state = tostring(pr.state or ""):upper()
   if pr_state == "CLOSED" or pr_state == "MERGED" then

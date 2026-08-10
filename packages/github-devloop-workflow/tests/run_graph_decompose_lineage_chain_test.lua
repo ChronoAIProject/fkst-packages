@@ -2,6 +2,7 @@ local actions = require("core.materialize.actions")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local decompose_lib = require("devloop.decompose")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_read_mocks = require("testkit_internal.entity_read_mock_fixtures").new(require("core"))
 local graph = require("testkit.graph")
 local m_builders = require("devloop.markers.builders")
@@ -223,7 +224,7 @@ return {
         FKST_GITHUB_AUTHORIZED_LOGINS = "authorized-human",
       },
     }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
       times = 8,
     })
     for _ = 1, 4 do

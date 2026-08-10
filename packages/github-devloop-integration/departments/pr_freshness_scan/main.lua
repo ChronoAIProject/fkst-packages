@@ -183,7 +183,7 @@ local function issue_state(repo, issue_number, current_updated_at)
     "issue",
     issue_number,
     current_updated_at,
-    function(stdout) return parsers_issue.parse_issue_view_state(core, stdout) end,
+    function(stdout) return parsers_issue.parse_issue_view_state(stdout) end,
     function() return devloop_commands.gh_issue_view_state(repo, issue_number, 30) end,
     "PR freshness issue view"
   )
@@ -283,7 +283,7 @@ local function push_if_real(repo, branch, branch_sha, worktree)
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(core.git, repo, { branch }, "PR freshness fetch")
   local rechecked_branch_sha = git_mechanics.remote_head(core.git, branch, "PR freshness remote head", "unsafe PR freshness branch head")
   if rechecked_branch_sha ~= branch_sha then

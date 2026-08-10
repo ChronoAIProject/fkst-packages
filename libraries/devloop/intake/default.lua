@@ -1,6 +1,7 @@
 -- Canonical default intake executor and policy prompt shared by policy adapters.
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -109,7 +110,7 @@ local function raise_enable_successor(package_core, dept, repo, issue_number, ca
     log.warn("github-devloop dept=" .. tostring(dept) .. " proposal_id=" .. tostring(candidate.proposal_id) .. " tag=SKIP reason=cannot-build-valid-execution-request")
     return false
   end
-  local label_request = requests_labels.build_intake_enabled_label_request(package_core, repo, issue_number, candidate)
+  local label_request = requests_labels.build_intake_enabled_label_request(package_core.intake_service_class_label_changes, repo, issue_number, candidate)
   if opts.log_apply then
     local class_add, class_remove = package_core.intake_service_class_label_changes(candidate.service_class)
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "intake-enable", "execution-request", "applied(" .. tostring(opts.reason or "direct") .. ")", "raising execution request successor event")
@@ -131,7 +132,7 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue intake judge view failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(package_core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers(dept, candidate.proposal_id, current.comments)
   if current.state ~= "OPEN" then
@@ -255,7 +256,7 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
       end
     end
     candidate.service_class = parsed.service_class
-    local comment_request = requests_lifecycle.build_intake_decision_comment_request(package_core, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
+    local comment_request = requests_lifecycle.build_intake_decision_comment_request(package_core.output_language, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
     table.insert(raised, "github-proxy.github_issue_label_request")
     local class_add, class_remove = package_core.intake_service_class_label_changes(parsed.service_class)
     local apply_add = { class_add[1] }
@@ -294,7 +295,7 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
     if is_enable(parsed.action) then
       raise_enable_successor(package_core, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
     elseif is_tracking(parsed.action) then
-      local label_request = requests_labels.build_intake_tracking_label_request(package_core, repo, issue_number, candidate)
+      local label_request = requests_labels.build_intake_tracking_label_request(package_core.intake_service_class_label_changes, repo, issue_number, candidate)
       devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
     else
       local label_request = package_core.build_intake_service_class_label_request(repo, issue_number, candidate)
@@ -323,7 +324,7 @@ local function act(package_core, event, opts)
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   local gate = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts)
   end)
   if gate == nil then
@@ -345,7 +346,7 @@ local function act(package_core, event, opts)
   end
 
   devloop_logging.log_codex_start(dept, candidate.proposal_id, "intake")
-  local content_fetch = context_bundle.context_fetch_from_bundle(package_core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = dept,
     repo = repo,
     issue_number = issue_number,

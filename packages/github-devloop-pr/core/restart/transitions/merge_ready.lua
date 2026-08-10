@@ -1,4 +1,3 @@
-local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(kind, semantic_variant, effect_ids)
   local id = "github-devloop-pr/merge-ready/" .. kind .. "/" .. semantic_variant
@@ -220,7 +219,7 @@ return function(M, h)
         },
       },
     },
-    payload_builder = payloads_builders.build_devloop_merge_ready_payload,
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_merge_ready_payload",
     dedup_shape = "merge-ready/<proposal_id>/<version>/<pr>/<review_dedup>/<current_head>",
     required_facts = {
       fact("state", "marker-read"),

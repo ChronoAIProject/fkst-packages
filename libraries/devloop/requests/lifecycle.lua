@@ -17,13 +17,13 @@ local m_mq = require("devloop.merge_queue")
 local strings = shared.strings
 local ai_sentinel = shared.ai_sentinel
 
-function C.build_observe_comment_request(M, issue, proposal)
+function C.build_observe_comment_request(output_language, issue, proposal)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = issue.repo,
     issue_number = issue.number,
-    body = comment_strings.comment_string(M, "thinking_started") .. "\n\n"
-      .. M.state_marker(proposal.proposal_id, "thinking", tostring(proposal.effect_version or proposal.dedup_key)),
+    body = comment_strings.comment_string(output_language, "thinking_started") .. "\n\n"
+      .. devloop_state.state_marker(proposal.proposal_id, "thinking", tostring(proposal.effect_version or proposal.dedup_key)),
     dedup_key = base_ids.dedup_key({
       tostring(proposal.proposal_id),
       "comment",
@@ -33,7 +33,7 @@ function C.build_observe_comment_request(M, issue, proposal)
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
   }, issue.source_ref)
 end
-function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
+function C.build_result_comment_request(output_language, repo, issue_number, reached, state_name)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
   local marker_lineage = reached.effect_version ~= nil
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
@@ -46,11 +46,11 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
     or "result-marker,ready-label,dependency-hold"
   local marker_version = tostring(reached.effect_version or reached.dedup_key)
   local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
-  local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
+  local verdict_summary = shared.build_verdict_summary(output_language, reached.angle_results)
   local display_decision = reached.decision == "reject"
     and "decline: " .. tostring(reached.decision_reason)
     or tostring(reached.decision)
-  local body = comment_strings.comment_string(M, "decision_prefix") .. display_decision
+  local body = comment_strings.comment_string(output_language, "decision_prefix") .. display_decision
   if verdict_summary ~= nil then
     body = body .. "\n" .. verdict_summary
   end
@@ -75,7 +75,7 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
   end
   local request = m_claims.attach_issue_claim({
     schema = "github-proxy.v1", repo = repo, issue_number = issue_number,
-    body = body .. M.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
+    body = body .. devloop_state.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
       .. "\n" .. marker
       .. "\n" .. ai_sentinel,
     dedup_key = comment_dedup_key, source_ref = base_ids.normalize_source_ref(reached.source_ref),
@@ -112,12 +112,12 @@ function C.result_effects_complete(current, reached)
     and devloop_state.state_label_hint_matches(current.labels, state_name)
 end
 
-function C.build_converge_round_comment_request(M, repo, issue_number, unresolved, round, marker_body, handoff)
+function C.build_converge_round_comment_request(output_language, repo, issue_number, unresolved, round, marker_body, handoff)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = shared.build_convergence_display(M, comment_strings.comment_string(M, "convergence_round_prefix"), unresolved, round)
+    body = shared.build_convergence_display(output_language, comment_strings.comment_string(output_language, "convergence_round_prefix"), unresolved, round)
       .. "\n\n" .. tostring(marker_body)
       .. "\n" .. ai_sentinel,
     dedup_key = base_ids.dedup_key({
@@ -131,7 +131,7 @@ function C.build_converge_round_comment_request(M, repo, issue_number, unresolve
   }, unresolved.source_ref)
 end
 
-function C.build_dependency_hold_comment_request(M, repo, issue_number, proposal_id, version, gate, marker, source_ref)
+function C.build_dependency_hold_comment_request(output_language, repo, issue_number, proposal_id, version, gate, marker, source_ref)
   local reason = devloop_base.neutralize_untrusted_comment_text(gate and gate.reason or "")
   local hold_kind = gate and gate.hold_kind or "dependency-hold"
   if reason == "" then
@@ -141,20 +141,20 @@ function C.build_dependency_hold_comment_request(M, repo, issue_number, proposal
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "dependency_hold_prefix") .. tostring(hold_kind)
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label") .. reason
+    body = comment_strings.comment_string(output_language, "dependency_hold_prefix") .. tostring(hold_kind)
+      .. "\n\n" .. comment_strings.comment_string(output_language, "reason_inline_label") .. reason
       .. "\n\n" .. tostring(marker),
     dedup_key = base_ids.dedup_key({ "dependency", "comment", tostring(proposal_id), tostring(version), tostring(hold_kind) }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
 end
-function C.build_dependency_release_comment_request(M, repo, issue_number, proposal_id, version, gate, source_ref)
+function C.build_dependency_release_comment_request(dependency_markers, output_language, repo, issue_number, proposal_id, version, gate, source_ref)
   local reason = devloop_base.neutralize_untrusted_comment_text(gate and gate.reason or "satisfied")
   if reason == "" then
     reason = "satisfied"
   end
-  local note_markers = M.dependency_gate_note_markers(proposal_id, version, gate)
-  local markers = M.dependency_release_marker(proposal_id, version)
+  local note_markers = dependency_markers.dependency_gate_note_markers(proposal_id, version, gate)
+  local markers = dependency_markers.dependency_release_marker(proposal_id, version)
   if note_markers ~= "" then
     markers = markers .. "\n" .. note_markers
   end
@@ -162,15 +162,15 @@ function C.build_dependency_release_comment_request(M, repo, issue_number, propo
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "dependency_release_prefix") .. reason
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label") .. reason
+    body = comment_strings.comment_string(output_language, "dependency_release_prefix") .. reason
+      .. "\n\n" .. comment_strings.comment_string(output_language, "reason_inline_label") .. reason
       .. "\n\n" .. markers,
     dedup_key = base_ids.dedup_key({ "dependency", "comment", "release", tostring(proposal_id), tostring(version), reason }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
 end
 
-function C.build_intake_decision_comment_request(M, repo, issue_number, candidate, decision, reason, service_class)
+function C.build_intake_decision_comment_request(output_language, repo, issue_number, candidate, decision, reason, service_class)
   if not m_shared.is_intake_service_class(service_class) then
     error("github-devloop: intake-service-class-invalid: invalid intake service class")
   end
@@ -187,23 +187,23 @@ function C.build_intake_decision_comment_request(M, repo, issue_number, candidat
   )
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(M, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(output_language, "no_reason_provided")
   end
-  if #safe_reason > M._max_meta_reason_len then
-    safe_reason = base_ids.truncate_utf8(safe_reason, M._max_meta_reason_len)
+  if #safe_reason > devloop_base._max_meta_reason_len then
+    safe_reason = base_ids.truncate_utf8(safe_reason, devloop_base._max_meta_reason_len)
   end
   local detail = ""
   if decision == "track" then
-    detail = "\n\n" .. comment_strings.comment_string(M, "intake_tracking_ack")
+    detail = "\n\n" .. comment_strings.comment_string(output_language, "intake_tracking_ack")
   end
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "intake_decision_prefix") .. tostring(decision)
+    body = comment_strings.comment_string(output_language, "intake_decision_prefix") .. tostring(decision)
       .. "\nService class: " .. normalized_class
       .. detail
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_block_label") .. "\n" .. safe_reason
+      .. "\n\n" .. comment_strings.comment_string(output_language, "reason_block_label") .. "\n" .. safe_reason
       .. "\n\n" .. marker,
     dedup_key = base_ids.dedup_key({
       "intake",
@@ -215,7 +215,7 @@ function C.build_intake_decision_comment_request(M, repo, issue_number, candidat
   }, candidate.source_ref)
 end
 
-function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
+function C.build_implementing_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
@@ -229,17 +229,17 @@ function C.build_implementing_comment_request(M, repo, issue_number, ready, work
     error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
-  local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
+  local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "implementation_output_published")
-      .. "\n\n" .. comment_strings.comment_string(M, "worktree_label") .. tostring(worktree)
-      .. "\n" .. comment_strings.comment_string(M, "branch_label") .. tostring(branch)
-      .. "\n" .. comment_strings.comment_string(M, "head_label") .. tostring(head_sha)
-      .. "\n" .. comment_strings.comment_string(M, "base_branch_label") .. tostring(base_branch)
-      .. "\n" .. comment_strings.comment_string(M, "base_head_label") .. tostring(base_sha)
+    body = comment_strings.comment_string(output_language, "implementation_output_published")
+      .. "\n\n" .. comment_strings.comment_string(output_language, "worktree_label") .. tostring(worktree)
+      .. "\n" .. comment_strings.comment_string(output_language, "branch_label") .. tostring(branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "head_label") .. tostring(head_sha)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_branch_label") .. tostring(base_branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_head_label") .. tostring(base_sha)
       .. "\n\n" .. attempt_marker
       .. "\n" .. marker,
     dedup_key = base_ids.dedup_key({
@@ -252,7 +252,7 @@ function C.build_implementing_comment_request(M, repo, issue_number, ready, work
   }, ready.source_ref)
 end
 
-function C.build_implementing_state_comment_request(M, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
+function C.build_implementing_state_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
@@ -262,17 +262,17 @@ function C.build_implementing_state_comment_request(M, repo, issue_number, ready
   if not forge_validators.is_git_sha(base_sha) then
     error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
-  local state_marker = M.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
-  local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
+  local state_marker = devloop_state.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
+  local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
     body = "github-devloop implementation worktree ready"
-      .. "\n\n" .. comment_strings.comment_string(M, "worktree_label") .. tostring(worktree)
-      .. "\n" .. comment_strings.comment_string(M, "branch_label") .. tostring(branch)
-      .. "\n" .. comment_strings.comment_string(M, "base_branch_label") .. tostring(base_branch)
-      .. "\n" .. comment_strings.comment_string(M, "base_head_label") .. tostring(base_sha)
+      .. "\n\n" .. comment_strings.comment_string(output_language, "worktree_label") .. tostring(worktree)
+      .. "\n" .. comment_strings.comment_string(output_language, "branch_label") .. tostring(branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_branch_label") .. tostring(base_branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_head_label") .. tostring(base_sha)
       .. "\n\n" .. state_marker
       .. "\n" .. attempt_marker,
     dedup_key = base_ids.dedup_key({
@@ -285,7 +285,7 @@ function C.build_implementing_state_comment_request(M, repo, issue_number, ready
   }, ready.source_ref)
 end
 
-function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+function C.build_implement_checkpoint_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid checkpoint branch")
   end
@@ -299,8 +299,8 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     error("github-devloop: git-sha-invalid: invalid checkpoint base_sha")
   end
   local text = tostring(detail or "")
-  if #text > M._max_impl_output_len then
-    text = base_ids.truncate_utf8(text, M._max_impl_output_len)
+  if #text > devloop_base._max_impl_output_len then
+    text = base_ids.truncate_utf8(text, devloop_base._max_impl_output_len)
   end
   if text == "" then
     text = "Checkpoint pushed after implementation timeout."
@@ -317,18 +317,18 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     attempt or 1,
     checkpoint_reason
   )
-  local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
+  local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
     body = "github-devloop implementation checkpoint pushed"
       .. "\n\n" .. text
-      .. "\n\n" .. comment_strings.comment_string(M, "worktree_label") .. tostring(worktree)
-      .. "\n" .. comment_strings.comment_string(M, "branch_label") .. tostring(branch)
-      .. "\n" .. comment_strings.comment_string(M, "head_label") .. tostring(head_sha)
-      .. "\n" .. comment_strings.comment_string(M, "base_branch_label") .. tostring(base_branch)
-      .. "\n" .. comment_strings.comment_string(M, "base_head_label") .. tostring(base_sha)
+      .. "\n\n" .. comment_strings.comment_string(output_language, "worktree_label") .. tostring(worktree)
+      .. "\n" .. comment_strings.comment_string(output_language, "branch_label") .. tostring(branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "head_label") .. tostring(head_sha)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_branch_label") .. tostring(base_branch)
+      .. "\n" .. comment_strings.comment_string(output_language, "base_head_label") .. tostring(base_sha)
       .. "\n\n" .. attempt_marker
       .. "\n" .. checkpoint_marker,
     dedup_key = base_ids.dedup_key({
@@ -344,8 +344,8 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
   }, ready.source_ref)
 end
 
-function C.build_implement_attempt_comment_request(M, repo, issue_number, ready, attempt, started_at, exec_ref)
-  local marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
+function C.build_implement_attempt_comment_request(implement_attempt_marker, repo, issue_number, ready, attempt, started_at, exec_ref)
+  local marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
   return {
     schema = "github-proxy.v1",
     repo = repo,
@@ -362,8 +362,8 @@ function C.build_implement_attempt_comment_request(M, repo, issue_number, ready,
   }
 end
 
-function C.build_implement_version_mismatch_comment_request(M, repo, issue_number, ready, expected_version, current_version, attempt)
-  local marker = M.implement_version_mismatch_marker(ready.proposal_id, expected_version, current_version, attempt)
+function C.build_implement_version_mismatch_comment_request(implement_version_mismatch_marker, repo, issue_number, ready, expected_version, current_version, attempt)
+  local marker = implement_version_mismatch_marker(ready.proposal_id, expected_version, current_version, attempt)
   return {
     schema = "github-proxy.v1",
     repo = repo,
@@ -381,26 +381,26 @@ function C.build_implement_version_mismatch_comment_request(M, repo, issue_numbe
   }
 end
 
-function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
-  local safe_reason = strings.sanitize_key(reason or "failed", M._max_key_len):gsub("/", "-")
+function C.build_impl_failure_comment_request(impl_failure_marker, output_language, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
+  local safe_reason = strings.sanitize_key(reason or "failed", devloop_base._max_key_len):gsub("/", "-")
   local retry_attempt = tonumber(attempt) or 1
   local text = tostring(detail or "")
-  if #text > M._max_impl_output_len then
-    text = base_ids.truncate_utf8(text, M._max_impl_output_len)
+  if #text > devloop_base._max_impl_output_len then
+    text = base_ids.truncate_utf8(text, devloop_base._max_impl_output_len)
   end
   if text == "" then
-    text = comment_strings.comment_string(M, "no_implementation_output")
+    text = comment_strings.comment_string(output_language, "no_implementation_output")
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
 
-  local marker = M.impl_failure_marker(
+  local marker = impl_failure_marker(
     ready.proposal_id, ready.dedup_key, safe_reason, attempt, fault_class, retryable)
-  local state_marker = M.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
+  local state_marker = devloop_state.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = comment_strings.comment_string(M, "implementation_failed_prefix") .. safe_reason
+    body = comment_strings.comment_string(output_language, "implementation_failed_prefix") .. safe_reason
       .. "\n\n" .. text
       .. "\n\n" .. state_marker
       .. "\n" .. marker,
@@ -436,9 +436,9 @@ function C.build_expected_dependency_edge_request(
 end
 
 function C.build_implementation_refusal_comment_request(
-    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref, blocker)
-  local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
-  local marker = M.implementation_refusal_marker(
+    refusal_inputs, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref, blocker)
+  local rendered_reason = refusal_inputs.require_supported_implementation_refusal_reason(reason)
+  local marker = refusal_inputs.implementation_refusal_marker(
     ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
   local target_state = "blocked"
   local target_version = ready.dedup_key
@@ -452,8 +452,8 @@ function C.build_implementation_refusal_comment_request(
       error("github-devloop: invalid-precursor-blocker: precursor-missing requires a same-repository IssueRef")
     end
     target_state = "dependency_wait"
-    target_version = M.ready_split_version(ready.dedup_key)
-    dependency_marker = M.dependency_wait_marker(
+    target_version = refusal_inputs.ready_split_version(ready.dedup_key)
+    dependency_marker = refusal_inputs.dependency_wait_marker(
       ready.proposal_id,
       target_version,
       { blocker.issue_number },
@@ -463,7 +463,7 @@ function C.build_implementation_refusal_comment_request(
   elseif blocker ~= nil then
     error("github-devloop: invalid-precursor-blocker: blocker is supported only for precursor-missing")
   end
-  local attempt_marker = M.implement_attempt_marker(
+  local attempt_marker = refusal_inputs.implement_attempt_marker(
     ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
   local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
   local dependency_suffix = dependency_marker == nil and "" or ("\n" .. dependency_marker)
@@ -501,12 +501,12 @@ function C.build_implementation_refusal_comment_request(
           tostring(attempt),
           tostring(ready.dedup_key),
         }),
-        add_labels = { M._blocked_on_dependency_label },
+        add_labels = { devloop_base._blocked_on_dependency_label },
       },
       source_ref = ready.source_ref,
     })
   end
-  local state_marker = M.state_marker(ready.proposal_id, target_state, target_version)
+  local state_marker = devloop_state.state_marker(ready.proposal_id, target_state, target_version)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
@@ -517,12 +517,12 @@ function C.build_implementation_refusal_comment_request(
   }, ready.source_ref)
 end
 
-function C.build_merging_comment_request(M, repo, merge_ready)
+function C.build_merging_comment_request(output_language, repo, merge_ready)
   return entity_lib.build_entity_comment_request({
     kind = "pr",
     repo = repo,
     number = merge_ready.pr_number,
-  }, request_bodies.build_merging_comment_body(M, merge_ready), base_ids.dedup_key({
+  }, request_bodies.build_merging_comment_body(output_language, merge_ready), base_ids.dedup_key({
     "merge",
     "comment",
     "merging",

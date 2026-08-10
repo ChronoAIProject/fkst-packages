@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local queue = require("devloop.queue")
 local saga = require("workflow.saga")
@@ -31,7 +32,16 @@ local function act_issue_observed(context, event)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
+<<<<<<< HEAD
   devloop_base.assert_trusted_bot_configured()
+=======
+  local claim_mode_allowed, claim_mode_reason = replay_authorization.claim_mode_precondition()
+  if not claim_mode_allowed then
+    devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(claim_mode_reason), "intake replay is unavailable in the active claim mode")
+    return
+  end
+  parsers_misc.assert_trusted_bot_configured()
+>>>>>>> 64323e14ecdb072282dfe7dec51469d8a77edcd4
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()

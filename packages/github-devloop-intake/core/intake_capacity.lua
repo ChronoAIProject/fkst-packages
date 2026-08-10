@@ -489,8 +489,13 @@ function C.production(_M)
         "capacity claim list"
       )
       local numbers = {}
+<<<<<<< HEAD
       for _, current in ipairs(parsers_issue.parse_issue_list_intake(nil, listed.stdout)) do
         if claims.issue_claim_state(current.labels) == "self" then
+=======
+      for _, current in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
+        if claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
+>>>>>>> 64323e14ecdb072282dfe7dec51469d8a77edcd4
           table.insert(numbers, current.number)
         end
       end
@@ -503,7 +508,7 @@ function C.production(_M)
         "capacity-issue-view-failed",
         "capacity issue view"
       )
-      local current = parsers_issue.parse_issue_view_intake_judge(nil, viewed.stdout)
+      local current = parsers_issue.parse_issue_view_intake_judge(viewed.stdout)
       current.number = tonumber(issue_number)
       return current
     end,

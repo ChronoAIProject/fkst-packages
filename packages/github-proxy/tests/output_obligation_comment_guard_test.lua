@@ -5,7 +5,6 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
-local forge_strings = require("forge.strings")
 local github_fake = require("forge.github_fake")
 local marker_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
@@ -190,9 +189,7 @@ end
 
 local function subject_for(github)
   local subject = {}
-  comment.install(subject, {
-    strip_bot_login_suffix = forge_strings.strip_bot_login_suffix,
-  })
+  comment.install(subject, {})
   subject.read_env = function(name)
     if name == "FKST_GITHUB_WRITE" then
       return "1"

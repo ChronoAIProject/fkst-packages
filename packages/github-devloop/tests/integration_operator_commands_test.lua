@@ -26,11 +26,11 @@ local find_causal_raise = h.find_causal_raise
 
 
 
-local function trusted_issue_command(command, id)
+local function trusted_issue_command(command, id, author_login)
   return {
     id = id or ("IC_" .. tostring(command) .. "_issue_1"),
     body = "fkst: " .. tostring(command),
-    author_login = "fkst-test-bot",
+    author_login = author_login or "fkst-test-bot",
     created_at = "2026-06-04T03:00:00Z",
   }
 end
@@ -166,6 +166,21 @@ return {
     t.eq(proposal_raise.payload.source_ref.ref, "owner/repo#issue/42")
   end,
 
+  test_issue_rereview_command_accepts_app_actor_author = function()
+    local event = issue()
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_app", "app/fkst-test-bot")
+    local comments, base_version = thinking_converge_comments(event, 7, command)
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", comments)
+
+    local result = run_observe(event, opts("operator-issue-rereview-app-author"))
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: rereview")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
+
+    t.eq(result.exit_code, 0)
+    t.is_true(response ~= nil)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
+  end,
+
   test_issue_rereview_command_replays_round_seven_converge_without_true_stall = function()
     local event = issue()
     local command = trusted_issue_command("rereview", "IC_issue_rereview_round_7")
@@ -239,6 +254,36 @@ return {
     t.is_true(replay_comment.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(replay_comment.payload.body:find("stalled thinking state", 1, true) ~= nil)
     t.is_true(replay_comment.payload.body:find('outcome="refused"', 1, true) ~= nil)
+  end,
+
+  test_issue_blocked_rereview_is_refused_and_not_advertised_as_reentry = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_blocked")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
+      core.state_marker(proposal_id, "blocked", "manual-blocked"),
+      command,
+    })
+
+    local result = run_observe(event, opts("operator-issue-rereview-blocked"))
+    t.eq(result.exit_code, 0)
+    local refusal = find_issue_comment_raise(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.payload.body:find("rereview requires thinking state", 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+
+    local blocked_row = nil
+    for _, row in ipairs(core.restart_transition_table()) do
+      if row.from_state == "blocked" then
+        blocked_row = row
+        break
+      end
+    end
+    t.is_true(blocked_row ~= nil)
+    t.eq(#blocked_row.reentry_commands, 1)
+    t.eq(blocked_row.reentry_commands[1], "reready")
+    t.eq(#blocked_row.operator_reentry.commands, 1)
+    t.eq(blocked_row.operator_reentry.commands[1], "reready")
   end,
 
   test_issue_reready_command_rechecks_dependency_gate = function()
@@ -471,7 +516,7 @@ return {
 
   test_issue_reimplement_command_reenters_impl_failed = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
@@ -499,7 +544,7 @@ return {
     local event = issue()
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, {
+    local ready_version = payloads_builders.build_devloop_ready_payload({
       proposal_id = proposal_id,
       dedup_key = inner_version,
       source_ref = event.source_ref,

@@ -92,6 +92,9 @@ end
 
 local function raise_changed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
+    if not entity_list_cache.poll_epoch_is_current(repo, poll_token) then
+      return
+    end
     local entity = item.entity
     if item.level_replay or cache_get(item.key) ~= entity.updated_at then
       local dedup_key = item_dedup_key(repo, item, delivery_index, changed_queue)
@@ -124,6 +127,9 @@ end
 
 local function raise_observed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
+    if not entity_list_cache.poll_epoch_is_current(repo, poll_token) then
+      return
+    end
     local entity = item.entity
     if cache_get(item.key) == entity.updated_at then
       raise("github_issue_observed", {
@@ -194,7 +200,7 @@ local function act(event)
       .. " current_epoch=" .. tostring(allocated_epoch))
     return
   end
-  local epoch_current = entity_list_cache.with_current_poll_epoch(repo, allocated_epoch, function()
+  local epoch_current = entity_list_cache.run_if_current_poll_epoch(repo, allocated_epoch, function()
     raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, allocated_epoch, delivery_index)
   end)
   if not epoch_current then

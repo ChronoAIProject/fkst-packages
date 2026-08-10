@@ -123,8 +123,6 @@ return {
         previous = "github-devloop.ready.v1",
         build = function()
           return payloads_builders.build_devloop_ready_payload({
-            _max_impl_retry_attempts = 3,
-          }, {
             proposal_id = "github-devloop/issue/owner/repo/42",
             dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-07-23T01-02-03Z",
             source_ref = source_ref,
@@ -182,13 +180,7 @@ return {
         token = "literal:consensus.proposal.v1",
         previous = "consensus.proposal.v1",
         build = function()
-          return payloads_builders.build_pr_review_proposal({
-            _max_title_len = 200,
-            _max_body_len = 2000,
-            short_review_observation_boundary_clause = function()
-              return "Review only the named issue requirements."
-            end,
-          }, "owner/repo", 42, 17, "ready/version", "abcdef1", {
+          return payloads_builders.build_pr_review_proposal("owner/repo", 42, 17, "ready/version", "abcdef1", {
             title = "Literal schema parity",
           }, {
             kind = "external",
@@ -212,8 +204,6 @@ return {
     local fixtures = {
       function()
         return payloads_builders.build_devloop_ready_payload({
-          _max_impl_retry_attempts = 3,
-        }, {
           proposal_id = "github-devloop/issue/owner/repo/42",
           dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-07-23T01-02-03Z",
           source_ref = source_ref,
@@ -272,13 +262,7 @@ return {
         })
       end,
       function()
-        return payloads_builders.build_pr_review_proposal({
-          _max_title_len = 200,
-          _max_body_len = 2000,
-          short_review_observation_boundary_clause = function()
-            return "Review only the named issue requirements."
-          end,
-        }, "owner/repo", 42, 17, "ready/version", "abcdef1", {
+        return payloads_builders.build_pr_review_proposal("owner/repo", 42, 17, "ready/version", "abcdef1", {
           title = "Source ref parity",
         }, source_ref, {})
       end,
@@ -304,9 +288,7 @@ return {
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-07-23T01-02-03Z",
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
     }
-    local payload = payloads_builders.build_devloop_ready_payload({
-      _max_impl_retry_attempts = 3,
-    }, source)
+    local payload = payloads_builders.build_devloop_ready_payload(source)
     local previous = base_ids.dedup_key({
       "ready",
       tostring(source.dedup_key),

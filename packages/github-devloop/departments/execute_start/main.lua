@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_claims = require("devloop.claims")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
@@ -30,7 +31,7 @@ local function read_current(repo, issue_number, request)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-execute-start-view-failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers("execute_start", request.proposal_id, current.comments)
   if current.state ~= "OPEN" then
@@ -86,7 +87,7 @@ local function act_execute_start(event)
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local current = read_current(repo, issue_number, request)
     if current == nil then
       return

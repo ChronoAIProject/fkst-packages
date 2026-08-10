@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -84,7 +85,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   local branches = config.branch_config()
   local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
@@ -232,11 +233,11 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-loop-view-failed: gh issue review loop view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_review_loop(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_review_loop(issue_view.stdout)
     end
     local next_n = round + 1
     local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)
-    local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
+    local context_fetch = { context_bundle.context_fetch_ref_from_bundle({
       dept = "review_loop",
       repo = repo,
       issue_number = origin.issue_number,
@@ -247,7 +248,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     }) }
     local content_fetch = context_fetch[1]
     local high_risk = context_fetch[2]
-    local proposal = payloads_builders.build_board_pr_review_loop_proposal(core, repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, next_n, {
+    local proposal = payloads_builders.build_board_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
       findings_record = facts_with_current[#facts_with_current] and facts_with_current[#facts_with_current].findings_record,

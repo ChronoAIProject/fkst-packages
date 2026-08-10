@@ -179,7 +179,7 @@ local function claims_advancing_epoch_after_precheck(next_epoch)
       return admission, detail
     end,
     claim_issue_for_management = m_claims.claim_issue_for_management,
-    with_current_claim_admission_epoch = m_claims.with_current_claim_admission_epoch,
+    run_if_current_claim_admission_epoch = m_claims.run_if_current_claim_admission_epoch,
   }
 end
 
