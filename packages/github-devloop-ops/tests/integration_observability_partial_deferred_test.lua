@@ -47,6 +47,26 @@ local function capture_logs()
   return table.concat(captured, "\n")
 end
 
+local function run_fake_restoring(department, originals)
+  local ok, result = pcall(function()
+    return testing.run_fake(department, {
+      queue = "devloop_observe_tick",
+      payload = { schema = "github-devloop.observe-tick.v1" },
+    })
+  end)
+  for name, original in pairs(originals) do
+    if name == "observe_queue_starvation" then
+      queue_starvation.observe_queue_starvation = original
+    elseif name == "blocked_obligation_patrol_once" then
+      failure_triage_cap.blocked_obligation_patrol_once = original
+    else
+      core[name] = original
+    end
+  end
+  if not ok then error(result) end
+  return result
+end
+
 return {
   test_display_read_timeout_renders_partial_observability_dashboard = function()
     mock_env()
@@ -141,22 +161,7 @@ return {
     end
     core.observability_topology_mermaid = function() return nil end
 
-    local ok, result = pcall(function()
-      return testing.run_fake(department, {
-        queue = "devloop_observe_tick",
-        payload = { schema = "github-devloop.observe-tick.v1" },
-      })
-    end)
-    for name, original in pairs(originals) do
-      if name == "observe_queue_starvation" then
-        queue_starvation.observe_queue_starvation = original
-      elseif name == "blocked_obligation_patrol_once" then
-        failure_triage_cap.blocked_obligation_patrol_once = original
-      else
-        core[name] = original
-      end
-    end
-    if not ok then error(result) end
+    local result = run_fake_restoring(department, originals)
 
     t.eq(calls.reaper, 0)
     t.eq(calls.queue_starvation, 0)
@@ -230,22 +235,7 @@ return {
     core.publish_observability_dashboard = function() return "dry-run" end
     core.observability_topology_mermaid = function() return nil end
 
-    local ok, result = pcall(function()
-      return testing.run_fake(department, {
-        queue = "devloop_observe_tick",
-        payload = { schema = "github-devloop.observe-tick.v1" },
-      })
-    end)
-    for name, original in pairs(originals) do
-      if name == "observe_queue_starvation" then
-        queue_starvation.observe_queue_starvation = original
-      elseif name == "blocked_obligation_patrol_once" then
-        failure_triage_cap.blocked_obligation_patrol_once = original
-      else
-        core[name] = original
-      end
-    end
-    if not ok then error(result) end
+    local result = run_fake_restoring(department, originals)
 
     -- Census complete: reap + queue_starvation run.
     t.eq(calls.reaper, 1)
