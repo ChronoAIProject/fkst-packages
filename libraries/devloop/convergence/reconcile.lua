@@ -351,6 +351,43 @@ function C.has_reconcile_marker(M, comments, proposal_id, base_version, round)
   return false
 end
 
+function C.reconcile_fact_for_terminal_version(comments, proposal_id, terminal_version)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:reconcile:v1.-%-%->"
+  for comment_index, comment in ipairs(comments) do
+    if parsers_misc._is_trusted_comment(comment) then
+      for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+        local marker_proposal = attr(marker, "proposal")
+        local version = attr(marker, "version")
+        local round = valid_round(attr(marker, "round"))
+        local action = attr(marker, "action")
+        local terminal_cause = attr(marker, "terminal_cause")
+        local dedup = attr(marker, "dedup")
+        if marker_proposal == tostring(proposal_id)
+          and version == tostring(terminal_version)
+          and round ~= nil
+          and (action == "drop" or action == "re-design" or action == "re-cluster")
+          and conv_rounds.is_terminal_cause(terminal_cause)
+          and dedup == "reconcile:" .. tostring(terminal_version) then
+          return {
+            proposal_id = marker_proposal,
+            version = version,
+            round = round,
+            action = action,
+            terminal_cause = terminal_cause,
+            dedup_key = dedup,
+            comment_index = comment_index,
+            comment_created_at = parsers_misc._comment_created_at(comment),
+          }
+        end
+      end
+    end
+  end
+  return nil
+end
+
 function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_version, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
