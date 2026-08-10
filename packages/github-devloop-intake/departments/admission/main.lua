@@ -87,11 +87,9 @@ local function admit_issue_event(context, event, entity)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  local lock_key = devloop_base.observe_lock_key(repo, issue_number)
   return entity_highwater.reconcile({
     consumer = "github-devloop-intake/admission",
     event = event,
-    lock_key = lock_key,
     work = function(_, record_authoritative_version)
       parsers_misc.assert_trusted_bot_configured()
       local poll_key = m_claims.claim_admission_poll_epoch(event)

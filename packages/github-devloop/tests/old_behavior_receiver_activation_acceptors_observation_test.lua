@@ -351,6 +351,21 @@ local function prepare_implement_fixture(fixture, payload)
     title = "Capture implement receiver activation",
     body = body,
   })
+  if fixture.proceed then
+    local implementation_version = core.implementation_attempt_version(
+      payload.dedup_key,
+      payload.impl_retry_attempt
+    )
+    h.mock_issue_implement_raw({ "fkst-dev:implementing" }, {
+      h.state_comment(PROPOSAL_ID, "implementing", implementation_version),
+    }, {
+      state = "OPEN",
+      assignees = { "fkst-test-bot" },
+      author_login = "fkst-test-bot",
+      title = "Capture implement receiver activation",
+      body = body,
+    })
+  end
   if fixture.noncanonical_slice then
     t.mock_command("git ls-remote origin " .. SLICE_LEDGER_REF, {
       stdout = SLICE_LEDGER_SHA .. "\t" .. SLICE_LEDGER_REF .. "\n",
@@ -450,6 +465,16 @@ local function effect_ids(effects)
   return ids
 end
 
+local function transition_lock_count(lock_calls)
+  local count = 0
+  for _, key in ipairs(lock_calls or {}) do
+    if tostring(key):find("^github%-devloop/transition/") ~= nil then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function capture_observe(fixture)
   local payload = fixture.payload and copy_value(fixture.payload) or observe_payload()
   local event = event_for("observe_issue", payload)
@@ -478,7 +503,8 @@ local function capture_observe(fixture)
   local ok, result = pcall(testing.run_fake, observe_issue_department, event)
   restore_all(restorations)
   if not ok then error(fixture.disposition .. ": " .. tostring(result), 0) end
-  t.eq(#lock_calls, fixture.disposition == "skip-foreign-payload" and 0 or 1, fixture.disposition .. ": observe lock admission count")
+  t.eq(transition_lock_count(lock_calls), 0,
+    fixture.disposition .. ": observe reconciliation never enters a transition lock")
   t.eq(#replay_calls, fixture.replay and 1 or 0, fixture.disposition .. ": replay dispatch count")
   t.eq(#result.raises, 0, fixture.disposition .. ": no row replay or claim-helper effects recaptured")
   local selected = decisions[#decisions]
@@ -545,15 +571,20 @@ local function capture_implement(fixture)
   end, restorations)
   replace(_G, "with_lock", function(key, fn)
     table.insert(lock_calls, key)
-    if #lock_calls == 1 then return fn() end
-    return nil
+    return fn()
   end, restorations)
   local ok, result = pcall(testing.run_fake, implement_department, event)
   restore_all(restorations)
   if not ok then error(result, 0) end
-  local expected_locks = fixture.disposition == "skip-foreign-payload" and 0 or (fixture.proceed and 2 or 1)
-  t.eq(#lock_calls, expected_locks, fixture.disposition .. ": exact implementation lock progression")
-  local selected = decisions[#decisions]
+  t.eq(transition_lock_count(lock_calls), 0,
+    fixture.disposition .. ": implementation never enters a transition lock")
+  local selected = nil
+  for _, decision in ipairs(decisions) do
+    if decision.outcome == fixture.cas then
+      selected = decision
+      break
+    end
+  end
   t.is_true(selected ~= nil, fixture.disposition .. ": admission decision is observable")
   t.eq(selected.outcome, fixture.cas, fixture.disposition .. ": exact admission mapping")
   return event, result, {

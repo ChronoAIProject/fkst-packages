@@ -210,9 +210,12 @@ return {
     local events = run_case({ current(), current() }, "escalate-to-class")
     assert_before(events, "codex-outside", "closed-scan-outside")
     assert_before(events, "closed-scan-outside", "carrier-scan-outside")
-    assert_before(events, "carrier-scan-outside", "read-2-inside")
+    assert_before(events, "carrier-scan-outside", "read-2-outside")
+    t.is_nil(index_of(events, "read-1-inside"))
+    t.is_nil(index_of(events, "read-2-inside"))
     t.is_nil(index_of(events, "closed-scan-inside"))
     t.is_nil(index_of(events, "carrier-scan-inside"))
+    t.is_nil(index_of(events, "lock-enter"))
   end,
 
   -- Control: the escalation still publishes its full effect set, so hoisting the scans

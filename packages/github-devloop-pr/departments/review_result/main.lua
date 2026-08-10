@@ -113,7 +113,6 @@ return saga.department(spec, { done = function() return false end, act = functio
   parsers_misc.assert_trusted_bot_configured()
   local branches = config.branch_config()
   local lock_key = entity_lib.pr_transition_lock_key(repo, pr_number)
-  with_lock(lock_key, function()
   local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
     error("github-devloop: gh-pr-review-result-view-failed: gh pr origin view failed for review result: " .. tostring(pr_view.stderr))
@@ -374,5 +373,4 @@ return saga.department(spec, { done = function() return false end, act = functio
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("review_result", origin.proposal_id, effect.queue, effect.payload)
     end
-  end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_result" })

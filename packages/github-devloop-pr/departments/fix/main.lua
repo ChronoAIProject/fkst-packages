@@ -598,7 +598,7 @@ local function act_fix(event)
   end
 
   local attempt_plan = nil
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
 
@@ -837,14 +837,14 @@ local function act_fix(event)
       speculative_current_set = speculative_current_set,
       reviewing_effect = reviewing_effect,
     }
-  end)
+  end
   if attempt_plan == nil then
     return
   end
   local receiver_authorization = nil
-  with_lock(lock_key, function()
+  do
     receiver_authorization = pre_spawn_fix_attempt(repo, fix, attempt_plan)
-  end)
+  end
   if receiver_authorization == nil or receiver_authorization == false then
     return
   end
@@ -853,10 +853,10 @@ local function act_fix(event)
   if outcome == nil then
     return
   end
-  with_lock(lock_key, function()
+  do
     apply_fix_outcome(repo, issue_number, fix, attempt_plan.branch, outcome,
       attempt_plan.reviewing_effect)
-  end)
+  end
 end
 
 return saga.department(spec, {

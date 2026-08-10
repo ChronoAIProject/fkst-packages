@@ -218,7 +218,13 @@ local function capture(fixture)
       stderr = "", exit_code = 0 }
   end
   ra.replace(m_claims, "verify_pr_review_issue_claim", function() return true end, restorations)
-  ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
+  local transition_lock_calls = 0
+  ra.replace(_G, "with_lock", function(key, fn)
+    if key == entity_lib.transition_lock_key(PROPOSAL_ID) then
+      transition_lock_calls = transition_lock_calls + 1
+    end
+    return fn()
+  end, restorations)
   if fixture.marker_visible then
     if fixture.queue == "devloop_review_reconcile" then
       ra.replace(conv_reconcile, "has_review_reconcile_marker", function() return true end, restorations)
@@ -248,6 +254,7 @@ local function capture(fixture)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)
   ra.restore_all(restorations)
+  t.eq(transition_lock_calls, 0, fixture.disposition .. ": reconcile never enters a transition lock")
   if fixture.error then
     t.is_true(tostring(result.failure.error):find(fixture.error, 1, true) ~= nil,
       fixture.disposition .. ": exact fail-closed error")

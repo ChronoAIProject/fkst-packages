@@ -198,7 +198,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, review_meta.pr_number, 30)
@@ -344,5 +344,5 @@ return saga.department(spec, { done = function() return false end, act = functio
       grant = grant,
       facade = facade,
     })
-  end)
+  end
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_meta" })

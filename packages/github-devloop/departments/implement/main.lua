@@ -540,7 +540,7 @@ local function process_ready_event(event)
   end
 
   local attempt_plan = nil
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
@@ -707,98 +707,99 @@ local function process_ready_event(event)
         checkpoint = resume_checkpoint,
         completed_result = completed_result,
       }
-      return
     end
 
-    local retry_failure = nil
-    local blocked_reentry = false
-    if state.state == "impl-failed" and ready.impl_retry_attempt ~= nil and state.version == ready.dedup_key then
-      retry_failure = core.impl_failure_fact(current.comments, ready.proposal_id, ready.dedup_key)
-      if retry_failure ~= nil and tonumber(ready.impl_retry_attempt) <= tonumber(retry_failure.attempt or 1) then
-        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the failure attempt")
+    if attempt_plan == nil then
+      local retry_failure = nil
+      local blocked_reentry = false
+      if state.state == "impl-failed" and ready.impl_retry_attempt ~= nil and state.version == ready.dedup_key then
+        retry_failure = core.impl_failure_fact(current.comments, ready.proposal_id, ready.dedup_key)
+        if retry_failure ~= nil and tonumber(ready.impl_retry_attempt) <= tonumber(retry_failure.attempt or 1) then
+          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the failure attempt")
+          return
+        end
+      elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil
+        and transitions.operator_blocked_reimplement_allowed(core, ready, current, state) then
+        blocked_reentry = true
+      elseif state.state == "implementing" or state.state == "impl-failed" then
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation fact marker already visible")
         return
       end
-    elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil
-      and transitions.operator_blocked_reimplement_allowed(core, ready, current, state) then
-      blocked_reentry = true
-    elseif state.state == "implementing" or state.state == "impl-failed" then
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation fact marker already visible")
-      return
-    end
-    local expected_states = blocked_reentry
-      and { { state = "blocked", version = ready.operator_reentry.state_version, target_version = ready.dedup_key } }
-      or (retry_failure ~= nil and { "impl-failed" } or { "ready" })
-    local _, decision = decide_implementation_transition(repo, issue_number, lock_key, state,
-      expected_states, marker_ready, "initial", false)
-    local transition = decision.status
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing",
-        decision.cas_outcome, "ready event cannot advance current marker")
-      return
-    end
-    local accepted_ready_hand_off = nil
-    if transition == "pending" then
-      local verified_state = nil
-      local hand_off_reason = "missing"
-      if ready.ready_hand_off ~= nil then
-        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(repo, ready.ready_hand_off, {
-          proposal_id = ready.proposal_id,
-          state = "ready",
-          marker_version = ready.ready_hand_off.marker_version,
-          event_version = ready.dedup_key,
-        })
-      end
-      if retry_failure == nil and ready.impl_retry_attempt == nil and verified_state ~= nil then
-        state = verified_state
-        accepted_ready_hand_off = ready.ready_hand_off
-        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "apply(verified-own-ready-hand-off)", "ready marker comment verified by direct id lookup")
-      else
+      local expected_states = blocked_reentry
+        and { { state = "blocked", version = ready.operator_reentry.state_version, target_version = ready.dedup_key } }
+        or (retry_failure ~= nil and { "impl-failed" } or { "ready" })
+      local _, decision = decide_implementation_transition(repo, issue_number, lock_key, state,
+        expected_states, marker_ready, "initial", false)
+      local transition = decision.status
+      if transition == "idempotent" or transition == "stale" then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing",
-          decision.cas_outcome, "ready state marker not yet visible")
+          decision.cas_outcome, "ready event cannot advance current marker")
+        return
+      end
+      local accepted_ready_hand_off = nil
+      if transition == "pending" then
+        local verified_state = nil
+        local hand_off_reason = "missing"
         if ready.ready_hand_off ~= nil then
-          devloop_logging.log_line("info", "implement", ready.proposal_id, "HANDOFF", {
-            "state=ready",
-            "outcome=verify-failed",
-            "reason=" .. tostring(hand_off_reason),
+          verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(repo, ready.ready_hand_off, {
+            proposal_id = ready.proposal_id,
+            state = "ready",
+            marker_version = ready.ready_hand_off.marker_version,
+            event_version = ready.dedup_key,
           })
         end
-        error("github-devloop: state-marker-pending: ready state marker not yet visible for implement; retrying")
+        if retry_failure == nil and ready.impl_retry_attempt == nil and verified_state ~= nil then
+          state = verified_state
+          accepted_ready_hand_off = ready.ready_hand_off
+          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "apply(verified-own-ready-hand-off)", "ready marker comment verified by direct id lookup")
+        else
+          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing",
+            decision.cas_outcome, "ready state marker not yet visible")
+          if ready.ready_hand_off ~= nil then
+            devloop_logging.log_line("info", "implement", ready.proposal_id, "HANDOFF", {
+              "state=ready",
+              "outcome=verify-failed",
+              "reason=" .. tostring(hand_off_reason),
+            })
+          end
+          error("github-devloop: state-marker-pending: ready state marker not yet visible for implement; retrying")
+        end
+      else
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing",
+          decision.cas_outcome, "ready marker visible; attempting implementation")
       end
-    else
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing",
-        decision.cas_outcome, "ready marker visible; attempting implementation")
+
+      local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(core, repo, issue_number)
+      if not wip_ok then
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "hold-wip-cap", wip_reason .. ": " .. tostring(wip_count) .. "/" .. tostring(wip_max))
+        return
+      end
+
+      local issue_slug = devloop_base.safe_issue_slug(repo, issue_number)
+      devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
+        "issue_slug=" .. tostring(issue_slug),
+        "branch=" .. tostring(branch),
+        "reason=implementation fact marker absent for this version",
+      })
+
+      attempt_plan = {
+        marker_ready = marker_ready,
+        current = current,
+        branches = branches,
+        branch = branch,
+        attempt = ready.impl_retry_attempt or 1,
+        expected_from_states = expected_states,
+        accepted_ready_hand_off = accepted_ready_hand_off,
+        bridge_marker = external_pr_bridge.detect(current, repo, managed),
+      }
     end
-
-    local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(core, repo, issue_number)
-    if not wip_ok then
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "hold-wip-cap", wip_reason .. ": " .. tostring(wip_count) .. "/" .. tostring(wip_max))
-      return
-    end
-
-    local issue_slug = devloop_base.safe_issue_slug(repo, issue_number)
-    devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-      "issue_slug=" .. tostring(issue_slug),
-      "branch=" .. tostring(branch),
-      "reason=implementation fact marker absent for this version",
-    })
-
-    attempt_plan = {
-      marker_ready = marker_ready,
-      current = current,
-      branches = branches,
-      branch = branch,
-      attempt = ready.impl_retry_attempt or 1,
-      expected_from_states = expected_states,
-      accepted_ready_hand_off = accepted_ready_hand_off,
-      bridge_marker = external_pr_bridge.detect(current, repo, managed),
-    }
-  end)
+  end
   if attempt_plan == nil then
     return
   end
 
   local worktree, codex_started_at, exec_ref, receiver_authorization
-  with_lock(lock_key, function()
+  do
     local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision = precheck_implementation_write_gate(
       repo,
       issue_number,
@@ -834,7 +835,7 @@ local function process_ready_event(event)
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
     end
-  end)
+  end
   if worktree == nil then
     return
   end
@@ -845,7 +846,7 @@ local function process_ready_event(event)
     receiver_authorization, attempt_plan.attempt, event.ts, event.queue,
     attempt_plan.completed_result)
   if outcome == nil then return end
-  with_lock(lock_key, function()
+  do
     local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,
       attempt_plan.marker_ready, attempt_plan.expected_from_states,
       attempt_plan.accepted_ready_hand_off, true)
@@ -859,7 +860,7 @@ local function process_ready_event(event)
       end
       raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
     end
-  end)
+  end
 end
 
 local function act_implement(event)

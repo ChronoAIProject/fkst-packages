@@ -413,7 +413,13 @@ local function capture(fixture)
   ra.replace(config, "branch_config", function() return { integration = "dev", upstream = "dev" } end, restorations)
   ra.replace(config, "write_mode", function() return fixture.dry_run and "dry-run" or "real" end, restorations)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function() return true end, restorations)
-  ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
+  local transition_lock_calls = 0
+  ra.replace(_G, "with_lock", function(key, fn)
+    if key == entity_lib.transition_lock_key(PROPOSAL_ID) then
+      transition_lock_calls = transition_lock_calls + 1
+    end
+    return fn()
+  end, restorations)
   ra.replace(_G, "exec_sync", function(opts)
     if tostring(opts.cmd):find("FKST_DURABLE_ROOT", 1, true) then
       return { stdout = "/tmp/fkst-observe/durable", stderr = "", exit_code = 0 }
@@ -466,6 +472,7 @@ local function capture(fixture)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)
   ra.restore_all(restorations)
+  t.eq(transition_lock_calls, 0, fixture.disposition .. ": fix never enters a transition lock")
   if fixture.worktree_owner_role ~= nil then
     local destructive_calls = 0
     for _, write in ipairs(ports.git_model.writes) do

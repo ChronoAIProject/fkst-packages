@@ -6,7 +6,6 @@ local parsers_issue = require("devloop.parsers.issue")
 local execution_start = require("devloop.execution_start")
 local saga = require("workflow.saga")
 local v_execution_request = require("devloop.validators.execution_request")
-local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
@@ -85,15 +84,14 @@ local function act_execute_start(event)
     return
   end
 
-  local lock_key = entity_lib.observe_lock_key(repo, issue_number)
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
     local current = read_current(repo, issue_number, request)
     if current == nil then
       return
     end
     raise_execution_start(repo, issue_number, request, current, event.ts)
-  end)
+  end
 end
 
 return saga.department(spec, {

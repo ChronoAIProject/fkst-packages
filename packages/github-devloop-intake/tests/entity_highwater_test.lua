@@ -4,7 +4,6 @@ local h = require("tests.devloop_helpers")
 local t = h.t
 local consumer = "github-devloop-intake/highwater-unit"
 local source_ref = { kind = "external", ref = "owner/repo#issue/3094" }
-local lock_key = "github-devloop/transition/owner/repo/issue/3094"
 
 local function event(updated_at)
   return {
@@ -20,7 +19,6 @@ local function reconcile(updated_at, work)
   return entity_highwater.reconcile({
     consumer = consumer,
     event = event(updated_at),
-    lock_key = lock_key,
     work = work,
   })
 end
@@ -112,5 +110,32 @@ return {
     end)
     t.eq(ok, false)
     t.eq(cache_get(key), "")
+  end,
+
+  test_entity_highwater_runs_work_before_its_short_cache_commit_lock = function()
+    local key = entity_highwater.key(consumer, source_ref)
+    cache_set(key, "")
+    local previous_with_lock = with_lock
+    local events = {}
+
+    with_lock = function(selected_key, fn)
+      events[#events + 1] = "lock-enter:" .. tostring(selected_key)
+      local result = fn()
+      events[#events + 1] = "lock-exit"
+      return result
+    end
+    local ok, result = pcall(reconcile, "2026-08-04T00:04:00Z", function(_, record_authoritative_version)
+      events[#events + 1] = "source-read"
+      record_authoritative_version("2026-08-04T00:04:00Z")
+      events[#events + 1] = "effect-plan"
+    end)
+    with_lock = previous_with_lock
+
+    if not ok then error(result, 0) end
+    t.eq(events[1], "source-read")
+    t.eq(events[2], "effect-plan")
+    t.eq(events[3], "lock-enter:" .. key)
+    t.eq(events[4], "lock-exit")
+    t.eq(cache_get(key), "2026-08-04T00:04:00Z")
   end,
 }

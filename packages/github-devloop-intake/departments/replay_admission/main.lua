@@ -3,7 +3,6 @@ local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local queue = require("devloop.queue")
 local saga = require("workflow.saga")
-local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local admission_core = require("core.admission")
 local admission_shared = require("core.admission_shared")
@@ -39,59 +38,56 @@ local function act_issue_observed(context, event)
   end
   parsers_misc.assert_trusted_bot_configured()
 
-  local lock_key = entity_lib.observe_lock_key(repo, issue_number)
-  with_lock(lock_key, function()
-    local terminal, precondition_reason, lineage = replay_authorization.terminal_precondition(entity.source_ref)
-    if terminal == nil then
-      admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
-      devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(precondition_reason or "not-authorized"), "intake replay terminal precondition failed")
-      return
-    end
+  local terminal, precondition_reason, lineage = replay_authorization.terminal_precondition(entity.source_ref)
+  if terminal == nil then
+    admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
+    devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(precondition_reason or "not-authorized"), "intake replay terminal precondition failed")
+    return
+  end
 
-    local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
-    devloop_logging.log_forged_markers("replay_admission", proposal_id, current.comments)
-    local progress_visible = admission_shared.has_trusted_progress(current, proposal_id)
-    local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
-      has_trusted_progress = progress_visible,
-      lineage = lineage,
-      terminal = terminal,
-    })
-    if authorization == nil then
-      admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
-      devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(reason or "not-authorized"), "intake replay precondition failed")
-      return
-    end
+  local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+  devloop_logging.log_forged_markers("replay_admission", proposal_id, current.comments)
+  local progress_visible = admission_shared.has_trusted_progress(current, proposal_id)
+  local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
+    has_trusted_progress = progress_visible,
+    lineage = lineage,
+    terminal = terminal,
+  })
+  if authorization == nil then
+    admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
+    devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(reason or "not-authorized"), "intake replay precondition failed")
+    return
+  end
 
-    local capacity_granted, capacity_reason = context.capacity.authorize(
-      repo,
-      issue_number,
-      current,
-      proposal_id
+  local capacity_granted, capacity_reason = context.capacity.authorize(
+    repo,
+    issue_number,
+    current,
+    proposal_id
+  )
+  if not capacity_granted then
+    devloop_logging.log_cas_decision(
+      "replay_admission",
+      proposal_id,
+      { state = nil, version = nil },
+      "observed",
+      "replay-candidate",
+      "skip-capacity",
+      capacity_reason
     )
-    if not capacity_granted then
-      devloop_logging.log_cas_decision(
-        "replay_admission",
-        proposal_id,
-        { state = nil, version = nil },
-        "observed",
-        "replay-candidate",
-        "skip-capacity",
-        capacity_reason
-      )
-      return
-    end
+    return
+  end
 
-    once(authorization.once_key, function()
-      local payload = admission_core.build_intake_replay_candidate(
-        repo,
-        admission_shared.issue_from_current(issue_number, current),
-        authorization.terminal
-      )
-      devloop_logging.log_apply("replay_admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-        "devloop_intake_candidate",
-      })
-      devloop_logging.log_raise("replay_admission", proposal_id, "devloop_intake_candidate", payload)
-    end)
+  once(authorization.once_key, function()
+    local payload = admission_core.build_intake_replay_candidate(
+      repo,
+      admission_shared.issue_from_current(issue_number, current),
+      authorization.terminal
+    )
+    devloop_logging.log_apply("replay_admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
+      "devloop_intake_candidate",
+    })
+    devloop_logging.log_raise("replay_admission", proposal_id, "devloop_intake_candidate", payload)
   end)
 end
 

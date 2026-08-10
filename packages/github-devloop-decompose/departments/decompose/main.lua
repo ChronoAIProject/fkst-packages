@@ -279,20 +279,10 @@ local function decompose_context(event)
     return nil
   end
 
-  local lock_key = entity_lib.transition_lock_key(decompose.proposal_id)
-  if lock_key == nil then
-    devloop_logging.log_cas_decision("decompose", decompose.proposal_id, { state = nil, version = nil }, "blocked", "decomposed", "skip-foreign(proposal_id)", "no transition lock key")
-    if type(event) == "table" then
-      context_cache[event] = false
-    end
-    return nil
-  end
-
   local context = {
     decompose = decompose,
     repo = repo,
     issue_number = issue_number,
-    lock_key = lock_key,
   }
   if type(event) == "table" then
     context_cache[event] = context
@@ -316,39 +306,35 @@ local function decomposed_done(event)
     end
     return false
   end
-  local done = false
-  with_lock(context.lock_key, function()
-    parsers_misc.assert_trusted_bot_configured()
-    local current_pr = read_current_pr(context.repo, context.decompose.pr_number)
-    devloop_logging.log_forged_markers("decompose",
-      context.decompose.proposal_id,
-      current_pr.comments)
-    local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
-      or state.state ~= "blocked"
-      or tostring(state.version or "") ~= tostring(context.decompose.version) then
-      return
+  parsers_misc.assert_trusted_bot_configured()
+  local current_pr = read_current_pr(context.repo, context.decompose.pr_number)
+  devloop_logging.log_forged_markers("decompose",
+    context.decompose.proposal_id,
+    current_pr.comments)
+  local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
+  if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
+    or state.state ~= "blocked"
+    or tostring(state.version or "") ~= tostring(context.decompose.version) then
+    return false
+  end
+  local decomposed = decompose_lib.decomposed_fact(current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
+  if decomposed == nil then
+    if not conv_attempts.has_decompose_exhausted_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
+      return false
     end
-    local decomposed = decompose_lib.decomposed_fact(current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
-    if decomposed == nil then
-      if conv_attempts.has_decompose_exhausted_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
-        devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed",
-          "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
-        done = true
-      end
-      return
-    end
+    devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed",
+      "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
+  else
     local child_issues = read_decompose_child_issues(context.repo, context.decompose.proposal_id)
     if not all_children_complete(child_issues, context.decompose, decomposed.count) then
-      return
+      return false
     end
     devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed", "skip-idempotent(decomposed marker and children already visible)", "decompose already applied")
-    done = true
-  end)
-  if done and type(event) == "table" then
+  end
+  if type(event) == "table" then
     context_cache[event] = nil
   end
-  return done
+  return true
 end
 
 local function act_decompose(event)
@@ -362,7 +348,7 @@ local function act_decompose(event)
   local decompose = context.decompose
   local repo = context.repo
   local issue_number = context.issue_number
-  with_lock(context.lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local current_pr = read_current_pr(repo, decompose.pr_number)
@@ -424,7 +410,7 @@ local function act_decompose(event)
         perform = perform_issue_create(repo, decompose, issues[index], index),
       })
     end
-  end)
+  end
 end
 
 return saga.department(spec, {

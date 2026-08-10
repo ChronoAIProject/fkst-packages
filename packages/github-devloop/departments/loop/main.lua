@@ -66,7 +66,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
@@ -258,5 +258,5 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_raise("loop", unresolved.proposal_id, "devloop_consensus_request", proposal)
     devloop_logging.log_raise("loop", unresolved.proposal_id,
       "github-proxy.github_issue_comment_request", comment_request)
-  end)
+  end
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "loop" })

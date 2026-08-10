@@ -228,9 +228,9 @@ end
 -- Recurring-class discovery is two repo-wide GitHub searches, and neither reads state
 -- that this issue's transition lock protects: carrier creation races between different
 -- issues are not serialized by a per-issue lock in the first place. It therefore runs
--- before the commit lock, on the same snapshot the codex judged. A snapshot that drifts
--- afterwards cannot apply this plan at all, because the in-lock re-read rejects the
--- decision once the title/body-derived dedup key no longer matches.
+-- before the fresh candidate read, on the same snapshot the codex judged. If the
+-- title or body drifts during planning, that re-read rejects the decision because its
+-- title/body-derived dedup key no longer matches.
 local function plan_class_escalation(intake_class, repo, issue_number, current, parsed)
   local sibling_issues = intake_class.fetch_recent_closed_intake_class_issues(repo)
   local class_key = intake_class.intake_class_identity(parsed.reason, current, issue_number, sibling_issues)
@@ -250,75 +250,73 @@ local function apply_intake_decision(intake_class, intake_service_class, dept, r
   if parsed.action == "escalate-to-class" then
     class_plan = plan_class_escalation(intake_class, repo, issue_number, gate.current, parsed)
   end
-  with_lock(gate.lock_key, function()
-    local current_gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
-    if current_gate == nil then
-      return
-    end
-    local current = current_gate.current
-    local decision_dedup_key = current_gate.decision_dedup_key
-    candidate.service_class = parsed.service_class
-    local decision_candidate = copy_fields(candidate)
-    decision_candidate.dedup_key = decision_dedup_key
-    local raised = {
-      "github-proxy.github_issue_comment_request",
-    }
-    local class_carrier = class_plan ~= nil and class_plan.carrier or nil
-    local class_key = class_plan ~= nil and class_plan.class_key or nil
-    if parsed.action == "escalate-to-class" then
-      table.insert(raised, "github-proxy.github_issue_comment_request")
-      table.insert(raised, "github-proxy.github_issue_label_request")
-      if class_carrier == nil then
-        table.insert(raised, "github-proxy.github_issue_create_request")
-      end
-    end
-    candidate.service_class = parsed.service_class
-    local comment_request = requests_lifecycle.build_intake_decision_comment_request(devloop_prompts.output_language, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
+  local current_gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
+  if current_gate == nil then
+    return
+  end
+  local current = current_gate.current
+  local decision_dedup_key = current_gate.decision_dedup_key
+  candidate.service_class = parsed.service_class
+  local decision_candidate = copy_fields(candidate)
+  decision_candidate.dedup_key = decision_dedup_key
+  local raised = {
+    "github-proxy.github_issue_comment_request",
+  }
+  local class_carrier = class_plan ~= nil and class_plan.carrier or nil
+  local class_key = class_plan ~= nil and class_plan.class_key or nil
+  if parsed.action == "escalate-to-class" then
+    table.insert(raised, "github-proxy.github_issue_comment_request")
     table.insert(raised, "github-proxy.github_issue_label_request")
-    local class_add, class_remove = intake_service_class.intake_service_class_label_changes(parsed.service_class)
-    local apply_add = { class_add[1] }
-    local apply_remove = class_remove
-    if is_enable(parsed.action) then
-      table.insert(raised, "github-devloop.devloop_execute_request")
-      table.insert(raised, "github-proxy.github_issue_label_request")
+    if class_carrier == nil then
+      table.insert(raised, "github-proxy.github_issue_create_request")
     end
-    if is_enable(parsed.action) then
-      table.insert(apply_add, 1, devloop_base._enabled_label)
-    elseif is_tracking(parsed.action) then
-      table.insert(apply_add, 1, devloop_base._tracking_label)
+  end
+  candidate.service_class = parsed.service_class
+  local comment_request = requests_lifecycle.build_intake_decision_comment_request(devloop_prompts.output_language, repo, issue_number, decision_candidate, parsed.action, parsed.reason, parsed.service_class)
+  table.insert(raised, "github-proxy.github_issue_label_request")
+  local class_add, class_remove = intake_service_class.intake_service_class_label_changes(parsed.service_class)
+  local apply_add = { class_add[1] }
+  local apply_remove = class_remove
+  if is_enable(parsed.action) then
+    table.insert(raised, "github-devloop.devloop_execute_request")
+    table.insert(raised, "github-proxy.github_issue_label_request")
+  end
+  if is_enable(parsed.action) then
+    table.insert(apply_add, 1, devloop_base._enabled_label)
+  elseif is_tracking(parsed.action) then
+    table.insert(apply_add, 1, devloop_base._tracking_label)
+  end
+  devloop_logging.log_apply(dept, candidate.proposal_id, parsed.action, candidate.dedup_key, {
+    add = apply_add,
+    remove = apply_remove,
+  }, raised)
+  devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  if parsed.action == "escalate-to-class" then
+    local followup_comment = intake_class.build_intake_class_followup_comment_request(
+      repo,
+      issue_number,
+      candidate,
+      class_carrier,
+      "folded",
+      parsed.reason
+    )
+    local folded_label = intake_class.build_intake_class_folded_label_request(repo, issue_number, candidate)
+    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", followup_comment)
+    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", folded_label)
+    if class_carrier == nil then
+      local create_request = intake_class.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
+      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_create_request", create_request)
     end
-    devloop_logging.log_apply(dept, candidate.proposal_id, parsed.action, candidate.dedup_key, {
-      add = apply_add,
-      remove = apply_remove,
-    }, raised)
-    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-    if parsed.action == "escalate-to-class" then
-      local followup_comment = intake_class.build_intake_class_followup_comment_request(
-        repo,
-        issue_number,
-        candidate,
-        class_carrier,
-        "folded",
-        parsed.reason
-      )
-      local folded_label = intake_class.build_intake_class_folded_label_request(repo, issue_number, candidate)
-      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", followup_comment)
-      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", folded_label)
-      if class_carrier == nil then
-        local create_request = intake_class.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
-        devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_create_request", create_request)
-      end
-    end
-    if is_enable(parsed.action) then
-      raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
-    elseif is_tracking(parsed.action) then
-      local label_request = requests_labels.build_intake_tracking_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
-      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
-    else
-      local label_request = intake_service_class.build_intake_service_class_label_request(repo, issue_number, candidate)
-      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
-    end
-  end)
+  end
+  if is_enable(parsed.action) then
+    raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
+  elseif is_tracking(parsed.action) then
+    local label_request = requests_labels.build_intake_tracking_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
+    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  else
+    local label_request = intake_service_class.build_intake_service_class_label_request(repo, issue_number, candidate)
+    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  end
 end
 
 local function act(intake_class, intake_service_class, event, opts)
@@ -338,16 +336,12 @@ local function act(intake_class, intake_service_class, event, opts)
     return
   end
 
+  parsers_misc.assert_trusted_bot_configured()
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
-  local gate = nil
-  with_lock(lock_key, function()
-    parsers_misc.assert_trusted_bot_configured()
-    gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts)
-  end)
+  local gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts)
   if gate == nil then
     return
   end
-  gate.lock_key = lock_key
 
   local ctx = {
     repo = repo,

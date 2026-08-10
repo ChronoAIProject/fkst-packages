@@ -628,7 +628,7 @@ local function reconcile_pr_event(event)
   end
 
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
-  local function resolve_lock()
+  local function prepare()
     parsers_misc.assert_trusted_bot_configured()
     local branches = config.branch_config()
     local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
@@ -642,7 +642,7 @@ local function reconcile_pr_event(event)
     local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
     local origin, has_issue_origin = origin_from_pr(pr.repo, pr.number, current_pr)
     local transition_lock_key = entity_lib.transition_lock_key(origin.proposal_id)
-    return transition_lock_key or entity_lib.observe_lock_key(pr.repo, pr.number, "pr"), {
+    return {
       branches = branches,
       current_pr = current_pr,
       has_issue_origin = has_issue_origin,
@@ -827,7 +827,7 @@ local function reconcile_pr_event(event)
   return entity_highwater.reconcile({
     consumer = "github-devloop-pr/observe_pr",
     event = event,
-    resolve_lock = resolve_lock,
+    prepare = prepare,
     work = process_pr_event,
   })
 end

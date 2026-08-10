@@ -74,7 +74,6 @@ local function replay_parent(prepared, process_issue_event, record_authoritative
     },
   }, {
     highwater_enabled = false,
-    lock_held = true,
   })
 end
 
@@ -93,8 +92,9 @@ function P.make(process_issue_event)
     return entity_highwater.reconcile({
       consumer = "github-devloop/observe_issue",
       event = event,
-      resolve_lock = function()
-        return fetch_current(event, pr)
+      prepare = function()
+        local _, prepared = fetch_current(event, pr)
+        return prepared
       end,
       work = function(prepared, record_authoritative_version)
         return replay_parent(prepared, process_issue_event, record_authoritative_version)

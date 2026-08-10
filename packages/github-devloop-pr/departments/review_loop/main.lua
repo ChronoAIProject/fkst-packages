@@ -124,7 +124,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   end
   local pr_source_ref = entity_lib.pr_source_ref(repo, pr_number)
 
-  with_lock(lock_key, function()
+  do
     devloop_logging.log_forged_markers("review_loop", origin.proposal_id, current_pr.comments)
     local state, snapshot, transition = reviewing_segment_transition_status(current_pr.comments, {
       repo = repo,
@@ -276,5 +276,5 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_raise("review_loop", origin.proposal_id, "devloop_review_request", proposal)
     devloop_logging.log_raise("review_loop", origin.proposal_id,
       "github-proxy.github_pr_comment_request", comment_request)
-  end)
+  end
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_loop" })

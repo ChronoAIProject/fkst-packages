@@ -295,7 +295,7 @@ local function make_department(ports)
       error("github-devloop: consensus-result-invalid: owned result has no transition lock key")
     end
 
-    with_lock(lock_key, function()
+    do
       parsers_misc.assert_trusted_bot_configured()
 
       local current = ports.github.read_issue({
@@ -387,7 +387,7 @@ local function make_department(ports)
       })
       raise_result_effects(repo, issue_number, reached, current, state, gate,
         decision.cas_outcome, decision.incoming_version, to_state, granted_payloads)
-    end)
+    end
   end
 
   local previous_pipeline = _G.pipeline

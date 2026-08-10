@@ -169,7 +169,7 @@ local function pipeline_review(event)
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
@@ -277,7 +277,7 @@ local function pipeline_review(event)
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
     end
-  end)
+  end
 end
 
 local function pipeline_fix(event)
@@ -313,7 +313,7 @@ local function pipeline_fix(event)
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local apply_current = function(current, classification)
@@ -459,7 +459,7 @@ local function pipeline_fix(event)
       error("github-devloop: gh-pr-fix-reconcile-view-failed: gh pr fix reconcile view failed: " .. tostring(view.stderr))
     end
     return apply_current(parsers_pr.parse_pr_view_origin(view.stdout), nil)
-  end)
+  end
 end
 
 local function pipeline_timeout(event)
@@ -479,7 +479,7 @@ local function pipeline_timeout(event)
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local comments
@@ -690,7 +690,7 @@ local function pipeline_timeout(event)
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
     end
-  end)
+  end
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)

@@ -97,7 +97,7 @@ local function pipeline_thinking(event)
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
@@ -209,7 +209,7 @@ local function pipeline_thinking(event)
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
     end
-  end)
+  end
 end
 
 local function pipeline_timeout(event)
@@ -228,7 +228,7 @@ local function pipeline_timeout(event)
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
@@ -401,7 +401,7 @@ local function pipeline_timeout(event)
     for _, effect in ipairs(effects) do
       devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
     end
-  end)
+  end
 end
 
 return saga.department(spec, {

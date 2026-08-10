@@ -51,7 +51,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  with_lock(lock_key, function()
+  do
     parsers_misc.assert_trusted_bot_configured()
 
     local pr_view = devloop_commands.gh_pr_view_origin(repo, reviewing.pr_number, 30)
@@ -211,5 +211,5 @@ return saga.department(spec, { done = function() return false end, act = functio
     local raised = { "devloop_review_request" }
     devloop_logging.log_apply("review_pr", reviewing.proposal_id, nil, nil, { add = {}, remove = {} }, raised)
     devloop_logging.log_raise("review_pr", reviewing.proposal_id, "devloop_review_request", proposal)
-  end)
+  end
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_pr" })

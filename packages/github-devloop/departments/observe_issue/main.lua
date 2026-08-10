@@ -737,8 +737,6 @@ local function reconcile_issue_event(event, opts)
     consumer = "github-devloop/observe_issue",
     enabled = options.highwater_enabled,
     event = event,
-    lock_held = options.lock_held,
-    lock_key = lock_key,
     work = process_issue_event,
   })
 end
