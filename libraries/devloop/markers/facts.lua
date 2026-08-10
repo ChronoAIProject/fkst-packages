@@ -5,6 +5,7 @@ local base_ids = require("devloop.base_ids")
 local contract_pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
+local payload_registry = require("devloop.payload_registry")
 local C = {}
 local forge_validators = require("devloop.forge_validators")
 local contract_time = require("contract.time")
@@ -676,9 +677,15 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
   return best
 end
 
-function C.pr_link_fact(comments, proposal_id)
+function C.pr_link_fact(comments, proposal_id, version_lineage)
   if type(comments) ~= "table" then
     return nil
+  end
+  local expected_lineage = nil
+  if version_lineage ~= nil then
+    expected_lineage = payload_registry.resolve("dedup:ready", {
+      dedup_key = transition_version.strip_suffixes(version_lineage),
+    })
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
@@ -689,6 +696,8 @@ function C.pr_link_fact(comments, proposal_id)
       local marker_impl_version = marker:match('impl_version="([^"]*)"')
       local marker_base_branch = marker:match('base_branch="([^"]+)"')
       if marker_proposal == proposal_id
+        and (expected_lineage == nil
+          or transition_version.strip_suffixes(marker_impl_version) == expected_lineage)
         and forge_validators.is_positive_pr_number(marker_pr)
         and forge_validators.is_git_ref_safe(marker_branch)
         and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
