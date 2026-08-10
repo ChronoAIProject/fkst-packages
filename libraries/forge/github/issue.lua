@@ -341,8 +341,8 @@ local function cache_available()
   return type(cache_get) == "function" and type(cache_set) == "function"
 end
 
-local function cache_successful_issue_view(key, stdout, producer)
-  if not cache_available() then
+local function cache_successful_issue_view(key, stdout, producer, cache_write)
+  if cache_write == false or not cache_available() then
     return
   end
   local updated_at = parse_view_updated_at(stdout)
@@ -405,7 +405,12 @@ function M.install(handle)
       stdout_policy.content_json("issue_comments")
     )
     local stdout = rest_issue_to_view_stdout(issue.stdout, comments.stdout)
-    cache_successful_issue_view(issue_view_cache_key(repo, number), stdout, opts and opts.consumer or "")
+    cache_successful_issue_view(
+      issue_view_cache_key(repo, number),
+      stdout,
+      opts and opts.consumer or "",
+      opts and opts.cache_write
+    )
     return stdout
   end
 
@@ -439,7 +444,7 @@ function M.install(handle)
       if parse_updated_at_stdout(current.stdout) == cached.updated_at then
         return M.normalize_issue(cached.stdout, source_ref)
       end
-      if cache_available() then
+      if options.cache_write ~= false and cache_available() then
         cache_set(key, "")
       end
     end
@@ -450,7 +455,7 @@ function M.install(handle)
       "gh issue view",
       stdout_policy.content_json("issue_view")
     )
-    cache_successful_issue_view(key, out.stdout, options.consumer or "")
+    cache_successful_issue_view(key, out.stdout, options.consumer or "", options.cache_write)
     return M.normalize_issue(out.stdout, source_ref)
   end
 

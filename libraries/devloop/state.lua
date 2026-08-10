@@ -105,14 +105,14 @@ function C.comment_bodies(comments)
   return bodies
 end
 
-local function derive_current_marker(comments, proposal_id)
+local function derive_current_marker(comments, proposal_id, trust_set, include_author)
   if type(comments) ~= "table" then
     return nil
   end
 
   local current = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments, trust_set)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
       if candidate ~= nil and candidate.proposal_id == proposal_id then
@@ -122,6 +122,9 @@ local function derive_current_marker(comments, proposal_id)
           stage_rank = candidate.stage_rank,
           marker_created_at = candidate.marker_created_at,
         }
+        if include_author then
+          candidate.author_login = parsers_misc.canonical_login(parsers_misc._comment_author_login(comment))
+        end
         if compare_state_marker(current, candidate) then
           current = candidate
         end
@@ -137,6 +140,10 @@ end
 
 function C.current_state(comments, proposal_id)
   return derive_current_marker(comments, proposal_id)
+end
+
+function C.current_state_fact(comments, proposal_id, trust_set)
+  return derive_current_marker(comments, proposal_id, trust_set, true)
 end
 
 function C.route_current(comments, proposal_id, routes)

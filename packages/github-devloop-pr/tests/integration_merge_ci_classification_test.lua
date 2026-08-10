@@ -156,19 +156,23 @@ return {
     t.is_true(comment_raise.payload.body:find('reason="checks-pending"', 1, true) ~= nil)
   end,
 
-  test_pending_required_with_failed_optional_check_does_not_route_to_fixing = function()
+  test_host_named_completed_failure_routes_to_ci_repair_without_named_test_check = function()
     local event = merge_ready()
-    local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/lint","name":"lint","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"lint"}]'
+    local rollup_json = '[{"__typename":"CheckRun","conclusion":"FAILURE","name":"rust lint","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"rust build","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"rust test","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"docker build","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"gitleaks","status":"COMPLETED"}]'
     mock_bot_env()
+    mock_write_env("1")
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
-    mock_check_runs_json('{"total_count":2,"check_runs":[{"id":101,"name":"test","status":"in_progress","conclusion":null,"head_sha":"def456"},{"id":202,"name":"lint","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
+    mock_check_runs_json('{"total_count":5,"check_runs":[{"id":101,"name":"rust lint","status":"completed","conclusion":"failure","head_sha":"def456"},{"id":102,"name":"rust build","status":"completed","conclusion":"success","head_sha":"def456"},{"id":103,"name":"rust test","status":"completed","conclusion":"success","head_sha":"def456"},{"id":104,"name":"docker build","status":"completed","conclusion":"success","head_sha":"def456"},{"id":105,"name":"gitleaks","status":"completed","conclusion":"success","head_sha":"def456"}]}\n')
 
-    local result = run_merge(event, opts("merge-required-pending-optional-failed", { FKST_GITHUB_WRITE = "1" }))
+    local result = run_merge(event, opts("merge-host-named-red-fixing", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "devloop_fixing"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    local fixing = find_causal_raise(result, "devloop_fixing").payload
+    t.eq(fixing.repair_input, "ci-failure")
+    t.is_true(stable_ci_failure_key(fixing.ci_failure_key))
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(count_calls("gh pr merge"), 0)
   end,
 }

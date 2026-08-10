@@ -44,24 +44,34 @@ test_affected_requires_full_suite() {
 }
 
 test_affected_run_test() {
-  local result_file exit_code merge_code=0
+  local result_file output_file exit_code merge_code=0
   result_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-result.XXXXXX")" || {
     local_iteration_result_fail "INFRASTRUCTURE"
     return 1
   }
+  output_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-output.XXXXXX")" || {
+    rm -f "$result_file"
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
   if [ -n "${FKST_TEST_AFFECTED_RUNNER:-}" ]; then
-    if FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$FKST_TEST_AFFECTED_RUNNER" "$@"; then
+    if FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$FKST_TEST_AFFECTED_RUNNER" "$@" > "$output_file"; then
       exit_code=0
     else
       exit_code=$?
     fi
-  elif FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$ROOT/scripts/run.sh" "$@"; then
+  elif FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$ROOT/scripts/run.sh" "$@" > "$output_file"; then
     exit_code=0
   else
     exit_code=$?
   fi
+  if [ "$exit_code" -eq 0 ]; then
+    cat "$output_file"
+  else
+    cat "$output_file" >&2
+  fi
   local_iteration_result_merge_file "$result_file" "$exit_code" || merge_code=$?
-  rm -f "$result_file"
+  rm -f "$result_file" "$output_file"
   [ "$merge_code" -eq 0 ] || return 1
   return "$exit_code"
 }
