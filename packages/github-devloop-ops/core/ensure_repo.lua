@@ -7,15 +7,16 @@ local devloop_commands = require("devloop.commands")
 local forge_strings = require("forge.strings")
 local S = {}
 local config = require("devloop.config")
+local dashboard_contract = require("devloop.dashboard")
 
 function S.install(M)
 local strings = require("contract.strings")
 local dashboard = require("core.dashboard_commands")
 local labels = require("core.labels")
 local devloop_logging = require("devloop.logging")
-local dashboard_title = "fkst-dev board"
-local dashboard_label = "fkst-dashboard"
-local dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
+local dashboard_title = dashboard_contract.title
+local dashboard_label = dashboard_contract.label
+local dashboard_marker_prefix = dashboard_contract.marker_prefix
 
 local canonical_labels = {
   { name = "fkst-dev:enabled", color = "1D76DB", description = "intake-approved-for-autonomous-development" },
@@ -337,11 +338,7 @@ function M.dashboard_label()
 end
 
 function M.dashboard_marker(hash, generated_at)
-  return dashboard_marker_prefix
-    .. ' version="' .. tostring(generated_at or "")
-    .. '" hash="' .. tostring(hash or "")
-    .. '" generated_at="' .. tostring(generated_at or "")
-    .. '" -->'
+  return dashboard_contract.marker(hash, generated_at)
 end
 
 function M.dashboard_marker_prefix()

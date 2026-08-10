@@ -5,6 +5,7 @@ local C = {}
 local strings = require("contract.strings")
 local forge_validators = require("devloop.forge_validators")
 local transition_version = require("contract.transition_version")
+local devloop_base = require("devloop.base")
 
 local wait_bucket_seconds = 1800
 
@@ -56,7 +57,7 @@ function C.build_merge_gate_wait_comment_request(repo, merge_ready, reason, kind
   }), source_ref)
 end
 
-function C.merge_gate_wait_fact(M, comments, issue_proposal_id, issue_version, pr_number, head_sha)
+function C.merge_gate_wait_fact(comments, issue_proposal_id, issue_version, pr_number, head_sha)
   if type(comments) ~= "table" then
     return nil
   end
@@ -75,8 +76,8 @@ function C.merge_gate_wait_fact(M, comments, issue_proposal_id, issue_version, p
         and marker_version == tostring(wait_version)
         and tostring(marker_head_sha) == tostring(head_sha)
         and forge_validators.is_git_sha(marker_head_sha)
-        and strings.is_bounded_string(marker_kind, M._max_key_len)
-        and strings.is_bounded_string(marker_reason, M._max_key_len) then
+        and strings.is_bounded_string(marker_kind, devloop_base._max_key_len)
+        and strings.is_bounded_string(marker_reason, devloop_base._max_key_len) then
         return {
           proposal_id = marker_issue,
           pr_number = tonumber(marker_pr),

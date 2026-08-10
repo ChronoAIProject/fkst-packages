@@ -14,7 +14,7 @@ local inventories = {
 local devloop_logging = require("devloop.logging")
 local m_builders = require("devloop.markers.builders")
 local replay_fields = require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
+local replayer
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
@@ -22,6 +22,7 @@ local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local observe_pr_department = require("departments.observe_pr.main")
 
@@ -114,7 +115,7 @@ local function observe_department(run)
   end
   replayer.replay_from_table = function(...)
     local args = { ... }
-    local replay_row = args[5]
+    local replay_row = args[4]
     -- After the shared probe, the row lookup is either the local-state replay
     -- or maybe_redrive_not_mergeable_pr. Pair the real replay call explicitly;
     -- every unpaired lookup is the downstream admission boundary.

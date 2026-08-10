@@ -43,7 +43,7 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
     devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
     return true
   end
-  if not replayer.has_thinking_converge_replay(core, current, proposal_id, state, issue.source_ref)
+  if not replayer.has_thinking_converge_replay(current, proposal_id, state, issue.source_ref)
     and not thinking_state_budget_exceeded(state) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(active-thinking)", "operator rereview requires stalled thinking")
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
@@ -56,7 +56,7 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
     return true
   end
 
-  local proposal = replayer.build_thinking_replay_proposal(core, issue, proposal_id, state, current, event_ts)
+  local proposal = replayer.build_thinking_replay_proposal(issue, proposal_id, state, current, event_ts)
   if proposal == nil then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(cannot-rebuild-proposal)", "operator rereview could not rebuild thinking proposal")
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
@@ -177,7 +177,7 @@ local function maybe_apply_issue_reready_command(issue, proposal_id, current, st
     issue, proposal_id, replay_state,
     current, command
   )
-  replayer.replay_from_table(core, "observe_issue", issue, replay_state, row, replay_facts)
+  replayer.replay_from_table("observe_issue", issue, replay_state, row, replay_facts)
   return true
 end
 
@@ -245,7 +245,7 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
     issue.source_ref
   )
   devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "dependency_wait", "ready", "applied(operator-dependency-waiver)", "trusted operator command created dependency waiver")
-  replayer.replay_from_table(core, "observe_issue", issue, state, replay_fields.restart_transition_row(restart_transition_table(), "dependency_wait"), {
+  replayer.replay_from_table("observe_issue", issue, state, replay_fields.restart_transition_row(restart_transition_table(), "dependency_wait"), {
     proposal_id = proposal_id,
     current = current,
     command_comment_request = comment_request,

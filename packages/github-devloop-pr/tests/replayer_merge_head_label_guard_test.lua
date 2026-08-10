@@ -4,10 +4,11 @@ local devloop_logging = require("devloop.logging")
 local entity_lib = require("devloop.entity")
 local m_builders = require("devloop.markers.builders")
 local replay_fields = require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
+local replayer
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 
 local function capture_raises(fn)
   local raised = {}
@@ -24,10 +25,10 @@ local function capture_raises(fn)
 end
 
 local function with_shared_replayer_registry(fn)
-  local original = core.replayer_review_registry
-  core.replayer_review_registry = {}
+  local original = replayer.replay_sources.review_replayers
+  replayer.replay_sources.review_replayers = {}
   local ok, err = pcall(fn)
-  core.replayer_review_registry = original
+  replayer.replay_sources.review_replayers = original
   if not ok then
     error(err)
   end
@@ -67,7 +68,7 @@ return {
     local raised
     with_shared_replayer_registry(function()
       raised = capture_raises(function()
-        local issued = replayer.replay_from_table(core, "liveness_scan", issue, state, row, {
+        local issued = replayer.replay_from_table("liveness_scan", issue, state, row, {
           proposal_id = fix.proposal_id,
           source_ref = entity_lib.pr_source_ref("owner/repo", fix.pr_number),
           link = link,

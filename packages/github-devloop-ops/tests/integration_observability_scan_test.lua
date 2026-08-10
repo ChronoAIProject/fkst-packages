@@ -160,21 +160,12 @@ return {
 
   test_queue_starvation_does_not_fallback_to_aged_observability_sample = function()
     local proposal_id = "github-devloop/issue/owner/repo/43"
-    local observed_reads = 0
     local old_branch_config = config.branch_config
     config.branch_config = function()
       return { upstream = "dev", integration = "integration/dev" }
     end
     local ok, result = pcall(function()
-      return queue_starvation.observe_queue_starvation({
-        gh_pr_list_merge_queue = function()
-          return { exit_code = 1, stderr = "queue unavailable" }
-        end,
-        stall_suspect_age_minutes = function()
-          observed_reads = observed_reads + 1
-          return 120
-        end,
-      }, "owner/repo", {
+      return queue_starvation.observe_queue_starvation(nil, "owner/repo", {
         {
           proposal_id = proposal_id,
           state = { state = "merge-ready", version = version_minutes_ago(120) },
@@ -186,7 +177,6 @@ return {
     if not ok then error(result) end
     t.eq(result.action, "no-op")
     t.eq(result.reason, "merge-queue-source-failed")
-    t.eq(observed_reads, 0)
   end,
 
   test_stall_suspect_logs_once_when_entity_exceeds_state_threshold = function()

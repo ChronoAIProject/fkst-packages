@@ -3,7 +3,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
-local core = require("core")
+
 local forks = require("devloop.forks")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
@@ -53,8 +53,8 @@ local function duplicate_label(repo, issue_number, ready, origin, canonical_numb
 end
 
 function M.check(repo, issue_number, ready, current, managed)
-  local origin = forks.fork_origin_fact(core, current, managed)
-  local original = origin ~= nil and forks.rederive_issue_state(core, origin.repo, origin.issue_number) or nil
+  local origin = forks.fork_origin_fact(current, managed)
+  local original = origin ~= nil and forks.rederive_issue_state(origin.repo, origin.issue_number) or nil
   if original ~= nil and tostring(original.state or ""):upper() ~= "OPEN" then
     devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "fork backing issue is closed: " .. tostring(origin.repo) .. "#" .. tostring(origin.issue_number))
     return true
@@ -63,7 +63,6 @@ function M.check(repo, issue_number, ready, current, managed)
     return false
   end
   local canonical = forks.trusted_issue_created_number(
-    core,
     original.comments,
     forks.fork_issue_dedup_key(origin.repo, origin.issue_number),
     m_claims.claim_owner(),

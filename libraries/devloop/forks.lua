@@ -4,18 +4,18 @@ local github_author_policy = require("devloop.github_author_policy")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local base_ids = require("devloop.base_ids")
-
+local issue_reads = require("devloop.commands.issue_reads")
 local F = {}
 
 local max_login_len = 80
 
-function F.managed_fork_trust_set(core, bot_login, managed)
+function F.managed_fork_trust_set(bot_login, managed)
   local trust_set = {}
   if type(managed) == "table" then
     for login, trusted in pairs(managed) do
       if trusted then trust_set[login] = true end
     end
-  elseif type(core) == "table" then
+  else
     for login, trusted in pairs(github_author_policy.managed_bot_logins() or {}) do
       if trusted then trust_set[login] = true end
     end
@@ -27,7 +27,7 @@ function F.managed_fork_trust_set(core, bot_login, managed)
   return trust_set
 end
 
-local function is_trusted_fork_marker_author(core, comment, trust_set)
+local function is_trusted_fork_marker_author(comment, trust_set)
   return parsers_misc._is_trusted_comment(comment, trust_set)
 end
 
@@ -56,15 +56,15 @@ function F.fork_issue_dedup_key(repo, issue_number)
   })
 end
 
-function F.has_trusted_issue_create_parent_marker(core, comments, dedup_key, bot_login, managed)
+function F.has_trusted_issue_create_parent_marker(comments, dedup_key, bot_login, managed)
   if type(comments) ~= "table" then
     return false
   end
-  local trust_set = F.managed_fork_trust_set(core, bot_login, managed)
+  local trust_set = F.managed_fork_trust_set(bot_login, managed)
   local create_pattern = "<!%-%- fkst:github%-proxy:issue%-create%-intent:v1.-%-%->"
   local created_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if is_trusted_fork_marker_author(core, comment, trust_set) then
+    if is_trusted_fork_marker_author(comment, trust_set) then
       local body = parsers_misc.comment_body(comment)
       for marker in body:gmatch(create_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
@@ -81,14 +81,14 @@ function F.has_trusted_issue_create_parent_marker(core, comments, dedup_key, bot
   return false
 end
 
-function F.trusted_issue_created_number(core, comments, dedup_key, bot_login, managed)
+function F.trusted_issue_created_number(comments, dedup_key, bot_login, managed)
   if type(comments) ~= "table" then
     return nil
   end
-  local trust_set = F.managed_fork_trust_set(core, bot_login, managed)
+  local trust_set = F.managed_fork_trust_set(bot_login, managed)
   local created_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
-    if is_trusted_fork_marker_author(core, comment, trust_set) then
+    if is_trusted_fork_marker_author(comment, trust_set) then
       local body = parsers_misc.comment_body(comment)
       for marker in body:gmatch(created_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
@@ -130,7 +130,7 @@ function F.fork_origin_marker(repo, issue_number, author_login, source_ref)
     .. '" -->'
 end
 
-local function fork_origin_fact_from_text(core, text)
+local function fork_origin_fact_from_text(text)
   for marker in tostring(text or ""):gmatch("<!%-%- fkst:github%-devloop:fork%-origin:v1.-%-%->") do
     local source_ref = {
       kind = marker:match('source_ref_kind="([^"]+)"'),
@@ -148,19 +148,19 @@ local function fork_origin_fact_from_text(core, text)
   return nil
 end
 
-function F.fork_origin_fact(core, entity, managed)
+function F.fork_origin_fact(entity, managed)
   if type(entity) ~= "table" then
     return nil
   end
-  local trust_set = F.managed_fork_trust_set(core, github_author_policy.claim_owner(), managed)
+  local trust_set = F.managed_fork_trust_set(github_author_policy.claim_owner(), managed)
   if github_author_policy.is_managed_bot_login(parsers_shared.issue_author_login(entity), trust_set) then
-    local body_fact = fork_origin_fact_from_text(core, entity.body)
+    local body_fact = fork_origin_fact_from_text(entity.body)
     if body_fact ~= nil then
       return body_fact
     end
   end
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity.comments, trust_set)) do
-    local comment_fact = fork_origin_fact_from_text(core, parsers_misc.comment_body(comment))
+    local comment_fact = fork_origin_fact_from_text(parsers_misc.comment_body(comment))
     if comment_fact ~= nil then
       return comment_fact
     end
@@ -180,16 +180,16 @@ function F.fork_origin_fact(core, entity, managed)
   return nil
 end
 
-function F.rederive_issue_state(core, repo, issue_number)
-  local view = core.gh_issue_view_state(repo, issue_number, 30)
+function F.rederive_issue_state(repo, issue_number)
+  local view = issue_reads.gh_issue_view_state(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop: fork-source-state-read-failed: gh issue source_ref state recheck failed: " .. tostring(view.stderr))
   end
   return parsers_issue.parse_issue_view_state(view.stdout)
 end
 
-function F.rederive_issue_is_open(core, repo, issue_number)
-  local current = F.rederive_issue_state(core, repo, issue_number)
+function F.rederive_issue_is_open(repo, issue_number)
+  local current = F.rederive_issue_state(repo, issue_number)
   return tostring(current.state or ""):upper() == "OPEN", current
 end
 
@@ -206,7 +206,7 @@ function F.fork_issue_body(repo, issue_number, author_login, source_ref)
   }, "\n")
 end
 
-function F.build_fork_issue_create_request(core, repo, issue_number, current, source_ref)
+function F.build_fork_issue_create_request(repo, issue_number, current, source_ref)
   if tostring(current and current.state or ""):upper() ~= "OPEN" then
     return nil, "original-closed"
   end

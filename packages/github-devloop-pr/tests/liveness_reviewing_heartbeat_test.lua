@@ -7,6 +7,7 @@ local conv_attempts = require("devloop.convergence.attempts")
 local requests_review = require("devloop.requests.review")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local opts = h.opts
 local replay_fields = require("devloop.replay_fields")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -206,7 +207,7 @@ end
 local function review_round_comment(created_at)
   local source_ref = entity_lib.pr_source_ref(repo, 7)
   local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
-  return trusted_comment(conv_rounds.review_converge_round_marker(core,
+  return trusted_comment(conv_rounds.review_converge_round_marker(restart_policy,
     review_proposal_id,
     proposal_id,
     version,

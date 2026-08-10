@@ -293,7 +293,7 @@ def repository_messages(root: Path, enforce_base: bool = True):
             ),
         )
         if status == "unresolved":
-            yield (
+            yield check_repo_config.configuration_failure(
                 "cannot resolve target baseline inventory to enforce the shrink-only GitHub "
                 "handle locator ratchet; ensure CI provides the target ref"
             )
