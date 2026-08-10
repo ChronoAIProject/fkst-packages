@@ -312,14 +312,14 @@ local function decomposed_done(event)
     context.decompose.proposal_id,
     current_pr.comments)
   local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
-  if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
+  if not conv_reconcile.has_fix_reconcile_marker(current_pr.comments, context.decompose.proposal_id, context.decompose.version)
     or state.state ~= "blocked"
     or tostring(state.version or "") ~= tostring(context.decompose.version) then
     return false
   end
   local decomposed = decompose_lib.decomposed_fact(current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
   if decomposed == nil then
-    if not conv_attempts.has_decompose_exhausted_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
+    if not conv_attempts.has_decompose_exhausted_marker(current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
       return false
     end
     devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed",
@@ -355,7 +355,7 @@ local function act_decompose(event)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)
 
     local state = require("devloop.entity").current_entity_state(current_pr.comments, decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, decompose.proposal_id, decompose.version)
+    if not conv_reconcile.has_fix_reconcile_marker(current_pr.comments, decompose.proposal_id, decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(decompose.version) then
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "retry-pending(blocked-fix-reconcile-not-visible)", "blocked/fix-reconcile marker is not yet visible")

@@ -156,12 +156,12 @@ function C.converge_round_marker(proposal_id, epoch_version, source_ref_digest, 
     .. '" essence_stall="' .. (essence_stall == true and "true" or "false")
     .. '" -->'
 end
-function C.review_converge_round_marker(M, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
+function C.review_converge_round_marker(restart_policy, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
   local n = valid_round(round)
   if n == nil then
     error("github-devloop: review-converge-round-invalid: invalid review converge round")
   end
-  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+  local heartbeat_version = restart_policy.liveness_heartbeat_version(issue_version, restart_policy.liveness_signal_producer_contract("review-converge-round"))
   return '<!-- fkst:github-devloop:review-converge-round:v1 proposal="' .. safe_attr(review_proposal_id, devloop_base._max_key_len)
     .. '" issue_proposal="' .. safe_attr(issue_proposal_id, devloop_base._max_key_len)
     .. '" version="' .. safe_attr(heartbeat_version, devloop_base._max_dedup_len)
@@ -199,8 +199,8 @@ function C.review_converge_round_facts_for_heartbeat(comments, review_proposal_i
   return converge_record_map(comments, "review%-converge%-round", matches)
 end
 
-function C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
-  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
+function C.review_converge_round_facts(restart_policy, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
+  local heartbeat_version = restart_policy.liveness_heartbeat_version(issue_version, restart_policy.liveness_signal_producer_contract("review-converge-round"))
   return C.review_converge_round_facts_for_heartbeat(
     comments,
     review_proposal_id,
@@ -225,12 +225,12 @@ function C.max_converge_round(facts)
   return max_seen
 end
 
-function C.has_review_converge_round_marker(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round)
+function C.has_review_converge_round_marker(restart_policy, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round)
   local n = valid_round(round)
   if n == nil then
     return false
   end
-  for _, fact in ipairs(C.review_converge_round_facts(M, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)) do
+  for _, fact in ipairs(C.review_converge_round_facts(restart_policy, comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)) do
     if fact.round == n then
       return true
     end

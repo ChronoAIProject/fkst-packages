@@ -4,9 +4,10 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local replay_fields = require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
+local replayer
 local t = h.t
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -184,7 +185,7 @@ return {
     }
     local row = replay_fields.restart_transition_row(core.restart_transition_table(), "review-meta")
     local raised = replay_raises(function()
-      local result = replayer.replay_from_table_classified(core, "liveness_scan", issue, state, row, {
+      local result = replayer.replay_from_table_classified("liveness_scan", issue, state, row, {
         proposal_id = event.proposal_id,
         source_ref = entity_lib.pr_source_ref("owner/repo", 7),
         link = link,

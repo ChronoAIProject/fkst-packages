@@ -16,7 +16,6 @@ local operator_commands = require("devloop.operator_commands")
 local queue = require("devloop.queue")
 local transition_version = require("contract.transition_version")
 local observe_issue_caps = require("observe_issue_department_caps")
-local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
@@ -36,6 +35,7 @@ local log = log
 local M = {}
 local restart_policy = observe_issue_caps.restart_policy
 local restart_transition_table = restart_policy.restart_transition_table
+local replayer = observe_issue_caps.replayer
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
@@ -219,11 +219,11 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     if delivery ~= nil then
       facts.redrive_delivery = delivery
     end
-    return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
+    return replayer.replay_from_table("observe_issue", issue, state, row, facts)
   end
   if restart_policy.restart_row_observable_on(row, "issue")
     and state_is_issue_local
-    and replayer.replay_from_table(core, "observe_issue", issue, state, row, facts) then
+    and replayer.replay_from_table("observe_issue", issue, state, row, facts) then
     return true
   end
   if restart_policy.restart_row_observable_on(row, "issue") then
@@ -505,7 +505,7 @@ local function reconcile_issue_event(event, opts)
         return
       end
       local row = replay_fields.restart_transition_row(restart_transition_table(), "awaiting-pr")
-      replayer.replay_from_table(core, "observe_issue", issue, issue_state, row, {
+      replayer.replay_from_table("observe_issue", issue, issue_state, row, {
         proposal_id = proposal_id,
         current = current,
         current_issue = current,

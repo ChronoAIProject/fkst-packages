@@ -98,7 +98,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
     predecessor_set = queue_position.predecessor_set
   else
     local branches = config.branch_config()
-    local position, predecessor_reason = m_mq.merge_queue_position(core, repo, branches.integration, {
+    local position, predecessor_reason = m_mq.merge_queue_position(repo, branches.integration, {
       pr_number = merge_ready.pr_number,
       pr = current_pr,
     })
@@ -256,7 +256,7 @@ local function revalidate_speculative_predecessors(repo, issue_number, merge_rea
   local current_position = queue_position
   if current_position == nil then
     local branches = config.branch_config()
-    local position, reason = m_mq.merge_queue_position(core, repo, branches.integration, {
+    local position, reason = m_mq.merge_queue_position(repo, branches.integration, {
       pr_number = merge_ready.pr_number,
       pr = current_pr,
     })
@@ -268,7 +268,7 @@ local function revalidate_speculative_predecessors(repo, issue_number, merge_rea
     current_position = position
   end
   local branches = config.branch_config()
-  local matches, match_reason = m_mq.merge_queue_predecessor_set_matches_current_base(core,
+  local matches, match_reason = m_mq.merge_queue_predecessor_set_matches_current_base(core.git,
     speculative_fact.predecessor_set,
     current_position.predecessor_set,
     branches.integration
@@ -474,7 +474,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
   local speculative_fact = speculative_fix_fact_for_merge(current_pr.comments, merge_ready)
   if enforce_queue and tostring(current_pr.state or ""):upper() == "OPEN" then
     local queue_head
-    queue_head, queue_entries = m_mq.merge_queue_head(core, repo, branches.integration, {
+    queue_head, queue_entries = m_mq.merge_queue_head(repo, branches.integration, {
       pr_number = merge_ready.pr_number,
       pr = current_pr,
     })
@@ -489,7 +489,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       and tostring(queue_head.head_sha or "") == tostring(merge_ready.reviewed_head_sha or "")
     if not queue_ok then
       local queue_reason
-      queue_position, queue_reason = m_mq.merge_queue_position(core, repo, branches.integration, {
+      queue_position, queue_reason = m_mq.merge_queue_position(repo, branches.integration, {
         pr_number = merge_ready.pr_number,
         pr = current_pr,
       })
@@ -516,7 +516,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
           log_gate(merge_ready, "dry-run", "speculative fix requires FKST_GITHUB_WRITE=1")
           return
         end
-        local capacity_ok, capacity_reason = m_mq.wip_capacity_allows_start(core, repo, issue_number)
+        local capacity_ok, capacity_reason = m_mq.wip_capacity_allows_start(repo, issue_number)
         if not capacity_ok then
           devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "fixing", "hold-wip-cap", capacity_reason)
           log_gate(merge_ready, "dry-run", capacity_reason)

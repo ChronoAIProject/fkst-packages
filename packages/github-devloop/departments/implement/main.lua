@@ -769,7 +769,7 @@ local function process_ready_event(event)
           decision.cas_outcome, "ready marker visible; attempting implementation")
       end
 
-      local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(core, repo, issue_number)
+      local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(repo, issue_number)
       if not wip_ok then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "hold-wip-cap", wip_reason .. ": " .. tostring(wip_count) .. "/" .. tostring(wip_max))
         return

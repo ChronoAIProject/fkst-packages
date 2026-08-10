@@ -11,6 +11,7 @@ local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
 local sink_inventory = require("core.restart.sink_inventory")
 local restart_package_name = assert(rawget(core, "restart_package_name"))
+local restart_policy = assert(rawget(core, "restart_policy"))
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 
@@ -186,14 +187,14 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local heartbeat_version = state.version
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
-    local facts = conv_rounds.review_converge_round_facts(core, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest)
+    local facts = conv_rounds.review_converge_round_facts(restart_policy, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest)
     local round = math.max(tonumber(unresolved.round) or 0, conv_rounds.max_converge_round(facts))
-    if conv_rounds.has_review_converge_round_marker(core, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest, round) then
+    if conv_rounds.has_review_converge_round_marker(restart_policy, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest, round) then
       devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing", "skip-idempotent(review converge round marker already visible)", "review converge round marker for incoming round is already visible")
       return
     end
 
-    local marker_body = conv_rounds.review_converge_round_marker(core,
+    local marker_body = conv_rounds.review_converge_round_marker(restart_policy,
       unresolved.proposal_id,
       origin.proposal_id,
       heartbeat_version,

@@ -9,13 +9,14 @@ local github_commands = require("forge.github").new(function() end)
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
-local replayer = require("devloop.replayer")
+local replayer
 local testing = require("testkit_internal.testing")
 local transition_version = require("contract.transition_version")
 local observe_issue_department = require("departments.observe_issue.main")
 
 local t = h.t
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local JSON_NULL = observation_support.JSON_NULL
 local canonical_json = observation_support.canonical_json
 local copy_value = observation_support.copy_value
@@ -222,7 +223,7 @@ local function capture_runtime(fixture)
   prepare_fixture(fixture)
   local original_branch_config = config.branch_config
   local original_autonomy_result_record = autonomy_ledger.autonomy_result_record
-  local original_handler = core.replayer_registry["awaiting-pr"]
+  local original_handler = replayer.replay_sources.package_replayers["awaiting-pr"]
   local dispatch_calls = json_array()
   local ledger_calls = 0
   config.branch_config = function()
@@ -234,7 +235,7 @@ local function capture_runtime(fixture)
     t.eq(issue_number, ISSUE_NUMBER, fixture.name .. ": autonomy issue")
     return fake_autonomy_record(merge_ready, fixture)
   end
-  core.replayer_registry["awaiting-pr"] = function(dept, issue, state, row, facts)
+  replayer.replay_sources.package_replayers["awaiting-pr"] = function(dept, issue, state, row, facts)
     local dispatch = {
       dept = dept,
       state = state and state.state,
@@ -282,7 +283,7 @@ local function capture_runtime(fixture)
       write_mode = "real",
     })
   end)
-  core.replayer_registry["awaiting-pr"] = original_handler
+  replayer.replay_sources.package_replayers["awaiting-pr"] = original_handler
   autonomy_ledger.autonomy_result_record = original_autonomy_result_record
   config.branch_config = original_branch_config
   if not ok then error(result, 0) end

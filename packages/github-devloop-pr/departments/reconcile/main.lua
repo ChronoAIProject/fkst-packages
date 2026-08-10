@@ -78,7 +78,7 @@ local function merge_wait_timeout_reason_class(reconcile, state, comments, curre
   if pr_number == nil or not forge_validators.is_git_sha(head_sha) then
     return "state-output-obligation-timeout"
   end
-  local wait = m_mgw.merge_gate_wait_fact(core, comments, reconcile.proposal_id, state.version, pr_number, head_sha)
+  local wait = m_mgw.merge_gate_wait_fact(comments, reconcile.proposal_id, state.version, pr_number, head_sha)
   if wait == nil then
     return "state-output-obligation-timeout"
   end
@@ -180,7 +180,7 @@ local function pipeline_review(event)
     local current = parsers_pr.parse_pr_view_origin(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
     local state = require("devloop.entity").current_entity_state(current.comments, reconcile.proposal_id)
-    if conv_reconcile.has_review_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version, reconcile.round) then
+    if conv_reconcile.has_review_reconcile_marker(current.comments, reconcile.proposal_id, reconcile.issue_version, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-idempotent(review reconcile marker already visible)", "review reconcile result marker for incoming version is already visible")
       return
     end
@@ -325,7 +325,7 @@ local function pipeline_fix(event)
       local version = conv_reconcile.fix_reconcile_state_version(reconcile.issue_version)
       local from_state_set = review_reject and fix_reconcile_from_state_set or bounded_fix_from_state
       local from_text = review_reject and fix_reconcile_from_label or "fixing|merge-ready|merging"
-      if conv_reconcile.has_fix_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version) then
+      if conv_reconcile.has_fix_reconcile_marker(current.comments, reconcile.proposal_id, reconcile.issue_version) then
         devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", "skip-idempotent(fix reconcile marker already visible)", "fix reconcile result marker for incoming version is already visible")
         return
       end
@@ -464,7 +464,7 @@ end
 
 local function pipeline_timeout(event)
   local reconcile = event.payload or {}
-  if not conv_reconcile.is_supported_timeout_reconcile(core, reconcile) then
+  if not conv_reconcile.is_supported_timeout_reconcile(restart_policy, reconcile) then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
     devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "timeout", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -509,7 +509,7 @@ local function pipeline_timeout(event)
 
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
     local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)
-    if conv_reconcile.has_timeout_reconcile_marker(core, comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
+    if conv_reconcile.has_timeout_reconcile_marker(comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
       return
     end
@@ -566,7 +566,7 @@ local function pipeline_timeout(event)
       return
     end
     if reconcile.state == "blocked" then
-      if conv_attempts.has_decompose_exhausted_marker(core, comments, reconcile.proposal_id, state.version) then
+      if conv_attempts.has_decompose_exhausted_marker(comments, reconcile.proposal_id, state.version) then
         devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
         return
       end

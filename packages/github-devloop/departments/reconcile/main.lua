@@ -108,7 +108,7 @@ local function pipeline_thinking(event)
     local current = parsers_issue.parse_issue_view_loop(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
     local state = devloop_state.current_state(current.comments, reconcile.proposal_id)
-    if conv_reconcile.has_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.base_version, reconcile.round) then
+    if conv_reconcile.has_reconcile_marker(current.comments, reconcile.proposal_id, reconcile.base_version, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-idempotent(reconcile marker already visible)", "reconcile result marker for incoming version is already visible")
       return
     end
@@ -214,7 +214,7 @@ end
 
 local function pipeline_timeout(event)
   local reconcile = event.payload or {}
-  if not conv_reconcile.is_supported_timeout_reconcile(core, reconcile) then
+  if not conv_reconcile.is_supported_timeout_reconcile(restart_policy, reconcile) then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
     devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "timeout", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -240,7 +240,7 @@ local function pipeline_timeout(event)
     local comments = current.comments or {}
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
     local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)
-    if conv_reconcile.has_timeout_reconcile_marker(core, comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
+    if conv_reconcile.has_timeout_reconcile_marker(comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
       return
     end
@@ -295,7 +295,7 @@ local function pipeline_timeout(event)
       return
     end
     if reconcile.state == "blocked" then
-      if conv_attempts.has_decompose_exhausted_marker(core, comments, reconcile.proposal_id, state.version) then
+      if conv_attempts.has_decompose_exhausted_marker(comments, reconcile.proposal_id, state.version) then
         devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
         return
       end
