@@ -780,6 +780,7 @@ class ViolationExitCodeTest(unittest.TestCase):
             mock.patch.object(check_repo.ratchet_base, "file_at_base", return_value=("unresolved", None)),
             mock.patch.object(check_repo.ratchet_base, "resolve_dev_merge_base", return_value=None),
             mock.patch.object(check_repo.ratchet_base, "resolve_target_ref", return_value=None),
+            mock.patch("check_repo_restart_preflight.selected_base_ref", return_value=None),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),
         ):

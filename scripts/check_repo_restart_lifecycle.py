@@ -343,6 +343,10 @@ def validate_site_provenance(site: dict[str, Any], label: str, root: Path) -> li
     base_status, base_content = ratchet_base.file_at_base(root, path_value)
     if base_status == "present" and symbol_value in (base_content or ""):
         return messages
+    if base_status == "unresolved":
+        return [ratchet_base.configuration_failure(
+            f"{INVENTORY}: site_id {site_id}: cannot resolve protected base provenance for {path_value}"
+        )]
     if not path.exists():
         messages.append(f"{INVENTORY}: site_id {site_id}: path does not exist: {path_value}")
     else:
