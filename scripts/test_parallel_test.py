@@ -719,6 +719,9 @@ class CheckVerdictMappingTest(unittest.TestCase):
     def test_typed_violations_code_maps_to_semantic(self) -> None:
         self.assertEqual(self._verdict_for("10"), "FAIL:SEMANTIC")
 
+    def test_typed_configuration_code_maps_to_configuration(self) -> None:
+        self.assertEqual(self._verdict_for("11"), "FAIL:CONFIGURATION")
+
     def test_bare_nonzero_leaves_the_verdict_unset(self) -> None:
         # Attribution is genuinely indeterminate, so cmd_check must set NOTHING and let the exit
         # trap record the honest UNKNOWN. Asserting the empty verdict (rather than merely "not
