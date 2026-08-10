@@ -316,7 +316,7 @@ local function write_merging_marker(repo, merge_ready, comments, grant, snapshot
 end
 local function build_merged_requests(repo, issue_number, merge_ready, merged_pr)
   local merged_source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
-  local autonomy_record = issue_number ~= nil and autonomy_ledger.autonomy_result_record(core, repo, issue_number, merge_ready, nil, merged_pr) or nil
+  local autonomy_record = issue_number ~= nil and autonomy_ledger.autonomy_result_record(core.evaluate_ci_status_gate, repo, issue_number, merge_ready, nil, merged_pr) or nil
   local merged_body = requests_bodies.build_merged_comment_body(core.output_language, merge_ready, autonomy_record)
   local comment_request = entity_lib.build_entity_comment_request({
     kind = "pr",

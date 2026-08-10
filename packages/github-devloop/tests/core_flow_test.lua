@@ -398,8 +398,8 @@ return {
       count = 3,
     }
 
-    local zero = decompose_lib.build_decompose_replay_payload(core, fact, comments, source_ref(), 0)
-    local partial = decompose_lib.build_decompose_replay_payload(core, fact, comments, source_ref(), 2)
+    local zero = decompose_lib.build_decompose_replay_payload(core.restart_policy, fact, comments, source_ref(), 0)
+    local partial = decompose_lib.build_decompose_replay_payload(core.restart_policy, fact, comments, source_ref(), 2)
 
     t.is_true(zero.dedup_key ~= partial.dedup_key)
     t.is_true(zero.dedup_key:find("/3/0", 1, true) ~= nil)
