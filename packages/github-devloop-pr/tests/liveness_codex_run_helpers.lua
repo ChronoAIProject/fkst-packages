@@ -11,6 +11,7 @@ local m_rae = require("devloop.restart_actionable_epoch")
 local dispatch_live_run = require("devloop.dispatch_live_run")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local opts = h.opts
 local replay_fields = require("devloop.replay_fields")
 local fixing = h.fixing
@@ -114,7 +115,7 @@ local function review_meta_comments(event, version)
     trusted_comment(core.state_marker(event.proposal_id, "review-meta", version or event.version)),
     trusted_comment(m_builders.review_meta_marker(event.proposal_id, event.dedup_key)),
     trusted_comment(m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
-    trusted_comment(conv_rounds.review_converge_round_marker(core,
+    trusted_comment(conv_rounds.review_converge_round_marker(restart_policy,
       event.review_proposal_id,
       event.proposal_id,
       event.version,

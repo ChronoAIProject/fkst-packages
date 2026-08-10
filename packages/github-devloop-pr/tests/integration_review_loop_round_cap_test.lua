@@ -4,6 +4,7 @@ local h = require("tests.devloop_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local opts = h.opts
 local reviewing = h.reviewing
 local review_unresolved = h.review_unresolved
@@ -126,7 +127,7 @@ return {
     })
     local _, _, review_version = devloop_base.parse_pr_review_proposal_id(event.proposal_id)
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
-    local first_marker = conv_rounds.review_converge_round_marker(core,
+    local first_marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id(),
       reviewing().version,
@@ -168,7 +169,7 @@ return {
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     local drift_version = reviewing().version .. "/drifted"
     local drift_head = "feedface"
-    local drift_marker = conv_rounds.review_converge_round_marker(core,
+    local drift_marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id(),
       drift_version,

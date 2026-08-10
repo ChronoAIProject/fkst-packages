@@ -1,7 +1,7 @@
 local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
-local replayer = require("devloop.replayer")
+local replayer = assert(rawget(core, "replayer"))
 local hidden_state = require("devloop.hidden_state_conformance")
 
 local function copy_rows(rows)
@@ -50,10 +50,10 @@ return {
     local fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
       restart_consumer_sources = core.restart_consumer_sources,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept)
       seen[dept] = true
       return false
     end

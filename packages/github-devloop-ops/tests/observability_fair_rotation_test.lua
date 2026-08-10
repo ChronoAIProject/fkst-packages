@@ -1,10 +1,23 @@
 local h = require("tests.devloop_ops_helpers")
 local parsers_issue = require("devloop.parsers.issue")
+local queue_starvation = require("devloop.queue_starvation")
 local sweep_bounds = require("devloop.sweep_bounds")
 local t = h.t
 local core = h.core
 
 return {
+  test_queue_starvation_recent_merge_read_uses_typed_deadline_owner = function()
+    local recent, merged, reason = queue_starvation.queue_starvation_recent_closed_merged_issues(
+      "owner/repo",
+      core.observability_limits(),
+      now() - 1
+    )
+
+    t.eq(recent, nil)
+    t.eq(merged, nil)
+    t.eq(reason, "deadline")
+  end,
+
   test_observability_deadline_helpers_delegate_to_sweep_bounds = function()
     local limits = core.observability_limits()
     local deadline = sweep_bounds.sweep_deadline(1000, limits)
