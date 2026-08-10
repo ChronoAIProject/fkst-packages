@@ -12,6 +12,7 @@ local admission_core = require("core.admission")
 local admission_shared = require("core.admission_shared")
 local premise_correction = require("devloop.premise_correction")
 local entity_highwater = require("devloop.entity_highwater")
+local dashboard = require("devloop.dashboard")
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed" },
@@ -104,6 +105,20 @@ local function admit_issue_event(context, event, entity)
 
       devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
       local issue = issue_from_current(issue_number, current)
+
+      if dashboard.is_anchor_body(current.body) then
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision(
+          "admission",
+          proposal_id,
+          { state = nil, version = nil },
+          "entity",
+          "candidate",
+          "skip-dashboard-anchor",
+          "fresh issue body carries the producer-owned dashboard anchor marker"
+        )
+        return
+      end
 
       if current.state ~= "OPEN" then
         reconcile_capacity(context, repo, proposal_id)

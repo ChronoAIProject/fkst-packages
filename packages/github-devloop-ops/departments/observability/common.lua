@@ -7,13 +7,14 @@ local strings = require("contract.strings")
 local config = require("devloop.config")
 local issue_commands = require("devloop.commands.issue_reads")
 local pr_commands = require("devloop.commands.prs")
+local dashboard = require("devloop.dashboard")
 
 local M = {}
 
 M.dept = "observability"
-M.dashboard_title = "fkst-dev board"
-M.dashboard_label = "fkst-dashboard"
-M.dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
+M.dashboard_title = dashboard.title
+M.dashboard_label = dashboard.label
+M.dashboard_marker_prefix = dashboard.marker_prefix
 M.max_dashboard_body_len = 60000
 M.max_dashboard_section_items = 40
 M.max_dashboard_title_len = 80
