@@ -89,6 +89,18 @@ local find_causal_raise = fixture.find_causal_raise
 local take_consensus_proposal = fixture.take_consensus_proposal
 
 return {
+  test_consensus_result_claim_loss_stops_queued_consensus_before_dispatch = function()
+    mock_issue_result({ "fkst-dev:thinking" }, nil, {
+      assignees = { "peer-bot" },
+      author_login = "peer-bot",
+    })
+
+    local result = run_result(reached(), opts("result-claim-lost"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(take_consensus_proposal(), nil)
+  end,
+
   test_consensus_result_non_whitelisted_author_skips_without_comment_or_label = function()
     mock_issue_result({ "fkst-dev:thinking" }, nil, { author_login = "human" })
     t.mock_command("gh api graphql", {

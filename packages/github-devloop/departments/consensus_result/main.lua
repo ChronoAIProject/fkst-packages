@@ -15,6 +15,7 @@ local github_author_policy = require("devloop.github_author_policy")
 local result_facts = require("devloop.markers.result_facts")
 local consensus_result_caps = require("consensus_result_department_caps")
 local consensus_call = require("devloop.consensus_call")
+local claims = require("devloop.claims")
 local queue = require("devloop.queue")
 local v_unresolved = require("devloop.validators.unresolved")
 
@@ -248,6 +249,18 @@ local function make_department(ports)
     if proposal == nil then
       return
     end
+    local repo, issue_number = base_ids.parse_proposal_id(proposal.proposal_id)
+    if repo ~= nil then
+      if not base_ids.issue_ref_round_trips(repo, issue_number) then
+        error("github-devloop: consensus-request-invalid: owned proposal_id is malformed")
+      end
+      if not claims.verify_issue_claim(repo, issue_number, claims.claim_owner()) then
+        devloop_logging.log_cas_decision("consensus_result", proposal.proposal_id,
+          { state = nil, version = nil }, "claim", "claim", "skip-not-owned",
+          "ownership claim was lost before consensus dispatch")
+        return
+      end
+    end
     local reached = consensus_call.reach(proposal)
     if reached == nil then
       return
@@ -275,7 +288,7 @@ local function make_department(ports)
       error("github-devloop: consensus-result-invalid: library result has an unsupported status")
     end
 
-    local repo, issue_number = base_ids.parse_proposal_id(reached.proposal_id)
+    repo, issue_number = base_ids.parse_proposal_id(reached.proposal_id)
     if repo == nil or not base_ids.issue_ref_round_trips(repo, issue_number) then
       error("github-devloop: consensus-result-invalid: owned proposal_id is malformed")
     end
