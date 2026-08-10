@@ -277,6 +277,26 @@ local function mock_observability_empty_reads()
   }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
+local function mock_triage_patrol_empty_reads()
+  local seen = {}
+  local function add_label(label)
+    if label == nil or seen[label] then
+      return
+    end
+    seen[label] = true
+    t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", label, 1, true), {
+      stdout = "[]\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  add_label(core._enabled_label)
+  add_label(core._hold_label)
+  for _, state in ipairs(core.lifecycle_state_order()) do
+    add_label(core.state_label(state))
+  end
+end
+
 return {
 ]=] .. body .. [=[
 }
@@ -336,8 +356,26 @@ return {
     t.eq(trace.consumer_result.status, "accepted")
     t.eq(#trace.raised, 0)
   end,
+
+  test_fire_raiser_triage_patrol_poll_routes_real_tick_to_triage_patrol = function()
+    mock_env(16)
+    mock_triage_patrol_empty_reads()
+
+    local trace = t.fire_raiser("triage_patrol_poll")
+
+    t.eq(trace.source_ref.kind, "cron")
+    t.eq(trace.source_payload.raiser, "github-devloop-ops.triage_patrol_poll")
+    t.eq(trace.routed_to[1], "github-devloop-ops.triage_patrol")
+    if trace.consumer_result.status ~= "accepted" then
+      error(trace.consumer_result.message or "fire_raiser consumer failed")
+    end
+    t.eq(trace.consumer_result.status, "accepted")
+    t.eq(#trace.raised, 1)
+    t.eq(trace.raised[1].queue, "github-proxy.github_issue_create_request")
+    t.eq(trace.raised[1].payload.schema, "github-proxy.issue-create.v1")
+  end,
 ]]))
     local output = run_child(root)
-    t.is_true(output:find("3 passed, 0 failed", 1, true) ~= nil, output)
+    t.is_true(output:find("4 passed, 0 failed", 1, true) ~= nil, output)
   end,
 }
