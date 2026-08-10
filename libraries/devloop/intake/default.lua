@@ -128,7 +128,7 @@ local function raise_enable_successor(intake_service_class, dept, repo, issue_nu
   return true
 end
 
-local function read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
+local function read_candidate_snapshot(dept, repo, issue_number, candidate)
   local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue intake judge view failed: " .. tostring(view.stderr))
@@ -136,18 +136,22 @@ local function read_current_for_candidate(intake_service_class, dept, repo, issu
   local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.repo, current.number = repo, issue_number
   devloop_logging.log_forged_markers(dept, candidate.proposal_id, current.comments)
+  return current
+end
+
+local function candidate_passes_preclaim_gate(dept, candidate, current)
   if current.state ~= "OPEN" then
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-closed", "issue is not open")
-    return nil
+    return false
   end
   if devloop_base.is_intake_held(current.labels) then
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-held", "fkst-dev:hold label is present")
-    return nil
+    return false
   end
-  if not m_claims.claim_issue_for_management(dept, repo, issue_number, current, candidate.proposal_id) then
-    return nil
-  end
+  return true
+end
 
+local function evaluate_current_for_candidate(dept, candidate, current, expected_decision_dedup_key)
   local correction_pair = nil
   local applied_correction_key = nil
   if candidate.premise_fingerprint ~= nil and candidate.correction_fingerprint ~= nil then
@@ -205,13 +209,14 @@ local function read_current_for_candidate(intake_service_class, dept, repo, issu
   end
   if intake_fact ~= nil then
     if can_replay_enable_successor then
-      local replay_candidate = copy_fields(candidate)
-      replay_candidate.service_class = intake_fact.service_class
-      raise_enable_successor(intake_service_class, dept, repo, issue_number, replay_candidate, current, event_ts, intake_fact.dedup_key, {
-        log_apply = true,
-        reason = "visible-intake-fact",
-      })
-      return nil
+      return {
+        current = current,
+        decision_dedup_key = decision_dedup_key,
+        enable_replay = {
+          dedup_key = intake_fact.dedup_key,
+          service_class = intake_fact.service_class,
+        },
+      }
     end
     if tostring(intake_fact.dedup_key or "") == tostring(decision_dedup_key or "") then
       devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-idempotent(intake marker already visible)", "trusted intake decision marker exists")
@@ -223,6 +228,40 @@ local function read_current_for_candidate(intake_service_class, dept, repo, issu
     current = current,
     decision_dedup_key = decision_dedup_key,
   }
+end
+
+local function query_current_for_candidate(dept, repo, issue_number, candidate, expected_decision_dedup_key)
+  local current = read_candidate_snapshot(dept, repo, issue_number, candidate)
+  if not candidate_passes_preclaim_gate(dept, candidate, current) then
+    return nil
+  end
+  local gate = evaluate_current_for_candidate(dept, candidate, current, expected_decision_dedup_key)
+  if gate ~= nil and gate.enable_replay ~= nil then
+    devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-idempotent(intake marker already visible)", "trusted intake decision marker exists")
+    return nil
+  end
+  return gate
+end
+
+local function read_and_claim_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
+  local current = read_candidate_snapshot(dept, repo, issue_number, candidate)
+  if not candidate_passes_preclaim_gate(dept, candidate, current) then
+    return nil
+  end
+  if not m_claims.claim_issue_for_management(dept, repo, issue_number, current, candidate.proposal_id) then
+    return nil
+  end
+  local gate = evaluate_current_for_candidate(dept, candidate, current, expected_decision_dedup_key)
+  if gate ~= nil and gate.enable_replay ~= nil then
+    local replay_candidate = copy_fields(candidate)
+    replay_candidate.service_class = gate.enable_replay.service_class
+    raise_enable_successor(intake_service_class, dept, repo, issue_number, replay_candidate, current, event_ts, gate.enable_replay.dedup_key, {
+      log_apply = true,
+      reason = "visible-intake-fact",
+    })
+    return nil
+  end
+  return gate
 end
 
 -- Recurring-class discovery is two repo-wide GitHub searches, and neither reads state
@@ -251,7 +290,7 @@ local function apply_intake_decision(intake_class, intake_service_class, dept, r
     class_plan = plan_class_escalation(intake_class, repo, issue_number, gate.current, parsed)
   end
   with_lock(gate.lock_key, function()
-    local current_gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
+    local current_gate = read_and_claim_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
     if current_gate == nil then
       return
     end
@@ -342,7 +381,7 @@ local function act(intake_class, intake_service_class, event, opts)
   local gate = nil
   with_lock(lock_key, function()
     parsers_misc.assert_trusted_bot_configured()
-    gate = read_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts)
+    gate = read_and_claim_current_for_candidate(intake_service_class, dept, repo, issue_number, candidate, event.ts)
   end)
   if gate == nil then
     return
@@ -401,5 +440,5 @@ end
 return {
   act = act,
   prompt = prompt,
-  read_current_for_candidate = read_current_for_candidate,
+  query_current_for_candidate = query_current_for_candidate,
 }

@@ -364,58 +364,61 @@ local function build_blueprint_request(ctx, record)
 end
 
 local function raise_blueprint_decision(ctx, record)
-  local handled = false
-  with_lock(ctx.lock_key, function()
-    local ok, fresh = pcall(default_intake.read_current_for_candidate, core, "workflow_select", ctx.repo, ctx.issue_number, ctx.candidate, ctx.event_ts, ctx.decision_dedup_key)
-    handled = true
-    if not ok then
-      devloop_logging.log_cas_decision(
-        "workflow_select",
-        ctx.candidate and ctx.candidate.proposal_id or "unknown",
-        { state = nil, version = nil },
-        "candidate",
-        "blueprint-decision",
-        "fail-closed(apply-gate-read-failed)",
-        fresh
-      )
-      return
-    end
-    if fresh == nil then
-      return
-    end
-    if has_existing_blueprint_on_current(fresh.current, ctx.candidate) then
-      devloop_logging.log_cas_decision(
-        "workflow_select",
-        ctx.candidate and ctx.candidate.proposal_id or "unknown",
-        { state = nil, version = nil },
-        "candidate",
-        "blueprint-decision",
-        "skip-idempotent(blueprint marker already visible)",
-        "trusted workflow blueprint marker exists"
-      )
-      return
-    end
-    local request = build_blueprint_request(ctx, record)
-    if request == nil then
-      devloop_logging.log_cas_decision(
-        "workflow_select",
-        ctx.candidate and ctx.candidate.proposal_id or "unknown",
-        { state = nil, version = nil },
-        "candidate",
-        "blueprint-decision",
-        "fail-closed(invalid-blueprint-request)",
-        "selected workflow blueprint request could not be built"
-      )
-      return
-    end
-    devloop_logging.log_raise(
+  local ok, fresh = pcall(
+    default_intake.query_current_for_candidate,
+    "workflow_select",
+    ctx.repo,
+    ctx.issue_number,
+    ctx.candidate,
+    ctx.decision_dedup_key
+  )
+  if not ok then
+    devloop_logging.log_cas_decision(
       "workflow_select",
       ctx.candidate and ctx.candidate.proposal_id or "unknown",
-      "github-proxy.github_issue_comment_request",
-      request
+      { state = nil, version = nil },
+      "candidate",
+      "blueprint-decision",
+      "fail-closed(apply-gate-read-failed)",
+      fresh
     )
-  end)
-  return handled
+    return true
+  end
+  if fresh == nil then
+    return true
+  end
+  if has_existing_blueprint_on_current(fresh.current, ctx.candidate) then
+    devloop_logging.log_cas_decision(
+      "workflow_select",
+      ctx.candidate and ctx.candidate.proposal_id or "unknown",
+      { state = nil, version = nil },
+      "candidate",
+      "blueprint-decision",
+      "skip-idempotent(blueprint marker already visible)",
+      "trusted workflow blueprint marker exists"
+    )
+    return true
+  end
+  local request = build_blueprint_request(ctx, record)
+  if request == nil then
+    devloop_logging.log_cas_decision(
+      "workflow_select",
+      ctx.candidate and ctx.candidate.proposal_id or "unknown",
+      { state = nil, version = nil },
+      "candidate",
+      "blueprint-decision",
+      "fail-closed(invalid-blueprint-request)",
+      "selected workflow blueprint request could not be built"
+    )
+    return true
+  end
+  devloop_logging.log_raise(
+    "workflow_select",
+    ctx.candidate and ctx.candidate.proposal_id or "unknown",
+    "github-proxy.github_issue_comment_request",
+    request
+  )
+  return true
 end
 
 local function workflow_child_execution_request(ctx, lineage)

@@ -1,5 +1,6 @@
 local context_bundle = require("devloop.context_bundle")
 local default_intake = require("devloop.intake.default")
+local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local intake_class = require("core.intake_class")
@@ -24,12 +25,20 @@ local function named_array(field, values)
 end
 
 local function issue_stdout(current)
+  local comments = {}
+  for _, comment in ipairs(current.comments or {}) do
+    comments[#comments + 1] = "{"
+      .. quoted("body") .. ":" .. quoted(comment.body) .. ","
+      .. quoted("author") .. ":{" .. quoted("login") .. ":" .. quoted(comment.author_login) .. "},"
+      .. quoted("createdAt") .. ":" .. quoted(comment.created_at or "2026-08-10T00:00:01Z")
+      .. "}"
+  end
   return "{"
     .. quoted("title") .. ":" .. quoted(current.title) .. ","
     .. quoted("body") .. ":" .. quoted(current.body) .. ","
     .. quoted("state") .. ":" .. quoted(current.state) .. ","
     .. quoted("labels") .. ":" .. named_array("name", current.labels) .. ","
-    .. quoted("comments") .. ":[],"
+    .. quoted("comments") .. ":[" .. table.concat(comments, ",") .. "],"
     .. quoted("assignees") .. ":" .. named_array("login", current.assignees) .. ","
     .. quoted("author") .. ":{" .. quoted("login") .. ":" .. quoted(current.author_login) .. "}"
     .. "}"
@@ -202,6 +211,72 @@ local function run_case(currents, action)
 end
 
 return {
+  test_candidate_query_reads_without_claim_or_raise = function()
+    local old_issue_view = devloop_commands.gh_issue_view_intake_judge
+    local old_claim = m_claims.claim_issue_for_management
+    local old_log_raise = devloop_logging.log_raise
+    local reads, claims, raises = 0, 0, 0
+
+    local snapshots = { current() }
+    devloop_commands.gh_issue_view_intake_judge = function()
+      reads = reads + 1
+      return { exit_code = 0, stdout = issue_stdout(snapshots[reads]), stderr = "" }
+    end
+    m_claims.claim_issue_for_management = function()
+      claims = claims + 1
+      return true
+    end
+    devloop_logging.log_raise = function()
+      raises = raises + 1
+    end
+
+    local payload = payloads_builders.build_devloop_intake_candidate_payload(
+      "owner/repo",
+      42,
+      "2026-08-10T00:00:00Z"
+    )
+    local ok, gate = pcall(
+      default_intake.query_current_for_candidate,
+      "intake_lock_scope_test",
+      "owner/repo",
+      42,
+      payload
+    )
+    local decision_dedup_key = devloop_base.intake_decision_dedup_key(payload.proposal_id, snapshots[1])
+    snapshots[2] = current({
+      comments = {
+        {
+          body = '<!-- fkst:github-devloop:intake-decision:v1 proposal="' .. payload.proposal_id
+            .. '" decision="enable" class="standard" dedup="' .. decision_dedup_key .. '" -->',
+          author_login = "fkst-test-bot",
+        },
+      },
+    })
+    local replay_ok, replay_gate = pcall(
+      default_intake.query_current_for_candidate,
+      "intake_lock_scope_test",
+      "owner/repo",
+      42,
+      payload
+    )
+
+    devloop_commands.gh_issue_view_intake_judge = old_issue_view
+    m_claims.claim_issue_for_management = old_claim
+    devloop_logging.log_raise = old_log_raise
+    if not ok then
+      error(gate, 0)
+    end
+    if not replay_ok then
+      error(replay_gate, 0)
+    end
+
+    t.is_true(gate ~= nil)
+    t.is_nil(replay_gate)
+    t.eq(reads, 2)
+    t.eq(claims, 0)
+    t.eq(raises, 0)
+  end,
+
   -- The two repo-wide recurring-class searches used to run inside the commit lock on
   -- the same per-issue key that observe_issue / admission / implement contend for.
   -- They are reads-for-decision over repo-wide search results and protect nothing this

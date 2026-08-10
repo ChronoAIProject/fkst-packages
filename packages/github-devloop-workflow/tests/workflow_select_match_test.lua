@@ -3,6 +3,7 @@ local base_ids = require("devloop.base_ids")
 local blueprint = require("core.blueprint")
 local digest = require("core.digest")
 local devloop_base = require("devloop.base")
+local devloop_commands = require("devloop.commands")
 local devloop_facts = require("devloop.markers.facts")
 local devloop_marker_builders = require("devloop.markers.builders")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
@@ -567,6 +568,50 @@ local tests = {
       t.is_nil(calls[1].stdin:find("⟦FKST:INTAKE⟧", 1, true))
       t.is_true(calls[1].stdin:find("workflow-alpha summary", 1, true) ~= nil)
       t.is_nil(calls[1].stdin:find("SECRET STEP BODY", 1, true))
+    end)
+  end,
+
+  test_selected_workflow_refreshes_source_outside_the_transition_lock = function()
+    local source = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step.")
+    with_catalog({
+      ["workflow-alpha.json"] = source,
+    }, function(root)
+      local payload = candidate()
+      local old_issue_view = devloop_commands.gh_issue_view_intake_judge
+      local old_with_lock = with_lock
+      local in_lock = false
+      local read_scopes = {}
+
+      devloop_commands.gh_issue_view_intake_judge = function(...)
+        read_scopes[#read_scopes + 1] = in_lock and "inside" or "outside"
+        return old_issue_view(...)
+      end
+      with_lock = function(_key, fn)
+        local prior = in_lock
+        in_lock = true
+        local ok, result = pcall(fn)
+        in_lock = prior
+        if not ok then
+          error(result, 0)
+        end
+        return result
+      end
+
+      mock_env(root)
+      mock_issue_view({ labels = { "workflow" } }, 2)
+      mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ workflow-alpha")
+      local ok, result = pcall(run_workflow_select, payload)
+
+      devloop_commands.gh_issue_view_intake_judge = old_issue_view
+      with_lock = old_with_lock
+      if not ok then
+        error(result, 0)
+      end
+
+      t.eq(#result.raises, 1)
+      t.eq(#read_scopes, 2)
+      t.eq(read_scopes[1], "inside")
+      t.eq(read_scopes[2], "outside")
     end)
   end,
 

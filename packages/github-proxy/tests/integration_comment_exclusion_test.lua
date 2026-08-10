@@ -104,4 +104,25 @@ return {
     t.is_true(result.exit_code ~= 0)
     t.eq(count_calls(issue_comment_create), 0)
   end,
+
+  test_claim_release_before_proxy_commit_suppresses_blueprint_write = function()
+    local request = event("workflow-alpha", "digest-alpha")
+    request.payload.claim = {
+      owner = "fkst-test-bot",
+      source_ref = {
+        kind = "external",
+        ref = "owner/x#issue/42",
+      },
+    }
+    mock_comment_view({})
+    t.mock_command("gh api repos/owner/x/issues/42", {
+      stdout = '{"assignees":[],"labels":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run(request, "exclusive-comment-claim-released")
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(issue_comment_create), 0)
+  end,
 }
