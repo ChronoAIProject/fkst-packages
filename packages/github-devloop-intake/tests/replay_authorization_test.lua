@@ -1,5 +1,8 @@
 local replay_authorization = require("core.replay_authorization")
+local claim_carriers = require("devloop.claim_carriers")
 local t = fkst.test
+
+local owner = "fkst-test-bot"
 
 local function source_ref()
   return {
@@ -22,6 +25,46 @@ local function terminal_row()
     replayable = false,
     dead_at_ms = 1781830861000,
   }
+end
+
+local function mock_claim_env(mode)
+  local values = {
+    FKST_GITHUB_BOT_LOGIN = owner,
+    FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    FKST_GITHUB_CLAIM_MODE = mode,
+    FKST_GITHUB_WRITE = "",
+    FKST_DEVLOOP_MANAGED_BOT_LOGINS = "",
+  }
+  for name, value in pairs(values) do
+    for _ = 1, 4 do
+      t.mock_command('printf %s "$' .. name .. '"', {
+        stdout = value,
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+  end
+end
+
+local function current_issue(assignees, labels)
+  return {
+    state = "OPEN",
+    assignees = assignees,
+    labels = labels,
+  }
+end
+
+local function authorize(current)
+  local terminal = terminal_row()
+  return replay_authorization.authorize(
+    current,
+    "github-devloop/issue/owner/repo/42",
+    source_ref(),
+    {
+      lineage = { terminal_dead_letter = terminal },
+      terminal = terminal,
+    }
+  )
 end
 
 return {
@@ -100,5 +143,36 @@ return {
 
     t.is_nil(terminal)
     t.eq(reason, "terminal-dlq-absent")
+  end,
+
+  test_label_claim_authorizes_replay = function()
+    mock_claim_env("label")
+    local authorization, reason = authorize(current_issue(
+      {},
+      { claim_carriers.derived_label(owner) }
+    ))
+
+    t.is_true(type(authorization) == "table")
+    t.eq(authorization.repo, "owner/repo")
+    t.eq(authorization.issue_number, "42")
+    t.is_nil(reason)
+  end,
+
+  test_label_mode_without_claim_refuses_replay = function()
+    mock_claim_env("label")
+    local authorization, reason = authorize(current_issue({}, {}))
+
+    t.is_nil(authorization)
+    t.eq(reason, "not-self-only-assignee")
+  end,
+
+  test_assignee_claim_authorizes_replay = function()
+    mock_claim_env("assignee")
+    local authorization, reason = authorize(current_issue({ owner }, {}))
+
+    t.is_true(type(authorization) == "table")
+    t.eq(authorization.repo, "owner/repo")
+    t.eq(authorization.issue_number, "42")
+    t.is_nil(reason)
   end,
 }
