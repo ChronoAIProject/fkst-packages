@@ -660,7 +660,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
         self.assertEqual(status, "present")
         self.assertEqual(allowlist, {"packages/example/departments/dept/main.lua"})
 
-    def test_missing_dev_base_is_violation_not_warning(self) -> None:
+    def test_missing_dev_base_is_configuration_failure_not_violation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dept = root / "packages" / "example" / "departments" / "dept"
@@ -677,12 +677,19 @@ class SagaHandlerRatchetTest(unittest.TestCase):
             )
 
             violations: list[str] = []
+            configuration_failures: list[str] = []
             warnings: list[str] = []
             with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("unresolved", None)):
-                check_repo.check_saga_handler_ratchet(root, violations, warnings)
+                check_repo.check_saga_handler_ratchet(
+                    root,
+                    violations,
+                    configuration_failures,
+                    warnings,
+                )
 
         self.assertEqual(warnings, [])
-        self.assertIn("cannot resolve dev base allowlist", violations[0])
+        self.assertEqual(violations, [])
+        self.assertIn("cannot resolve dev base allowlist", configuration_failures[0])
 
     def test_first_introduction_without_base_allowlist_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -703,7 +710,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
             violations: list[str] = []
             warnings: list[str] = []
             with mock.patch.object(check_repo.check_repo_config, "allowlist_at_dev_base", return_value=("absent", None)):
-                check_repo.check_saga_handler_ratchet(root, violations, warnings)
+                check_repo.check_saga_handler_ratchet(root, violations, [], warnings)
 
         self.assertEqual(warnings, [])
         self.assertEqual(violations, [])
@@ -755,16 +762,27 @@ class ViolationExitCodeTest(unittest.TestCase):
         )
 
     def test_violations_return_the_typed_code(self):
-        self._with_runner(lambda _m, _c, violations, _w: violations.append("G-TEST: seeded"))
+        self._with_runner(lambda _m, _c, violations, _f, _w: violations.append("G-TEST: seeded"))
         self.assertEqual(check_repo.main([]), check_repo.VIOLATIONS_EXIT)
 
+    def test_configuration_failures_return_the_typed_code(self):
+        self._with_runner(
+            lambda _m, _c, _v, configuration_failures, _w: configuration_failures.append(
+                "G10: dev base unavailable"
+            )
+        )
+        self.assertEqual(check_repo.main([]), check_repo.CONFIGURATION_EXIT)
+
     def test_clean_run_returns_zero(self):
-        self._with_runner(lambda _m, _c, _v, _w: None)
+        self._with_runner(lambda _m, _c, _v, _f, _w: None)
         self.assertEqual(check_repo.main([]), 0)
 
     def test_the_typed_code_is_distinguishable_from_a_bare_failure(self):
         self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 0)
         self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 1)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, 0)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, 1)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, check_repo.VIOLATIONS_EXIT)
 
     def test_a_checker_crash_propagates_instead_of_becoming_the_typed_code(self):
         def boom(*_a, **_k):

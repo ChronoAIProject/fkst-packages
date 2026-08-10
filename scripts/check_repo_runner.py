@@ -192,7 +192,13 @@ def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=Tr
         c.add(violations, "G-MONOTONE-GATE", message)
 
 
-def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
+def run_generic(
+    c,
+    config: check_repo_config.CheckRepoConfig,
+    violations: list[str],
+    configuration_failures: list[str],
+    warnings: list[str],
+) -> None:
     root = config.project_root
     allowlists = config.allowlist_dir
     enforce_base = config.is_own_repo
@@ -242,7 +248,9 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
     check_monotone_gate(c, root, violations, allowlists, enforce_base)
     for message in check_repo_restart_lifecycle.repository_messages(root, enforce_base):
         c.add(violations, "G-RESTART-LIFECYCLE", message)
-    c.check_saga_handler_ratchet(root, violations, warnings, allowlists, enforce_base)
+    c.check_saga_handler_ratchet(
+        root, violations, configuration_failures, warnings, allowlists, enforce_base
+    )
     sources = {c.rel(root, path): c.read_text(path) for package_root in c.package_roots(root) for path in sorted(package_root.glob("*/departments/*/main.lua")) if path.is_file()}
     for message in check_repo_saga_head.violations(sources, c.strip_lua_comments_and_strings):
         c.add(violations, "G-SAGA-HEAD", message)
@@ -295,8 +303,14 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         c.add(violations, "G-DEVLOOP-CORE-PARAM", message)
 
 
-def run(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
-    run_generic(c, config, violations, warnings)
+def run(
+    c,
+    config: check_repo_config.CheckRepoConfig,
+    violations: list[str],
+    configuration_failures: list[str],
+    warnings: list[str],
+) -> None:
+    run_generic(c, config, violations, configuration_failures, warnings)
     if config.is_own_repo:
         run_library_b_specific(c, config, violations, warnings)
     else:
