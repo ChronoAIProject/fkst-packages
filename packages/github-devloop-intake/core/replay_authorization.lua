@@ -98,13 +98,6 @@ function S.once_key(successor_key)
   return "github-devloop-intake/intake-replay/" .. tostring(successor_key)
 end
 
-function S.claim_mode_precondition()
-  if m_claims.claim_mode_active() ~= "assignee" then
-    return false, "claim-mode-not-assignee"
-  end
-  return true, nil
-end
-
 function S.authorize(current, proposal_id, source_ref, opts)
   local options = opts or {}
   if type(current) ~= "table" or current.state ~= "OPEN" then
@@ -112,10 +105,6 @@ function S.authorize(current, proposal_id, source_ref, opts)
   end
   if options.has_trusted_progress == true then
     return nil, "trusted-progress-visible"
-  end
-  local claim_mode_allowed, claim_mode_reason = S.claim_mode_precondition()
-  if not claim_mode_allowed then
-    return nil, claim_mode_reason
   end
   local owner = m_claims.claim_owner()
   if m_claims.issue_claim_state(current.assignees, owner, current.labels) ~= "self" then
