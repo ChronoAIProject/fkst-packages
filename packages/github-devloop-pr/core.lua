@@ -126,7 +126,7 @@ M.parse_review_meta_action = prompt_surface.parse_review_meta_action
 require("core.pr_label_requests").install(M)
 require("core.review_meta_requests").install(M)
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.span_conformance").install(M)
 
 return M

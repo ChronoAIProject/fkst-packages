@@ -150,7 +150,7 @@ M.authorize_thinking_true_stall_drop = function(args)
   return require("core.restart_effects").authorize_thinking_true_stall_drop(M, args)
 end
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.implement_attempt").install(M)
 require("core.ratchet_slice_ledger").install(M)
 require("core.dependencies").install(M)

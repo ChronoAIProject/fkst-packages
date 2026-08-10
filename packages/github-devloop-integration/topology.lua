@@ -2,7 +2,7 @@ local error_facts = require("contract.error_facts")
 local git_mechanics = require("devloop.git_mechanics")
 
 local T = {}
-local shared = git_mechanics.helpers({})
+local shared = git_mechanics.helpers()
 
 local missing_integration_reason = "missing-integration-branch"
 

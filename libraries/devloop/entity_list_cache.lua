@@ -292,18 +292,18 @@ function C.entity_list_poll_epoch(event)
   return nil
 end
 
-function C.fetch_shared_issue_observe_list(M, repo, opts)
+function C.fetch_shared_issue_observe_list(gh_issue_list_observe_opts, repo, opts)
   local options = opts or {}
-  local exec_opts = M.gh_issue_list_observe_opts(repo)
+  local exec_opts = gh_issue_list_observe_opts(repo)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "issue", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)
   end)
 end
 
-function C.fetch_shared_pr_observe_list(M, repo, opts)
+function C.fetch_shared_pr_observe_list(gh_pr_list_observe_opts, repo, opts)
   local options = opts or {}
-  local exec_opts = M.gh_pr_list_observe_opts(repo)
+  local exec_opts = gh_pr_list_observe_opts(repo)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "pr", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)

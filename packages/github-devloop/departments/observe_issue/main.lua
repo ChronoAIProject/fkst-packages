@@ -250,7 +250,7 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     m_claims.log_claim_admission_skip("observe_issue", proposal_id, detail)
     return false
   end
-  return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
+  return m_claims.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
 local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
@@ -676,7 +676,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: restart-effect-decision-illegal: observe issue entry decision rejected: "
         .. tostring(decision.reason_code))
     end
-    if not m_claims.claim_issue_for_management(core, "observe_issue", issue.repo,
+    if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
       issue.number, current, proposal_id) then
       return
     end

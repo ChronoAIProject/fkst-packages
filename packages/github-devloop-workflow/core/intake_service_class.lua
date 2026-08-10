@@ -30,8 +30,8 @@ function M.intake_service_class_label_changes(value)
   return add, remove
 end
 
-function M.build_intake_service_class_label_request(package_core, repo, issue_number, candidate)
-  local add_labels, remove_labels = package_core.intake_service_class_label_changes(candidate and candidate.service_class)
+function M.build_intake_service_class_label_request(repo, issue_number, candidate)
+  local add_labels, remove_labels = M.intake_service_class_label_changes(candidate and candidate.service_class)
   return requests_labels.build_label_request(repo,
     issue_number,
     add_labels,
