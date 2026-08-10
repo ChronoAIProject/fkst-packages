@@ -239,7 +239,7 @@ def check_devloop_forge_import_inventory(root: Path, violations: list[str], read
         for message in base_errors:
             add(violations, "G-LIB-DEP", message)
         if base_status == "unresolved":
-            add(violations, "G-LIB-DEP", f"cannot resolve dev base {DEVLOOP_FORGE_IMPORTS_INVENTORY} to enforce shrink-only ratchet")
+            add(violations, "G-LIB-DEP", ratchet_base.configuration_failure(f"cannot resolve dev base {DEVLOOP_FORGE_IMPORTS_INVENTORY} to enforce shrink-only ratchet"))
         elif base_inventory is not None:
             for item in sorted(current_inventory - base_inventory):
                 path, module = item

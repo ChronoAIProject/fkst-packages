@@ -172,6 +172,6 @@ def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
     base_status, base_allowlist = allowlist_at_protected_base(root) if enforce_base else ("absent", None)
     messages: list[str] = []
     if base_status == "unresolved":
-        messages.append("cannot resolve the protected base allowlist; set FKST_RATCHET_DEV_REF to the protected base ref")
+        messages.append(ratchet_base.configuration_failure("cannot resolve the protected base allowlist; set FKST_RATCHET_DEV_REF to the protected base ref"))
     messages.extend(ratchet_messages(current, allowlist, base_allowlist))
     return messages

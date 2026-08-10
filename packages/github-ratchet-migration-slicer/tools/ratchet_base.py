@@ -12,6 +12,14 @@ from pathlib import Path
 SAFE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*\Z")
 
 
+class ConfigurationFailure(str):
+    """A producer-owned diagnostic for an unevaluable repository-check configuration."""
+
+
+def configuration_failure(message: str) -> ConfigurationFailure:
+    return ConfigurationFailure(message)
+
+
 def _git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
