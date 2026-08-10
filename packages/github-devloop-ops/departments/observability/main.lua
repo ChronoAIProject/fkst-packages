@@ -15,7 +15,6 @@ local topology = require("departments.observability.topology")
 local devloop_logging = require("devloop.logging")
 local queue = require("devloop.queue")
 
-
 local spec = {
   consumes = {
     "devloop_observe_tick",
@@ -141,7 +140,7 @@ function core.observe_devloop_entities(event, github)
   end
   if partial_reason == nil then
     core.reap_orphan_prs(repo, observed.list)
-    queue_starvation_result = queue_starvation.observe_queue_starvation(core, repo, observed.list, limits, deadline, observed.now_seconds)
+    queue_starvation_result = queue_starvation.observe_queue_starvation(nil, repo, observed.list, limits, deadline, observed.now_seconds)
     if recent_merged_issues ~= nil then
       for _, entity in ipairs(observed.list or {}) do
         for _, raised in ipairs(failure_triage_cap.blocked_obligation_patrol_once(entity, observed.list, recent_merged_issues)) do

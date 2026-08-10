@@ -9,6 +9,7 @@ local restart_edges = require("devloop.restart_edges")
 local transition_version = require("contract.transition_version")
 
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
 
 local owner = "github-devloop-pr"
@@ -169,11 +170,11 @@ local function stalled_review_markers(state_version)
     { angle = "minimal", verdict = "abstain", digest = "same-review-digest" },
   }
   return {
-    conv_rounds.review_converge_round_marker(core, review_proposal, proposal_id, review_version,
+    conv_rounds.review_converge_round_marker(restart_policy, review_proposal, proposal_id, review_version,
       head_sha, source_digest, 1, "base", "Same review question", angle_digests),
-    conv_rounds.review_converge_round_marker(core, review_proposal, proposal_id, review_version,
+    conv_rounds.review_converge_round_marker(restart_policy, review_proposal, proposal_id, review_version,
       head_sha, source_digest, 2, "loop1", "Same review question", angle_digests),
-    conv_rounds.review_converge_round_marker(core, review_proposal, proposal_id, review_version,
+    conv_rounds.review_converge_round_marker(restart_policy, review_proposal, proposal_id, review_version,
       head_sha, source_digest, 3, "loop2", "Same review question", angle_digests),
   }
 end

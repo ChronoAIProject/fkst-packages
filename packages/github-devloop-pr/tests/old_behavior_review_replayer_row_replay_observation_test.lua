@@ -30,13 +30,15 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
-local replayer = require("devloop.replayer")
+local replayer
 local testing = require("testkit_internal.testing")
 local transition_version = require("contract.transition_version")
 local observe_pr_department = require("departments.observe_pr.main")
 
 local t = h.t
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
+replayer = assert(rawget(core, "replayer"))
 local JSON_NULL = observation_support.JSON_NULL
 local canonical_json = observation_support.canonical_json
 local copy_value = observation_support.copy_value
@@ -100,7 +102,7 @@ local function comments_for(fixture)
     local first_round = fixture.rounds == 0 and 0 or 1
     for round = first_round, fixture.rounds do
       local marker = conv_rounds.review_converge_round_marker(
-        core,
+        restart_policy,
         REVIEW_PROPOSAL,
         PROPOSAL_ID,
         VERSION,
@@ -189,13 +191,13 @@ local function capture_runtime(fixture)
   h.mock_bot_env()
   local event, department = pr_event(fixture), make_department(fixture)
   local original, calls = replayer.replay_from_table, json_array()
-  replayer.replay_from_table = function(M, dept, issue, state, row, facts)
+  replayer.replay_from_table = function(dept, issue, state, row, facts)
     local call = { dept = dept, state = state.state, version = state.version, row_from_state = row and row.from_state, decisions = json_array(), raises = json_array(), applies = json_array() }
     local old_decision, old_raise, old_apply = devloop_logging.log_cas_decision, devloop_logging.log_raise, devloop_logging.log_apply
     devloop_logging.log_cas_decision = function(log_dept, proposal_id, current, from_state, to_state, outcome, reason) table.insert(call.decisions, { proposal_id = proposal_id, from_state = from_state, to_state = to_state, outcome = outcome, reason = reason }); return old_decision(log_dept, proposal_id, current, from_state, to_state, outcome, reason) end
     devloop_logging.log_raise = function(log_dept, proposal_id, queue, payload) table.insert(call.raises, { proposal_id = proposal_id, queue = queue, payload = copy_value(payload) }); return old_raise(log_dept, proposal_id, queue, payload) end
     devloop_logging.log_apply = function(log_dept, proposal_id, to_state, version, labels, queues) table.insert(call.applies, { proposal_id = proposal_id, to_state = to_state, version = version, labels = copy_value(labels), queues = copy_value(queues) }); return old_apply(log_dept, proposal_id, to_state, version, labels, queues) end
-    local ok, issued = pcall(original, M, dept, issue, state, row, facts)
+    local ok, issued = pcall(original, dept, issue, state, row, facts)
     devloop_logging.log_apply, devloop_logging.log_raise, devloop_logging.log_cas_decision = old_apply, old_raise, old_decision
     if not ok then error(issued, 0) end
     call.issued = issued == true; table.insert(calls, call); return issued

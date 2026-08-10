@@ -10,13 +10,14 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local payloads_builders = require("devloop.payloads.builders")
-local replayer = require("devloop.replayer")
+local replayer
 local testing = require("testkit_internal.testing")
 local transition_version = require("contract.transition_version")
 local observe_issue_department = require("departments.observe_issue.main")
 
 local t = h.t
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local JSON_NULL = observation_support.JSON_NULL
 local canonical_json = observation_support.canonical_json
 local copy_value = observation_support.copy_value
@@ -278,7 +279,7 @@ local function capture_runtime(fixture)
     })
     return content_fetch, high_risk, risk
   end
-  replayer.replay_from_table = function(M, dept, issue, state, row, facts)
+  replayer.replay_from_table = function(dept, issue, state, row, facts)
     local dispatch = {
       dept = dept,
       state = state and state.state,
@@ -308,7 +309,7 @@ local function capture_runtime(fixture)
       })
       return active_log_apply(log_dept, proposal_id, to_state, version, labels, queues)
     end
-    local replay_ok, issued = pcall(original_replay_from_table, M, dept, issue, state, row, facts)
+    local replay_ok, issued = pcall(original_replay_from_table, dept, issue, state, row, facts)
     devloop_logging.log_apply = active_log_apply
     devloop_logging.log_raise = active_log_raise
     if not replay_ok then

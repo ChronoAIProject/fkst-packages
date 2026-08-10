@@ -73,7 +73,7 @@ local function replay_fixing_payload(event, comments)
       return true
     end,
   }
-  local replayed = core.replayer_review_registry(tools).fixing(
+  local replayed = assert(rawget(core, "replayer")).replay_sources.review_replayers(tools).fixing(
     "restart",
     { repo = "owner/repo", number = 42, source_ref = h.source_ref() },
     state,

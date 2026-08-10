@@ -2,11 +2,12 @@ local entity_lib = require("devloop.entity")
 local convergence_shared = require("devloop.convergence.shared")
 local contract_time = require("contract.time")
 local operator_commands = require("devloop.operator_commands")
-local replayer = require("devloop.replayer")
+local replayer
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local t = h.t
 local replay_fields = require("devloop.replay_fields")
 local devloop_logging = require("devloop.logging")
@@ -511,11 +512,11 @@ return {
     for _, outcome in ipairs(declined) do
       local previous = replayer.replay_from_table
       replayer.replay_from_table = function()
-        replayer.replay_log_decline(core, "stuck", "test", nil, { state = "ready" }, "ready", "ready", outcome, "declined")
+        replayer.replay_log_decline("stuck", "test", nil, { state = "ready" }, "ready", "ready", outcome, "declined")
         return false
       end
       local ok, classified = pcall(function()
-        return replayer.replay_from_table_classified(core, "test", {}, { state = "ready" }, restart_transition_row("ready"), {})
+        return replayer.replay_from_table_classified("test", {}, { state = "ready" }, restart_transition_row("ready"), {})
       end)
       replayer.replay_from_table = previous
       if not ok then error(classified) end
@@ -527,11 +528,11 @@ return {
   test_replay_timeout_classification_uses_typed_defer_not_outcome_text = function()
     local previous = replayer.replay_from_table
     replayer.replay_from_table = function()
-        replayer.replay_log_decline(core, "deferred", "test", nil, { state = "thinking" }, "thinking", "devloop_consensus_request", "arbitrary-observability-text", "deferred")
+        replayer.replay_log_decline("deferred", "test", nil, { state = "thinking" }, "thinking", "devloop_consensus_request", "arbitrary-observability-text", "deferred")
       return false
     end
     local ok, classified = pcall(function()
-      return replayer.replay_from_table_classified(core, "test", {}, { state = "thinking" }, restart_transition_row("thinking"), {})
+      return replayer.replay_from_table_classified("test", {}, { state = "thinking" }, restart_transition_row("thinking"), {})
     end)
     replayer.replay_from_table = previous
     if not ok then error(classified) end

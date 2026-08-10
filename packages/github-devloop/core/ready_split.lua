@@ -347,8 +347,7 @@ local function next_ready_redrive_version(marker_version, round)
 end
 
 local function ready_redrive_round(M, comments, proposal_id, marker_version, row)
-  local timeout_round = conv_attempts.timeout_attempt_round(M,
-    comments,
+  local timeout_round = conv_attempts.timeout_attempt_round(comments,
     proposal_id,
     marker_version,
     row.from_state
