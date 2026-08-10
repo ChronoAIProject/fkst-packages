@@ -635,12 +635,18 @@ def check_github_content_ingress(root: Path, violations: list[str]) -> None:
         add(violations, "G-GITHUB-CONTENT-INGRESS", message)
 
 
-def check_error_class_prefixes(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+def check_error_class_prefixes(
+    root: Path,
+    violations: list[str],
+    configuration_failures: list[str],
+    allowlist_dir: Path | None = None,
+    enforce_base: bool = True,
+) -> None:
     current = check_repo_error_class.current_sites(root, package_lua_files, read_text, rel, unclassified_error_call_lines)
     allowlist = check_repo_error_class.load_allowlist(allowlist_path(root, check_repo_error_class.ALLOWLIST, allowlist_dir))
     base_status, base_allowlist = check_repo_error_class.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
     if base_status == "unresolved":
-        add(violations, "G7", "cannot resolve dev base allowlist to enforce shrink-only error-class ratchet; ensure CI provides the dev ref")
+        add(configuration_failures, "G7", "cannot resolve dev base allowlist to enforce shrink-only error-class ratchet; ensure CI provides the dev ref")
     for message in check_repo_error_class.ratchet_messages(current, allowlist, base_allowlist):
         add(violations, "G7", message)
 
@@ -718,13 +724,19 @@ def check_shell_out_to_self_ratchet(root: Path, violations: list[str], allowlist
     for message in check_repo_shell_out_to_self.ratchet_messages(current, allowlist):
         add(violations, "G-SHELL-OUT-TO-SELF", message)
 
-def check_code_dedup_ratchet(root: Path, violations: list[str], allowlist_dir: Path | None = None, enforce_base: bool = True) -> None:
+def check_code_dedup_ratchet(
+    root: Path,
+    violations: list[str],
+    configuration_failures: list[str],
+    allowlist_dir: Path | None = None,
+    enforce_base: bool = True,
+) -> None:
     source_map = {}
     for packages in package_roots(root):
         source_map.update(check_repo_dedup.sources(root, packages, read_text, rel))
     allowlist = check_repo_dedup.load_allowlist(allowlist_path(root, check_repo_dedup.ALLOWLIST, allowlist_dir))
     base_status, base_allowlist = check_repo_dedup.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
-    if base_status == "unresolved": add(violations, "G-DEDUP", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+    if base_status == "unresolved": add(configuration_failures, "G-DEDUP", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_dedup.ratchet_messages(source_map, allowlist, base_allowlist):
         add(violations, "G-DEDUP", message)
 

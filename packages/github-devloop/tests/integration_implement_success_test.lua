@@ -424,7 +424,7 @@ return {
     t.eq(count_calls("git worktree add --detach"), 0)
   end,
 
-  test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
+  test_implement_local_gate_typed_base_configuration_failure_has_explicit_disposition = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
@@ -437,17 +437,18 @@ return {
       check = {
         stdout = "repository check failed:\n"
           .. "  G10: cannot resolve dev base allowlist to enforce shrink-only ratchet\n",
-        stderr = local_iteration_marker("SEMANTIC_FAIL"),
+        stderr = local_iteration_marker("CONFIGURATION_FAIL"),
         exit_code = 2,
       },
     })
 
     local result = run_implement(event, opts("implement-base-missing-target"))
 
-    local failure = assert_impl_failure_without_publication(result, "base-local-iteration-failed")
+    local failure = assert_impl_failure_without_publication(
+      result, "base-local-iteration-configuration-failed")
     t.is_true(failure.payload.body:find("base_sha=abc123", 1, true) ~= nil)
     t.is_true(failure.payload.body:find("G10: cannot resolve dev base allowlist", 1, true) ~= nil)
-    t.is_true(failure.payload.body:find(local_iteration_marker("SEMANTIC_FAIL"), 1, true) ~= nil)
+    t.is_true(failure.payload.body:find(local_iteration_marker("CONFIGURATION_FAIL"), 1, true) ~= nil)
     local pinned_add = false
     for _, call in ipairs(t.command_calls()) do
       local rendered = tostring(call.rendered or "")

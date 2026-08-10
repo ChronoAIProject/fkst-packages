@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 import tempfile
 import sys
@@ -11,6 +13,7 @@ import types
 import unittest
 from unittest import mock
 from pathlib import Path
+import check_repo_runner
 import ratchet_base_test
 from check_repo_library_layering_test import LibraryLayeringGuardTest
 from run_script_contract_test import RunScriptContractTest
@@ -772,6 +775,65 @@ class ViolationExitCodeTest(unittest.TestCase):
             )
         )
         self.assertEqual(check_repo.main([]), check_repo.CONFIGURATION_EXIT)
+
+    def test_real_runner_classifies_unresolved_ratchet_bases_as_configuration(self):
+        configuration_allowlists = {
+            check_repo_runner.check_repo_content_truncation.ALLOWLIST,
+            check_repo_runner.check_repo_dept_failure_surface.ALLOWLIST,
+            check_repo_runner.check_repo_producer_liveness.ALLOWLIST,
+            check_repo_runner.check_repo_monotone_gate.ALLOWLIST,
+        }
+        original = check_repo.check_repo_config.allowlist_at_dev_base
+
+        def unresolved_reviewed_ratchets(
+            root,
+            *,
+            allowlist,
+            parse_allowlist_lines,
+            catch_errors=True,
+        ):
+            if allowlist in configuration_allowlists:
+                return "unresolved", None
+            return original(
+                root,
+                allowlist=allowlist,
+                parse_allowlist_lines=parse_allowlist_lines,
+                catch_errors=catch_errors,
+            )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                check_repo.check_repo_config,
+                "allowlist_at_dev_base",
+                side_effect=unresolved_reviewed_ratchets,
+            ),
+            mock.patch.object(
+                check_repo.check_repo_error_class,
+                "allowlist_at_dev_base",
+                return_value=("unresolved", None),
+            ),
+            mock.patch.object(
+                check_repo.check_repo_dedup,
+                "allowlist_at_dev_base",
+                return_value=("unresolved", None),
+            ),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = check_repo.main([])
+
+        self.assertEqual(result, check_repo.CONFIGURATION_EXIT)
+        for gate in (
+            "G7",
+            "G-DEDUP",
+            "G-CONTENT-TRUNCATION",
+            "G-DEPT-FAILURE-SURFACE",
+            "G-PRODUCER-LIVENESS",
+            "G-MONOTONE-GATE",
+        ):
+            self.assertIn(f"  {gate}: cannot resolve", stderr.getvalue())
 
     def test_clean_run_returns_zero(self):
         self._with_runner(lambda _m, _c, _v, _f, _w: None)

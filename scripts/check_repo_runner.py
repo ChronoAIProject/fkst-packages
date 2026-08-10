@@ -65,7 +65,9 @@ def check_library_error_class(c, root, violations, allowlist_dir=None, enforce_b
         c.add(violations, "G-LIB-ERROR-CLASS", message)
 
 
-def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_content_truncation(
+    c, root, violations, configuration_failures, allowlist_dir=None, enforce_base=True
+) -> None:
     sources = {}
     for package_root in c.package_roots(root):
         sources.update(check_repo_content_truncation.package_lua_sources(root, package_root, c.read_text, c.rel))
@@ -85,12 +87,14 @@ def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_ba
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-CONTENT-TRUNCATION", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(configuration_failures, "G-CONTENT-TRUNCATION", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_content_truncation.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-CONTENT-TRUNCATION", message)
 
 
-def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_dept_failure_surface(
+    c, root, violations, configuration_failures, allowlist_dir=None, enforce_base=True
+) -> None:
     sources = {}
     for package_root in c.package_roots(root):
         if not package_root.is_dir():
@@ -112,7 +116,7 @@ def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-DEPT-FAILURE-SURFACE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(configuration_failures, "G-DEPT-FAILURE-SURFACE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_dept_failure_surface.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-DEPT-FAILURE-SURFACE", message)
 
@@ -127,7 +131,9 @@ def check_lock_scope(c, root, violations, allowlist_dir=None, enforce_base=True)
         c.add(violations, "G-LOCK-SCOPE", message)
 
 
-def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_producer_liveness(
+    c, root, violations, configuration_failures, allowlist_dir=None, enforce_base=True
+) -> None:
     package_roots = c.package_roots(root)
     raisers = set().union(*[
         check_repo_producer_liveness.declared_raisers(root, package_root)
@@ -157,7 +163,7 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-PRODUCER-LIVENESS", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(configuration_failures, "G-PRODUCER-LIVENESS", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     messages = check_repo_producer_liveness.ratchet_messages(
         raisers,
         coverage,
@@ -173,7 +179,9 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
         c.add(violations, "G-PRODUCER-LIVENESS", message)
 
 
-def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+def check_monotone_gate(
+    c, root, violations, configuration_failures, allowlist_dir=None, enforce_base=True
+) -> None:
     package_roots = c.package_roots(root)
     if not enforce_base and not check_repo_monotone_gate.production_sources(root, package_roots):
         return
@@ -193,7 +201,7 @@ def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=Tr
         else ("absent", None)
     )
     if base_status == "unresolved":
-        c.add(violations, "G-MONOTONE-GATE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+        c.add(configuration_failures, "G-MONOTONE-GATE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_monotone_gate.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-MONOTONE-GATE", message)
 
@@ -211,7 +219,7 @@ def run_generic(
     c.check_line_limit(root, violations, warnings); c.check_test_shape(root, violations, warnings)
     c.check_helper_reachability(root, violations); c.check_graphql_connection_guards(root, warnings)
     c.check_rest_pagination_guards(root, warnings); c.check_hidden_text_encoded_literals(root, violations)
-    c.check_gh_rate_pool_sizing(root, violations); c.check_error_class_prefixes(root, violations, allowlists, enforce_base)
+    c.check_gh_rate_pool_sizing(root, violations); c.check_error_class_prefixes(root, violations, configuration_failures, allowlists, enforce_base)
     check_library_error_class(c, root, violations, allowlists, enforce_base)
     c.check_persistence_classes(root, violations); c.check_cross_package_require(root, violations)
     c.check_library_layering(root, violations, allowlists, enforce_base)
@@ -223,9 +231,9 @@ def run_generic(
     c.check_no_permission_control(root, violations)
     c.check_gh_git_adapter_ratchet(root, violations, allowlists)
     c.check_shell_out_to_self_ratchet(root, violations, allowlists)
-    c.check_code_dedup_ratchet(root, violations, allowlists, enforce_base)
-    check_content_truncation(c, root, violations, allowlists, enforce_base)
-    check_dept_failure_surface(c, root, violations, allowlists, enforce_base)
+    c.check_code_dedup_ratchet(root, violations, configuration_failures, allowlists, enforce_base)
+    check_content_truncation(c, root, violations, configuration_failures, allowlists, enforce_base)
+    check_dept_failure_surface(c, root, violations, configuration_failures, allowlists, enforce_base)
     check_version_suffix(c, root, violations, allowlists, enforce_base)
     check_lock_scope(c, root, violations, allowlists, enforce_base)
     for message in check_repo_coverage.repository_messages(root):
@@ -242,7 +250,7 @@ def run_generic(
         exclusions_path=integration_exclusions,
     ):
         c.add(violations, "G-INTEGRATION-COVERAGE", message)
-    check_producer_liveness(c, root, violations, allowlists, enforce_base)
+    check_producer_liveness(c, root, violations, configuration_failures, allowlists, enforce_base)
     for package_root in c.package_roots(root):
         for message in check_repo_namespaced_queue.repository_messages(root, package_root, c.read_text, c.rel, c.strip_lua_comments_and_strings, c.is_unmasked_range):
             c.add(violations, "G-NAMESPACED-QUEUE", message)
@@ -252,7 +260,7 @@ def run_generic(
         c.add(violations, "G-LIVE-RUN-DISPATCH", message)
     for message in check_repo_codex_timeout.repository_messages(root, c.package_lua_files, c.read_text, c.rel, c.strip_lua_comments_and_strings):
         c.add(violations, "G-CODEX-TIMEOUT", message)
-    check_monotone_gate(c, root, violations, allowlists, enforce_base)
+    check_monotone_gate(c, root, violations, configuration_failures, allowlists, enforce_base)
     for message in check_repo_restart_lifecycle.repository_messages(root, enforce_base):
         c.add(violations, "G-RESTART-LIFECYCLE", message)
     c.check_saga_handler_ratchet(
