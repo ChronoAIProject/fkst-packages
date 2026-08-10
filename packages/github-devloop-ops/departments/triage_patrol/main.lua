@@ -3,7 +3,6 @@ local core = require("core")
 local devloop_base = require("devloop.base")
 local github_author_policy = require("devloop.github_author_policy")
 local github_issue_create = require("contract.github_issue_create")
-local parsers_issue = require("devloop.parsers.issue")
 local parsers_misc = require("devloop.parsers.misc")
 local ports = require("forge.ports")
 local request_shared = require("devloop.requests.shared")
@@ -57,15 +56,17 @@ local function candidate_labels()
 end
 
 local function list_candidates(github, repo, limits, rotation_seed, candidate_cap)
-  local listed = {}
-  for _, label in ipairs(candidate_labels()) do
-    local result = github.issue_list_observe(repo, label, 1, false, limits.call_timeout)
-    if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
-      error("github-devloop-ops: triage-patrol-candidate-list-failed: GitHub issue candidate list failed")
-    end
-    for _, issue in ipairs(parsers_issue.parse_issue_list_observe(result.stdout)) do
-      table.insert(listed, issue)
-    end
+  local listed, _, deferred_reason = core.observability_list_issue_candidates(
+    repo,
+    candidate_labels(),
+    limits,
+    core.observability_deadline(now(), limits),
+    rotation_seed,
+    nil,
+    github.issue_list_observe
+  )
+  if deferred_reason ~= nil then
+    error("github-devloop-ops: triage-patrol-candidate-list-failed: GitHub issue candidate list failed")
   end
   local numbers = core.observability_sorted_numbers(listed)
   local candidates, deferred = core.observability_entity_candidates(

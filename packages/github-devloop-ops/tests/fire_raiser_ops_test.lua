@@ -284,7 +284,7 @@ local function mock_triage_patrol_empty_reads()
       return
     end
     seen[label] = true
-    t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", label, 1, false), {
+    t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", label, 1, true), {
       stdout = "[]\n",
       stderr = "",
       exit_code = 0,

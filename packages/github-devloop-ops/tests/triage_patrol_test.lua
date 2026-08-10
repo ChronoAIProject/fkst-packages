@@ -47,11 +47,17 @@ local function has_label(issue, expected)
 end
 
 local function install_candidate_list(github, model)
+  model.issue_list_calls = {}
   github.issue_list_observe = function(list_repo, label, page, include_headers, timeout)
     t.eq(list_repo, repo)
-    t.eq(page, 1)
-    t.eq(include_headers, false)
     t.eq(timeout, core.observability_limits().call_timeout)
+    local selected_page = tonumber(page)
+    t.is_true(selected_page ~= nil and selected_page >= 1 and selected_page % 1 == 0)
+    table.insert(model.issue_list_calls, {
+      label = label,
+      page = selected_page,
+      include_headers = include_headers == true,
+    })
     local rows = {}
     for _, issue in pairs(model.issues or {}) do
       if has_label(issue, label) then
@@ -61,12 +67,23 @@ local function install_candidate_list(github, model)
     table.sort(rows, function(left, right)
       return tonumber(left.number) < tonumber(right.number)
     end)
+    local page_size = 100
+    local first_index = ((selected_page - 1) * page_size) + 1
+    local last_index = math.min(#rows, first_index + page_size - 1)
     local encoded = {}
-    for _, issue in ipairs(rows) do
+    for index = first_index, last_index do
+      local issue = rows[index]
       table.insert(encoded, '{"number":' .. tostring(issue.number) .. ',"state":"open"}')
     end
+    local body = "[" .. table.concat(encoded, ",") .. "]"
+    local headers = ""
+    local total_pages = math.max(1, math.ceil(#rows / page_size))
+    if include_headers and total_pages > 1 then
+      headers = 'link: <https://api.github.test/repos/' .. repo
+        .. '/issues?state=open&page=' .. tostring(total_pages) .. '>; rel="last"\n'
+    end
     return {
-      stdout = "[" .. table.concat(encoded, ",") .. "]",
+      stdout = include_headers and ("HTTP/2 200\n" .. headers .. "\n" .. body) or body,
       stderr = "",
       exit_code = 0,
     }
@@ -386,6 +403,42 @@ return {
       end
     end
     t.is_true(deferred_candidate_covered)
+  end,
+
+  test_patrol_reaches_an_eligible_row_after_the_first_hundred_candidates = function()
+    local issues = {}
+    for issue_number = 1, 100 do
+      issues[repo .. "#issue/" .. tostring(issue_number)] = issue_fixture(
+        issue_number,
+        "another-account",
+        { "fkst-dev:declined" },
+        { comment(issue_number, "blocked", proposal_id(issue_number) .. "/intake/v1", host_login) }
+      )
+    end
+    local tail_number = 101
+    local tail_version = proposal_id(tail_number) .. "/intake/v1"
+    issues[repo .. "#issue/" .. tostring(tail_number)] = issue_fixture(
+      tail_number,
+      "another-account",
+      { "fkst-dev:declined" },
+      { comment(tail_number, "declined", tail_version, host_login) }
+    )
+    mock_env(64)
+    local department, model = make_department(issues)
+    local event = tick()
+    event.ts = "100"
+
+    local receipt = only_receipt(run_read_only(department, event))
+
+    t.is_true(receipt.body:find("i=" .. tostring(tail_number) .. " ", 1, true) ~= nil)
+    t.is_true(receipt.body:find("v=" .. tail_version, 1, true) ~= nil)
+    local listed_tail_page = false
+    for _, call in ipairs(model.issue_list_calls) do
+      if call.label == "fkst-dev:declined" and call.page == 2 then
+        listed_tail_page = true
+      end
+    end
+    t.eq(listed_tail_page, true)
   end,
 
   test_department_spec_is_read_only_except_for_the_receipt_seam = function()
