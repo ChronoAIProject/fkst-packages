@@ -3,6 +3,7 @@ local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
 local github_fake = require("forge.github_fake")
+local github_view = require("forge.github_view")
 local queue_starvation = require("devloop.queue_starvation")
 local output_obligation_resolution = require("departments.observability.output_obligation_resolution")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -10,6 +11,7 @@ local m_builders = require("devloop.markers.builders")
 local payload_registry = require("devloop.payload_registry")
 local decompose = require("devloop.decompose")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local transition_version = require("contract.transition_version")
 require("departments.observability.terminal_retirement")
 
 local repo = "owner/repo"
@@ -23,6 +25,9 @@ local reconcile_terminal_version = conv_reconcile.reconcile_state_version(reconc
 local reconcile_impl_version = payload_registry.resolve("dedup:ready", {
   dedup_key = reconcile_base_version,
 })
+local delegated_pr_number = 7
+local delegated_version = "ready/consensus-github-devloop/issue/owner/repo/42/retirement/fix/4"
+local delegated_parent_version = transition_version.next_blocked(delegated_version, "child-pr-blocked")
 local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
 
 local function bot_comment(body, created_at)
@@ -69,6 +74,105 @@ local function reconcile_drop_comments(extra_comments)
     table.insert(comments, comment)
   end
   return comments
+end
+
+local function delegated_parent_comments(extra_comments)
+  local comments = {
+    bot_comment(
+      m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/7",
+        delegated_pr_number,
+        delegated_version,
+        "g1"
+      ),
+      "2026-07-29T23:59:00Z"
+    ),
+    bot_comment(
+      core.state_marker(proposal_id, "blocked", delegated_parent_version),
+      "2026-07-30T00:02:00Z"
+    ),
+  }
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  return comments
+end
+
+local function delegated_pr_comments(extra_comments, overrides)
+  local values = overrides or {}
+  local comments = {}
+  if values.pr_link ~= false then
+    table.insert(comments, bot_comment(
+      values.pr_link or m_builders.pr_link_marker(
+        proposal_id,
+        delegated_pr_number,
+        "devloop-owner-repo-42",
+        delegated_version,
+        "dev"
+      ),
+      "2026-07-29T23:59:00Z"
+    ))
+  end
+  table.insert(comments, bot_comment(
+    core.state_marker(proposal_id, "blocked", delegated_version)
+      .. "\n" .. conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "drop"),
+    "2026-07-30T00:00:00Z"
+  ))
+  table.insert(comments, bot_comment(
+    decompose.decomposed_marker(proposal_id, delegated_version, delegated_pr_number, 2),
+    "2026-07-30T00:01:00Z"
+  ))
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  return comments
+end
+
+local function delegated_child_issues()
+  return {
+    {
+      number = 101,
+      title = "First child",
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        1
+      ),
+      url = "https://example.test/owner/repo/issues/101",
+    },
+    {
+      number = 102,
+      title = "Second child",
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        2
+      ),
+      url = "https://example.test/owner/repo/issues/102",
+    },
+  }
+end
+
+local function child_issue_list_stdout(issues)
+  local rows = {}
+  for _, issue in ipairs(issues or {}) do
+    table.insert(rows, "{"
+      .. '"number":' .. github_view.json_value(issue.number)
+      .. ',"title":' .. github_view.json_value(issue.title)
+      .. ',"state":' .. github_view.json_value(issue.state)
+      .. ',"author":{"login":' .. github_view.json_value(issue.author_login) .. "}"
+      .. ',"body":' .. github_view.json_value(issue.body)
+      .. ',"url":' .. github_view.json_value(issue.url)
+      .. "}")
+  end
+  return "[" .. table.concat(rows, ",") .. "]\n"
 end
 
 local function mock_env(write_mode)
@@ -177,7 +281,7 @@ local function with_unrelated_controls_stubbed(fn)
   return result
 end
 
-local function fake_department(comments, state, state_name)
+local function fake_department(comments, state, state_name, delegated)
   local terminal_state = state_name or "declined"
   local model = github_fake.model({
     issues = {
@@ -199,10 +303,52 @@ local function fake_department(comments, state, state_name)
   local read_issue = github.read_issue
   github.read_issue = function(ref, opts)
     table.insert(reads, {
+      kind = "issue",
       ref = ref.ref,
       force_fresh = opts and opts.force_fresh,
     })
     return read_issue(ref, opts)
+  end
+  if type(delegated) == "table" then
+    github.pr_cli_view = function(read_repo, read_pr_number, fields, timeout)
+      table.insert(reads, {
+        kind = "pr",
+        repo = read_repo,
+        number = read_pr_number,
+        fields = fields,
+        timeout = timeout,
+      })
+      if delegated.pr_result ~= nil then
+        return delegated.pr_result
+      end
+      return {
+        stdout = entity_read_mocks.pr_view_stdout({
+          repo = repo,
+          number = delegated_pr_number,
+          state = "OPEN",
+          comments = delegated.pr_comments,
+        }),
+        stderr = "",
+        exit_code = 0,
+      }
+    end
+    github.issue_search = function(read_repo, query, fields, timeout)
+      table.insert(reads, {
+        kind = "children",
+        repo = read_repo,
+        query = query,
+        fields = fields,
+        timeout = timeout,
+      })
+      if delegated.children_result ~= nil then
+        return delegated.children_result
+      end
+      return {
+        stdout = child_issue_list_stdout(delegated.child_issues),
+        stderr = "",
+        exit_code = 0,
+      }
+    end
   end
   local installed = require("departments.observability.main")
   return installed.make_department({ github = github }), model, reads
@@ -443,6 +589,142 @@ return {
 
     t.eq(receipt_raise(result), nil)
     t.eq(#close_writes(model), 0)
+  end,
+
+  test_delegated_fix_reconcile_proof_emits_receipt_then_closes_not_planned_once = function()
+    mock_env("1")
+    local comments = delegated_parent_comments()
+    local delegated = {
+      pr_comments = delegated_pr_comments(),
+      child_issues = delegated_child_issues(),
+    }
+    local department, model, reads = fake_department(comments, "OPEN", "blocked", delegated)
+
+    mock_census(comments, "OPEN", "blocked")
+    local first = run_tick(department)
+    local receipt = receipt_raise(first)
+
+    t.is_true(receipt ~= nil)
+    t.is_true(receipt.payload.body:find("Terminal authority: `delegated-fix-reconcile:v1`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Delegated PR: `#7`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find("Decomposition count: `2`", 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('proof_digest="', 1, true) ~= nil)
+    t.eq(#close_writes(model), 0)
+    t.eq(#reads, 3)
+    t.eq(reads[1].kind, "issue")
+    t.eq(reads[1].force_fresh, true)
+    t.eq(reads[2].kind, "pr")
+    t.eq(reads[2].number, delegated_pr_number)
+    t.eq(reads[3].kind, "children")
+
+    table.insert(model.issues[source_ref.ref].comments, bot_comment(receipt.payload.body, "2026-07-31T00:00:00Z"))
+    mock_census(model.issues[source_ref.ref].comments, "OPEN", "blocked")
+    local second = run_tick(department)
+
+    t.eq(receipt_raise(second), nil)
+    t.eq(#close_writes(model), 1)
+    t.eq(#reads, 6)
+    t.eq(reads[4].kind, "issue")
+    t.eq(reads[4].force_fresh, true)
+    t.eq(reads[5].kind, "pr")
+    t.eq(reads[6].kind, "children")
+
+    model.issues[source_ref.ref].state = "CLOSED"
+    mock_census(model.issues[source_ref.ref].comments, "CLOSED", "blocked")
+    local replay = run_tick(department)
+
+    t.eq(receipt_raise(replay), nil)
+    t.eq(#close_writes(model), 1)
+    t.eq(#reads, 6)
+  end,
+
+  test_force_fresh_delegated_proof_change_keeps_parent_open = function()
+    mock_env("1")
+    local comments = delegated_parent_comments()
+    local delegated = {
+      pr_comments = delegated_pr_comments(),
+      child_issues = delegated_child_issues(),
+    }
+    local department, model, reads = fake_department(comments, "OPEN", "blocked", delegated)
+
+    mock_census(comments, "OPEN", "blocked")
+    local first = run_tick(department)
+    local receipt = receipt_raise(first)
+    t.is_true(receipt ~= nil)
+    table.insert(model.issues[source_ref.ref].comments, bot_comment(receipt.payload.body, "2026-07-31T00:00:00Z"))
+    table.insert(delegated.child_issues, {
+      number = 103,
+      title = "Duplicate first child",
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        1
+      ),
+      url = "https://example.test/owner/repo/issues/103",
+    })
+
+    mock_census(model.issues[source_ref.ref].comments, "OPEN", "blocked")
+    local second = run_tick(department)
+
+    t.eq(receipt_raise(second), nil)
+    t.eq(#close_writes(model), 0)
+    t.eq(#reads, 6)
+  end,
+
+  test_unavailable_delegated_pr_read_keeps_parent_open = function()
+    mock_env("1")
+    local comments = delegated_parent_comments()
+    local delegated = {
+      pr_result = { stdout = "", stderr = "not found", exit_code = 1 },
+      child_issues = delegated_child_issues(),
+    }
+    local department, model, reads = fake_department(comments, "OPEN", "blocked", delegated)
+    mock_census(comments, "OPEN", "blocked")
+
+    local result = run_tick(department)
+
+    t.eq(receipt_raise(result), nil)
+    t.eq(#close_writes(model), 0)
+    t.eq(#reads, 2)
+    t.eq(reads[1].kind, "issue")
+    t.eq(reads[2].kind, "pr")
+  end,
+
+  test_production_shaped_delegated_refusals_keep_parent_open = function()
+    local human_comment = {
+      body = "Do not retire this yet.",
+      author_login = "alice",
+      created_at = "2026-07-30T00:03:00Z",
+    }
+    local duplicate_children = delegated_child_issues()
+    table.insert(duplicate_children, {
+      number = 103,
+      title = "Duplicate first child",
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(proposal_id, delegated_version, delegated_pr_number, 1),
+      url = "https://example.test/owner/repo/issues/103",
+    })
+    local cases = {
+      { pr_comments = delegated_pr_comments(nil, { pr_link = false }), child_issues = delegated_child_issues() },
+      { pr_comments = delegated_pr_comments({ human_comment }), child_issues = delegated_child_issues() },
+      { pr_comments = delegated_pr_comments(), child_issues = duplicate_children },
+    }
+
+    for _, delegated in ipairs(cases) do
+      mock_env("1")
+      local comments = delegated_parent_comments()
+      local department, model = fake_department(comments, "OPEN", "blocked", delegated)
+      mock_census(comments, "OPEN", "blocked")
+
+      local result = run_tick(department)
+
+      t.eq(receipt_raise(result), nil)
+      t.eq(#close_writes(model), 0)
+    end
   end,
 
   test_dry_run_logs_would_retire_and_performs_no_github_writes = function()

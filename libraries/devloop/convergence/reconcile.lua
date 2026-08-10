@@ -407,22 +407,52 @@ function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_ver
   return false
 end
 
-function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
-  local n = valid_round(devloop_state.version_fix_round(issue_version))
-  if n == nil or type(comments) ~= "table" then
-    return false
+function C.fix_reconcile_fact(comments, proposal_id, issue_version, expected_action)
+  if type(comments) ~= "table" then
+    return nil
   end
+  local expected_version = issue_version ~= nil and tostring(issue_version) or nil
+  local best = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:fix%-reconcile:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      if attr(marker, "proposal") == tostring(proposal_id)
-        and attr(marker, "version") == tostring(issue_version)
-        and valid_round(attr(marker, "round")) == n then
-        return true
+  for comment_index, comment in ipairs(comments) do
+    if parsers_misc._is_trusted_comment(comment) then
+      for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+        local marker_version = attr(marker, "version")
+        local n = valid_round(devloop_state.version_fix_round(marker_version))
+        local action = attr(marker, "action")
+        local dedup = attr(marker, "dedup")
+        if attr(marker, "proposal") == tostring(proposal_id)
+          and (expected_version == nil or marker_version == expected_version)
+          and strings.is_bounded_string(marker_version, devloop_base._max_dedup_len)
+          and valid_round(attr(marker, "round")) == n
+          and n ~= nil
+          and (action == "drop" or action == "re-design" or action == "re-cluster")
+          and (expected_action == nil or action == tostring(expected_action))
+          and dedup == "fix-reconcile:" .. marker_version then
+          local fact = {
+            proposal_id = tostring(proposal_id),
+            version = marker_version,
+            round = n,
+            action = action,
+            dedup_key = dedup,
+            comment_index = comment_index,
+            comment_created_at = parsers_misc._comment_created_at(comment),
+          }
+          if expected_version ~= nil then
+            return fact
+          end
+          if best == nil or transition_version.compare(fact.version, best.version) >= 0 then
+            best = fact
+          end
+        end
       end
     end
   end
-  return false
+  return best
+end
+
+function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
+  return C.fix_reconcile_fact(comments, proposal_id, issue_version) ~= nil
 end
 
 function C.has_timeout_reconcile_marker(M, comments, proposal_id, issue_version, state_name, round)

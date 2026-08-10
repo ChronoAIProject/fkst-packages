@@ -1,8 +1,11 @@
 local base_ids = require("devloop.base_ids")
 local common = require("departments.observability.common")
 local config = require("devloop.config")
+local contract_sha256 = require("contract.sha256")
 local contract_time = require("contract.time")
+local transition_version = require("contract.transition_version")
 local devloop_base = require("devloop.base")
+local devloop_commands = require("devloop.commands")
 local decompose = require("devloop.decompose")
 local devloop_state = require("devloop.state")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -10,6 +13,7 @@ local entity_view = require("devloop.github_proxy_entity_view")
 local marker_facts = require("devloop.markers.facts")
 local marker_shared = require("devloop.markers.shared")
 local parsers_misc = require("devloop.parsers.misc")
+local parsers_pr = require("devloop.parsers.pr")
 local forge_strings = require("forge.strings")
 local request_shared = require("devloop.requests.shared")
 local sweep_bounds = require("devloop.sweep_bounds")
@@ -83,7 +87,85 @@ local function has_post_terminal_non_bot_comment(comments, terminal_marker_index
   return false
 end
 
+local function has_post_terminal_non_bot_comment_after(comments, terminal_created_at)
+  local terminal_seconds = contract_time.iso_timestamp_epoch_seconds(terminal_created_at)
+  if terminal_seconds == nil then
+    return true
+  end
+  local trusted_bot = forge_strings.canonical_login(parsers_misc.trusted_bot_login())
+  for _, comment in ipairs(comments or {}) do
+    local author = forge_strings.canonical_login(parsers_misc._comment_author_login(comment))
+    if author ~= trusted_bot then
+      local comment_seconds = contract_time.iso_timestamp_epoch_seconds(
+        parsers_misc._comment_created_at(comment)
+      )
+      if comment_seconds == nil or comment_seconds > terminal_seconds then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function delegation_for_parent_terminal(issue, proposal_id, terminal_version)
+  local delegation = marker_facts.pr_delegation_fact(issue.comments, proposal_id)
+  if delegation == nil then
+    return nil, false
+  end
+  local expected_terminal_version = transition_version.next_blocked(
+    delegation.version,
+    "child-pr-blocked"
+  )
+  if expected_terminal_version ~= terminal_version then
+    return nil, true
+  end
+  return delegation, false
+end
+
+local function delegated_proof_digest(delegation, link, pr_state, fix_reconcile, decomposed, proof)
+  local fields = {
+    delegation.proposal_id,
+    delegation.pr_proposal_id,
+    delegation.pr_number,
+    delegation.version,
+    delegation.delegation,
+    link.proposal_id,
+    link.pr_number,
+    link.branch,
+    link.impl_version,
+    link.base_branch,
+    pr_state.state,
+    pr_state.version,
+    fix_reconcile.round,
+    fix_reconcile.action,
+    fix_reconcile.dedup_key,
+    decomposed.proposal_id,
+    decomposed.version,
+    decomposed.pr_number,
+    decomposed.count,
+  }
+  for _, child in ipairs(proof.facts or {}) do
+    table.insert(fields, tostring(child.index) .. ":" .. tostring(child.issue_number or "unknown"))
+  end
+  for index, value in ipairs(fields) do
+    fields[index] = tostring(value or "")
+  end
+  return contract_sha256.hex(table.concat(fields, "\n"))
+end
+
 local function retirement_receipt_marker(fact)
+  if fact.terminal_authority == "delegated-fix-reconcile:v1" then
+    return '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
+      .. fact.proposal_id
+      .. '" terminal_state="blocked" terminal_version="' .. fact.terminal_version
+      .. '" terminal_authority="delegated-fix-reconcile:v1" action="drop"'
+      .. ' delegated_pr="' .. tostring(fact.delegated_pr_number)
+      .. '" pr_terminal_version="' .. fact.pr_terminal_version
+      .. '" decomposed_count="' .. tostring(fact.decomposed_count)
+      .. '" proof_digest="' .. fact.proof_digest
+      .. '" dwell_minutes="' .. tostring(fact.dwell_minutes)
+      .. '" operator_handling_check="no-post-terminal-human-comment-on-parent-or-pr" -->'
+  end
   if fact.terminal_authority == "reconcile:v1" then
     return '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
       .. fact.proposal_id
@@ -106,7 +188,20 @@ local function retirement_receipt_visible(comments, fact)
         and marker_shared.marker_attr(marker, "terminal_state") == fact.terminal_state
         and marker_shared.marker_attr(marker, "terminal_version") == fact.terminal_version then
         if fact.terminal_authority ~= "reconcile:v1" then
-          return true
+          if fact.terminal_authority ~= "delegated-fix-reconcile:v1" then
+            return true
+          end
+          if marker_shared.marker_attr(marker, "terminal_authority") == "delegated-fix-reconcile:v1"
+            and marker_shared.marker_attr(marker, "action") == "drop"
+            and marker_shared.marker_attr(marker, "delegated_pr") == tostring(fact.delegated_pr_number)
+            and marker_shared.marker_attr(marker, "pr_terminal_version") == fact.pr_terminal_version
+            and marker_shared.marker_attr(marker, "decomposed_count") == tostring(fact.decomposed_count)
+            and marker_shared.marker_attr(marker, "proof_digest") == fact.proof_digest
+            and marker_shared.marker_attr(marker, "dwell_minutes") == tostring(fact.dwell_minutes)
+            and marker_shared.marker_attr(marker, "operator_handling_check")
+              == "no-post-terminal-human-comment-on-parent-or-pr" then
+            return true
+          end
         end
         if marker_shared.marker_attr(marker, "terminal_authority") == "reconcile:v1"
           and marker_shared.marker_attr(marker, "action") == "drop"
@@ -126,7 +221,26 @@ end
 local function retirement_receipt_request(repo, issue_number, fact)
   local source_ref = base_ids.issue_source_ref(repo, issue_number)
   local body
-  if fact.terminal_authority == "reconcile:v1" then
+  if fact.terminal_authority == "delegated-fix-reconcile:v1" then
+    body = table.concat({
+      "github-devloop terminal retirement: delegated fix-reconcile drop",
+      "",
+      "Terminal state: `blocked`",
+      "Terminal authority: `delegated-fix-reconcile:v1`",
+      "Parent terminal marker version: `" .. fact.terminal_version .. "`",
+      "Delegated PR: `#" .. tostring(fact.delegated_pr_number) .. "`",
+      "PR terminal marker version: `" .. fact.pr_terminal_version .. "`",
+      "Fix reconcile action: `drop`",
+      "Decomposition count: `" .. tostring(fact.decomposed_count) .. "`",
+      "Proof digest: `" .. fact.proof_digest .. "`",
+      "Required dwell: `" .. tostring(fact.dwell_minutes) .. " minutes`",
+      "Elapsed dwell: `" .. tostring(fact.elapsed_minutes) .. " minutes`",
+      "Operator-handling check: `no non-bot comment after terminal reconcile on the parent issue or delegated PR`",
+      "",
+      retirement_receipt_marker(fact),
+      request_shared.ai_sentinel,
+    }, "\n")
+  elseif fact.terminal_authority == "reconcile:v1" then
     body = table.concat({
       "github-devloop terminal retirement: reconcile drop",
       "",
@@ -169,6 +283,7 @@ local function retirement_receipt_request(repo, issue_number, fact)
       fact.terminal_state,
       fact.proposal_id,
       fact.terminal_version,
+      fact.proof_digest,
     }),
     source_ref = source_ref,
   }
@@ -216,7 +331,118 @@ local function declined_retirement_fact(issue, proposal_id, terminal_version, no
   }
 end
 
-local function reconcile_drop_retirement_fact(issue, proposal_id, terminal_version, now_seconds)
+local function delegated_reconcile_drop_retirement_fact(
+  issue,
+  proposal_id,
+  terminal_version,
+  now_seconds,
+  delegated
+)
+  local delegation, mismatch = delegation_for_parent_terminal(issue, proposal_id, terminal_version)
+  if delegation == nil then
+    return nil, ineligible(mismatch
+      and "reconcile-terminal-pr-delegation-mismatch"
+      or "reconcile-terminal-fact-missing")
+  end
+  local pr = type(delegated) == "table" and delegated.pr or nil
+  if type(pr) ~= "table" then
+    return nil, ineligible("delegated-pr-unavailable")
+  end
+  local link = marker_facts.pr_link_fact(pr.comments, proposal_id)
+  if link == nil
+    or link.pr_number ~= delegation.pr_number
+    or transition_version.strip_suffixes(link.impl_version)
+      ~= transition_version.strip_suffixes(delegation.version) then
+    return nil, ineligible("delegated-pr-link-missing")
+  end
+  local fix_reconcile = conv_reconcile.fix_reconcile_fact(
+    pr.comments,
+    proposal_id,
+    nil
+  )
+  if fix_reconcile == nil or fix_reconcile.action ~= "drop" then
+    return nil, ineligible("delegated-fix-reconcile-missing")
+  end
+  local pr_terminal_version = fix_reconcile.version
+  local milestone_opts = {
+    domain = "github-devloop-pr",
+    lineage_base = pr_terminal_version,
+  }
+  if transition_version.strip_suffixes(pr_terminal_version)
+      ~= transition_version.strip_suffixes(delegation.version)
+    or not devloop_state.reached(pr.comments, proposal_id, "blocked", milestone_opts)
+    or not devloop_state.has_state_marker(pr.comments, proposal_id, "blocked", pr_terminal_version)
+    or devloop_state.reached(pr.comments, proposal_id, "closed-unmerged", milestone_opts) then
+    return nil, ineligible("delegated-pr-state-mismatch")
+  end
+  local pr_state = {
+    state = "blocked",
+    version = pr_terminal_version,
+  }
+  local decomposed = decompose.decomposed_fact(
+    pr.comments,
+    proposal_id,
+    pr_state.version,
+    delegation.pr_number
+  )
+  if decomposed == nil then
+    return nil, ineligible("delegated-decomposed-missing")
+  end
+  local _, _, proof = decompose.decompose_children_complete(
+    nil,
+    type(delegated) == "table" and delegated.child_issues or nil,
+    proposal_id,
+    pr_state.version,
+    delegation.pr_number,
+    decomposed.count
+  )
+  if type(proof) ~= "table" or proof.exact ~= true then
+    return nil, ineligible("delegated-decomposition-proof-incomplete")
+  end
+  local dwell, failure = retirement_dwell(
+    fix_reconcile.comment_index,
+    fix_reconcile.comment_created_at,
+    now_seconds
+  )
+  if dwell == nil then
+    return nil, failure
+  end
+  if has_post_terminal_non_bot_comment(pr.comments, dwell.marker_index)
+    or has_post_terminal_non_bot_comment_after(issue.comments, fix_reconcile.comment_created_at) then
+    return nil, ineligible("post-terminal-non-bot-comment", dwell.elapsed_minutes)
+  end
+  return {
+    proposal_id = proposal_id,
+    terminal_state = "blocked",
+    terminal_version = terminal_version,
+    terminal_authority = "delegated-fix-reconcile:v1",
+    delegated_pr_number = delegation.pr_number,
+    pr_terminal_version = pr_state.version,
+    decomposed_count = decomposed.count,
+    proof_digest = delegated_proof_digest(
+      delegation,
+      link,
+      pr_state,
+      fix_reconcile,
+      decomposed,
+      proof
+    ),
+    dwell_minutes = common.terminal_retirement_dwell_minutes,
+    elapsed_minutes = dwell.elapsed_minutes,
+  }
+end
+
+local function reconcile_drop_retirement_fact(issue, proposal_id, terminal_version, now_seconds, delegated)
+  local delegation, mismatch = delegation_for_parent_terminal(issue, proposal_id, terminal_version)
+  if delegation ~= nil or mismatch then
+    return delegated_reconcile_drop_retirement_fact(
+      issue,
+      proposal_id,
+      terminal_version,
+      now_seconds,
+      delegated
+    )
+  end
   local reconcile_fact = conv_reconcile.reconcile_fact_for_terminal_version(
     issue.comments,
     proposal_id,
@@ -263,6 +489,16 @@ end
 local function observed_reconcile_drop_candidate(entity)
   local observed_state = type(entity) == "table" and entity.state or nil
   local observed_issue = type(entity) == "table" and entity.parent_issue or nil
+  local delegation = observed_issue and observed_state
+    and delegation_for_parent_terminal(
+      observed_issue,
+      entity.proposal_id,
+      observed_state.version
+    )
+    or nil
+  if delegation ~= nil then
+    return true
+  end
   local fact = conv_reconcile.reconcile_fact_for_terminal_version(
     observed_issue and observed_issue.comments,
     entity and entity.proposal_id,
@@ -284,7 +520,7 @@ local terminal_retirement_kinds = {
   },
 }
 
-function M.decide(issue, expected, now_seconds)
+function M.decide(issue, expected, now_seconds, delegated)
   if type(issue) ~= "table" then
     return ineligible("issue-missing")
   end
@@ -305,7 +541,13 @@ function M.decide(issue, expected, now_seconds)
     return ineligible("terminal-changed")
   end
 
-  local fact, failure = retirement_kind.derive_fact(issue, proposal_id, terminal_version, now_seconds)
+  local fact, failure = retirement_kind.derive_fact(
+    issue,
+    proposal_id,
+    terminal_version,
+    now_seconds,
+    delegated
+  )
   if fact == nil then
     return failure
   end
@@ -337,6 +579,46 @@ local function log_retirement(expected, decision, action, mode, reason)
     "mode=" .. tostring(mode or "dry-run"),
     "reason=" .. tostring(reason or "none"),
   }, " "))
+end
+
+local function read_delegated_evidence(github, repo, issue, expected, limits, deadline)
+  local delegation = delegation_for_parent_terminal(
+    issue,
+    expected.proposal_id,
+    expected.version
+  )
+  if delegation == nil then
+    return nil
+  end
+  if not sweep_bounds.sweep_has_budget(deadline) then
+    return nil, "deadline-before-delegated-pr-read"
+  end
+  local pr_view = devloop_commands.gh_pr_view_origin(
+    repo,
+    delegation.pr_number,
+    sweep_bounds.sweep_call_timeout(limits, deadline),
+    github
+  )
+  if type(pr_view) ~= "table" or pr_view.exit_code ~= 0 then
+    return {}, nil
+  end
+  local pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
+  if not sweep_bounds.sweep_has_budget(deadline) then
+    return nil, "deadline-before-decomposition-proof-read"
+  end
+  local child_list = devloop_commands.gh_issue_list_decompose_children(
+    repo,
+    expected.proposal_id,
+    sweep_bounds.sweep_call_timeout(limits, deadline),
+    github
+  )
+  if type(child_list) ~= "table" or child_list.exit_code ~= 0 then
+    return { pr = pr }, nil
+  end
+  return {
+    pr = pr,
+    child_issues = decompose.parse_decompose_child_issue_list(child_list.stdout),
+  }, nil
 end
 
 function M.reconcile(github, repo, entity, limits, deadline)
@@ -373,7 +655,19 @@ function M.reconcile(github, repo, entity, limits, deadline)
     timeout = sweep_bounds.sweep_call_timeout(limits, deadline),
     consumer = "github-devloop-ops.terminal-retirement",
   })
-  local decision = M.decide(fresh_issue, expected, now())
+  local delegated, delegated_defer = read_delegated_evidence(
+    github,
+    repo,
+    fresh_issue,
+    expected,
+    limits,
+    deadline
+  )
+  if delegated_defer ~= nil then
+    log_retirement(expected, "ineligible", "defer", config.write_mode(), delegated_defer)
+    return nil
+  end
+  local decision = M.decide(fresh_issue, expected, now(), delegated)
   local mode = config.write_mode()
   if decision.decision ~= "eligible" then
     log_retirement(expected, decision.decision, "skip", mode, decision.reason)

@@ -5,7 +5,9 @@ local contract_time = require("contract.time")
 local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local m_builders = require("devloop.markers.builders")
+local decompose = require("devloop.decompose")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local transition_version = require("contract.transition_version")
 local terminal_retirement = require("departments.observability.terminal_retirement")
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -14,6 +16,9 @@ local result_dedup = "consensus:github-devloop/issue/owner/repo/42/intake/retire
 local reconcile_base_version = "github-devloop/issue/owner/repo/42/intake/reconcile-retirement-test"
 local reconcile_round = 3
 local reconcile_terminal_version = conv_reconcile.reconcile_state_version(reconcile_base_version, reconcile_round)
+local delegated_pr_number = 7
+local delegated_version = "ready/consensus-github-devloop/issue/owner/repo/42/retirement/fix/4"
+local delegated_parent_version = transition_version.next_blocked(delegated_version, "child-pr-blocked")
 
 parsers_misc.configure_trusted_bot_login("fkst-test-bot")
 
@@ -95,6 +100,136 @@ local function expected_reconcile_terminal()
     state = "blocked",
     version = reconcile_terminal_version,
   }
+end
+
+local function delegated_parent(extra_comments, delegation_marker, delegation_author)
+  local comments = {
+    bot_comment(
+      core.state_marker(proposal_id, "blocked", delegated_parent_version),
+      "2026-07-30T00:02:00Z"
+    ),
+  }
+  if delegation_marker ~= false then
+    table.insert(comments, {
+      body = delegation_marker or m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/7",
+        delegated_pr_number,
+        delegated_version,
+        "g1"
+      ),
+      author_login = delegation_author or "fkst-test-bot",
+      created_at = "2026-07-29T23:59:00Z",
+    })
+  end
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  return {
+    number = 42,
+    state = "OPEN",
+    comments = comments,
+  }
+end
+
+local function delegated_pr(extra_comments, overrides)
+  local values = overrides or {}
+  local comments = {
+    {
+      body = values.pr_link_marker or m_builders.pr_link_marker(
+        proposal_id,
+        delegated_pr_number,
+        "devloop-owner-repo-42",
+        delegated_version,
+        "dev"
+      ),
+      author_login = values.pr_link_author or "fkst-test-bot",
+      created_at = "2026-07-29T23:59:00Z",
+    },
+  }
+  local fix_marker = values.fix_marker
+  if fix_marker == nil then
+    fix_marker = conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "drop")
+  elseif fix_marker == false then
+    fix_marker = ""
+  end
+  table.insert(comments,
+    bot_comment(
+      core.state_marker(proposal_id, values.state or "blocked", values.state_version or delegated_version)
+        .. "\n" .. fix_marker,
+      "2026-07-30T00:00:00Z"
+    )
+  )
+  if values.decomposed_marker ~= false then
+    table.insert(comments, {
+      body = values.decomposed_marker or decompose.decomposed_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        values.decomposed_count or 2
+      ),
+      author_login = values.decomposed_author or "fkst-test-bot",
+      created_at = "2026-07-30T00:01:00Z",
+    })
+  end
+  for _, comment in ipairs(extra_comments or {}) do
+    table.insert(comments, comment)
+  end
+  return {
+    number = delegated_pr_number,
+    state = "OPEN",
+    comments = comments,
+  }
+end
+
+local function delegated_children(overrides)
+  local values = overrides or {}
+  return {
+    {
+      number = 101,
+      state = "OPEN",
+      author_login = values.first_author or "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        values.first_parent or proposal_id,
+        values.first_version or delegated_version,
+        values.first_pr or delegated_pr_number,
+        values.first_index or 1
+      ),
+    },
+    {
+      number = 102,
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        values.second_index or 2
+      ),
+    },
+  }
+end
+
+local function expected_delegated_terminal()
+  return {
+    proposal_id = proposal_id,
+    repo = "owner/repo",
+    issue_number = 42,
+    state = "blocked",
+    version = delegated_parent_version,
+  }
+end
+
+local function decide_delegated(parent, pr, children)
+  return terminal_retirement.decide(
+    parent,
+    expected_delegated_terminal(),
+    contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z"),
+    {
+      pr = pr,
+      child_issues = children,
+    }
+  )
 end
 
 return {
@@ -234,5 +369,181 @@ return {
 
     t.eq(replay.decision, "eligible")
     t.eq(replay.action, "close")
+  end,
+
+  test_exact_delegated_fix_reconcile_decomposition_is_eligible = function()
+    local decision = decide_delegated(
+      delegated_parent(),
+      delegated_pr(),
+      delegated_children()
+    )
+
+    t.eq(decision.decision, "eligible")
+    t.eq(decision.action, "receipt")
+    t.eq(decision.fact.terminal_authority, "delegated-fix-reconcile:v1")
+    t.eq(decision.fact.delegated_pr_number, delegated_pr_number)
+    t.eq(decision.fact.pr_terminal_version, delegated_version)
+    t.eq(decision.fact.decomposed_count, 2)
+    t.is_true(type(decision.fact.proof_digest) == "string")
+    t.eq(#decision.fact.proof_digest, 64)
+    t.is_true(decision.request.body:find('proof_digest="' .. decision.fact.proof_digest .. '"', 1, true) ~= nil)
+  end,
+
+  test_delegated_terminal_requires_exact_issue_and_pr_authority = function()
+    local wrong_delegation = m_builders.pr_delegation_marker(
+      proposal_id,
+      "github-devloop/pr/owner/repo/7",
+      7,
+      delegated_version .. "/other",
+      "g1"
+    )
+    local wrong_link = m_builders.pr_link_marker(
+      proposal_id,
+      8,
+      "devloop-owner-repo-42",
+      delegated_version,
+      "dev"
+    )
+    local cases = {
+      { parent = delegated_parent(nil, false), reason = "reconcile-terminal-fact-missing" },
+      { parent = delegated_parent(nil, nil, "mallory"), reason = "reconcile-terminal-fact-missing" },
+      { parent = delegated_parent(nil, wrong_delegation), reason = "reconcile-terminal-pr-delegation-mismatch" },
+      { parent = delegated_parent(), pr = nil, reason = "delegated-pr-unavailable" },
+      { parent = delegated_parent(), pr = { state = "OPEN", comments = {} }, reason = "delegated-pr-link-missing" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { pr_link_marker = wrong_link }), reason = "delegated-pr-link-missing" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { pr_link_author = "mallory" }), reason = "delegated-pr-link-missing" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { state = "reviewing" }), reason = "delegated-pr-state-mismatch" },
+      { parent = delegated_parent(), pr = delegated_pr(nil, { state_version = delegated_version .. "/other" }), reason = "delegated-pr-state-mismatch" },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, {
+          fix_marker = conv_reconcile.fix_reconcile_marker(proposal_id, delegated_version, "re-design"),
+        }),
+        reason = "delegated-fix-reconcile-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, {
+          fix_marker = '<!-- fkst:github-devloop:timeout-reconcile:v1 proposal="' .. proposal_id
+            .. '" version="' .. delegated_version .. '" round="4" action="drop" -->',
+        }),
+        reason = "delegated-fix-reconcile-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, { decomposed_marker = false }),
+        reason = "delegated-decomposed-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, {
+          decomposed_marker = decompose.decomposed_marker(
+            proposal_id,
+            delegated_version .. "/other",
+            delegated_pr_number,
+            2
+          ),
+        }),
+        reason = "delegated-decomposed-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, { decomposed_author = "mallory" }),
+        reason = "delegated-decomposed-missing",
+      },
+      {
+        parent = delegated_parent(),
+        pr = delegated_pr(nil, {
+          decomposed_marker = '<!-- fkst:github-devloop:decomposed:v1 proposal="' .. proposal_id
+            .. '" version="' .. delegated_version .. '" pr="7" count="0" -->',
+        }),
+        reason = "delegated-decomposed-missing",
+      },
+    }
+
+    for _, case in ipairs(cases) do
+      local decision = decide_delegated(case.parent, case.pr, delegated_children())
+      t.eq(decision.decision, "ineligible")
+      t.eq(decision.reason, case.reason)
+    end
+  end,
+
+  test_delegated_terminal_requires_one_exact_trusted_child_fact_per_index = function()
+    local cases = {
+      { children = { delegated_children()[1] } },
+      { children = delegated_children({ second_index = 1 }) },
+      { children = delegated_children({ first_parent = proposal_id .. "/other" }) },
+      { children = delegated_children({ first_version = delegated_version .. "/other" }) },
+      { children = delegated_children({ first_pr = 8 }) },
+      { children = delegated_children({ first_author = "mallory" }) },
+    }
+
+    for _, case in ipairs(cases) do
+      local decision = decide_delegated(delegated_parent(), delegated_pr(), case.children)
+      t.eq(decision.decision, "ineligible")
+      t.eq(decision.reason, "delegated-decomposition-proof-incomplete")
+    end
+  end,
+
+  test_delegated_terminal_rejects_post_reconcile_human_comment_on_either_surface = function()
+    local issue_comment = {
+      body = "Please keep this open.",
+      author_login = "alice",
+      created_at = "2026-07-30T00:03:00Z",
+    }
+    local pr_comment = {
+      body = "The decomposition needs another pass.",
+      author_login = "alice",
+      created_at = "2026-07-30T00:03:00Z",
+    }
+
+    local issue_decision = decide_delegated(
+      delegated_parent({ issue_comment }),
+      delegated_pr(),
+      delegated_children()
+    )
+    local pr_decision = decide_delegated(
+      delegated_parent(),
+      delegated_pr({ pr_comment }),
+      delegated_children()
+    )
+
+    t.eq(issue_decision.decision, "ineligible")
+    t.eq(issue_decision.reason, "post-terminal-non-bot-comment")
+    t.eq(pr_decision.decision, "ineligible")
+    t.eq(pr_decision.reason, "post-terminal-non-bot-comment")
+  end,
+
+  test_delegated_receipt_must_match_force_fresh_authority_and_proof = function()
+    local parent = delegated_parent()
+    local pr = delegated_pr()
+    local children = delegated_children()
+    local first = decide_delegated(parent, pr, children)
+    local malformed_receipt = first.request.body:gsub('proof_digest="[^"]+"', 'proof_digest="wrong"')
+    table.insert(parent.comments, bot_comment(malformed_receipt, "2026-07-31T00:00:00Z"))
+
+    local malformed = decide_delegated(parent, pr, children)
+    t.eq(malformed.decision, "eligible")
+    t.eq(malformed.action, "receipt")
+
+    table.insert(parent.comments, bot_comment(first.request.body, "2026-07-31T00:01:00Z"))
+    local unchanged = decide_delegated(parent, pr, children)
+    t.eq(unchanged.decision, "eligible")
+    t.eq(unchanged.action, "close")
+
+    table.insert(children, {
+      number = 103,
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version,
+        delegated_pr_number,
+        1
+      ),
+    })
+    local changed = decide_delegated(parent, pr, children)
+    t.eq(changed.decision, "ineligible")
+    t.eq(changed.reason, "delegated-decomposition-proof-incomplete")
   end,
 }

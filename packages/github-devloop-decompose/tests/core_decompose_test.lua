@@ -114,4 +114,94 @@ return {
     t.eq(live_completed[1], nil)
     t.eq(live_completed[2], true)
   end,
+
+  test_decompose_completion_preserves_duplicate_child_fact_evidence = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local issues = {
+      {
+        number = 101,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+      {
+        number = 102,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+      {
+        number = 103,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 2),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+    }
+
+    local completed, evidence = decompose_lib.decompose_child_issue_fact_indexes(
+      issues,
+      proposal_id,
+      version,
+      7
+    )
+    local complete, completed_count, proof = decompose_lib.decompose_children_complete(
+      nil,
+      issues,
+      proposal_id,
+      version,
+      7,
+      2
+    )
+
+    t.eq(completed[1], true)
+    t.eq(completed[2], true)
+    t.eq(evidence.occurrences[1], 2)
+    t.eq(evidence.occurrences[2], 1)
+    t.eq(#evidence.facts, 3)
+    t.eq(evidence.facts[1].issue_number, 101)
+    t.eq(evidence.facts[2].issue_number, 102)
+    t.eq(evidence.facts[3].issue_number, 103)
+    t.eq(complete, true)
+    t.eq(completed_count, 2)
+    t.eq(proof.exact, false)
+    t.eq(proof.matched_count, 3)
+  end,
+
+  test_decompose_completion_exposes_one_exact_fact_per_declared_index = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local issues = {
+      {
+        number = 101,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+      {
+        number = 102,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 2),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+    }
+
+    local complete, completed_count, proof = decompose_lib.decompose_children_complete(
+      nil,
+      issues,
+      proposal_id,
+      version,
+      7,
+      2
+    )
+
+    t.eq(complete, true)
+    t.eq(completed_count, 2)
+    t.eq(proof.exact, true)
+    t.eq(proof.matched_count, 2)
+    t.eq(proof.facts[1].index, 1)
+    t.eq(proof.facts[1].issue_number, 101)
+    t.eq(proof.facts[2].index, 2)
+    t.eq(proof.facts[2].issue_number, 102)
+  end,
 }

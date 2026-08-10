@@ -37,9 +37,9 @@ end
     end)
   end
 
-  function C.gh_issue_list_decompose_children(repo, proposal_id, timeout)
+  function C.gh_issue_list_decompose_children(repo, proposal_id, timeout, github)
     return support.gh_result(function()
-      return support.github().issue_search(
+      return (github or support.github()).issue_search(
         repo,
         "fkst:github-devloop:decompose-child:v1 " .. tostring(proposal_id),
         "number,title,state,author,body,url",

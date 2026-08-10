@@ -154,6 +154,10 @@ end
 
 function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_number)
   local completed = {}
+  local evidence = {
+    occurrences = {},
+    facts = {},
+  }
   local child_pattern = "<!%-%- fkst:github%-devloop:decompose%-child:v1.-%-%->"
   for _, issue in ipairs(issues or {}) do
     local body = tostring(type(issue) == "table" and issue.body or "")
@@ -169,12 +173,23 @@ function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_n
           local index = tonumber(marker:match('index="([^"]+)"'))
           if index ~= nil and index >= 1 and index <= max_decompose_issues and index % 1 == 0 then
             completed[index] = true
+            evidence.occurrences[index] = (evidence.occurrences[index] or 0) + 1
+            table.insert(evidence.facts, {
+              index = index,
+              issue_number = tonumber(issue.number),
+            })
           end
         end
       end
     end
   end
-  return completed
+  table.sort(evidence.facts, function(left, right)
+    if left.index ~= right.index then
+      return left.index < right.index
+    end
+    return tonumber(left.issue_number or 0) < tonumber(right.issue_number or 0)
+  end)
+  return completed, evidence
 end
 
 function C.decompose_child_fact_indexes(comments, issues, proposal_id, version, pr_number, dedup_by_index)
@@ -209,11 +224,32 @@ end
 function C.decompose_children_complete(comments, issues, proposal_id, version, pr_number, expected_count)
   local count = tonumber(expected_count)
   if count == nil or count < 1 or count > max_decompose_issues or count % 1 ~= 0 then
-    return true, 0
+    return true, 0, {
+      exact = false,
+      expected_count = count,
+      matched_count = 0,
+      facts = {},
+    }
   end
-  local completed = C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_number)
+  local completed, evidence = C.decompose_child_issue_fact_indexes(
+    issues,
+    proposal_id,
+    version,
+    pr_number
+  )
   local completed_count = decompose_child_count(completed)
-  return completed_count >= count, completed_count
+  local exact = completed_count == count and #evidence.facts == count
+  for index = 1, count do
+    if evidence.occurrences[index] ~= 1 then
+      exact = false
+    end
+  end
+  return completed_count >= count, completed_count, {
+    exact = exact,
+    expected_count = count,
+    matched_count = #evidence.facts,
+    facts = evidence.facts,
+  }
 end
 
 function C.build_decompose_replay_payload(restart_policy, fact, comments_or_feedback, source_ref, completed_count)

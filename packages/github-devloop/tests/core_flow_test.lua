@@ -293,6 +293,21 @@ return {
 
     local marker = conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "drop")
     t.eq(conv_reconcile.has_fix_reconcile_marker(core, { marker }, issue_proposal_id, issue_version), true)
+    local marker_fact = conv_reconcile.fix_reconcile_fact({ marker }, issue_proposal_id, issue_version, "drop")
+    t.eq(marker_fact.action, "drop")
+    t.eq(marker_fact.dedup_key, "fix-reconcile:" .. issue_version)
+    t.eq(marker_fact.round, 4)
+    local derived_marker_fact = conv_reconcile.fix_reconcile_fact({ marker }, issue_proposal_id, nil, "drop")
+    t.eq(derived_marker_fact.version, issue_version)
+    t.eq(conv_reconcile.fix_reconcile_fact({
+      marker:gsub('action="drop"', 'action="unsupported"'),
+    }, issue_proposal_id, issue_version), nil)
+    t.eq(conv_reconcile.fix_reconcile_fact({
+      marker:gsub('dedup="fix%-reconcile:[^"]+"', 'dedup="fix-reconcile:other"'),
+    }, issue_proposal_id, issue_version), nil)
+    t.eq(conv_reconcile.fix_reconcile_fact({
+      conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "re-design"),
+    }, issue_proposal_id, issue_version, "drop"), nil)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="fix-reconcile:' .. issue_version .. '"', 1, true) ~= nil)
