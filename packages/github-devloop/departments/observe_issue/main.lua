@@ -332,21 +332,28 @@ local function comments_after(comments, index)
   return later
 end
 
-local function committed_reimplement_attempt(command_index, comments, proposal_id, state)
+local function committed_reimplement_attempt(command, command_index, comments, proposal_id, state)
   local current_version = state and state.version
   if current_version == nil then
-    return nil
+    return nil, "state-version-missing"
   end
   local later_comments = comments_after(comments, command_index)
   if not devloop_state.has_state_marker(
     later_comments, proposal_id, "implementing", current_version) then
-    return nil
+    return nil, "implementing-fact-missing"
+  end
+  local command_fact = m_facts.implementing_command_fact(later_comments, proposal_id, current_version)
+  if command_fact == nil then
+    return nil, "implementing-command-unbound"
+  end
+  if command_fact.command_key ~= command.key then
+    return nil, "implementing-command-mismatch"
   end
   local attempt = core.implementation_retry_attempt(current_version)
   if attempt == nil then
-    return nil
+    return nil, "implementing-attempt-invalid"
   end
-  return { attempt = attempt, version = current_version }
+  return { attempt = attempt, version = current_version }, "applied"
 end
 
 local function maybe_acknowledge_committed_reimplement_command(issue, proposal_id, current, state,
@@ -354,8 +361,17 @@ local function maybe_acknowledge_committed_reimplement_command(issue, proposal_i
   if command == nil or operator_commands.has_operator_command_response(current.comments, command) then
     return false
   end
-  local committed = committed_reimplement_attempt(command_index, current.comments, proposal_id, state)
+  local committed, disposition = committed_reimplement_attempt(
+    command, command_index, current.comments, proposal_id, state)
   if committed == nil then
+    if devloop_state.is_current_state(
+      current.comments, proposal_id, "implementing", state.version
+    ) and disposition ~= "implementing-fact-missing" then
+      devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
+        "implementing", state.state, "deferred(operator-reimplement-" .. disposition .. ")",
+        "operator response waits for a durable implementing fact bound to the same command")
+      return true
+    end
     return false
   end
   if not claim_verified and not ensure_managed_issue_claim(issue, proposal_id, current, state) then
@@ -369,7 +385,7 @@ local function maybe_acknowledge_committed_reimplement_command(issue, proposal_i
   )
   devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
     "implementing", state.state, "applied(operator-reimplement)",
-    "durable same-lineage implementing state fact confirms implementation retry")
+    "durable implementing fact is bound to the same operator command")
   devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version,
     { add = {}, remove = {} }, {
       "github-proxy.github_issue_comment_request",

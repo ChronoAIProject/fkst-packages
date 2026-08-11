@@ -599,6 +599,34 @@ function C.has_implementing_marker(comments, proposal_id, dedup_key)
   return false
 end
 
+function C.implementing_command_fact(comments, proposal_id, dedup_key)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:implementing%-command:v1.-%-%->"
+  local latest = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    local body = parsers_misc._comment_body(comment)
+    for marker in body:gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_dedup = marker:match('dedup="([^"]*)"')
+      local command_key = marker:match('command_key="([^"]+)"')
+      if marker_proposal == proposal_id
+        and marker_dedup == tostring(dedup_key)
+        and strings.is_path_safe_key(command_key, devloop_base._max_dedup_len)
+        and devloop_state.has_state_marker({ comment }, proposal_id, "implementing", dedup_key) then
+        latest = {
+          proposal_id = marker_proposal,
+          dedup_key = marker_dedup,
+          command_key = command_key,
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+      end
+    end
+  end
+  return latest
+end
+
 function C.implementing_fact(comments, proposal_id, dedup_key)
   if type(comments) ~= "table" then
     return nil

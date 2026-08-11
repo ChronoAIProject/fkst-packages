@@ -33,6 +33,14 @@ local function command_key(command)
   return operator_commands.operator_command_fact({ command }, "reimplement").key
 end
 
+local function command_bound_implementing_marker(event, version, command)
+  return core.state_marker(event.proposal_id, "implementing", version)
+    .. '\n<!-- fkst:github-devloop:implementing-command:v1 proposal="' .. event.proposal_id
+    .. '" dedup="' .. version
+    .. '" command_key="' .. command_key(command)
+    .. '" -->'
+end
+
 local function impl_failed_comments(event, ready_version, command, earlier_comments, later_comments)
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", ready_version),
@@ -105,6 +113,83 @@ local function admit_reimplementation(event, ready, name)
 end
 
 return {
+  test_implementing_fact_only_acknowledges_its_bound_reimplement_command = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
+    local first_command = trusted_command("IC_reimplement_bound_first", "2026-08-01T01:00:00Z")
+    local second_command = trusted_command("IC_reimplement_bound_second", "2026-08-01T01:01:00Z")
+    local first_version = core.implementation_attempt_version(ready_version, 3)
+    local first_implementing = {
+      id = "IC_reimplement_bound_first_implementing",
+      body = command_bound_implementing_marker(event, first_version, first_command),
+      author_login = "fkst-test-bot",
+      created_at = "2026-08-01T01:02:00Z",
+    }
+    local interleaved_comments = impl_failed_comments(
+      event,
+      ready_version,
+      second_command,
+      { first_command },
+      { first_implementing }
+    )
+
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
+      comments = interleaved_comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local interleaved = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }),
+      opts("observe-reimplement-command-bound-interleaving")
+    )
+    t.eq(interleaved.exit_code, 0)
+    t.eq(find_raise(interleaved.raises, "devloop_ready"), nil)
+    t.eq(find_raise(interleaved.raises, "github-proxy.github_issue_comment_request"), nil)
+
+    local second_version = core.implementation_attempt_version(first_version, 4)
+    local second_implementing = {
+      id = "IC_reimplement_bound_second_implementing",
+      body = command_bound_implementing_marker(event, second_version, second_command),
+      author_login = "fkst-test-bot",
+      created_at = "2026-08-01T01:04:00Z",
+    }
+    local committed_comments = {
+      table.unpack(interleaved_comments),
+      {
+        id = "IC_reimplement_bound_first_failed",
+        body = core.state_marker(event.proposal_id, "impl-failed", first_version)
+          .. "\n" .. core.impl_failure_marker(
+            event.proposal_id,
+            first_version,
+            "codex-failed",
+            3,
+            "UNKNOWN",
+            true
+          ),
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T01:03:00Z",
+      },
+      second_implementing,
+    }
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
+      comments = committed_comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+    local committed = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:implementing" } }),
+      opts("observe-reimplement-command-bound-commit")
+    )
+    t.eq(committed.exit_code, 0)
+    t.eq(find_raise(committed.raises, "devloop_ready"), nil)
+    local applied = find_raise(committed.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+    end)
+    t.is_true(applied ~= nil)
+    t.is_true(tostring(applied.payload.body):find('key="' .. command_key(second_command) .. '"', 1, true) ~= nil)
+    t.is_true(tostring(applied.payload.body):find("Retry attempt: 4", 1, true) ~= nil)
+  end,
+
   test_same_second_prior_attempt_does_not_acknowledge_new_reimplement = function()
     local event = reached()
     local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key

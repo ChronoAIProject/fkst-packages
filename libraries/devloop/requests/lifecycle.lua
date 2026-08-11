@@ -263,6 +263,14 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
     error("github-devloop: git-sha-invalid: invalid implementing base_sha")
   end
   local state_marker = devloop_state.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
+  local command_marker = ""
+  if ready.operator_reimplement_delivery ~= nil then
+    command_marker = "\n" .. m_builders.implementing_command_marker(
+      ready.proposal_id,
+      ready.dedup_key,
+      ready.operator_reimplement_delivery.command_key
+    )
+  end
   local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
@@ -274,6 +282,7 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
       .. "\n" .. comment_strings.comment_string(output_language, "base_branch_label") .. tostring(base_branch)
       .. "\n" .. comment_strings.comment_string(output_language, "base_head_label") .. tostring(base_sha)
       .. "\n\n" .. state_marker
+      .. command_marker
       .. "\n" .. attempt_marker,
     dedup_key = base_ids.dedup_key({
       "implement",

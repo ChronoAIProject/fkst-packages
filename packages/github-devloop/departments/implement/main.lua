@@ -523,7 +523,6 @@ local function process_ready_event(event)
     logical.dedup_key = ready.implementation_version
     logical.implementation_version = nil
     logical.redrive_delivery = nil
-    logical.operator_reimplement_delivery = nil
     ready = logical
   end
   devloop_logging.log_entry("implement", event, ready.proposal_id, delivery_dedup_key)

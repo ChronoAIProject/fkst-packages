@@ -151,6 +151,19 @@ function C.implementing_marker(proposal_id, dedup_key, branch, head_sha, base_br
     .. '" -->'
 end
 
+function C.implementing_command_marker(proposal_id, dedup_key, command_key)
+  if not devloop_base.is_safe_proposal_ref(proposal_id, dedup_key) then
+    error("github-devloop: implementing-command-version-invalid: invalid implementing command version")
+  end
+  if not strings.is_path_safe_key(command_key, devloop_base._max_dedup_len) then
+    error("github-devloop: implementing-command-key-invalid: invalid implementing command key")
+  end
+  return '<!-- fkst:github-devloop:implementing-command:v1 proposal="' .. tostring(proposal_id)
+    .. '" dedup="' .. tostring(dedup_key)
+    .. '" command_key="' .. tostring(command_key)
+    .. '" -->'
+end
+
 function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid checkpoint branch")
