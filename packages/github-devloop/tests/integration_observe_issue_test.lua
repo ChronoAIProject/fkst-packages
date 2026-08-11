@@ -181,7 +181,34 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
-  test_observe_post_admission_self_held_authorized_human_continues_without_peer_discovery = function()
+  test_observe_post_admission_self_held_authorized_human_continues_after_fresh_admission = function()
+    local runtime_root = assert(os.getenv("FKST_RUNTIME_ROOT"))
+    cache_set(entity_list_cache.poll_epoch_cache_key("owner/repo"), "")
+    local recorded, poll_epoch = entity_list_cache.record_poll_epoch(
+      "owner/repo",
+      "observe-post-admission-human"
+    )
+    t.is_true(recorded)
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = "[]\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
+      stdout = "dev",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), {
+      stdout = "integration-fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+      stdout = "[]\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {
       m_builders.intake_decision_marker(
         "github-devloop/issue/owner/repo/42",
@@ -191,12 +218,14 @@ return {
       ),
     }, { "fkst-test-bot" }, "trusted-human")
 
-    local result = run_observe(issue(), opts("observe-self-held-authorized-human"))
+    local result = run_observe(issue({ poll_token = poll_epoch }), opts("observe-self-held-authorized-human", {
+      FKST_RUNTIME_ROOT = runtime_root,
+    }))
 
     t.eq(result.exit_code, 0)
     t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
-    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
-    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 1)
+    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 1)
   end,
 
   test_observe_unmanaged_repo_peer_stops_before_claim_or_lifecycle_effects = function()
@@ -212,7 +241,14 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {
+      m_builders.intake_decision_marker(
+        "github-devloop/issue/owner/repo/42",
+        "enable",
+        "intake/github-devloop/issue/owner/repo/42/v1",
+        "standard"
+      ),
+    }, { "fkst-test-bot" }, "trusted-human")
 
     local result = run_observe(issue({ poll_token = poll_epoch }), opts("observe-unmanaged-repo-peer", {
       FKST_RUNTIME_ROOT = runtime_root,
