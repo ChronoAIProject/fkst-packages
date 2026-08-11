@@ -142,6 +142,13 @@ local SOURCES = {
   },
 }
 
+-- Exact persisted content-address transitions. Unknown digests stay fail-closed.
+local PINNED_DIGEST_MIGRATIONS = {
+  ["builtin:software-feature-flow"] = {
+    ["d-1784791911"] = "d-4147428082",
+  },
+}
+
 -- Structural count of built-in catalogs: no json.decode, safe at module load.
 M.count = #SOURCES
 
@@ -158,6 +165,14 @@ function M.records()
     end
   end
   return out
+end
+
+function M.pinned_digest_migration_target(path, pinned_digest)
+  local by_digest = PINNED_DIGEST_MIGRATIONS[tostring(path or "")]
+  if by_digest == nil then
+    return nil
+  end
+  return by_digest[tostring(pinned_digest or "")]
 end
 
 function M.install(target)

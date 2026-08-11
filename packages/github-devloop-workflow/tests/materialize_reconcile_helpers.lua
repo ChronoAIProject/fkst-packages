@@ -220,7 +220,7 @@ local function run_with(fakes)
         return {
           valid = {
             [selected.id] = {
-              path = "test-workflow.json",
+              path = fake.blueprint_path or "test-workflow.json",
               blueprint = selected,
             },
           },

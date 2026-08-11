@@ -1,6 +1,7 @@
 local catalog = require("core.catalog")
 local blueprint_schema = require("core.blueprint")
 local default_catalog = require("core.default_catalog")
+local digest = require("core.digest")
 local t = fkst.test
 
 local function shell_quote(value)
@@ -230,6 +231,29 @@ local tests = {
     t.eq(loaded.valid["software-contract-migration-flow"].path, "builtin:software-contract-migration-flow")
     t.eq(loaded.valid["idea-to-goal-flow"].path, "builtin:idea-to-goal-flow")
     t.is_nil(loaded.valid["software-dev-flow"])
+  end,
+
+  test_builtin_feature_flow_declares_exact_pinned_digest_migration = function()
+    local loaded = catalog.validate_records(default_catalog.records())
+    local feature = loaded.valid["software-feature-flow"].blueprint
+    local current_digest = digest.blueprint_digest(feature)
+
+    t.eq(current_digest, "d-4147428082")
+    t.eq(
+      default_catalog.pinned_digest_migration_target(
+        "builtin:software-feature-flow",
+        "d-1784791911"
+      ),
+      current_digest
+    )
+    t.is_nil(default_catalog.pinned_digest_migration_target(
+      "external/software-feature-flow.json",
+      "d-1784791911"
+    ))
+    t.is_nil(default_catalog.pinned_digest_migration_target(
+      "builtin:software-feature-flow",
+      current_digest
+    ))
   end,
 
   test_builtin_mature_software_flows_have_governing_generated_steps = function()

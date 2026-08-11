@@ -6,6 +6,7 @@ local devloop_claims = require("devloop.claims")
 local dependency_gate = require("devloop.dependency_gate")
 local devloop_entity = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
+local default_catalog = require("core.default_catalog")
 local digest = require("core.digest")
 local frontier = require("core.frontier")
 local generator = require("core.generator")
@@ -533,6 +534,32 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
   end
   local current_digest = digest.blueprint_digest(record.blueprint)
   if current_digest ~= blueprint_fact.digest then
+    local migration_target = default_catalog.pinned_digest_migration_target(
+      record.path,
+      blueprint_fact.digest
+    )
+    if migration_target == current_digest then
+      unit.log_decision(
+        origin,
+        "blueprint",
+        "blueprint",
+        "applied(pinned-digest-migration)",
+        tostring(blueprint_fact.digest) .. " -> " .. tostring(current_digest)
+      )
+      unit.raise_request(
+        origin,
+        "github-proxy.github_issue_comment_request",
+        actions.blueprint_migration_request(
+          repo,
+          issue_number,
+          origin,
+          blueprint_fact.workflow,
+          blueprint_fact.digest,
+          current_digest
+        )
+      )
+      return "blueprint-migrated"
+    end
     return terminal(core, deps, repo, issue_number, origin, "error", "blueprint-digest-mismatch", unit)
   end
 

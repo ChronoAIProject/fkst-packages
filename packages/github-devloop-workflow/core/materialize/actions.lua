@@ -199,6 +199,28 @@ function M.hold_request(repo, issue_number, origin, reason_code, generation)
   })
 end
 
+function M.blueprint_migration_request(
+  repo,
+  issue_number,
+  origin,
+  workflow_id,
+  pinned_digest,
+  current_digest
+)
+  local built, err = marker.build_blueprint_marker(origin, workflow_id, current_digest)
+  if built == nil then
+    error("github-devloop-workflow: blueprint-migration-marker-build-failed: blueprint migration marker build failed: "
+      .. tostring(err and err.code or "unknown"))
+  end
+  local body = "Workflow blueprint migrated to `" .. tostring(workflow_id) .. "`.\n\n" .. built
+  return build_comment_request(repo, issue_number, origin, body, {
+    "blueprint-migration",
+    tostring(workflow_id),
+    tostring(pinned_digest),
+    tostring(current_digest),
+  })
+end
+
 function M.terminal_projection_state(terminal_fact)
   local terminal_state = tostring(terminal_fact and terminal_fact.state or "")
   if terminal_state == "blocked" or terminal_state == "error" then

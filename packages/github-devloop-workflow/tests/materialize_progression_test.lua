@@ -2,6 +2,7 @@ local fixtures = require("tests.materialize_reconcile_helpers")
 local base_ids = fixtures.base_ids
 local core = fixtures.core
 local decompose_lib = require("devloop.decompose")
+local default_catalog = require("core.default_catalog")
 local digest = fixtures.digest
 local materialization = fixtures.materialization
 local materialize_reconcile = fixtures.materialize_reconcile
@@ -41,6 +42,75 @@ local function first_generated_entry(spec)
 end
 
 return {
+  test_pre_policy_builtin_blueprint_migrates_before_delivery_hold_replay = function()
+    local current_blueprint = default_catalog.records()[1].blueprint
+    local prior_blueprint = default_catalog.records()[1].blueprint
+    prior_blueprint.steps[2].on_already_satisfied = nil
+    t.eq(current_blueprint.id, "software-feature-flow")
+    t.eq(prior_blueprint.id, "software-feature-flow")
+    t.eq(digest.blueprint_digest(prior_blueprint), "d-1784791911")
+    t.eq(digest.blueprint_digest(current_blueprint), "d-4147428082")
+
+    local first_spec = generated_spec("walking-skeleton")
+    local second_spec = generated_spec("production-slice")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local old_blueprint_marker = '<!-- fkst:github-devloop-workflow:blueprint:v1 origin="'
+      .. origin
+      .. '" workflow="software-feature-flow" digest="d-1784791911" -->'
+    local old_history = {
+      comment(old_blueprint_marker),
+      created_comment(
+        "walking-skeleton",
+        materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+        first_spec,
+        108,
+        prior_blueprint
+      ),
+      created_comment(
+        "production-slice",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109,
+        prior_blueprint
+      ),
+    }
+    local child_statuses = {
+      ["108"] = "result_ready",
+      ["109"] = "satisfied_unverified",
+    }
+
+    local migrated = run_with({
+      blueprint = current_blueprint,
+      blueprint_path = "builtin:software-feature-flow",
+      current = issue(old_history, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = child_statuses,
+    })
+    local migration_comments = only_queue(migrated, "github-proxy.github_issue_comment_request")
+    t.eq(#migration_comments, 1)
+    t.is_true(migration_comments[1].payload.body:find("blueprint:v1", 1, true) ~= nil)
+    t.is_true(migration_comments[1].payload.body:find("terminal:v1", 1, true) == nil)
+    local migrated_blueprint = marker.parse_blueprint_marker(migration_comments[1].payload.body, origin)
+    t.eq(migrated_blueprint.workflow, "software-feature-flow")
+    t.eq(migrated_blueprint.digest, "d-4147428082")
+    t.eq(#only_queue(migrated, "github-proxy.github_issue_create_request"), 0)
+
+    local migrated_history = comments_with(old_history, comment(migration_comments[1].payload.body))
+    local held = run_with({
+      blueprint = current_blueprint,
+      blueprint_path = "builtin:software-feature-flow",
+      current = issue(migrated_history, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = child_statuses,
+    })
+    local hold_comments = only_queue(held, "github-proxy.github_issue_comment_request")
+    t.eq(#hold_comments, 1)
+    local hold = marker.parse_hold_marker(hold_comments[1].payload.body, origin)
+    t.eq(hold.reason_code, "origin-delivery-unverified")
+    t.is_true(hold_comments[1].payload.body:find('state="done"', 1, true) == nil)
+    t.is_true(hold_comments[1].payload.body:find("result_ready", 1, true) == nil)
+    t.eq(#only_queue(held, "github-proxy.github_issue_create_request"), 0)
+    t.eq(#only_queue(held, "github-proxy.github_issue_close_request"), 0)
+  end,
+
   test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
     local changed_blueprint = blueprint()
     changed_blueprint.version = "2026-07-26"
