@@ -9,6 +9,7 @@ local local_iteration_verdict = require("departments.implement.local_iteration_v
 local devloop_logging = require("devloop.logging")
 local durable_impl_failure = require("devloop.impl_failure")
 local workflow_codex = require("workflow_internal.codex")
+local sweep_bounds = require("devloop.sweep_bounds")
 
 local exec_sync = exec_sync
 
@@ -217,13 +218,7 @@ local function command_detail(result)
 end
 
 local function command_timed_out(result)
-  if type(result) ~= "table" then
-    return false
-  end
-  if result.timed_out ~= nil then
-    return result.timed_out == true
-  end
-  return tonumber(result.exit_code) == 124
+  return sweep_bounds.exec_result_timed_out(result)
 end
 
 local function clean_probe_worktree(worktree)

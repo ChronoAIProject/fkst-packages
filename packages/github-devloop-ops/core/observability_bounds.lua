@@ -65,13 +65,7 @@ function M.observability_result_timeout(result)
   -- in production it is not -- it is the `fkst.test` command mock that does not yet
   -- carry timed_out (substrate follow-up: propagate timed_out through the mock, then
   -- drop this fallback so exit_code is never consulted).
-  if type(result) ~= "table" then
-    return false
-  end
-  if result.timed_out ~= nil then
-    return result.timed_out == true
-  end
-  return tonumber(result.exit_code) == 124
+  return sweep_bounds.exec_result_timed_out(result)
 end
 
 function M.observability_merge_deferred_reason(current, incoming)
