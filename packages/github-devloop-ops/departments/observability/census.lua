@@ -4,12 +4,19 @@ local common = require("departments.observability.common")
 local devloop_liveness = require("devloop.liveness")
 local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
+local strings = require("contract.strings")
+local transition_version = require("contract.transition_version")
 
 local M = {}
 
 function M.install_census(core)
 local dept = common.dept
 local stall_suspect_threshold_minutes = common.stall_suspect_threshold_minutes
+local audit_states = {
+  blocked = true,
+  declined = true,
+  dependency_wait = true,
+}
 
 local function state_or_nil(state)
   if type(state) ~= "table" or state.state == nil then
@@ -20,7 +27,7 @@ end
 
 local function put_issue_entity(entities, repo, issue_number, issue)
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  local issue_state = devloop_state.current_state(issue.comments, proposal_id)
+  local issue_state = devloop_state.current_state_fact(issue.comments, proposal_id)
   local link = m_facts.pr_link_fact(issue.comments, proposal_id)
   local dependency_wait = core.dependency_wait_fact(issue.comments, proposal_id)
   local entity = entities[proposal_id] or {
@@ -36,6 +43,7 @@ local function put_issue_entity(entities, repo, issue_number, issue)
   entity.parent_issue = issue
   if state_or_nil(issue_state) ~= nil then
     entity.state = issue_state
+    entity.issue_state = issue_state
     entity.marker_source = "issue"
   end
   if link ~= nil then
@@ -170,6 +178,57 @@ local function log_entity(entity)
     marker_source = entity.marker_source,
     pr_number = entity.pr_number,
     marker_created_at = state.marker_created_at,
+  }))
+end
+
+local function audit_verdict(state, version)
+  if not audit_states[state] then
+    return nil
+  end
+  if state == "blocked" then
+    local suffixes = transition_version.parse(version).suffixes or {}
+    local final_suffix = suffixes[#suffixes]
+    if final_suffix ~= nil
+      and final_suffix.kind == "blocked"
+      and final_suffix.reason == "child-pr-blocked" then
+      return "derived"
+    end
+  end
+  return "abstain"
+end
+
+function core.audit_verdict_log_line(fields)
+  if type(fields) ~= "table"
+    or not strings.is_bounded_string(fields.version, base_ids.max_dedup_len)
+    or not strings.is_bounded_string(fields.marker_author, base_ids.max_key_len) then
+    error("github-devloop-ops: audit-verdict-fields-invalid: audit verdict fields are incomplete")
+  end
+  return table.concat({
+    "github-devloop",
+    "dept=" .. dept,
+    "tag=AUDIT_VERDICT",
+    "proposal=" .. tostring(fields.proposal_id),
+    "issue=" .. tostring(fields.issue_number),
+    "state=" .. tostring(fields.state),
+    "version=" .. fields.version,
+    "marker_author=" .. fields.marker_author,
+    "verdict=" .. tostring(fields.verdict),
+  }, " ")
+end
+
+local function log_audit_verdict(entity)
+  local issue_state = entity.issue_state or {}
+  local verdict = audit_verdict(issue_state.state, issue_state.version)
+  if verdict == nil then
+    return
+  end
+  log.info(core.audit_verdict_log_line({
+    proposal_id = entity.proposal_id,
+    issue_number = entity.issue_number,
+    state = issue_state.state,
+    version = issue_state.version,
+    marker_author = issue_state.author_login,
+    verdict = verdict,
   }))
 end
 
@@ -312,6 +371,7 @@ function core.collect_observability_entities(event, repo, limits, deadline)
     local state = entity.state and entity.state.state or "unmanaged"
     counts[state] = (counts[state] or 0) + 1
     log_entity(entity)
+    log_audit_verdict(entity)
     local stall = log_stall_suspect(entity, now_seconds)
     if stall ~= nil then
       table.insert(stalls, stall)
