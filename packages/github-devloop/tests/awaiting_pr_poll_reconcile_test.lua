@@ -520,6 +520,36 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
+  test_blocked_issue_refuses_close_when_parent_merge_head_conflicts = function()
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
+    mock_issue_close()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local blocked_comments = parent_comments({
+      state = "blocked",
+      version = blocked_version,
+      delegation_version = version,
+    })
+    table.insert(blocked_comments, comment(
+      m_builders.merged_marker(parent, pr_number, blocked_version, other_rollup_head_sha),
+      core._test_bot_login,
+      "2026-06-03T04:04:05Z"
+    ))
+    local result = run_observe(blocked_comments, child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error or result.stderr):find(
+      "github-devloop: canonical-merged-parent-fact-conflict: parent merged fact head does not match canonical delegated PR",
+      1,
+      true
+    ) ~= nil)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+  end,
+
   test_rollup_receipt_scan_fetches_containing_receipt_before_probing_absent_orphan_object = function()
     local newer_head = "3333333333333333333333333333333333333333"
     local orphan_object_available = false
