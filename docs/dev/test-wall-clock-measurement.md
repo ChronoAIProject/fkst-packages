@@ -340,3 +340,58 @@ much of that was one fixed cost divided by small denominators. It is: **after re
 cost, why does a test in the large devloop packages still cost 3–10x more than a test elsewhere?**
 Answering it needs per-test duration from the engine, which is the prerequisite this document keeps
 arriving at.
+
+## The single most expensive test in the repository, and a failed attempt to fix it
+
+Cost was traced from 22 packages down to one test function, each step measured with the real root
+machinery (`load_composed_test_roots` builds the root; test files are then pruned from it — a
+hand-rolled root fails at `manifest catalog is required`).
+
+| level | result |
+|---|---|
+| 22 package units | `github-devloop` = 90.9% of the CI pool span |
+| its 196 normal test files, in groups of 20 | two groups = 66% of the grouped total; one group of 206 tests takes 6.2 s while another of 216 takes 76.6 s |
+| that group's 20 files | `context_bundle_test.lua` = 32.6 s; the other 19 are 0.1–1.7 s |
+| its 26 test functions | one quarter (7 tests) = 20.8 s of 23.3 s |
+| those 7 | **`test_context_bundle_file_cap_truncates_on_utf8_boundary` = 20.8 s**; the other six total 2.4 s |
+
+**One test function is roughly 5% of `github-devloop`'s entire normal run.** It builds a fixture at
+the 10 MiB `max_bundle_file_len` cap and drives the real bundle build through a probe department.
+
+**Three plausible causes were measured and refuted before the fourth was tried:**
+
+- the `slice4` byte-freeze characterization test, which hashes bundle bytes with a pure-Lua SHA-256 —
+  it runs alone in **0.7 s**;
+- pure-Lua SHA-256 in the production path — `libraries/devloop/context_bundle.lua` contains no
+  `sha256` call at all;
+- `contract.strings.json_string` making eight sequential `gsub` passes over the 10 MiB fixture —
+  measured at **0.44 s**. (The probe also confirmed `json_string(body) == '"' .. body .. '"'` for
+  this input, and that `utf8.len` on 10 MiB costs 0.01 s because it is a C function.)
+
+**The fourth attempt failed too, and the way it failed is the point.** The probe returns the whole
+10 MiB file content as a department result, and the caller uses it only for a UTF-8 validity check.
+Moving that check inside the probe — same bytes, same property, same moment, no 10 MiB crossing the
+process boundary — looked obviously right, and a single A/B run measured **30.8 s → 20.7 s**.
+
+An interleaved A,B,A,B re-measurement showed the truth:
+
+| run | before | after |
+|---|---:|---:|
+| 1 | 38.4 s | 22.7 s |
+| 2 | 22.6 s | 23.3 s |
+
+The first `before` was a cold-start outlier. Discarding it: **22.6 s versus 22.7 s and 23.3 s — no
+improvement.** The 33% "win" from the single A/B was load noise. The change was discarded and the
+tree restored.
+
+Had it been shipped, the PR would have claimed a 33% saving, CI would have been green because
+nothing was broken, and **no mechanism in this repository would have caught that the number was
+fiction** — the same shape as the three crash-as-measurement incidents recorded above, where an
+implausibly clean zero was the only tell.
+
+**Standing rule this produces:** on this host a single before/after run is not evidence. Interleave
+A,B,A,B, discard the first run as cold, and report the median — or do not claim a number.
+
+**Still open:** what the 20.8 s actually is. It is not the fixture, not hashing, and not the result
+marshalling. It is inside the real bundle build at 10 MiB, and isolating it further needs per-test
+duration from the engine.
