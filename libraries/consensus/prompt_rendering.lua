@@ -1,3 +1,4 @@
+local strings = require("contract.strings")
 local M = {}
 
 local function neutralizer(labels)
@@ -15,19 +16,7 @@ local function neutralizer(labels)
       end
       return line
     end
-    local output = {}
-    local start = 1
-    while true do
-      local newline = value:find("\n", start, true)
-      if newline == nil then
-        table.insert(output, neutralize_line(value:sub(start)))
-        break
-      end
-      table.insert(output, neutralize_line(value:sub(start, newline - 1)))
-      table.insert(output, "\n")
-      start = newline + 1
-    end
-    return table.concat(output)
+    return strings.map_lines(value, neutralize_line)
   end
 end
 
