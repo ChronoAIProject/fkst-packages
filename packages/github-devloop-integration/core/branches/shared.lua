@@ -22,11 +22,7 @@ function Shared.install(M)
   end
 
   local function require_safe_repo(repo)
-    local value = tostring(repo or "")
-    if value == "" or base_ids.safe_repo(value) ~= value then
-      error("github-devloop: repo-invalid: invalid branch sync repo")
-    end
-    return value
+    return base_ids.require_safe_repo(repo, "github-devloop: repo-invalid: invalid branch sync repo")
   end
 
   local function require_sync_result(result)
