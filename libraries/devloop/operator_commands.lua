@@ -139,6 +139,7 @@ function C.operator_command_fact(comments, command_name, expected_key)
     return nil
   end
   local latest = nil
+  local latest_index = nil
   for index, comment in ipairs(comments) do
     local parsed = parse_command(parsers_misc._comment_body(comment))
     if parsed ~= nil and parsed.command == command_name then
@@ -155,6 +156,7 @@ function C.operator_command_fact(comments, command_name, expected_key)
             blocker_number = parsed.blocker_number,
             output_obligation = parsed.output_obligation,
           }
+          latest_index = index
         end
       else
         devloop_logging.log_line("info", "operator_command", "IGNORED", {
@@ -166,7 +168,7 @@ function C.operator_command_fact(comments, command_name, expected_key)
       end
     end
   end
-  return latest
+  return latest, latest_index
 end
 
 function C.operator_rereview_version(current_version, head_sha)

@@ -7,7 +7,6 @@ local S = {}
 local C = {}
 restart_metadata.export_into(C)
 local devloop_base = require("devloop.base")
-local contract_time = require("contract.time")
 local transition_version = require("contract.transition_version")
 local m_builders = require("devloop.markers.builders")
 local issue_observation_facts = require("devloop.restart.issue_observation_facts")
@@ -205,39 +204,21 @@ function C.reached(comments, proposal_id, milestone, opts)
   end
   local domain = options.domain or options.milestone_domain
   restart_metadata._validate_milestone_domain(domain, milestone)
-  local created_at_floor = nil
-  if options.witness_created_at_on_or_after ~= nil then
-    created_at_floor = contract_time.iso_timestamp_epoch_seconds(options.witness_created_at_on_or_after)
-    if created_at_floor == nil then
-      return false
-    end
-  end
 
-  local witness = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
-      local candidate_created_at = contract_time.iso_timestamp_epoch_seconds(
-        candidate and candidate.marker_created_at
-      )
       if candidate ~= nil
         and candidate.proposal_id == proposal_id
         and restart_metadata._domain_allows_state(domain, candidate.state)
         and lineage_matches(candidate.version, options)
-        and C.is_at_or_after(candidate, milestone, options)
-        and (options.exact_milestone ~= true or candidate.state == milestone)
-        and (created_at_floor == nil
-          or (candidate_created_at ~= nil and candidate_created_at >= created_at_floor))
-        and (options.witness_version_at_or_before == nil
-          or (candidate.version ~= nil
-            and transition_version.compare(candidate.version, options.witness_version_at_or_before) <= 0))
-        and compare_state_marker(witness, candidate) then
-        witness = candidate
+        and C.is_at_or_after(candidate, milestone, options) then
+        return true
       end
     end
   end
-  return witness ~= nil, witness
+  return false
 end
 
 function C.has_state_marker(comments, proposal_id, state, version)

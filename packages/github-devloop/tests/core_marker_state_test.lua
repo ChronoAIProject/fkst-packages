@@ -355,49 +355,6 @@ return {
       lineage_base = "ready/consensus-github-devloop/issue/owner/repo/99/2026-06-04T01-02-03Z",
     }), false)
   end,
-  test_reached_returns_bounded_exact_milestone_witness = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-    local prior = base .. "/reimplement/2"
-    local committed = base .. "/reimplement/3"
-    local comments = {
-      {
-        body = core.state_marker(proposal_id, "implementing", prior),
-        author_login = parsers_misc.trusted_bot_login(),
-        created_at = "2026-08-01T00:59:00Z",
-      },
-      {
-        body = core.state_marker(proposal_id, "implementing", committed),
-        author_login = parsers_misc.trusted_bot_login(),
-        created_at = "2026-08-01T01:01:00Z",
-      },
-      {
-        body = core.state_marker(proposal_id, "impl-failed", committed),
-        author_login = parsers_misc.trusted_bot_login(),
-        created_at = "2026-08-01T01:02:00Z",
-      },
-    }
-
-    local did_reach, witness = core.reached(comments, proposal_id, "implementing", {
-      domain = "github-devloop",
-      lineage_base = committed,
-      exact_milestone = true,
-      witness_created_at_on_or_after = "2026-08-01T01:00:00Z",
-      witness_version_at_or_before = committed,
-    })
-    t.eq(did_reach, true)
-    t.eq(witness.state, "implementing")
-    t.eq(witness.version, committed)
-    t.eq(witness.marker_created_at, "2026-08-01T01:01:00Z")
-
-    t.eq(core.reached(comments, proposal_id, "implementing", {
-      domain = "github-devloop",
-      lineage_base = committed,
-      exact_milestone = true,
-      witness_created_at_on_or_after = "2026-08-01T01:03:00Z",
-      witness_version_at_or_before = committed,
-    }), false)
-  end,
   test_devloop_gate_rejects_executable_or_metatable_smuggle_paths = function()
     local facts = gate.facts({
       reached = function()

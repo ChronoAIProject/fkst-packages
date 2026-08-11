@@ -321,34 +321,40 @@ local function implementing_timeout_reimplement_fact(current, proposal_id, state
   return fact
 end
 
-local function committed_reimplement_attempt(command, comments, proposal_id, state)
+local function comments_after(comments, index)
+  local later = {}
+  if type(comments) ~= "table" or type(index) ~= "number" then
+    return later
+  end
+  for cursor = index + 1, #comments do
+    later[#later + 1] = comments[cursor]
+  end
+  return later
+end
+
+local function committed_reimplement_attempt(command_index, comments, proposal_id, state)
   local current_version = state and state.version
-  if command.created_at == nil or current_version == nil then
+  if current_version == nil then
     return nil
   end
-  local reached, witness = devloop_state.reached(comments, proposal_id, "implementing", {
-    domain = "github-devloop",
-    lineage_base = current_version,
-    exact_milestone = true,
-    witness_created_at_on_or_after = command.created_at,
-    witness_version_at_or_before = current_version,
-  })
-  if not reached then
+  local later_comments = comments_after(comments, command_index)
+  if not devloop_state.has_state_marker(
+    later_comments, proposal_id, "implementing", current_version) then
     return nil
   end
-  local attempt = core.implementation_retry_attempt(witness.version)
+  local attempt = core.implementation_retry_attempt(current_version)
   if attempt == nil then
     return nil
   end
-  return { attempt = attempt, version = witness.version }
+  return { attempt = attempt, version = current_version }
 end
 
 local function maybe_acknowledge_committed_reimplement_command(issue, proposal_id, current, state,
-    command, claim_verified)
+    command, command_index, claim_verified)
   if command == nil or operator_commands.has_operator_command_response(current.comments, command) then
     return false
   end
-  local committed = committed_reimplement_attempt(command, current.comments, proposal_id, state)
+  local committed = committed_reimplement_attempt(command_index, current.comments, proposal_id, state)
   if committed == nil then
     return false
   end
@@ -374,7 +380,7 @@ local function maybe_acknowledge_committed_reimplement_command(issue, proposal_i
 end
 
 local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot)
-  local command = operator_commands.operator_command_fact(current.comments, "reimplement")
+  local command, command_index = operator_commands.operator_command_fact(current.comments, "reimplement")
   if command == nil then
     return false
   end
@@ -383,7 +389,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     return false
   end
   if maybe_acknowledge_committed_reimplement_command(
-    issue, proposal_id, current, state, command, true) then
+    issue, proposal_id, current, state, command, command_index, true) then
     return true
   end
   local link = m_facts.pr_link_fact(current.comments, proposal_id)
@@ -460,19 +466,8 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
       impl_version = refusal_reentry.implementation_version,
     }
   end
-<<<<<<< HEAD
-  local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "deferred(operator-reimplement-awaiting-implementing-fact)", "operator response waits for durable implementing state fact")
-=======
   local payload = payloads_builders.build_devloop_ready_payload(payload_source)
-  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
-    issue.number,
-    command,
-    attempt,
-    issue.source_ref
-  )
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "applied(operator-reimplement)", "trusted operator command requested implementation retry")
->>>>>>> 6f32857549566298375edad3ca09df00695c39b5
+  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "deferred(operator-reimplement-awaiting-implementing-fact)", "operator response waits for durable implementing state fact")
   devloop_logging.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
     "devloop_ready",
   })
@@ -524,9 +519,11 @@ local function reconcile_issue_event(event, opts)
       return
     end
     if issue.source == "pr-entity-change" then
-      local reimplement_command = operator_commands.operator_command_fact(current.comments, "reimplement")
+      local reimplement_command, reimplement_command_index = operator_commands.operator_command_fact(
+        current.comments, "reimplement")
       if maybe_acknowledge_committed_reimplement_command(
-        issue, proposal_id, current, issue_state, reimplement_command, false) then
+        issue, proposal_id, current, issue_state,
+        reimplement_command, reimplement_command_index, false) then
         return
       end
       if issue_state.state ~= "awaiting-pr" then

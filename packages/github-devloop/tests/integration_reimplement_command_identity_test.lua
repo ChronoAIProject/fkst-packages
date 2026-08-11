@@ -33,7 +33,7 @@ local function command_key(command)
   return operator_commands.operator_command_fact({ command }, "reimplement").key
 end
 
-local function impl_failed_comments(event, ready_version, command, earlier_comments)
+local function impl_failed_comments(event, ready_version, command, earlier_comments, later_comments)
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", ready_version),
     core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true),
@@ -42,6 +42,9 @@ local function impl_failed_comments(event, ready_version, command, earlier_comme
     table.insert(comments, comment)
   end
   table.insert(comments, command)
+  for _, comment in ipairs(later_comments or {}) do
+    table.insert(comments, comment)
+  end
   return comments
 end
 
@@ -104,7 +107,7 @@ end
 return {
   test_same_second_prior_attempt_does_not_acknowledge_new_reimplement = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local previous_version = core.implementation_attempt_version(ready_version, 3)
     local created_at = "2026-08-01T01:00:00Z"
     local command = trusted_command("IC_reimplement_same_second_new_command", created_at)
@@ -154,7 +157,7 @@ return {
 
   test_reimplement_response_waits_for_durable_implementing_fact = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_command("IC_reimplement_commit_before_ack")
     local comments = impl_failed_comments(event, ready_version, command)
 
@@ -193,7 +196,7 @@ return {
       first_ready.payload.implementation_version,
       first_ready.payload.impl_retry_attempt
     )
-    local committed_comments = impl_failed_comments(event, ready_version, command, {
+    local committed_comments = impl_failed_comments(event, ready_version, command, nil, {
       {
         id = "IC_reimplement_commit_before_ack_state",
         body = core.state_marker(event.proposal_id, "implementing", implementing_version),
@@ -221,10 +224,10 @@ return {
 
   test_reimplement_response_survives_same_lineage_impl_failed_advance = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_command("IC_reimplement_commit_then_fail")
     local implementing_version = core.implementation_attempt_version(ready_version, 3)
-    local comments = impl_failed_comments(event, ready_version, command, {
+    local comments = impl_failed_comments(event, ready_version, command, nil, {
       {
         id = "IC_reimplement_commit_then_fail_implementing",
         body = core.state_marker(event.proposal_id, "implementing", implementing_version),
