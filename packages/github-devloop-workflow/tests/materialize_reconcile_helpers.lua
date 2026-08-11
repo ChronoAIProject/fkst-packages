@@ -41,7 +41,7 @@ end
 
 local function blueprint_marker(bp)
   local selected = bp or blueprint()
-  local built, err = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(selected))
+  local built, err = marker.build_blueprint_marker(origin, selected.id, digest.blueprint_digest(selected))
   t.is_nil(err)
   return built
 end
@@ -86,7 +86,16 @@ end
 
 local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state, bp)
   local selected = bp or blueprint()
-  local slot = slot_id == "second" and selected.steps[2] or selected.steps[1]
+  local slot = nil
+  for _, candidate in ipairs(selected.steps) do
+    if candidate.id == slot_id then
+      slot = candidate
+      break
+    end
+  end
+  if slot == nil then
+    error("unknown blueprint slot: " .. tostring(slot_id))
+  end
   local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(selected), slot, predecessor_ref_digest, spec)
   local built, err = marker.build_materialization_marker(
     origin,
@@ -207,11 +216,12 @@ local function run_with(fakes)
         if fake.workflow_missing then
           return { valid = {} }
         end
+        local selected = fake.blueprint or blueprint()
         return {
           valid = {
-            ["workflow-one"] = {
+            [selected.id] = {
               path = "test-workflow.json",
-              blueprint = fake.blueprint or blueprint(),
+              blueprint = selected,
             },
           },
         }

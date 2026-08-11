@@ -34,10 +34,6 @@ local STEP_FIELDS = {
   on_already_satisfied = true,
 }
 
-local ALREADY_SATISFIED_POLICIES = {
-  hold = true,
-}
-
 local SELECTOR_FIELDS = {
   labels_any = {
     max_count = M.MAX_SELECTOR_LABELS,
@@ -188,7 +184,7 @@ local function validate_content(content, path)
   return require_string(content[variant.field], path .. "." .. variant.field, variant.max)
 end
 
-local function validate_step(step, index, seen_ids)
+local function validate_step(step, index, seen_ids, workflow_id)
   local path = "steps[" .. tostring(index) .. "]"
   if type(step) ~= "table" then
     return false, fail(path, "not_object", "must be an object")
@@ -207,11 +203,18 @@ local function validate_step(step, index, seen_ids)
     if type(step.on_already_satisfied) ~= "string" then
       return false, fail(path .. ".on_already_satisfied", "not_string", "must be a string")
     end
-    if ALREADY_SATISFIED_POLICIES[step.on_already_satisfied] ~= true then
+    if step.on_already_satisfied ~= "hold" then
       return false, fail(
         path .. ".on_already_satisfied",
         "unsupported_already_satisfied_policy",
         "must be hold"
+      )
+    end
+    if workflow_id ~= "software-feature-flow" or step.id ~= "production-slice" then
+      return false, fail(
+        path .. ".on_already_satisfied",
+        "reserved_already_satisfied_policy",
+        "is reserved for software-feature-flow production-slice"
       )
     end
   end
@@ -260,7 +263,7 @@ function M.validate(tbl)
 
   local seen_ids = {}
   for index = 1, step_count do
-    ok, why = validate_step(tbl.steps[index], index, seen_ids)
+    ok, why = validate_step(tbl.steps[index], index, seen_ids, tbl.id)
     if not ok then return ok, why end
   end
 

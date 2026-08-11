@@ -351,17 +351,29 @@ return {
 
   test_delivery_hold_finishes_active_label_projection_on_later_poll = function()
     local hold_blueprint = blueprint()
+    hold_blueprint.id = "software-feature-flow"
+    hold_blueprint.steps[2].id = "production-slice"
     hold_blueprint.steps[2].on_already_satisfied = "hold"
     local first_spec = generated_spec("first")
     local second_spec = generated_spec("second")
     local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local release_done_claim_calls = 0
+    local close_done_origin_calls = 0
+    local function release_done_claim()
+      release_done_claim_calls = release_done_claim_calls + 1
+      return true
+    end
+    local function close_done_origin()
+      close_done_origin_calls = close_done_origin_calls + 1
+      return true
+    end
     local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-second-already-satisfied")
     t.is_nil(terminal_err)
     local base_comments = {
       comment(blueprint_marker(hold_blueprint)),
       created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108, hold_blueprint),
       created_comment(
-        "second",
+        "production-slice",
         materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
         second_spec,
         109,
@@ -379,9 +391,13 @@ return {
       blueprint = hold_blueprint,
       current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
       child_statuses = child_statuses,
+      release_done_claim = release_done_claim,
+      close_done_origin = close_done_origin,
     })
     local held_comments = only_queue(held, "github-proxy.github_issue_comment_request")
     t.eq(#held_comments, 2)
+    t.eq(release_done_claim_calls, 0)
+    t.eq(close_done_origin_calls, 0)
 
     local visible_comments = base_comments
     for _, request in ipairs(held_comments) do
@@ -391,6 +407,8 @@ return {
       blueprint = hold_blueprint,
       current = issue(visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
       child_statuses = child_statuses,
+      release_done_claim = release_done_claim,
+      close_done_origin = close_done_origin,
     })
     local label_requests = only_queue(replay, "github-proxy.github_issue_label_request")
 
@@ -399,6 +417,8 @@ return {
     t.eq(label_requests[1].payload.add_labels[1], "fkst-dev:thinking")
     t.eq(label_requests[1].payload.marker_guard.expected.state, "thinking")
     t.eq(label_requests[1].payload.marker_guard.expected.generation, "2")
+    t.eq(release_done_claim_calls, 0)
+    t.eq(close_done_origin_calls, 0)
   end,
 
   test_wait_when_predecessor_running_raises_nothing = function()

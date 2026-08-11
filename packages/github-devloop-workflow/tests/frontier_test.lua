@@ -246,14 +246,16 @@ local tests = {
       proposal_id = "child-second",
       source_ref = source_ref(102),
     }
-    local current_entry = created("second", current)
+    local current_entry = created("production-slice", current)
     current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
 
     local plan = blueprint()
+    plan.id = "software-feature-flow"
+    plan.steps[2].id = "production-slice"
     plan.steps[2].on_already_satisfied = "hold"
     local action = frontier.compute_frontier(plan, {
       first = created("first", predecessor),
-      second = current_entry,
+      ["production-slice"] = current_entry,
     }, function(child)
       if child.proposal_id == "child-first" then
         return "result_ready", { merged = true }
@@ -265,7 +267,7 @@ local tests = {
 
     t.eq(action.action, "wait")
     t.eq(action.why, "origin-delivery-unverified")
-    t.eq(action.slot, "second")
+    t.eq(action.slot, "production-slice")
     t.eq(action.child_ref, current)
   end,
 
