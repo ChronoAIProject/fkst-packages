@@ -65,6 +65,8 @@ local function sign_order(value)
   return 0
 end
 
+V.sign_order = sign_order
+
 local function slash_numeric_suffix(parts, pos, spec)
   local raw = parts[pos + 1]
   if type(raw) ~= "string" or raw:match("^%d+$") == nil then

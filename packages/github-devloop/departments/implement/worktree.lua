@@ -126,6 +126,19 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   end
 end
 
+local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, branch)
+  local stable_root = implementation_root()
+  local worktree_version = impl_failure.implementation_branch_version(dedup_key, retry_attempt)
+  local worktree = devloop_base.implement_worktree_path(
+    stable_root, repo, issue_number, worktree_version)
+  local list_result = devloop_commands.git_worktree_list(30)
+  if list_result.exit_code ~= 0 then
+    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
+  end
+  assert_canonical_registration(list_result.stdout, branch, worktree)
+  return worktree, list_result.stdout
+end
+
 function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
   local branch_exists = branch_ref.exit_code == 0
@@ -134,18 +147,8 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
   end
 
-  local stable_root = implementation_root()
-  local worktree_version = impl_failure.implementation_branch_version(
-    ready.dedup_key,
-    ready.impl_retry_attempt
-  )
-  local worktree = devloop_base.implement_worktree_path(
-    stable_root, repo, issue_number, worktree_version)
-  local list_result = devloop_commands.git_worktree_list(30)
-  if list_result.exit_code ~= 0 then
-    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-  end
-  assert_canonical_registration(list_result.stdout, branch, worktree)
+  local worktree, worktree_list = canonical_worktree(
+    repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
   if checkpoint_head ~= nil then
     local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
     if clean_result.exit_code ~= 0 then
@@ -154,7 +157,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
   elseif branch_exists then
     local existing_worktree = devloop_commands.worktree_registered_for_branch(
-      list_result.stdout,
+      worktree_list,
       worktree,
       branch
     ) and worktree or nil
@@ -190,18 +193,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
 end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-  local stable_root = implementation_root()
-  local worktree_version = impl_failure.implementation_branch_version(
-    ready.dedup_key,
-    ready.impl_retry_attempt
-  )
-  local worktree = devloop_base.implement_worktree_path(
-    stable_root, repo, issue_number, worktree_version)
-  local list_result = devloop_commands.git_worktree_list(30)
-  if list_result.exit_code ~= 0 then
-    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-  end
-  assert_canonical_registration(list_result.stdout, branch, worktree)
+  local worktree = canonical_worktree(repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
   local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
   if clean_result.exit_code ~= 0 then
     error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))

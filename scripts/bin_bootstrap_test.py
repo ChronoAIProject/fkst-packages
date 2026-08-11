@@ -35,18 +35,32 @@ class BootstrapHarness:
         self.cache = Path(self.tmp.name) / "cache"
         self.log = Path(self.tmp.name) / "calls.log"
         self.env = os.environ.copy()
-        self.env.pop("FKST_NO_AUTOBUILD", None)
+        inherited_path = self.env.get("PATH", "")
+        for name in tuple(self.env):
+            if name.startswith("BASH_FUNC_"):
+                self.env.pop(name)
+        for name in ("BASH_ENV", "BIN", "CI", "ENV", "GITHUB_ACTIONS", "FKST_NO_AUTOBUILD"):
+            self.env.pop(name, None)
+        self._install_required_tools(inherited_path)
         self.env.update(
             {
                 "FKST_BIN_CACHE_ROOT": str(self.cache),
                 "FKST_TEST_COMMAND_LOG": str(self.log),
-                "PATH": f"{self.fake_bin}{os.pathsep}{self.env.get('PATH', '')}",
+                "PATH": str(self.fake_bin),
             }
         )
         self._install_fake_tools()
 
     def close(self) -> None:
         self.tmp.cleanup()
+
+    def _install_required_tools(self, inherited_path: str) -> None:
+        commands = ("chmod", "cut", "dirname", "grep", "mkdir", "python3", "rm", "sed", "sh", "sleep", "tail")
+        for command in commands:
+            source = shutil.which(command, path=inherited_path)
+            if source is None:
+                raise RuntimeError(f"required bootstrap test tool not found: {command}")
+            (self.fake_bin / command).symlink_to(source)
 
     def _install_fake_tools(self) -> None:
         write_executable(
@@ -107,11 +121,60 @@ class BootstrapHarness:
             check=False,
         )
 
+    def resolve(self, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        env = self.env.copy()
+        if extra_env:
+            env.update(extra_env)
+        command = (
+            f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
+            f'resolve_bin_contract "{self.root}"; '
+            'rc=$?; printf "%s\\n" "$RESOLVED_BIN"; exit "$rc"'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", command],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
     def calls(self) -> str:
         return self.log.read_text(encoding="utf-8") if self.log.exists() else ""
 
 
 class BinBootstrapTest(unittest.TestCase):
+    def test_resolver_cold_cache_announces_pinned_build(self) -> None:
+        pin = "issue-3585-log-pin"
+        h = BootstrapHarness(pin)
+        try:
+            result = h.resolve()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("binary not found in $BIN, .fkst/env, PATH, or ../fkst-substrate", result.stderr)
+            self.assertIn(
+                f"fkst-framework pinned source cache miss for {pin}; "
+                "bootstrapping pinned source (build starting)",
+                result.stderr,
+            )
+        finally:
+            h.close()
+
+    def test_resolver_warm_cache_reports_source_miss_without_build_claim(self) -> None:
+        h = BootstrapHarness("dev")
+        try:
+            cold = h.bootstrap()
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            self.log_truncate(h.log)
+
+            warm = h.resolve()
+            self.assertEqual(warm.returncode, 0, warm.stderr)
+            self.assertEqual(warm.stdout.strip(), cold.stdout.strip())
+            self.assertIn("binary not found in $BIN, .fkst/env, PATH, or ../fkst-substrate", warm.stderr)
+            self.assertNotIn("bootstrapping pinned source", warm.stderr)
+            self.assertEqual(h.calls(), "")
+        finally:
+            h.close()
+
     def test_all_miss_bootstrap_clones_checks_out_builds_and_returns_binary(self) -> None:
         h = BootstrapHarness("dev")
         try:
@@ -129,7 +192,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_second_run_reuses_checkout_without_reclone(self) -> None:
+    def test_second_run_reuses_warm_binary_without_git_or_cargo(self) -> None:
         h = BootstrapHarness("dev")
         try:
             first = h.bootstrap()
@@ -137,11 +200,8 @@ class BinBootstrapTest(unittest.TestCase):
             self.log_truncate(h.log)
             second = h.bootstrap()
             self.assertEqual(second.returncode, 0, second.stderr)
-            calls = h.calls()
-            self.assertNotIn("git clone", calls)
-            self.assertIn("git -C", calls)
-            self.assertIn("cargo build --manifest-path", calls)
             self.assertEqual(first.stdout.strip(), second.stdout.strip())
+            self.assertEqual(h.calls(), "")
         finally:
             h.close()
 

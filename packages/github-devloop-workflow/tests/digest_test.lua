@@ -100,6 +100,19 @@ local tests = {
     t.is_true(first ~= other)
   end,
 
+  test_already_satisfied_policy_changes_blueprint_digest = function()
+    local without_policy = parse(canonical_json)
+    without_policy.id = "software-feature-flow"
+    without_policy.steps[2].id = "production-slice"
+
+    local with_policy = parse(canonical_json)
+    with_policy.id = "software-feature-flow"
+    with_policy.steps[2].id = "production-slice"
+    with_policy.steps[2].on_already_satisfied = "hold"
+
+    t.is_true(digest_or_error(without_policy) ~= digest_or_error(with_policy))
+  end,
+
   test_digest_is_bounded_string = function()
     local value = digest_or_error(parse(canonical_json))
     t.is_true(type(value) == "string")

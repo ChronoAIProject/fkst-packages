@@ -16,6 +16,13 @@ local max_attr_len = shared.max_attr_len
 local safe_attr = shared.safe_attr
 local attr = shared.attr
 
+local function copy_source_ref(kind, ref)
+  return {
+    kind = kind,
+    ref = ref,
+  }
+end
+
 function C.build_devloop_reconcile_payload(unresolved, round, base_version, terminal_cause)
   if not conv_rounds.is_terminal_cause(terminal_cause) then
     error("github-devloop: convergence-terminal-cause-invalid: invalid convergence terminal cause")
@@ -27,10 +34,7 @@ function C.build_devloop_reconcile_payload(unresolved, round, base_version, term
     round = round,
     base_version = base_version,
     terminal_cause = terminal_cause,
-    source_ref = {
-      kind = unresolved.source_ref.kind,
-      ref = unresolved.source_ref.ref,
-    },
+    source_ref = copy_source_ref(unresolved.source_ref.kind, unresolved.source_ref.ref),
   }
 end
 
@@ -73,10 +77,7 @@ function C.build_devloop_review_reconcile_payload(unresolved, round, issue_propo
     terminal_cause = terminal_cause,
     round = round,
     dedup_key = "review-reconcile:" .. transition_version.review_loop_at(issue_version, round),
-    source_ref = {
-      kind = unresolved.source_ref.kind,
-      ref = unresolved.source_ref.ref,
-    },
+    source_ref = copy_source_ref(unresolved.source_ref.kind, unresolved.source_ref.ref),
   }
 end
 
@@ -91,10 +92,7 @@ function C.build_devloop_fix_reconcile_payload(reject_ctx, issue_version)
     round = devloop_state.version_fix_round(issue_version),
     pr_number = reject_ctx.pr_number,
     dedup_key = "fix-reconcile:" .. tostring(issue_version),
-    source_ref = {
-      kind = reject_ctx.source_ref.kind,
-      ref = reject_ctx.source_ref.ref,
-    },
+    source_ref = copy_source_ref(reject_ctx.source_ref.kind, reject_ctx.source_ref.ref),
   }
 end
 
@@ -106,10 +104,7 @@ function C.build_devloop_timeout_reconcile_payload(row, state, proposal_id, sour
     issue_version = state.version,
     round = attempt,
     dedup_key = "timeout-reconcile:" .. tostring(state.version) .. "/timeout-reconcile/" .. tostring(row.from_state) .. "/" .. tostring(attempt),
-    source_ref = {
-      kind = source_ref.kind,
-      ref = source_ref.ref,
-    },
+    source_ref = copy_source_ref(source_ref.kind, source_ref.ref),
   }
 end
 

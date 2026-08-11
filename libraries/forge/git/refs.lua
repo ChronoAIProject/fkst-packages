@@ -285,6 +285,17 @@ local function clean_fd_argv(worktree)
   return worktree_argv(worktree, "clean", "-fd")
 end
 
+-- A tracked-file census: what the index currently holds, versus what the commit says it should.
+-- `status --porcelain` alone reports a *deleted* tracked file, but a worktree that is still being
+-- written can have neither the file nor its index entry yet, which reads as clean.
+local function tracked_files_argv(worktree)
+  return worktree_argv(worktree, "ls-files")
+end
+
+local function commit_tracked_files_argv(worktree, sha)
+  return worktree_argv(worktree, "ls-tree", "-r", "--name-only", tostring(sha))
+end
+
 local function reset_hard_branch_argv(worktree, branch)
   return worktree_argv(worktree, "reset", "--hard", "refs/heads/" .. tostring(branch))
 end
@@ -656,6 +667,14 @@ function M.install(handle)
 
   function handle.clean_fd(worktree, timeout)
     return exec_result(handle, clean_fd_argv(worktree), timeout, "git clean -fd")
+  end
+
+  function handle.tracked_files(worktree, timeout)
+    return exec_result(handle, tracked_files_argv(worktree), timeout, "git ls-files")
+  end
+
+  function handle.commit_tracked_files(worktree, sha, timeout)
+    return exec_result(handle, commit_tracked_files_argv(worktree, sha), timeout, "git ls-tree -r --name-only")
   end
 
   function handle.reset_hard_branch(worktree, branch, timeout)

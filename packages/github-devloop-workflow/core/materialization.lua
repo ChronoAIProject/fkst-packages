@@ -6,6 +6,22 @@ local M = {}
 
 M.EMPTY_PREDECESSOR_REF_DIGEST = "d-0000000000"
 
+function M.source_ref_digest(source_ref)
+  if type(source_ref) ~= "table" then
+    return M.EMPTY_PREDECESSOR_REF_DIGEST
+  end
+  return "d-" .. strings.decimal_checksum(
+    tostring(source_ref.kind or "") .. "\n" .. tostring(source_ref.ref or "")
+  )
+end
+
+function M.predecessor_ref_digest(predecessor)
+  if predecessor == nil then
+    return M.EMPTY_PREDECESSOR_REF_DIGEST
+  end
+  return M.source_ref_digest(predecessor.source_ref)
+end
+
 local function digest_string(prefix, value)
   return "d-" .. strings.decimal_checksum(prefix .. "\n" .. tostring(value or ""))
 end

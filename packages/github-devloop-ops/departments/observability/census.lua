@@ -1,7 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local common = require("departments.observability.common")
-local contract_time = require("contract.time")
+local devloop_liveness = require("devloop.liveness")
 local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 
@@ -173,22 +173,7 @@ local function log_entity(entity)
   }))
 end
 
-function core.stall_suspect_age_minutes(version, now_seconds)
-  local marker_updated_at = devloop_state.version_updated_at(version)
-  if marker_updated_at == "" then
-    return nil
-  end
-  local marker_seconds = contract_time.iso_timestamp_epoch_seconds(marker_updated_at)
-  local current_seconds = tonumber(now_seconds)
-  if marker_seconds == nil or current_seconds == nil then
-    return nil
-  end
-  local age_seconds = current_seconds - marker_seconds
-  if age_seconds < 0 then
-    return nil
-  end
-  return math.floor(age_seconds / 60)
-end
+core.stall_suspect_age_minutes = devloop_liveness.stall_suspect_age_minutes
 
 function core.stall_suspect_threshold_minutes(state)
   return stall_suspect_threshold_minutes[state]
