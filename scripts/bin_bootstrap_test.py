@@ -129,7 +129,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_second_run_reuses_checkout_without_reclone(self) -> None:
+    def test_second_run_reuses_warm_binary_without_git_or_cargo(self) -> None:
         h = BootstrapHarness("dev")
         try:
             first = h.bootstrap()
@@ -137,11 +137,8 @@ class BinBootstrapTest(unittest.TestCase):
             self.log_truncate(h.log)
             second = h.bootstrap()
             self.assertEqual(second.returncode, 0, second.stderr)
-            calls = h.calls()
-            self.assertNotIn("git clone", calls)
-            self.assertIn("git -C", calls)
-            self.assertIn("cargo build --manifest-path", calls)
             self.assertEqual(first.stdout.strip(), second.stdout.strip())
+            self.assertEqual(h.calls(), "")
         finally:
             h.close()
 
