@@ -421,6 +421,73 @@ return {
     t.eq(close_done_origin_calls, 0)
   end,
 
+  test_delivery_hold_reasserts_after_intervening_blocked_disposition = function()
+    local hold_blueprint = blueprint()
+    hold_blueprint.id = "software-feature-flow"
+    hold_blueprint.steps[2].id = "production-slice"
+    hold_blueprint.steps[2].on_already_satisfied = "hold"
+    local first_spec = generated_spec("first")
+    local second_spec = generated_spec("second")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local base_comments = {
+      comment(blueprint_marker(hold_blueprint)),
+      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108, hold_blueprint),
+      created_comment(
+        "production-slice",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109,
+        hold_blueprint
+      ),
+    }
+
+    local first = run_with({
+      blueprint = hold_blueprint,
+      current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "satisfied_unverified",
+      },
+    })
+    local first_hold = only_queue(first, "github-proxy.github_issue_comment_request")[1]
+    t.is_true(first_hold.payload.body:find("hold:v1", 1, true) ~= nil)
+    t.eq(marker.parse_hold_marker(first_hold.payload.body, origin).generation, 1)
+
+    local blocked = run_with({
+      blueprint = hold_blueprint,
+      current = issue(
+        comments_with(base_comments, comment(first_hold.payload.body)),
+        { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }
+      ),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "fatal",
+      },
+    })
+    local blocked_request = only_queue(blocked, "github-proxy.github_issue_comment_request")[1]
+    t.is_true(blocked_request.payload.body:find('state="blocked"', 1, true) ~= nil)
+
+    local after_blocked = comments_with(base_comments, comment(first_hold.payload.body))
+    after_blocked = comments_with(after_blocked, comment(blocked_request.payload.body))
+    local reheld = run_with({
+      blueprint = hold_blueprint,
+      current = issue(after_blocked, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "satisfied_unverified",
+      },
+    })
+    local second_hold = nil
+    for _, request in ipairs(only_queue(reheld, "github-proxy.github_issue_comment_request")) do
+      if request.payload.body:find("hold:v1", 1, true) ~= nil then
+        second_hold = request
+      end
+    end
+    t.is_true(second_hold ~= nil)
+    t.eq(marker.parse_hold_marker(second_hold.payload.body, origin).generation, 2)
+    t.is_true(first_hold.payload.dedup_key ~= second_hold.payload.dedup_key)
+  end,
+
   test_wait_when_predecessor_running_raises_nothing = function()
     local first_spec = generated_spec("first")
     local raised = run_with({

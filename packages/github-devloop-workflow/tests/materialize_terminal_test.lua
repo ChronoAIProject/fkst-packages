@@ -220,7 +220,7 @@ return {
   test_later_hold_does_not_hide_done_terminal = function()
     local done_terminal, terminal_err = marker.build_terminal_marker(origin, "done", "all-slots-result-ready")
     t.is_nil(terminal_err)
-    local hold, hold_err = marker.build_hold_marker(origin, "origin-delivery-unverified")
+    local hold, hold_err = marker.build_hold_marker(origin, "origin-delivery-unverified", 1)
     t.is_nil(hold_err)
     local released = false
     local closed = false

@@ -283,15 +283,16 @@ local tests = {
   end,
 
   test_hold_marker_round_trip_uses_reason_code_attribute = function()
-    local built, err = marker.build_hold_marker(origin, "origin-delivery-unverified")
+    local built, err = marker.build_hold_marker(origin, "origin-delivery-unverified", 2)
     t.is_nil(err)
     t.eq(
       built,
-      '<!-- fkst:github-devloop-workflow:hold:v1 origin="github-devloop/issue/owner/repo/42" reason_code="origin-delivery-unverified" -->'
+      '<!-- fkst:github-devloop-workflow:hold:v1 origin="github-devloop/issue/owner/repo/42" reason_code="origin-delivery-unverified" generation="2" -->'
     )
     local parsed = marker.parse_hold_marker("The workflow is waiting for delivery evidence.\n" .. built, origin)
     t.eq(parsed.origin, origin)
     t.eq(parsed.reason_code, "origin-delivery-unverified")
+    t.eq(parsed.generation, 2)
   end,
 
   test_terminal_marker_rejects_bad_fields = function()

@@ -174,6 +174,17 @@ function M.latest_hold(core, current, origin)
   return nil
 end
 
+function M.next_hold_generation(core, current, origin)
+  local latest_generation = 0
+  for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
+    local fact = marker.parse_hold_marker(parsers_misc.comment_body(comment), origin)
+    if fact ~= nil and fact.generation > latest_generation then
+      latest_generation = fact.generation
+    end
+  end
+  return latest_generation + 1
+end
+
 function M.latest_label_projection(core, current, origin)
   local latest = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do

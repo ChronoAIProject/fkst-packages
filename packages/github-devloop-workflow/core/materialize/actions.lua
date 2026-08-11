@@ -185,8 +185,8 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
   })
 end
 
-function M.hold_request(repo, issue_number, origin, reason_code)
-  local built, err = marker.build_hold_marker(origin, reason_code)
+function M.hold_request(repo, issue_number, origin, reason_code, generation)
+  local built, err = marker.build_hold_marker(origin, reason_code, generation)
   if built == nil then
     error("github-devloop-workflow: hold-marker-build-failed: hold marker build failed: "
       .. tostring(err and err.code or "unknown"))
@@ -194,6 +194,7 @@ function M.hold_request(repo, issue_number, origin, reason_code)
   local body = "Workflow held: " .. tostring(reason_code) .. ".\n\n" .. built
   return build_comment_request(repo, issue_number, origin, body, {
     "hold",
+    tostring(generation),
     tostring(reason_code),
   })
 end

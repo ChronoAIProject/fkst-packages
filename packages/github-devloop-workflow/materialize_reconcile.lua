@@ -171,7 +171,7 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
   return "terminal"
 end
 
-local function reconcile_hold(repo, issue_number, origin, reason_code, current_hold, unit)
+local function reconcile_hold(repo, issue_number, origin, reason_code, current_hold, generation, unit)
   if current_hold ~= nil and tostring(current_hold.reason_code or "") == tostring(reason_code) then
     unit.log_decision(
       origin,
@@ -186,7 +186,7 @@ local function reconcile_hold(repo, issue_number, origin, reason_code, current_h
   unit.raise_request(
     origin,
     "github-proxy.github_issue_comment_request",
-    actions.hold_request(repo, issue_number, origin, reason_code)
+    actions.hold_request(repo, issue_number, origin, reason_code, generation)
   )
 end
 
@@ -560,7 +560,15 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
   if decision.action == "wait" then
     reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
     if decision.why == "origin-delivery-unverified" then
-      reconcile_hold(repo, issue_number, origin, decision.why, hold_fact, unit)
+      reconcile_hold(
+        repo,
+        issue_number,
+        origin,
+        decision.why,
+        hold_fact,
+        discovery.next_hold_generation(core, current, origin),
+        unit
+      )
     end
     unit.log_decision(origin, "frontier", "wait", "skip-wait", decision.why or "frontier-waits")
     return "wait"
