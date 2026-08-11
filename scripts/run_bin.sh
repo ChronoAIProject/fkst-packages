@@ -76,8 +76,14 @@ ensure_fresh_bin() {
   fi
 
   echo "ensuring fkst-framework is built from current source: $substrate" >&2
-  local build_out
-  if ! build_out="$(cargo build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
+  local build_out cargo_bin
+  if [ -n "${FKST_CARGO:-}" ]; then
+    cargo_bin="$FKST_CARGO"
+  else
+    cargo_bin="cargo"
+    echo "warning: FKST_CARGO is not set; falling back to cargo from PATH for this local freshness build" >&2
+  fi
+  if ! build_out="$("$cargo_bin" build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
     local_iteration_result_fail "TOOLCHAIN"
     printf '%s\n' "$build_out" >&2
     echo "error: fkst-framework freshness build failed; refusing to continue with a potentially stale BIN" >&2
