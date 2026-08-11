@@ -366,6 +366,13 @@ function C.merging_marker(issue_proposal_id, pr_number, version, head_sha)
     .. '" -->'
 end
 
+function C.intake_class_carrier_marker(class_key)
+  if class_key == nil or tostring(class_key) == "" then
+    error("github-devloop: intake-class-key-invalid: invalid intake class key")
+  end
+  return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
+end
+
 function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, service_class, premise_fingerprint)
   if decision ~= "enable" and decision ~= "track" and decision ~= "decline" and decision ~= "escalate-to-class" then
     error("github-devloop: intake-decision-invalid: invalid intake decision")

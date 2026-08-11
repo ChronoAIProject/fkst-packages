@@ -77,7 +77,7 @@ return saga.department(spec, {
 ]])
 end
 
-local function setup_stub_siblings(root)
+local function setup_stub_siblings(source, root)
   write_stub_package(root, "github-devloop")
   write_stub_department(root, "github-devloop", "comment_handoff", [[{
   consumes = { "devloop_comment_written" },
@@ -93,31 +93,8 @@ local function setup_stub_siblings(root)
   stall_window = "30s",
 }]])
 
-  write_stub_package(root, "github-proxy")
-  write_stub_department(root, "github-proxy", "github_issue_create", [[{
-  consumes = { "github_issue_create_request" },
-  produces = {},
-  published_seam = { "github_issue_create_request" },
-  stall_window = "30s",
-}]])
-  write_stub_department(root, "github-proxy", "github_comment", [[{
-  consumes = { "github_issue_comment_request" },
-  produces = { "github_comment_written" },
-  published_seam = { "github_issue_comment_request" },
-  stall_window = "30s",
-}]])
-  write_stub_department(root, "github-proxy", "github_pr_comment", [[{
-  consumes = { "github_pr_comment_request" },
-  produces = { "github_comment_written" },
-  published_seam = { "github_pr_comment_request" },
-  stall_window = "30s",
-}]])
-  write_stub_department(root, "github-proxy", "github_issue_label", [[{
-  consumes = { "github_issue_label_request" },
-  produces = {},
-  published_seam = { "github_issue_label_request" },
-  stall_window = "30s",
-}]])
+  copy_package_without_tests(source, root, "github-proxy")
+  remove_dir(root .. "/packages/github-proxy/departments/test_entity_view_probe")
 
   write_stub_package(root, "github-devloop-decompose")
   write_stub_department(root, "github-devloop-decompose", "decompose", [[{
@@ -151,7 +128,7 @@ local function setup_workspace(name, child_test)
     copy_dir(source .. "/libraries/" .. lib, root .. "/libraries/" .. lib)
   end
   copy_package_without_tests(source, root, "github-devloop-ops")
-  setup_stub_siblings(root)
+  setup_stub_siblings(source, root)
   run_command("mkdir -p " .. shell_quote(root .. "/packages/github-devloop-ops/tests"))
   copy_test_helper(source, root, "github-devloop-ops", "entity_read_mock_helpers.lua")
   write_file(root .. "/packages/github-devloop-ops/tests/fire_raiser_child_test.lua", child_test)
@@ -192,8 +169,10 @@ local function fire_raiser_child(body)
   return [=[
 local t = fkst.test
 local core = require("core")
+local dashboard_contract = require("devloop.dashboard")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local github_view = require("forge.github_view")
 gh_argv.install(t, core)
 
 local function opts(name)
@@ -209,12 +188,12 @@ local function opts(name)
   }
 end
 
-local function mock_env(reads)
+local function mock_env(reads, write_mode)
   reads = reads or 8
   for _ = 1, reads do
     t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
   end
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = "integration/dev", stderr = "", exit_code = 0 })
@@ -297,6 +276,77 @@ local function mock_triage_patrol_empty_reads()
   end
 end
 
+local function receipt_request(version)
+  local identity = "marker-version=" .. tostring(version)
+  local snapshot = core.triage_patrol_snapshot_digest(identity)
+  local body = table.concat({
+    "Triage patrol audit receipt.",
+    "",
+    core.triage_patrol_receipt_marker("owner/repo", snapshot, 1),
+    "",
+    "Entries:",
+    "- `marker_version=" .. tostring(version) .. " verdict=abstain`",
+  }, "\n")
+  return core.build_triage_patrol_receipt_request("owner/repo", { {} }, {
+    identity = identity,
+    rendered = body,
+  })
+end
+
+local function comments_json(carriers)
+  local rows = {}
+  for index, body in ipairs(carriers) do
+    table.insert(rows, "{"
+      .. '"id":' .. tostring(index)
+      .. ',"body":' .. github_view.json_value(body)
+      .. ',"user":{"login":"fkst-test-bot"}'
+      .. "}")
+  end
+  return "[[" .. table.concat(rows, ",") .. "]]\n"
+end
+
+local function mock_receipt_consumer_reads(carriers)
+  local dashboard_body = "# " .. dashboard_contract.title .. "\n\n"
+    .. dashboard_contract.marker("fixture", "2026-08-11T00:00:00Z")
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
+    stdout = "[[{"
+      .. '"number":2578'
+      .. ',"title":' .. github_view.json_value(dashboard_contract.title)
+      .. ',"user":{"login":"fkst-test-bot"}'
+      .. ',"body":' .. github_view.json_value(dashboard_body)
+      .. "}]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues/2578/comments?per_page=100'", {
+    stdout = comments_json(carriers),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_receipt_graph(request, round)
+  return t.run_graph({
+    queue = "triage_patrol_receipt_request",
+    payload = request,
+    source_ref = {
+      kind = "external",
+      reference = "owner/repo#triage-patrol-receipt/" .. tostring(round),
+    },
+  }, { max_steps = 8 })
+end
+
+local function matching_calls(first, needle)
+  local matches = {}
+  local calls = t.command_calls()
+  for index = first + 1, #calls do
+    if tostring(calls[index].rendered):find(needle, 1, true) ~= nil then
+      table.insert(matches, calls[index])
+    end
+  end
+  return matches
+end
+
 return {
 ]=] .. body .. [=[
 }
@@ -371,11 +421,50 @@ return {
     end
     t.eq(trace.consumer_result.status, "accepted")
     t.eq(#trace.raised, 1)
-    t.eq(trace.raised[1].queue, "github-proxy.github_issue_create_request")
-    t.eq(trace.raised[1].payload.schema, "github-proxy.issue-create.v1")
+    t.eq(trace.raised[1].queue, "github-devloop-ops.triage_patrol_receipt_request")
+    t.eq(trace.raised[1].payload.entries, 0)
+  end,
+
+  test_triage_patrol_receipts_reach_the_real_proxy_consumer_and_remain_retrievable = function()
+    local first_call = #t.command_calls()
+    local requests = {}
+    local carriers = {}
+    local body_path = "/tmp/fkst-github-proxy-comment-owner_repo-issue-2578.md"
+
+    for round = 1, 3 do
+      local version = "github-devloop/issue/owner/repo/41/intake/v" .. tostring(round)
+      local request = receipt_request(version)
+      table.insert(requests, request)
+      mock_env(16, "1")
+      mock_receipt_consumer_reads(carriers)
+      t.mock_command("gh api --method POST", {
+        stdout = '{"id":' .. tostring(round) .. ',"body":"created","user":{"login":"fkst-test-bot"}}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+
+      local trace = run_receipt_graph(request, round)
+      t.eq(trace.status, "quiescent")
+      local carrier = file.read(body_path)
+      table.insert(carriers, carrier)
+      t.is_true(carrier:find("marker_version=" .. version, 1, true) ~= nil)
+      t.is_true(carrier:find('snapshot="' .. request.snapshot .. '"', 1, true) ~= nil)
+      t.is_true(carrier:find("verdict=abstain", 1, true) ~= nil)
+    end
+
+    for round, request in ipairs(requests) do
+      mock_env(16, "1")
+      mock_receipt_consumer_reads(carriers)
+      local trace = run_receipt_graph(request, "replay-" .. tostring(round))
+      t.eq(trace.status, "quiescent")
+    end
+
+    t.eq(#matching_calls(first_call, "gh api --method POST"), #requests)
+    t.eq(#matching_calls(first_call, "gh issue create"), 0)
+    t.eq(#carriers, #requests)
   end,
 ]]))
     local output = run_child(root)
-    t.is_true(output:find("4 passed, 0 failed", 1, true) ~= nil, output)
+    t.is_true(output:find("5 passed, 0 failed", 1, true) ~= nil, output)
   end,
 }

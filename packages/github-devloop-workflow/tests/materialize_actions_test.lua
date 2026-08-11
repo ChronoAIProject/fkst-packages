@@ -115,6 +115,17 @@ return {
     t.eq(marker.parse_terminal_marker(blocked.body, origin).state, "blocked")
   end,
 
+  test_hold_comment_dedup_is_stable_within_generation_and_changes_on_reentry = function()
+    local first = actions.hold_request(repo, 1, origin, "origin-delivery-unverified", 1)
+    local replay = actions.hold_request(repo, 1, origin, "origin-delivery-unverified", 1)
+    local reentry = actions.hold_request(repo, 1, origin, "origin-delivery-unverified", 2)
+
+    t.eq(first.dedup_key, replay.dedup_key)
+    t.is_true(first.dedup_key ~= reentry.dedup_key)
+    t.eq(marker.parse_hold_marker(first.body, origin).generation, 1)
+    t.eq(marker.parse_hold_marker(reentry.body, origin).generation, 2)
+  end,
+
   test_terminal_projection_state_maps_open_terminal_dispositions = function()
     local cases = {
       { state = "blocked", expected_label = "fkst-dev:blocked" },
