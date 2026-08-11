@@ -205,6 +205,45 @@ return {
     t.eq(proof.facts[2].issue_number, 102)
   end,
 
+  test_decompose_completion_requires_distinct_child_issues = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/consensus/owner/repo/42/fix/4"
+    local issues = {
+      {
+        number = 101,
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1)
+          .. "\n" .. decompose_lib.decompose_child_marker(proposal_id, version, 7, 2),
+        author_login = "fkst-test-bot",
+        state = "OPEN",
+      },
+    }
+
+    local _, _, proof = decompose_lib.decompose_children_complete(
+      nil,
+      issues,
+      proposal_id,
+      version,
+      7,
+      2
+    )
+
+    t.eq(proof.exact, false)
+  end,
+
+  test_decompose_child_search_observation_requires_unsaturated_results = function()
+    local rows = {}
+    for index = 1, 100 do
+      table.insert(rows, '{"number":' .. tostring(index) .. "}")
+    end
+
+    local _, observation = decompose_lib.parse_decompose_child_issue_list(
+      "[" .. table.concat(rows, ",") .. "]",
+      100
+    )
+
+    t.eq(observation and observation.complete, false)
+  end,
+
   test_decompose_completion_rejects_missing_child_identity = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus/owner/repo/42/fix/4"

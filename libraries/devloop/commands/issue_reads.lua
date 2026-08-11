@@ -39,12 +39,19 @@ end
 
   function C.gh_issue_list_decompose_children(repo, proposal_id, timeout, github)
     return support.gh_result(function()
-      return (github or support.github()).issue_search(
+      local handle = github or support.github()
+      local result = handle.issue_search(
         repo,
         "fkst:github-devloop:decompose-child:v1 " .. tostring(proposal_id),
         "number,title,state,author,body,url",
         timeout
       )
+      if type(result) == "table" then
+        result.result_limit = type(handle.issue_search_result_limit) == "function"
+          and handle.issue_search_result_limit()
+          or nil
+      end
+      return result
     end)
   end
 

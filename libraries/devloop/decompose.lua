@@ -138,13 +138,18 @@ function C.decomposed_fact(comments, proposal_id, version, pr_number)
   return nil, "absent"
 end
 
-function C.parse_decompose_child_issue_list(stdout)
+function C.parse_decompose_child_issue_list(stdout, result_limit)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
+  local observation = {
+    complete = false,
+    row_count = 0,
+  }
   if type(decoded) ~= "table" then
-    return issues
+    return issues, observation
   end
   for _, issue in ipairs(decoded) do
+    observation.row_count = observation.row_count + 1
     if type(issue) == "table" then
       local author_login = issue.author_login
       if author_login == nil and type(issue.author) == "table" then
@@ -160,7 +165,12 @@ function C.parse_decompose_child_issue_list(stdout)
       })
     end
   end
-  return issues
+  local limit = tonumber(result_limit)
+  observation.complete = limit ~= nil
+    and limit >= 1
+    and limit % 1 == 0
+    and observation.row_count < limit
+  return issues, observation
 end
 
 function C.decompose_child_issue_fact_indexes(issues, proposal_id, version, pr_number)
@@ -253,6 +263,13 @@ function C.decompose_children_complete(comments, issues, proposal_id, version, p
   )
   local completed_count = decompose_child_count(completed)
   local exact = completed_count == count and #evidence.facts == count
+  local issue_numbers = {}
+  for _, fact in ipairs(evidence.facts) do
+    if issue_numbers[fact.issue_number] then
+      exact = false
+    end
+    issue_numbers[fact.issue_number] = true
+  end
   for index = 1, count do
     if evidence.occurrences[index] ~= 1 then
       exact = false

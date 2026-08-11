@@ -5,6 +5,8 @@ local gh_result = require("forge.github.result").gh_result
 local shell = require("forge.github.shell")
 local stdout_policy = require("forge.github.stdout_policy")
 
+M.issue_search_limit = 100
+
 local function repo_owner(repo)
   return tostring(repo or ""):match("^([^/]+)/")
 end
@@ -247,7 +249,7 @@ local function issue_search_argv(repo, query, fields)
     "--state",
     "all",
     "--limit",
-    "100",
+    tostring(M.issue_search_limit),
     "--search",
     tostring(query),
     "--json",
@@ -571,6 +573,10 @@ function M.install(handle)
 
   function handle.issue_search(repo, query, fields, timeout)
     return handle._exec(issue_search_argv(repo, query, fields), timeout, "gh issue search", stdout_policy.content_json("issue_list"))
+  end
+
+  function handle.issue_search_result_limit()
+    return M.issue_search_limit
   end
 
   function handle.api_get(repo, path, timeout)
