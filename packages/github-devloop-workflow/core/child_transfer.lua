@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local devloop_entity = require("devloop.entity")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_logging = require("devloop.logging")
 local discovery = require("core.materialize.discovery")
@@ -185,6 +186,24 @@ local function chain_lock_key(identity)
   })
 end
 
+local function with_transfer_locks(identity, fn)
+  return with_lock(devloop_entity.observe_lock_key(identity.repo, identity.origin_issue), function()
+    return with_lock(chain_lock_key(identity), fn)
+  end)
+end
+
+local function verified_satisfaction_for_tip(origin_current, identity, chain)
+  local _, tip_issue = devloop_base.parse_issue_source_ref(chain.tip_source_ref)
+  for _, fact in ipairs(discovery.verified_satisfaction_facts(nil, origin_current, identity.origin)) do
+    if fact.blueprint_digest == identity.blueprint_digest
+      and fact.slot == identity.slot
+      and fact.child_issue == tostring(tip_issue) then
+      return fact
+    end
+  end
+  return nil
+end
+
 local function acceptance_body_file(identity)
   return "/tmp/fkst-github-devloop-workflow-transfer-accept-"
     .. sha256.hex(identity.acceptance_marker) .. ".md"
@@ -251,7 +270,7 @@ function M.new(deps)
     end
     parsers_misc.assert_trusted_bot_configured()
 
-    return with_lock(chain_lock_key(identity), function()
+    return with_transfer_locks(identity, function()
       local origin_current = read_fresh(github, identity.source_ref, M.DEPT .. ":origin")
       local initial_source_ref = origin_ledger_child(origin_current, identity)
       local chain = resolver.resolve({
@@ -266,6 +285,14 @@ function M.new(deps)
         identity.predecessor_source_ref,
         identity.successor_source_ref
       )
+      if not replay
+        and source_refs.same(chain.tip_source_ref, identity.predecessor_source_ref)
+        and verified_satisfaction_for_tip(origin_current, identity, chain) ~= nil then
+        fail(
+          "transfer-tip-satisfaction-verified",
+          "the current transfer tip already has a trusted verified-satisfaction fact"
+        )
+      end
       if not source_refs.same(chain.tip_source_ref, identity.predecessor_source_ref)
         and not replay then
         if transfer_chain.contains(chain, identity.predecessor_source_ref) then

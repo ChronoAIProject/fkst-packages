@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local devloop_entity = require("devloop.entity")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_logging = require("devloop.logging")
 local github_fake = require("forge.github_fake")
@@ -55,8 +56,23 @@ local function workflow_blueprint()
   }
 end
 
-local function origin_comments(owned_child_issue)
-  local blueprint = workflow_blueprint()
+local function verified_delivery_blueprint()
+  return {
+    schema = "fkst.workflow.v1",
+    id = "software-feature-flow",
+    version = "1",
+    summary = "Deliver a feature in two increments.",
+    applies_when = "The feature needs a production slice.",
+    steps = {
+      { id = "walking-skeleton", title = "Walking skeleton", content = { kind = "static", intent = "Build the skeleton." } },
+      { id = "production-slice", title = "Production slice", content = { kind = "static", intent = "Finish production." } },
+    },
+  }
+end
+
+local function origin_comments(owned_child_issue, selected_blueprint, selected_slot)
+  local blueprint = selected_blueprint or workflow_blueprint()
+  local slot = selected_slot or blueprint.steps[1].id
   local blueprint_digest = core.digest.blueprint_digest(blueprint)
   local blueprint_marker = assert(marker.build_blueprint_marker(
     ORIGIN,
@@ -66,7 +82,7 @@ local function origin_comments(owned_child_issue)
   local materialization_marker = assert(marker.build_materialization_marker(
     ORIGIN,
     blueprint_digest,
-    "first",
+    slot,
     "d-0000000000",
     "d-1111111111",
     "d-2222222222",
@@ -175,10 +191,14 @@ local function install_receipt_git_fake(events)
   return git, model
 end
 
-local function install_github_fake(events, owned_child_issue)
+local function install_github_fake(events, owned_child_issue, selected_blueprint, selected_slot)
   local model = github_fake.model({
     issues = {
-      [source_ref(ORIGIN_ISSUE).ref] = issue(ORIGIN_ISSUE, "OPEN", origin_comments(owned_child_issue)),
+      [source_ref(ORIGIN_ISSUE).ref] = issue(
+        ORIGIN_ISSUE,
+        "OPEN",
+        origin_comments(owned_child_issue, selected_blueprint, selected_slot)
+      ),
       [source_ref(PREDECESSOR_ISSUE).ref] = issue(PREDECESSOR_ISSUE, "OPEN"),
       [source_ref(SUCCESSOR_ISSUE).ref] = issue(SUCCESSOR_ISSUE, "OPEN"),
       [source_ref(FINAL_SUCCESSOR_ISSUE).ref] = issue(FINAL_SUCCESSOR_ISSUE, "OPEN"),
@@ -241,9 +261,14 @@ local function install_github_fake(events, owned_child_issue)
   return github, model
 end
 
-local function fixture(owned_child_issue)
+local function fixture(owned_child_issue, selected_blueprint, selected_slot)
   local events = {}
-  local github, github_model = install_github_fake(events, owned_child_issue)
+  local github, github_model = install_github_fake(
+    events,
+    owned_child_issue,
+    selected_blueprint,
+    selected_slot
+  )
   local git, git_model = install_receipt_git_fake(events)
   return {
     events = events,
@@ -254,11 +279,12 @@ local function fixture(owned_child_issue)
   }
 end
 
-local function request(predecessor_issue, successor_issue)
+local function request(predecessor_issue, successor_issue, selected_blueprint, selected_slot)
+  local blueprint = selected_blueprint or workflow_blueprint()
   return core.child_transfer.build_request({
     origin = ORIGIN,
-    blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
-    slot = "first",
+    blueprint_digest = core.digest.blueprint_digest(blueprint),
+    slot = selected_slot or blueprint.steps[1].id,
     predecessor_source_ref = source_ref(predecessor_issue or PREDECESSOR_ISSUE),
     successor_source_ref = source_ref(successor_issue or SUCCESSOR_ISSUE),
   })
@@ -287,9 +313,7 @@ local function run_transfer(state, expecting_failure, payload)
     git = state.git,
   })
   local previous_with_lock = with_lock
-  with_lock = function(_key, fn)
-    return fn()
-  end
+  with_lock = state.with_lock or function(_key, fn) return fn() end
   local ok, outcome = pcall(function()
     if expecting_failure then
       return testing.run_fake_expecting_failure(department, event(payload))
@@ -403,7 +427,8 @@ local function terminal_request(raises)
   return nil
 end
 
-local function materialized_child_ref()
+local function materialized_child_ref(selected_blueprint, selected_slot)
+  local blueprint = selected_blueprint or workflow_blueprint()
   return {
     kind = "issue",
     repo = REPO,
@@ -411,8 +436,8 @@ local function materialized_child_ref()
     proposal_id = base_ids.proposal_id(REPO, PREDECESSOR_ISSUE),
     source_ref = source_ref(PREDECESSOR_ISSUE),
     origin = ORIGIN,
-    blueprint_digest = core.digest.blueprint_digest(workflow_blueprint()),
-    slot = "first",
+    blueprint_digest = core.digest.blueprint_digest(blueprint),
+    slot = selected_slot or blueprint.steps[1].id,
   }
 end
 
@@ -435,6 +460,20 @@ local function resolved_materialized_child_ref(state)
   return observer.resolved_ref(materialized_child_ref())
 end
 
+local function add_verified_satisfaction(state, blueprint, slot, child_issue)
+  local origin = state.github_model.issues[source_ref(ORIGIN_ISSUE).ref]
+  origin.comments[#origin.comments + 1] = trusted_comment(assert(marker.build_verified_satisfaction_marker({
+    origin = ORIGIN,
+    workflow = blueprint.id,
+    blueprint_digest = core.digest.blueprint_digest(blueprint),
+    slot = slot,
+    child_issue = tostring(child_issue),
+    predecessor_commit = string.rep("2", 40),
+    tree = string.rep("3", 40),
+    verification = "PASS",
+  })))
+end
+
 local function add_merged_evidence(state, issue_number)
   local successor_issue = issue_number or SUCCESSOR_ISSUE
   local successor = state.github_model.issues[source_ref(successor_issue).ref]
@@ -452,6 +491,57 @@ local function add_merged_evidence(state, issue_number)
 end
 
 local tests = {
+  test_verified_satisfaction_freezes_the_current_tip_before_terminal_publication = function()
+    local blueprint = verified_delivery_blueprint()
+    local slot = "production-slice"
+    local state = fixture(PREDECESSOR_ISSUE, blueprint, slot)
+    add_verified_satisfaction(state, blueprint, slot, PREDECESSOR_ISSUE)
+
+    local child_status = require("core.materialize.child_status")
+    local guarded_tip = child_status.observer(core, {
+      github = state.github,
+      git = state.git,
+    }, REPO).resolved_ref(materialized_child_ref(blueprint, slot))
+    t.eq(guarded_tip.issue_number, tostring(PREDECESSOR_ISSUE))
+
+    local lock_keys = {}
+    state.with_lock = function(key, fn)
+      lock_keys[#lock_keys + 1] = key
+      return fn()
+    end
+    local outcome = run_transfer(
+      state,
+      true,
+      request(PREDECESSOR_ISSUE, SUCCESSOR_ISSUE, blueprint, slot)
+    )
+
+    t.eq(lock_keys[1], devloop_entity.observe_lock_key(REPO, ORIGIN_ISSUE))
+    t.is_true(tostring(outcome.failure.error):find(
+      "transfer-tip-satisfaction-verified",
+      1,
+      true
+    ) ~= nil)
+    t.eq(state.git_model.successful_pushes, 0)
+    t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "OPEN")
+  end,
+
+  test_verified_satisfaction_fences_only_new_edges_from_the_exact_current_tip = function()
+    local blueprint = verified_delivery_blueprint()
+    local slot = "production-slice"
+    local state = fixture(PREDECESSOR_ISSUE, blueprint, slot)
+    local first_edge = request(PREDECESSOR_ISSUE, SUCCESSOR_ISSUE, blueprint, slot)
+    local second_edge = request(SUCCESSOR_ISSUE, FINAL_SUCCESSOR_ISSUE, blueprint, slot)
+
+    run_transfer(state, false, first_edge)
+    add_verified_satisfaction(state, blueprint, slot, PREDECESSOR_ISSUE)
+    run_transfer(state, false, second_edge)
+
+    add_verified_satisfaction(state, blueprint, slot, FINAL_SUCCESSOR_ISSUE)
+    run_transfer(state, false, second_edge)
+    t.eq(state.git_model.successful_pushes, 2)
+    t.eq(state.github_model.successful_closes, 2)
+  end,
+
   test_non_transfer_receipts_fail_closed_before_child_status_projection = function()
     for _, disposition in ipairs({ "satisfied", "undeliverable" }) do
       local state = fixture()
