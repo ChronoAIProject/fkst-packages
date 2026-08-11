@@ -77,6 +77,10 @@ return {
   test_observability_retains_triage_verdicts_without_entering_the_work_item_path = function()
     local waiting_proposal = "github-devloop/issue/owner/repo/42"
     local waiting_version = waiting_proposal .. "/intake/v1"
+    local peer_version = transition_version.next_blocked(
+      transition_version.next_loop(waiting_version),
+      "child-pr-blocked"
+    )
     local blocked_proposal = "github-devloop/issue/owner/repo/43"
     local blocked_version = transition_version.next_blocked(
       blocked_proposal .. "/intake/v1",
@@ -88,6 +92,7 @@ return {
     mock_issue_view({
       render_comment(core.state_marker(waiting_proposal, "blocked", "2099-01-01T00-00-00Z"), "mallory"),
       render_comment(h.projected_state_comment(waiting_proposal, "dependency_wait", waiting_version), "fkst-test-bot"),
+      render_comment(core.state_marker(waiting_proposal, "blocked", peer_version), "ElonSG"),
     }, nil, { number = 42 })
     mock_issue_view({
       render_comment(core.state_marker(blocked_proposal, "blocked", blocked_version), "fkst-test-bot"),
@@ -102,12 +107,17 @@ return {
     end
 
     t.eq(#audit_logs, 2)
-    t.is_true(audit_logs[1]:find("proposal=" .. waiting_proposal, 1, true) ~= nil)
-    t.is_true(audit_logs[1]:find("issue=42", 1, true) ~= nil)
-    t.is_true(audit_logs[1]:find("state=dependency_wait", 1, true) ~= nil)
-    t.is_true(audit_logs[1]:find("version=" .. waiting_version, 1, true) ~= nil)
-    t.is_true(audit_logs[1]:find("marker_author=fkst-test-bot", 1, true) ~= nil)
-    t.is_true(audit_logs[1]:find("verdict=abstain", 1, true) ~= nil)
+    t.eq(audit_logs[1], table.concat({
+      "github-devloop",
+      "dept=observability",
+      "tag=AUDIT_VERDICT",
+      "proposal=" .. waiting_proposal,
+      "issue=42",
+      "state=blocked",
+      "version=" .. peer_version,
+      "marker_author=elonsg",
+      "verdict=derived",
+    }, " "))
     t.is_true(audit_logs[2]:find("proposal=" .. blocked_proposal, 1, true) ~= nil)
     t.is_true(audit_logs[2]:find("issue=43", 1, true) ~= nil)
     t.is_true(audit_logs[2]:find("state=blocked", 1, true) ~= nil)
