@@ -259,6 +259,29 @@ return {
     t.eq(count_gh_calls() - gh_calls_before, 0)
   end,
 
+  test_foreign_claim_admission_preserves_carrier_facts = function()
+    mock_env("fkst-test-bot", "", "", 5)
+    local inputs = m_claims.claim_admission_inputs({
+      assignees = { { login = "fkst-test-bot" } },
+      labels = { "fkst-dev:enabled", bare_claimed_label },
+      author_login = "fkst-test-bot",
+      comments = {},
+    }, "owner/repo")
+    local admission, detail = m_claims.claim_admission_precheck({
+      assignees = { { login = "fkst-test-bot" } },
+      labels = { "fkst-dev:enabled", bare_claimed_label },
+      author_login = "fkst-test-bot",
+      comments = {},
+    }, inputs)
+
+    t.eq(admission, "other")
+    t.eq(detail.action, "skip-claimed-by-other")
+    t.eq(#detail.assignee_logins, 1)
+    t.eq(detail.assignee_logins[1], "fkst-test-bot")
+    t.eq(#detail.claim_labels, 1)
+    t.eq(detail.claim_labels[1], bare_claimed_label)
+  end,
+
   test_label_mode_exclusive_posture_treats_suffix_as_foreign = function()
     mock_env("fkst-test-bot", "label", "", 12, "1")
     t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
