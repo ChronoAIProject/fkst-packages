@@ -500,3 +500,39 @@ security-relevant path and belongs behind the same adversarial review as any oth
 change — not a unilateral speed edit at the end of a measurement exercise. What this section
 establishes is *where* the cost is and that it is **production, not test**, which is the fact a
 proposal would have to start from.
+
+## The 9.45 s is accidental, not inherent: a char-by-char JSON parser in pure Lua
+
+The previous section declined to look further because `filter_gh_content_json` is a redaction
+boundary. **That was over-applied caution.** Refusing to change *what gets redacted* without review
+is right; refusing to *read why it is slow* is not, and conflating the two is the same
+over-broadening this document criticises elsewhere.
+
+Reading it: `libraries/forge/github/content_filter.lua` (784 lines) contains a hand-written JSON
+parser that advances **one character at a time**, e.g.
+
+```lua
+  return self.source:sub(self.index, self.index)
+```
+
+Each call allocates a fresh single-character Lua string. Over a 10 MiB document that is on the order
+of ten million `string.sub` calls and ten million allocations — which is exactly the ~1 MiB/s the
+measurement shows.
+
+**So the cost is accidental, not inherent.** Scanning with `string.find` patterns (which execute in
+C) instead of per-character `sub` is a standard Lua optimisation, and — the load-bearing point —
+**the redaction policy is independent of how the JSON is tokenised.** Which authors' comments are
+filtered does not depend on the parser's inner loop.
+
+**No rewrite is attempted here, for a narrower reason than before.** Rewriting a JSON parser that
+decides which content reaches a codex prompt is a trust-boundary change: a parsing bug changes what
+is redacted. That belongs behind the same adversarial review as any other trust-boundary change, and
+attempting it at the end of a long session with an 18-for-18 record of refuted hypotheses would be
+precisely the over-reach recorded elsewhere in this document.
+
+**What a proposal should start from:** the cost is `Parser` in
+`libraries/forge/github/content_filter.lua`, it is per-character string allocation, it is ~9.45 s at
+the 10 MiB cap on the production path, and a semantics-preserving fix exists in principle. Any such
+change touches `libraries/` and therefore goes through the integration branch, and needs a
+differential test proving identical redaction output on the same inputs before and after — not just
+that it is faster.
