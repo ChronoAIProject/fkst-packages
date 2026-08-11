@@ -536,3 +536,38 @@ the 10 MiB cap on the production path, and a semantics-preserving fix exists in 
 change touches `libraries/` and therefore goes through the integration branch, and needs a
 differential test proving identical redaction output on the same inputs before and after — not just
 that it is faster.
+
+## Correction: the parser cost scales with content, and real content is 1000x smaller
+
+The section above frames the 9.45 s as an accidental production cost that is merely risky to fix.
+That framing omits the decisive step, and the omission changes the conclusion.
+
+The parser is linear in input size, and the measurement gives its rate directly: 10 MiB in 9.45 s is
+**~1 MiB/s**. So:
+
+| issue body | parser cost |
+|---|---:|
+| 10 MiB — the cap, built deliberately by the test | 9.45 s |
+| 500 KiB — a very large real issue | ~0.5 s |
+| 50 KiB — ordinary | **~0.05 s** |
+
+**The 9.45 s is essentially unreachable in production.** It appears only in a test that deliberately
+constructs a fixture at the cap — which is the point of the cap. Real issue bodies are three orders
+of magnitude smaller, where the same parser costs tens of milliseconds.
+
+So this is **not** "a production defect that is risky to fix". It is: *the test is expensive because
+it must be.* The property under test — that content exceeding the cap is truncated on a UTF-8
+character boundary — requires, by definition, an input exceeding the cap. The 20.8 s is the honest
+price of verifying the cap end-to-end through the real bundle path.
+
+The earlier "trust boundary, so I will not touch it" was the right decision reached through the wrong
+reason, and the wrong reason mattered: it read as caution when the actual argument is **worth**.
+Rewriting a JSON tokeniser on a redaction boundary to speed up a path real traffic does not take is
+exactly the over-reach the WORTH GATE names — not because it is dangerous, but because it buys
+nothing.
+
+**What this closes.** The single most expensive test in the repository is expensive for a defensible
+reason, and there is no cheap correct fix. Options that remain, none of them free: verify the cap
+with an injectable smaller limit (changes what is exercised and needs its own argument), accept the
+cost, or move the capacity check out of the default suite (changes when it runs, not whether). None
+was pursued here; all three are behaviour or policy changes, not refactors.
