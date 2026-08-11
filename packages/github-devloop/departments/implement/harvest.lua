@@ -232,6 +232,47 @@ local function clean_probe_worktree(worktree)
   return true, ""
 end
 
+-- Counts non-empty lines; `git ls-files` / `ls-tree` emit one path per line.
+local function line_count(stdout)
+  local n = 0
+  for line in tostring(stdout or ""):gmatch("[^\n]+") do
+    if line:gsub("%s+", "") ~= "" then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- Two independent witnesses that the checkout finished. `status --porcelain` catches a tracked file
+-- that is present-then-deleted; the census catches the case it cannot see -- a file whose index
+-- entry has not been written yet, which reports as clean precisely because git does not yet know
+-- the file is expected.
+local function probe_tree_is_materialized(git, worktree, base_sha)
+  local status = git.status_porcelain(worktree, 30)
+  if type(status) ~= "table" or tonumber(status.exit_code) ~= 0 then
+    return false, "status-unavailable: " .. command_detail(status)
+  end
+  local dirty = tostring(status.stdout or ""):gsub("%s+$", "")
+  if dirty ~= "" then
+    return false, "worktree-dirty: " .. dirty:sub(1, 200)
+  end
+
+  local tracked = git.tracked_files(worktree, 60)
+  if type(tracked) ~= "table" or tonumber(tracked.exit_code) ~= 0 then
+    return false, "tracked-census-unavailable: " .. command_detail(tracked)
+  end
+  local expected = git.commit_tracked_files(worktree, base_sha, 60)
+  if type(expected) ~= "table" or tonumber(expected.exit_code) ~= 0 then
+    return false, "commit-census-unavailable: " .. command_detail(expected)
+  end
+
+  local have, want = line_count(tracked.stdout), line_count(expected.stdout)
+  if have ~= want then
+    return false, "tracked-census-mismatch: worktree=" .. tostring(have) .. " commit=" .. tostring(want)
+  end
+  return true, nil
+end
+
 local function run_base_probe(worktree, base_sha)
   local git = require("forge.git").production_handle("github-devloop")
   local plan = git.git_worktree_add_detached_plan(worktree, base_sha)
@@ -252,6 +293,22 @@ local function run_base_probe(worktree, base_sha)
   local head_readback = tostring(head_result.stdout or ""):gsub("%s+$", "")
   if head_readback ~= base_sha then
     return { status = "head-mismatch", head_readback = head_readback }
+  end
+
+  -- A matching HEAD proves the ref, not that the working tree finished materializing. Reading a
+  -- half-written tree produced `No such file or directory` for files that are present at that sha,
+  -- and `run.sh` reports that as a test failure -- so an unmaterialized tree became a
+  -- `retryable="false"` SEMANTIC verdict against a candidate that had verified clean. Gate on the
+  -- tree itself before any test verdict can be formed; every status other than `completed` is
+  -- routed to INDETERMINATE by `local_iteration_verdict.classify`, which is a retryable setup
+  -- outcome and never a verdict about the code.
+  local materialized, materialize_detail = probe_tree_is_materialized(git, plan.worktree, base_sha)
+  if not materialized then
+    return {
+      status = "tree-not-materialized",
+      head_readback = head_readback,
+      detail = materialize_detail,
+    }
   end
 
   -- A raw-base probe has no candidate diff and must not inherit candidate comparison context.
@@ -294,6 +351,10 @@ end
 -- attempts from ever sharing a probe path. (If the same attempt were somehow probed
 -- concurrently they would share this path; that degrades fail-closed to
 -- INDETERMINATE -- a safe re-drive, never a misattribution.)
+-- Exported so the materialization gate can be exercised with an injected git handle: it is the
+-- whole point of the fix and must be provable without a real half-written checkout.
+M.probe_tree_is_materialized = probe_tree_is_materialized
+
 function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
   local suffix = probe_tag ~= nil and ("-" .. tostring(probe_tag)) or ""
   local probe_worktree = tostring(candidate_worktree) .. "-base-probe" .. suffix
