@@ -414,6 +414,13 @@ function C.parse_issue_source_ref(source_ref)
   return repo, issue_number
 end
 
+local function proposal_id_round_trips(proposal_id)
+  local repo, issue_number = base_ids.parse_proposal_id(proposal_id)
+  return repo ~= nil
+    and issue_number ~= nil
+    and base_ids.issue_ref_round_trips(repo, issue_number)
+end
+
 function C.is_safe_proposal_ref(proposal_id, dedup_key)
   if not is_path_safe_key(proposal_id, max_key_len) then
     return false
@@ -422,11 +429,7 @@ function C.is_safe_proposal_ref(proposal_id, dedup_key)
     return false
   end
 
-  local repo, issue_number = base_ids.parse_proposal_id(proposal_id)
-  if repo == nil or issue_number == nil then
-    return false
-  end
-  return base_ids.issue_ref_round_trips(repo, issue_number)
+  return proposal_id_round_trips(proposal_id)
 end
 
 function C.is_safe_consensus_result_ref(proposal_id, dedup_key)
@@ -442,11 +445,7 @@ function C.is_safe_consensus_result_ref(proposal_id, dedup_key)
     return false
   end
 
-  local repo, issue_number = base_ids.parse_proposal_id(proposal_id)
-  if repo == nil or issue_number == nil then
-    return false
-  end
-  return base_ids.issue_ref_round_trips(repo, issue_number)
+  return proposal_id_round_trips(proposal_id)
 end
 
 function C.is_safe_pr_review_result_ref(proposal_id, dedup_key)
@@ -712,21 +711,7 @@ function C.neutralize_untrusted_prompt_text(text)
     return line
   end
 
-  local output = {}
-  local start = 1
-  while true do
-    local newline = value:find("\n", start, true)
-    if newline == nil then
-      table.insert(output, neutralize_line(value:sub(start)))
-      break
-    end
-
-    table.insert(output, neutralize_line(value:sub(start, newline - 1)))
-    table.insert(output, "\n")
-    start = newline + 1
-  end
-
-  return table.concat(output)
+  return strings.map_lines(value, neutralize_line)
 end
 
 function C.quote_untrusted_prompt_text(text)
@@ -758,21 +743,7 @@ function C.neutralize_untrusted_comment_text(text)
     return line
   end
 
-  local output = {}
-  local start = 1
-  while true do
-    local newline = value:find("\n", start, true)
-    if newline == nil then
-      table.insert(output, neutralize_line(value:sub(start)))
-      break
-    end
-
-    table.insert(output, neutralize_line(value:sub(start, newline - 1)))
-    table.insert(output, "\n")
-    start = newline + 1
-  end
-
-  return table.concat(output)
+  return strings.map_lines(value, neutralize_line)
 end
 
 function C.gh_exec_opts(cmd_or_opts, timeout)

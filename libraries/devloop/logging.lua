@@ -75,20 +75,44 @@ local typed_guard_actions = {
   },
 }
 
-function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason)
+local function encode_fact_value(value)
+  return (tostring(value or ""):gsub("([^%w%._~:/-])", function(byte)
+    return string.format("%%%02X", string.byte(byte))
+  end))
+end
+
+local function structured_fact_field(fact)
+  if type(fact) ~= "table"
+    or type(fact.name) ~= "string"
+    or fact.name:match("^[a-z][a-z0-9_]*$") == nil
+    or type(fact.values) ~= "table" then
+    error("devloop.logging: structured-fact-invalid: expected a named value list", 3)
+  end
+  local values = {}
+  for _, value in ipairs(fact.values) do
+    table.insert(values, encode_fact_value(value))
+  end
+  return fact.name .. "=" .. table.concat(values, ",")
+end
+
+function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason, facts)
   local current_state = current
   local current_version = type(current) == "table" and current.version or nil
   if type(current) == "table" then
     current_state = current.state
   end
-  C.log_line("info", dept, proposal_id, "CAS", {
+  local fields = {
     "current_state=" .. tostring(current_state or "unmanaged"),
     "current_version=" .. tostring(current_version or ""),
     "current_source=trusted-marker",
     "transition=" .. tostring(from_state or "unknown") .. "->" .. tostring(to_state or "unknown"),
     "outcome=" .. tostring(outcome or "unknown"),
     "reason=" .. error_facts.one_line(reason or ""),
-  })
+  }
+  for _, fact in ipairs(type(facts) == "table" and facts or {}) do
+    table.insert(fields, structured_fact_field(fact))
+  end
+  C.log_line("info", dept, proposal_id, "CAS", fields)
 end
 
 function C.log_typed_guard(shape, decision, dept, proposal_id, current, from_state, to_state, reason)

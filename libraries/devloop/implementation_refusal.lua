@@ -139,17 +139,4 @@ function M.fact(comments, proposal_id, implementation_version, implement_attempt
   return best
 end
 
-function M.install(core)
-  core.implementation_refusal_reasons = M.reasons
-  core.implementation_refusal_reasons_text = M.reasons_text
-  core.is_supported_implementation_refusal_reason = M.is_supported_reason
-  core.require_supported_implementation_refusal_reason = M.require_supported_reason
-  core.implementation_refusal_marker = M.marker
-  core.implementation_refusal_fact = function(comments, proposal_id, implementation_version)
-    local attempt_fact = core.latest_implement_attempt_fact(
-      comments, proposal_id, implementation_version)
-    return M.fact(comments, proposal_id, implementation_version, attempt_fact)
-  end
-end
-
 return M

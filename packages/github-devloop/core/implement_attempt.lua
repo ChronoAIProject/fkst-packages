@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local S = {}
 local dispatch_live_run = require("devloop.dispatch_live_run")
+local impl_failure = require("devloop.impl_failure")
 
 function S.install(M)
 
@@ -26,34 +27,7 @@ function M.implement_attempt_marker(proposal_id, dedup_key, attempt, started_at,
 end
 
 function M.latest_implement_attempt_fact(comments, proposal_id, dedup_key)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-attempt:v1.-%-%->"
-  local latest = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_proposal = marker:match('proposal="([^"]+)"')
-      local marker_dedup = marker:match('dedup="([^"]*)"')
-      local attempt = tonumber(marker:match('attempt="(%d+)"'))
-      local started_at = marker:match('started_at="([^"]*)"')
-      local exec_ref = marker:match('exec_ref="([^"]*)"')
-      if marker_proposal == proposal_id
-        and marker_dedup == tostring(dedup_key)
-        and attempt ~= nil
-        and attempt >= 1
-        and (latest == nil or attempt > latest.attempt) then
-        latest = {
-          proposal_id = marker_proposal,
-          dedup_key = marker_dedup,
-          attempt = attempt,
-          started_at = started_at,
-          exec_ref = exec_ref,
-        }
-      end
-    end
-  end
-  return latest
+  return impl_failure.latest_implement_attempt_fact(comments, proposal_id, dedup_key)
 end
 
 function M.implement_attempt_count(comments, proposal_id, dedup_key)

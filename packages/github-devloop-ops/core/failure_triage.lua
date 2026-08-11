@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local marker_attr = require("devloop.markers.shared").bounded_xml_marker_attr
 local error_facts = require("contract.error_facts")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
@@ -205,19 +206,6 @@ local function output_obligation_dedup_key(repo, proposal_id, terminal_version, 
     tostring(terminal_version or "unknown"),
     tostring(reason_class or "unknown"),
   })
-end
-
-local function marker_attr(value, limit)
-  local text = tostring(value or "")
-  if limit ~= nil and #text > limit then
-    text = base_ids.truncate_utf8(text, limit)
-  end
-  return text:gsub("\r", " ")
-    :gsub("\n", " ")
-    :gsub("&", "&amp;")
-    :gsub('"', "&quot;")
-    :gsub("<", "&lt;")
-    :gsub(">", "&gt;")
 end
 
 local function output_obligation_escalation_marker(fact)

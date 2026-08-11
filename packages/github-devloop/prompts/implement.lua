@@ -1,4 +1,4 @@
-local implementation_refusal = require("core.implementation_refusal")
+local implementation_refusal = require("devloop.implementation_refusal")
 
 local generic_result_contract = [[## Implementation result
 Result identity: proposal `{{proposal_id}}`, implementation version `{{implementation_version}}`, attempt `{{attempt}}`.
