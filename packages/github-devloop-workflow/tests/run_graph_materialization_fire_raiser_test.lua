@@ -13,6 +13,7 @@ local workflow_history = fixtures.workflow_history
 local ownership_json = fixtures.ownership_json
 local rest_comments_json = fixtures.rest_comments_json
 local stale_label_impl_failed_child_history = fixtures.stale_label_impl_failed_child_history
+local already_satisfied_child_history = fixtures.already_satisfied_child_history
 local mock_materialization_cycle = fixtures.mock_materialization_cycle
 local mock_env = fixtures.mock_env
 local mock_write_mode = fixtures.mock_write_mode
@@ -174,5 +175,48 @@ return {
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
     t.eq(label.payload.marker_guard.expected.state, "blocked")
     t.eq(label.payload.marker_guard.expected.generation, "1")
+  end,
+
+  test_run_graph_holds_already_satisfied_production_slice_without_asserting_delivery = function()
+    local child_stdout = already_satisfied_child_history()
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(
+      workflow_history(true, nil, "software-feature-flow"),
+      "OPEN",
+      nil,
+      false,
+      child_stdout
+    )
+
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/already-satisfied-hold" },
+    }, { max_steps = 4 }))
+
+    local hold_count = 0
+    for _, step in ipairs(trace.steps or {}) do
+      for _, raised in ipairs(step.raises or {}) do
+        local payload = raised.payload or {}
+        local body = tostring(payload.body or "")
+        t.is_true(raised.queue ~= "github-proxy.github_issue_create_request")
+        t.is_true(raised.queue ~= "github-proxy.github_issue_close_request")
+        t.is_nil(payload.disposition)
+        t.is_true(tostring(payload.state or "") ~= "done")
+        t.is_true(tostring(payload.status or "") ~= "result_ready")
+        t.is_true(body:find('terminal:v1', 1, true) == nil)
+        t.is_true(body:find('state="done"', 1, true) == nil)
+        t.is_true(body:find("result_ready", 1, true) == nil)
+        for _, label in ipairs(payload.add_labels or {}) do
+          t.is_true(label ~= "fkst-dev:merged")
+        end
+        if body:find("hold:v1", 1, true) ~= nil then
+          hold_count = hold_count + 1
+          t.is_true(body:find('reason_code="origin-delivery-unverified"', 1, true) ~= nil)
+        end
+      end
+    end
+    t.eq(hold_count, 1)
   end,
 }

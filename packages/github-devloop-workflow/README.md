@@ -104,6 +104,10 @@ Additional host-authored workflows can be placed under
   - **`generated`** — a bounded `generator` instruction: a codex receives the predecessor's result by
     `source_ref` and produces the next issue's spec. **Content is not passed in payloads** — the codex
     fetches full prior context from source.
+- **`on_already_satisfied`** is reserved for the built-in `software-feature-flow` step
+  `production-slice`, where its value is `"hold"`. For an exact `result_ready` predecessor, a trusted
+  `already-satisfied` result keeps the origin nonterminal with `origin-delivery-unverified`; it does
+  not assert origin delivery. Host workflows must omit the field, preserving the child-fatal result.
 - Bounds: linear, fixed slot count (`MAX_WORKFLOW_STEPS`). **v1 is content-dynamic, not
   continuation-dynamic** — a step's result cannot add/remove slots (a bounded agent-loop is a
   separate future spec).

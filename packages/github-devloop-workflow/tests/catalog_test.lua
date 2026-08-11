@@ -1,6 +1,7 @@
 local catalog = require("core.catalog")
 local blueprint_schema = require("core.blueprint")
 local default_catalog = require("core.default_catalog")
+local digest = require("core.digest")
 local t = fkst.test
 
 local function shell_quote(value)
@@ -232,6 +233,29 @@ local tests = {
     t.is_nil(loaded.valid["software-dev-flow"])
   end,
 
+  test_builtin_feature_flow_declares_exact_pinned_digest_migration = function()
+    local loaded = catalog.validate_records(default_catalog.records())
+    local feature = loaded.valid["software-feature-flow"].blueprint
+    local current_digest = digest.blueprint_digest(feature)
+
+    t.eq(current_digest, "d-4147428082")
+    t.eq(
+      default_catalog.pinned_digest_migration_target(
+        "builtin:software-feature-flow",
+        "d-1784791911"
+      ),
+      current_digest
+    )
+    t.is_nil(default_catalog.pinned_digest_migration_target(
+      "external/software-feature-flow.json",
+      "d-1784791911"
+    ))
+    t.is_nil(default_catalog.pinned_digest_migration_target(
+      "builtin:software-feature-flow",
+      current_digest
+    ))
+  end,
+
   test_builtin_mature_software_flows_have_governing_generated_steps = function()
     local loaded = catalog.validate_records(default_catalog.records())
     local feature = loaded.valid["software-feature-flow"].blueprint
@@ -245,6 +269,8 @@ local tests = {
     assert_conservative_applies_when(idea_to_goal)
 
     assert_step_ids(feature, { "walking-skeleton", "production-slice" })
+    t.is_nil(feature.steps[1].on_already_satisfied)
+    t.eq(feature.steps[2].on_already_satisfied, "hold")
     assert_contains(feature.steps[1].content.generator, "Cockburn walking skeleton")
     assert_contains(feature.steps[1].content.generator, "thinnest executable end-to-end path")
     assert_contains(feature.steps[1].content.generator, "smoke or acceptance test")
@@ -252,6 +278,8 @@ local tests = {
     assert_contains(feature.steps[2].content.generator, "edge cases, negative cases, and tests")
 
     assert_step_ids(refactor, { "characterization-tests", "behavior-preserving-restructure" })
+    t.is_nil(refactor.steps[1].on_already_satisfied)
+    t.is_nil(refactor.steps[2].on_already_satisfied)
     assert_contains(refactor.steps[1].content.generator, "Feathers-style characterization tests")
     assert_contains(refactor.steps[1].content.generator, "tests only")
     assert_contains(refactor.steps[1].content.generator, "CURRENT externally observable behavior")
@@ -260,6 +288,9 @@ local tests = {
     assert_contains(refactor.steps[2].content.generator, "Preserve externally observable behavior")
 
     assert_step_ids(migration, { "expand", "migrate", "contract" })
+    for _, step in ipairs(migration.steps) do
+      t.is_nil(step.on_already_satisfied)
+    end
     assert_contains(migration.steps[1].content.generator, "Fowler Parallel Change expand")
     assert_contains(migration.steps[1].content.generator, "backward-compatible adapter")
     assert_contains(migration.steps[1].content.generator, "old contract must still work")
@@ -270,6 +301,9 @@ local tests = {
     assert_contains(migration.steps[3].content.generator, "temporary bridge")
 
     assert_generated_step_ids(idea_to_goal, { "converge-to-goal", "implement-from-plan" })
+    for _, step in ipairs(idea_to_goal.steps) do
+      t.is_nil(step.on_already_satisfied)
+    end
     assert_contains(idea_to_goal.summary, "Converge a fuzzy raw idea, exploration, or open-ended wish")
     assert_contains(idea_to_goal.summary, "one concrete, code-verifiable objective")
     assert_idea_to_goal_applies_when_is_conservative(idea_to_goal)

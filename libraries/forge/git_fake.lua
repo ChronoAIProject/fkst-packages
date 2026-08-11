@@ -33,14 +33,7 @@ function M.new(model)
   end
   require("forge.git.refs").install(handle)
   function handle.git_worktree_remove_if_present(worktree, timeout)
-    local dir_result = git.run_path_is_directory(worktree, 30)
-    if dir_result.exit_code == 1 then
-      return { stdout = "", stderr = "", exit_code = 0 }
-    end
-    if dir_result.exit_code ~= 0 then
-      return dir_result
-    end
-    return handle.worktree_remove(worktree, timeout)
+    return git.git_worktree_remove_if_present(worktree, timeout, handle.worktree_remove)
   end
   return handle
 end

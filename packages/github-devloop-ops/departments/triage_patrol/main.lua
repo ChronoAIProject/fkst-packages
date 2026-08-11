@@ -14,7 +14,7 @@ local devloop_state = require("devloop.state")
 
 local spec = {
   consumes = { "devloop_triage_patrol_tick" },
-  produces = { "github-proxy.github_issue_create_request" },
+  produces = { "triage_patrol_receipt_request" },
   stall_window = "10m",
 }
 
@@ -27,22 +27,6 @@ local admitted_states = {
 local blocked_verdicts = {
   ["child-pr-blocked"] = "derived",
 }
-
-local function require_repo()
-  local repo = devloop_base.read_env("FKST_GITHUB_REPO")
-  if repo == nil or base_ids.safe_repo(repo) ~= tostring(repo) then
-    error("github-devloop-ops: triage-patrol-repo-invalid: FKST_GITHUB_REPO is required")
-  end
-  return tostring(repo)
-end
-
-local function require_host_login()
-  local login = parsers_misc.canonical_login(parsers_misc.assert_trusted_bot_configured())
-  if login == nil then
-    error("github-devloop-ops: triage-patrol-bot-login-missing: FKST_GITHUB_BOT_LOGIN is required")
-  end
-  return login
-end
 
 local function candidate_labels()
   local labels = {}
@@ -195,10 +179,7 @@ local function render_receipt_body(repo, rows, snapshot_digest)
   local lines = {
     "Triage patrol audit receipt.",
     "",
-    '<!-- fkst:github-devloop-ops:triage-patrol-receipt:v1 repo="'
-      .. base_ids.safe_repo(repo)
-      .. '" snapshot="' .. snapshot_digest
-      .. '" entries="' .. tostring(#rows) .. '" -->',
+    core.triage_patrol_receipt_marker(repo, snapshot_digest, #rows),
     "",
     "Entries:",
     "Fields: p=proposal_id i=issue s=state marker_version=state-marker-version a=marker_author why=blocked-why verdict=verdict",
@@ -263,7 +244,7 @@ local function receipt_candidate_cap(repo, entity_cap)
   local worst_case_row = worst_case_receipt_row(repo)
   for _ = 1, entity_cap do
     table.insert(rows, worst_case_row)
-    local digest = strings.decimal_checksum(snapshot_identity(rows))
+    local digest = core.triage_patrol_snapshot_digest(snapshot_identity(rows))
     if #render_receipt_body(repo, rows, digest) > github_issue_create.limits().body then
       local cap = #rows - 1
       if cap < 1 then
@@ -293,29 +274,12 @@ local function log_deferred_candidates(listed, selected, deferred, entity_cap, r
 end
 
 local function receipt_request(repo, rows)
-  local snapshot_digest = strings.decimal_checksum(snapshot_identity(rows))
-  local receipt_key = base_ids.dedup_key({
-    "triage-patrol-receipt",
-    base_ids.safe_repo(repo),
-    snapshot_digest,
+  local identity = snapshot_identity(rows)
+  local snapshot_digest = core.triage_patrol_snapshot_digest(identity)
+  return core.build_triage_patrol_receipt_request(repo, rows, {
+    identity = identity,
+    rendered = receipt_body(repo, rows, snapshot_digest),
   })
-  return {
-    schema = "github-proxy.issue-create.v1",
-    repo = repo,
-    title = "Triage patrol audit receipt",
-    body = receipt_body(repo, rows, snapshot_digest),
-    labels = json.decode("[]"),
-    dedup_key = receipt_key,
-    source_ref = {
-      kind = "repo-site",
-      ref = base_ids.dedup_key({
-        "github-devloop-ops",
-        "triage-patrol",
-        base_ids.safe_repo(repo),
-        snapshot_digest,
-      }),
-    },
-  }
 end
 
 local function make_department(handles)
@@ -325,8 +289,8 @@ local function make_department(handles)
     end,
     act = function(event)
       devloop_logging.log_entry("triage_patrol", event, "github-devloop/triage-patrol", "tick")
-      local repo = require_repo()
-      local host_login = require_host_login()
+      local repo = core.require_triage_patrol_repo()
+      local host_login = core.require_triage_patrol_host_login()
       local limits = core.observability_limits()
       local receipt_cap = receipt_candidate_cap(repo, limits.entity_cap)
       local candidates, deferred_candidates, listed_candidates = list_candidates(
@@ -344,11 +308,13 @@ local function make_department(handles)
         receipt_cap
       )
       local rows = collect_snapshot(handles.github, repo, host_login, candidates, limits)
-      local request = receipt_request(repo, rows)
+      local request = #rows == 0
+        and core.build_triage_patrol_receipt_request(repo, rows)
+        or receipt_request(repo, rows)
       devloop_logging.log_raise(
         "triage_patrol",
-        "triage-patrol/" .. strings.decimal_checksum(snapshot_identity(rows)),
-        "github-proxy.github_issue_create_request",
+        "triage-patrol/" .. (request.snapshot ~= "" and request.snapshot or "empty"),
+        "triage_patrol_receipt_request",
         request
       )
     end,
