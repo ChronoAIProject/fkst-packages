@@ -462,3 +462,41 @@ four other directions.
 
 **Seventeen hypotheses were tested here. Seventeen were wrong.** None reached a merged change. The
 value of this document is that list, not a conclusion.
+
+## Answer: 10.1 s at the exec boundary, 9.5 s in the production content filter
+
+Eighteen attempts failed because all of them measured the function from **outside**. The method that
+worked was the one this document already prescribes and I had spent hours violating: **instrument
+from inside**. Temporarily stamping `os.clock()` between the named steps of
+`build_context_bundle` — in the constructed test root, not the repository — answered it in one run:
+
+| step | time |
+|---|---:|
+| everything before the whitelist lookup | 0.57 s |
+| `content_whitelist` | 0.00 s |
+| **`gh_issue_view` (the mocked exec boundary)** | **10.12 s** |
+| **`content_filter.filter_gh_content_json`** | **9.45 s** |
+| `truncate_if_needed` | 0.002 s |
+| `write_file` | 0.003 s |
+| board digest, validate | ~0 s |
+
+So the 20.8 s is two costs of roughly equal size, and **only one of them is a test artifact**:
+
+- **10.1 s moving 10 MiB across the exec boundary.** In the test this is `t.mock_command` returning
+  the fixture on stdout. Production reads real `gh` output over a pipe, so whether production pays a
+  comparable cost is **`ASSUMED-UNVERIFIED`** — the mock's transport is not necessarily the real one.
+- **9.5 s in `content_filter.filter_gh_content_json`.** This is **production code on the production
+  path**: a pure-Lua pass over the issue JSON that redacts comments from unauthorised authors. At the
+  10 MiB cap it runs at roughly 1 MiB/s. A real 10 MiB issue body would pay this in production, on
+  every context-bundle build.
+
+**That is the answer the rest of this document was circling**, and it is not what any of the earlier
+hypotheses guessed. It is not the fixture, not hashing, not JSON escaping, not the result
+marshalling, not truncation, and not file I/O — all of which were measured and eliminated first.
+
+**No optimisation is proposed here, deliberately.** `filter_gh_content_json` is a redaction boundary:
+it decides which comment authors' content reaches a codex prompt. Making it faster is a change to a
+security-relevant path and belongs behind the same adversarial review as any other trust-boundary
+change — not a unilateral speed edit at the end of a measurement exercise. What this section
+establishes is *where* the cost is and that it is **production, not test**, which is the fact a
+proposal would have to start from.
