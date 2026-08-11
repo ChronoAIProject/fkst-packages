@@ -1,11 +1,13 @@
 local blueprint = require("core.blueprint")
 local marker = require("core.marker")
+local materialization = require("core.materialization")
 local strings = require("contract.strings")
 
 local M = {}
 
 local valid_status = {
   result_ready = true,
+  satisfied_unverified = true,
   fatal = true,
   recoverable = true,
   running = true,
@@ -39,6 +41,11 @@ local function terminal_block_reason(base, slot, detail)
     and type(detail.impl_failed_reason) == "string"
     and detail.impl_failed_reason ~= "" then
     parts[#parts + 1] = detail.impl_failed_reason
+  end
+  if type(detail) == "table"
+    and type(detail.implementation_refusal_reason) == "string"
+    and detail.implementation_refusal_reason ~= "" then
+    parts[#parts + 1] = detail.implementation_refusal_reason
   end
   local reason = strings.sanitize_key(table.concat(parts, "-"), marker.MAX_TERMINAL_REASON_CODE_BYTES)
     :gsub("/", "-")
@@ -148,6 +155,7 @@ function M.compute_frontier(plan, ledger_facts, child_status_of)
   local created = {}
   local child_refs = {}
   local child_statuses = {}
+  local child_details = {}
   for index, step in ipairs(plan.steps) do
     local child_ref, entry = created_entry_for_slot(by_slot, step.id)
     if child_ref ~= nil then
@@ -155,12 +163,32 @@ function M.compute_frontier(plan, ledger_facts, child_status_of)
       child_refs[index] = child_ref
       local status, detail = child_status(child_status_of, child_ref)
       child_statuses[index] = status
+      child_details[index] = detail
       if status == "fatal" then
         return terminal_blocked(terminal_block_reason("child-fatal", step.id, detail), step.id, child_ref)
       end
       if status == "recoverable" then
         return wait("child-recoverable", step.id, child_ref)
       end
+    end
+  end
+
+
+  for index, step in ipairs(plan.steps) do
+    if child_statuses[index] == "satisfied_unverified" then
+      local entry = by_slot[tostring(step.id)]
+      local predecessor = index > 1 and child_refs[index - 1] or nil
+      local exact_predecessor = predecessor ~= nil
+        and type(entry) == "table"
+        and entry.predecessor_ref_digest == materialization.predecessor_ref_digest(predecessor)
+      if exact_predecessor and child_statuses[index - 1] == "result_ready" then
+        return wait("origin-delivery-unverified", step.id, child_refs[index])
+      end
+      return terminal_blocked(
+        terminal_block_reason("child-fatal", step.id, child_details[index]),
+        step.id,
+        child_refs[index]
+      )
     end
   end
 

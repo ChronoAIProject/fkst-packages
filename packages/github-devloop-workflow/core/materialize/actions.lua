@@ -67,18 +67,11 @@ local function issue_number_or_nil(value)
 end
 
 function M.source_ref_digest(source_ref)
-  if type(source_ref) ~= "table" then
-    return materialization.EMPTY_PREDECESSOR_REF_DIGEST
-  end
-  return "d-" .. strings.decimal_checksum(tostring(source_ref.kind or "") .. "\n" .. tostring(source_ref.ref or ""))
+  return materialization.source_ref_digest(source_ref)
 end
 
 function M.predecessor_ref_digest(predecessor)
-  if predecessor == nil then
-    return materialization.EMPTY_PREDECESSOR_REF_DIGEST
-  end
-  -- The predecessor identity is the stable source_ref; result content is rehydrated by source_ref, not hashed into this CAS key component.
-  return M.source_ref_digest(predecessor.source_ref)
+  return materialization.predecessor_ref_digest(predecessor)
 end
 
 function M.child_ref_for_entry(repo, entry)
@@ -188,6 +181,19 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
   return build_comment_request(repo, issue_number, origin, body, {
     "terminal",
     tostring(state),
+    tostring(reason_code),
+  })
+end
+
+function M.hold_request(repo, issue_number, origin, reason_code)
+  local built, err = marker.build_hold_marker(origin, reason_code)
+  if built == nil then
+    error("github-devloop-workflow: hold-marker-build-failed: hold marker build failed: "
+      .. tostring(err and err.code or "unknown"))
+  end
+  local body = "Workflow held: " .. tostring(reason_code) .. ".\n\n" .. built
+  return build_comment_request(repo, issue_number, origin, body, {
+    "hold",
     tostring(reason_code),
   })
 end

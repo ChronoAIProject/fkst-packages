@@ -171,6 +171,25 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
   return "terminal"
 end
 
+local function reconcile_hold(repo, issue_number, origin, reason_code, current_hold, unit)
+  if current_hold ~= nil and tostring(current_hold.reason_code or "") == tostring(reason_code) then
+    unit.log_decision(
+      origin,
+      "frontier",
+      "hold",
+      "skip-idempotent(hold-current)",
+      reason_code
+    )
+    return
+  end
+  unit.log_decision(origin, "frontier", "hold", "applied(hold)", reason_code)
+  unit.raise_request(
+    origin,
+    "github-proxy.github_issue_comment_request",
+    actions.hold_request(repo, issue_number, origin, reason_code)
+  )
+end
+
 local function raise_label_projection(origin, request, projection_state, unit)
   if request == nil then
     unit.log_decision(origin, "projection", "label-projection", "skip-idempotent(label-current)", projection_state .. " label projection already matches workflow truth")
@@ -470,6 +489,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
   -- is a derived child verdict, so each poll must recompute it from current child
   -- facts: a child can recover and merge after the workflow recorded child-fatal.
   local terminal_fact = discovery.latest_terminal(core, current, origin)
+  local hold_fact = discovery.latest_hold(core, current, origin)
   local label_projection = discovery.latest_label_projection(core, current, origin)
   if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
     if tostring(terminal_fact.state or "") == "done" then
@@ -538,6 +558,9 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
   })
   if decision.action == "wait" then
     reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    if decision.why == "origin-delivery-unverified" then
+      reconcile_hold(repo, issue_number, origin, decision.why, hold_fact, unit)
+    end
     unit.log_decision(origin, "frontier", "wait", "skip-wait", decision.why or "frontier-waits")
     return "wait"
   end

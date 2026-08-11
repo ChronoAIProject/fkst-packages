@@ -42,6 +42,7 @@ M.LABEL_PROJECTION_STATES = {
 local BLUEPRINT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:blueprint:v1.-%-%->"
 local MATERIALIZATION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:materialization:v1.-%-%->"
 local TERMINAL_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:terminal:v1.-%-%->"
+local HOLD_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:hold:v1.-%-%->"
 local LABEL_PROJECTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:label%-projection:v1.-%-%->"
 local LINEAGE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
 local TRANSFER_ACCEPT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:transfer%-accept:v1.-%-%->"
@@ -432,6 +433,53 @@ function M.build_terminal_marker(origin_proposal_id, terminal_state, reason_code
     .. '" monotonic="' .. monotonic
     .. '" -->',
     nil
+end
+
+function M.build_hold_marker(origin_proposal_id, reason_code)
+  local ok, err = validate_origin(origin_proposal_id, "origin_proposal_id")
+  if not ok then return nil, err end
+  ok, err = validate_reason_code(reason_code, "reason_code")
+  if not ok then return nil, err end
+
+  return '<!-- fkst:github-devloop-workflow:hold:v1 origin="' .. origin_proposal_id
+    .. '" reason_code="' .. reason_code
+    .. '" -->',
+    nil
+end
+
+local function hold_fact_from_marker(found, origin_proposal_id)
+  local origin = attr(found, "origin")
+  local reason_code = attr(found, "reason_code")
+  local ok = validate_origin(origin, "origin")
+  if not ok then return nil end
+  ok = validate_reason_code(reason_code, "reason_code")
+  if not ok or origin ~= tostring(origin_proposal_id) then return nil end
+  if M.build_hold_marker(origin, reason_code) ~= found then return nil end
+  return {
+    origin = origin,
+    reason_code = reason_code,
+  }
+end
+
+function M.parse_hold_marker(comment_body, origin_proposal_id)
+  if type(comment_body) ~= "string" then
+    return nil
+  end
+  local ok = validate_origin(origin_proposal_id, "origin_proposal_id")
+  if not ok then
+    return nil
+  end
+
+  local latest = nil
+  for found in comment_body:gmatch(HOLD_MARKER_PATTERN) do
+    if attr(found, "origin") == tostring(origin_proposal_id) then
+      latest = found
+    end
+  end
+  if latest == nil then
+    return nil
+  end
+  return hold_fact_from_marker(latest, origin_proposal_id)
 end
 
 local function terminal_fact_from_marker(marker, origin_proposal_id)

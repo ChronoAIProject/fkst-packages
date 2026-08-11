@@ -134,12 +134,36 @@ function M.latest_blueprint(core, current, origin)
   return fact
 end
 
-function M.latest_terminal(core, current, origin)
-  local fact = nil
+local function latest_disposition(core, current, origin)
+  local disposition = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
-    fact = marker.parse_terminal_marker(parsers_misc.comment_body(comment), origin) or fact
+    local body = parsers_misc.comment_body(comment)
+    local terminal = marker.parse_terminal_marker(body, origin)
+    if terminal ~= nil then
+      disposition = { kind = "terminal", fact = terminal }
+    end
+    local hold = marker.parse_hold_marker(body, origin)
+    if hold ~= nil then
+      disposition = { kind = "hold", fact = hold }
+    end
   end
-  return fact
+  return disposition
+end
+
+function M.latest_terminal(core, current, origin)
+  local disposition = latest_disposition(core, current, origin)
+  if disposition ~= nil and disposition.kind == "terminal" then
+    return disposition.fact
+  end
+  return nil
+end
+
+function M.latest_hold(core, current, origin)
+  local disposition = latest_disposition(core, current, origin)
+  if disposition ~= nil and disposition.kind == "hold" then
+    return disposition.fact
+  end
+  return nil
 end
 
 function M.latest_label_projection(core, current, origin)

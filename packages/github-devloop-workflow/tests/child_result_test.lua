@@ -14,6 +14,7 @@ local function deps(extra)
     has_merged_marker = function() return false end,
     github_closed_with_merged_pr = function() return false end,
     irreversible_terminal = function() return false end,
+    implementation_refusal = function() return nil end,
     impl_failed_non_retryable = function() return false end,
     recovery_in_progress = function() return false end,
     impl_failed_retryable = function() return false end,
@@ -54,6 +55,27 @@ local tests = {
   test_blocked_terminal_fact_is_fatal = function()
     local status = child_result.child_result_status(deps({
       irreversible_terminal = function() return { ok = true, reason = "blocked" } end,
+    }), child)
+    t.eq(status, "fatal")
+  end,
+
+  test_already_satisfied_refusal_is_satisfied_unverified = function()
+    local status, detail = child_result.child_result_status(deps({
+      implementation_refusal = function()
+        return { reason = "already-satisfied" }
+      end,
+      irreversible_terminal = function() return true end,
+    }), child)
+    t.eq(status, "satisfied_unverified")
+    t.eq(detail.implementation_refusal_reason, "already-satisfied")
+  end,
+
+  test_other_implementation_refusal_remains_fatal = function()
+    local status = child_result.child_result_status(deps({
+      implementation_refusal = function()
+        return { reason = "wrong-layer" }
+      end,
+      irreversible_terminal = function() return true end,
     }), child)
     t.eq(status, "fatal")
   end,

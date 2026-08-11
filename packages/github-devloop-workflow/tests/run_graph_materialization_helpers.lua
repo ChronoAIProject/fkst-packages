@@ -200,6 +200,25 @@ local function stale_label_impl_failed_child_history()
   )
 end
 
+local function already_satisfied_child_history()
+  local body = core.state_marker(revived_child, "blocked", child_version)
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implement-attempt:v1 proposal="' .. revived_child
+    .. '" dedup="' .. child_version
+    .. '" attempt="1" started_at="100" exec_ref="exec-1" -->'
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implementation-refusal:v1 proposal="' .. revived_child
+    .. '" reason="already-satisfied" attempt="1" dedup="' .. child_version
+    .. '" evidence="repository-ground-truth" -->'
+  return issue_json(
+    revived_child_issue,
+    "Workflow child",
+    { "fkst-dev:enabled", "fkst-dev:blocked" },
+    { { body = body } },
+    "OPEN"
+  )
+end
+
 local function pr_origin_body()
   return m_builders.pr_origin_marker(
     revived_child,
@@ -363,6 +382,7 @@ return {
   pr_origin_body = pr_origin_body,
   pr_view_json = pr_view_json,
   stale_label_impl_failed_child_history = stale_label_impl_failed_child_history,
+  already_satisfied_child_history = already_satisfied_child_history,
   mock_materialization_cycle = mock_materialization_cycle,
   mock_env = mock_env,
   mock_write_mode = mock_write_mode,
