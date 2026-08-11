@@ -628,12 +628,15 @@ own budget. They are different questions and the second had not been measured.
 
 `test_affected_requires_full_suite()` classifies each changed path, and **any** path that requires
 the full suite forces `full=1` for the whole run. Replaying that function over the last 300
-non-merge commits of `origin/dev`:
+non-merge commits of `origin/dev`, **excluding the 59 empty-diff marker commits** the pipeline writes
+(`fkst: implementation result v1 ...` and similar — they touch no path, so the classifier trivially
+reports SCOPED and would otherwise inflate the denominator):
 
 | verdict | commits |
 |---|---:|
-| SCOPED (graph-derived package subset) | 196 |
-| **FULL (all 22 packages + composed conformance)** | **104** |
+| empty diff (excluded) | 59 |
+| SCOPED (graph-derived package subset) | 134 |
+| **FULL (all 22 packages + composed conformance)** | **107 of 241 = 44.4%** |
 
 FULL, by the class of the first path that forced it:
 
@@ -757,6 +760,38 @@ several.
 That is now fixed — the gate runs once with all affected packages — which is the precondition for any
 further narrowing to have a positive sign at all. **The sequencing matters more than the selection
 rule: the batching fix was worth more than the narrowing it unblocks.**
+
+**And it was worth much more than expected, because SCOPED verdicts are not small.** Resolving each
+of the 134 real SCOPED commits through `scripts/test_affected.py` against the current manifests:
+
+| resolved packages | commits |
+|---:|---:|
+| 1 | 21 |
+| 2 | 10 |
+| 4 | 11 |
+| 5 | 2 |
+| 6 | 24 |
+| 7 | 1 |
+| 8 | 2 |
+| 15 | 5 |
+| **16** | **36** |
+| 18 | 2 |
+| **22 (every package)** | **20** |
+
+Mean **10.4** packages. So the average SCOPED local iteration used to pay **10.4 check phases**, and
+20 commits paid **22** — a SCOPED verdict that selects every package, and therefore under the old
+code cost 22× the check phase that one FULL run pays once. Using the 204.6 s check phase measured
+above, batching removes ≈ 9.4 × 204.6 s ≈ **32 minutes** of redundant work from an average SCOPED
+iteration, and ≈ 72 minutes from the worst class.
+
+**This also reframes the FULL fallback.** FULL is not the expensive verdict it appeared to be
+relative to SCOPED — before batching, the median SCOPED verdict was *more* expensive than FULL in
+check-phase terms. The narrowing work this section set out to justify was chasing the smaller of the
+two costs, and the larger one was one `for` loop away.
+
+*Method note: package sets are resolved with the current `test_affected.py` and current manifests
+against historical paths, so a commit touching a since-deleted package resolves imprecisely. The
+distribution's shape — concentrated at 16 and 22 — does not depend on those edges.*
 
 ### What a proposal must start from
 
