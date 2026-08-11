@@ -16,6 +16,12 @@ local marker_facts = require("devloop.markers.facts")
 local pr_partition = require("devloop.restart.issue.pr_partition_contract")
 
 local ai_sentinel = "⟦AI:FKST⟧"
+local issue_operator_command_names = {
+  "rereview",
+  "reready",
+  "reimplement",
+  "dependency-waiver",
+}
 local rereview_state_modes = {
   blocked = "direct",
   ["review-meta"] = "direct",
@@ -474,6 +480,17 @@ end
 
 function C.has_operator_command_response(comments, command)
   return C.operator_command_response_fact(comments, command) ~= nil
+end
+
+function C.pending_issue_operator_command_facts(comments)
+  local pending = {}
+  for _, command_name in ipairs(issue_operator_command_names) do
+    local command = C.operator_command_fact(comments, command_name)
+    if command ~= nil and not C.has_operator_command_response(comments, command) then
+      table.insert(pending, command)
+    end
+  end
+  return pending
 end
 
 function C.operator_command_response_count(comments, command_name, outcome, reason)

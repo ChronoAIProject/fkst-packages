@@ -243,7 +243,28 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     return true
   end
   if admission == "other" then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, state.state, state.state, "skip-claim-lost", "CLAIM lost before managed issue handling")
+    local pending_commands = operator_commands.pending_issue_operator_command_facts(current.comments)
+    local pending_command_names = {}
+    local pending_command_keys = {}
+    for _, command in ipairs(pending_commands) do
+      table.insert(pending_command_names, command.command)
+      table.insert(pending_command_keys, command.key)
+    end
+    devloop_logging.log_cas_decision(
+      "observe_issue",
+      proposal_id,
+      state,
+      state.state,
+      state.state,
+      "skip-claim-lost",
+      "CLAIM lost before managed issue handling",
+      {
+        "assignee_logins=" .. table.concat(detail.assignee_logins or {}, ","),
+        "claim_labels=" .. table.concat(detail.claim_labels or {}, ","),
+        "pending_operator_commands=" .. table.concat(pending_command_names, ","),
+        "pending_operator_command_keys=" .. table.concat(pending_command_keys, ","),
+      }
+    )
     return false
   end
   if admission == "denied" then

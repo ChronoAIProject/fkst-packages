@@ -75,20 +75,24 @@ local typed_guard_actions = {
   },
 }
 
-function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason)
+function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason, facts)
   local current_state = current
   local current_version = type(current) == "table" and current.version or nil
   if type(current) == "table" then
     current_state = current.state
   end
-  C.log_line("info", dept, proposal_id, "CAS", {
+  local fields = {
     "current_state=" .. tostring(current_state or "unmanaged"),
     "current_version=" .. tostring(current_version or ""),
     "current_source=trusted-marker",
     "transition=" .. tostring(from_state or "unknown") .. "->" .. tostring(to_state or "unknown"),
     "outcome=" .. tostring(outcome or "unknown"),
     "reason=" .. error_facts.one_line(reason or ""),
-  })
+  }
+  for _, fact in ipairs(type(facts) == "table" and facts or {}) do
+    table.insert(fields, fact)
+  end
+  C.log_line("info", dept, proposal_id, "CAS", fields)
 end
 
 function C.log_typed_guard(shape, decision, dept, proposal_id, current, from_state, to_state, reason)
