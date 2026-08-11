@@ -95,32 +95,57 @@ end
 
 local function install_receipt_lifecycle(github, model)
   model.receipt_closes = {}
-  github.issue_search = function(search_repo, query, fields, timeout)
-    t.eq(search_repo, repo)
-    t.eq(query, "is:open " .. receipt_marker_prefix)
-    t.eq(fields, "number,state,author,body")
+  model.receipt_creates = {}
+  model.next_receipt_number = 911
+  github.api_paginate_slurp = function(path, timeout)
+    t.eq(path, "repos/" .. repo .. "/issues?state=open&per_page=" .. "100")
     t.eq(timeout, core.observability_limits().call_timeout)
     local rows = {}
     for _, issue in pairs(model.issues or {}) do
-      if tostring(issue.state or "OPEN"):upper() == "OPEN"
-        and tostring(issue.body or ""):find(receipt_marker_prefix, 1, true) ~= nil then
+      if tostring(issue.state or "OPEN"):upper() == "OPEN" then
         table.insert(rows, issue)
       end
     end
     table.sort(rows, function(left, right)
       return tonumber(left.number) < tonumber(right.number)
     end)
-    local encoded = {}
-    for _, issue in ipairs(rows) do
-      table.insert(encoded, "{"
+    local pages = {}
+    for index, issue in ipairs(rows) do
+      local page_number = math.floor((index - 1) / 100) + 1
+      pages[page_number] = pages[page_number] or {}
+      table.insert(pages[page_number], "{"
         .. '"number":' .. tostring(issue.number)
-        .. ',"state":"OPEN"'
-        .. ',"author":' .. github_view.json_value(issue.author)
-        .. ',"body":' .. github_view.json_value(issue.body)
+        .. ',"title":' .. github_view.json_value(issue.title or "")
+        .. ',"user":{"login":' .. github_view.json_value(issue.author and issue.author.login) .. "}"
+        .. ',"body":' .. github_view.json_value(issue.body or "")
         .. "}")
     end
+    local encoded_pages = {}
+    for _, page in ipairs(pages) do
+      table.insert(encoded_pages, "[" .. table.concat(page, ",") .. "]")
+    end
     return {
-      stdout = "[" .. table.concat(encoded, ",") .. "]",
+      stdout = "[" .. table.concat(encoded_pages, ",") .. "]",
+      stderr = "",
+      exit_code = 0,
+    }
+  end
+  github.api_method = function(method, path, fields, input_file, include_headers, timeout)
+    t.eq(method, "POST")
+    t.eq(path, "repos/" .. repo .. "/issues")
+    t.eq(fields, nil)
+    t.eq(include_headers, nil)
+    t.eq(timeout, core.observability_limits().call_timeout)
+    local payload = json.decode(file.read(input_file))
+    local issue_number = model.next_receipt_number
+    model.next_receipt_number = issue_number + 1
+    local issue = issue_fixture(issue_number, host_login, payload.labels, {})
+    issue.title = payload.title
+    issue.body = payload.body
+    model.issues[repo .. "#issue/" .. tostring(issue_number)] = issue
+    table.insert(model.receipt_creates, issue_number)
+    return {
+      stdout = '{"number":' .. tostring(issue_number) .. "}",
       stderr = "",
       exit_code = 0,
     }
@@ -159,7 +184,13 @@ local function make_department(issues)
 
   local ok, installed = pcall(require, "departments.triage_patrol.main")
   t.is_true(ok, "triage patrol department must exist: " .. tostring(installed))
-  return installed.make_department({ github = github }), model
+  return installed.make_department({ github = github }), model, github
+end
+
+local function make_receipt_department(github)
+  local ok, installed = pcall(require, "departments.triage_patrol_receipt.main")
+  t.is_true(ok, "triage patrol receipt department must exist: " .. tostring(installed))
+  return installed.make_department({ github = github })
 end
 
 local function mock_env(reads, write_mode)
@@ -180,14 +211,6 @@ local function mock_env(reads, write_mode)
       exit_code = 0,
     })
   end
-end
-
-local function materialize_receipt(model, issue_number, payload)
-  local issue = issue_fixture(issue_number, host_login, payload.labels, {})
-  issue.title = payload.title
-  issue.body = payload.body
-  model.issues[repo .. "#issue/" .. tostring(issue_number)] = issue
-  return issue
 end
 
 local function open_receipt_count(model)
@@ -211,7 +234,7 @@ local function tick()
   }
 end
 
-local function run_read_only(department, event, expected_cache_writes)
+local function run_read_only(department, event)
   local old_spawn_codex = spawn_codex
   local old_spawn_codex_sync = spawn_codex_sync
   local old_cache_set = cache_set
@@ -230,9 +253,7 @@ local function run_read_only(department, event, expected_cache_writes)
   end
   cache_set = function()
     runtime_writes = runtime_writes + 1
-    if expected_cache_writes == nil then
-      error("triage patrol must not write durable cache state")
-    end
+    error("triage patrol must not write durable cache state")
   end
   file.write = function()
     runtime_writes = runtime_writes + 1
@@ -252,15 +273,22 @@ local function run_read_only(department, event, expected_cache_writes)
     error(result, 0)
   end
   t.eq(codex_calls, 0)
-  t.eq(runtime_writes, expected_cache_writes or 0)
+  t.eq(runtime_writes, 0)
   return result, warnings
 end
 
 local function only_receipt(result)
   t.eq(#result.raises, 1)
-  t.eq(result.raises[1].queue, "github-proxy.github_issue_create_request")
-  t.eq(result.raises[1].payload.schema, "github-proxy.issue-create.v1")
+  t.eq(result.raises[1].queue, "triage_patrol_receipt_request")
+  t.eq(result.raises[1].payload.schema, "github-devloop-ops.triage-patrol-receipt.v1")
   return result.raises[1].payload
+end
+
+local function materialize(department, payload)
+  return testing.run_fake(department, {
+    queue = "triage_patrol_receipt_request",
+    payload = payload,
+  })
 end
 
 local function receipt_at(department, clock)
@@ -352,10 +380,9 @@ return {
     local second = only_receipt(run_read_only(department))
 
     t.eq(first.repo, repo)
-    t.eq(first.dedup_key, second.dedup_key)
+    t.eq(first.snapshot, second.snapshot)
+    t.eq(#first.snapshot, 64)
     t.eq(first.body, second.body)
-    t.eq(first.source_ref.kind, "repo-site")
-    t.eq(first.source_ref.ref, second.source_ref.ref)
     t.is_true(first.body:find("p=" .. proposal_id(11), 1, true) ~= nil)
     t.is_true(first.body:find("i=11", 1, true) ~= nil)
     t.is_true(first.body:find("s=declined", 1, true) ~= nil)
@@ -378,8 +405,7 @@ return {
     table.insert(model.issues[repo .. "#issue/11"].comments,
       comment(11, "declined", changed_version, host_login))
     local changed = only_receipt(run_read_only(department))
-    t.is_true(changed.dedup_key ~= first.dedup_key)
-    t.is_true(changed.source_ref.ref ~= first.source_ref.ref)
+    t.is_true(changed.snapshot ~= first.snapshot)
     t.is_true(changed.body:find("marker_version=" .. changed_version, 1, true) ~= nil)
     t.eq(#model.writes, 0)
   end,
@@ -421,7 +447,7 @@ return {
     local later = receipt_at(department, 2000)
 
     t.eq(first.title, "Triage patrol audit receipt")
-    t.eq(first.dedup_key, later.dedup_key)
+    t.eq(first.snapshot, later.snapshot)
     t.eq(first.body, later.body)
     t.is_true(first.body:find("p=" .. proposal_id(31)
       .. " i=31 s=blocked marker_version=" .. derived_version
@@ -437,15 +463,17 @@ return {
     t.eq(#model.writes, 0)
   end,
 
-  test_zero_admitted_rows_emit_no_receipt = function()
+  test_zero_admitted_rows_emit_retirement_only = function()
     mock_env(32)
     local department, model = make_department({})
 
-    local first = run_read_only(department)
-    local second = run_read_only(department)
+    local first = only_receipt(run_read_only(department))
+    local second = only_receipt(run_read_only(department))
 
-    t.eq(#first.raises, 0)
-    t.eq(#second.raises, 0)
+    t.eq(first.entries, 0)
+    t.eq(first.snapshot, "")
+    t.eq(first.body, "")
+    t.eq(second.entries, 0)
     t.eq(#model.writes, 0)
   end,
 
@@ -465,15 +493,17 @@ return {
     quoted.title = "Unrelated bot-authored report"
     quoted.body = "Quoted receipt follows.\n\n" .. existing_body
     mock_env(64, "1")
-    local department, model = make_department({
+    local department, model, github = make_department({
       [repo .. "#issue/901"] = existing,
       [repo .. "#issue/902"] = lookalike,
       [repo .. "#issue/903"] = quoted,
     })
+    local receipt_department = make_receipt_department(github)
 
-    local result = run_read_only(department, nil, 3)
+    local request = only_receipt(run_read_only(department))
+    materialize(receipt_department, request)
 
-    t.eq(#result.raises, 0)
+    t.eq(request.entries, 0)
     t.eq(model.issues[repo .. "#issue/901"].state, "CLOSED")
     t.eq(model.issues[repo .. "#issue/902"].state, "OPEN")
     t.eq(model.issues[repo .. "#issue/903"].state, "OPEN")
@@ -486,17 +516,17 @@ return {
     local issue_ref = repo .. "#issue/" .. tostring(issue_number)
     local issue = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {})
     mock_env(128, "1")
-    local department, model = make_department({ [issue_ref] = issue })
+    local department, model, github = make_department({ [issue_ref] = issue })
+    local receipt_department = make_receipt_department(github)
     local retained_versions = {}
 
     for round = 1, 3 do
       local version = proposal_id(issue_number) .. "/intake/2026-08-1" .. tostring(round) .. "T01-00-00Z"
       table.insert(model.issues[issue_ref].comments,
         comment(issue_number, "declined", version, host_login))
-      local expected_cache_writes = round == 1 and 0 or 3
-      local receipt = only_receipt(run_read_only(department, nil, expected_cache_writes))
+      local receipt = only_receipt(run_read_only(department))
       table.insert(retained_versions, version)
-      materialize_receipt(model, 910 + round, receipt)
+      materialize(receipt_department, receipt)
 
       t.eq(open_receipt_count(model), 1)
       t.is_true(receipt.body:find("marker_version=" .. version, 1, true) ~= nil)
@@ -506,19 +536,117 @@ return {
 
     table.insert(model.issues[issue_ref].comments,
       comment(issue_number, "thinking", proposal_id(issue_number) .. "/intake/2026-08-20T01-00-00Z", host_login))
-    local empty = run_read_only(department, nil, 3)
+    local empty = only_receipt(run_read_only(department))
+    materialize(receipt_department, empty)
 
-    t.eq(#empty.raises, 0)
+    t.eq(empty.entries, 0)
     t.eq(open_receipt_count(model), 0)
     t.eq(#model.receipt_closes, 3)
     for round, version in ipairs(retained_versions) do
-      local carrier = model.issues[repo .. "#issue/" .. tostring(910 + round)]
+      local carrier = model.issues[repo .. "#issue/" .. tostring(model.receipt_creates[round])]
       t.eq(carrier.state, "CLOSED")
       t.is_true(carrier.body:find(receipt_marker_prefix, 1, true) ~= nil)
       t.is_true(carrier.body:find("marker_version=" .. version, 1, true) ~= nil)
       t.is_true(carrier.body:find("verdict=abstain", 1, true) ~= nil)
       t.is_true(carrier.body:find('snapshot="', 1, true) ~= nil)
     end
+  end,
+
+  test_delayed_materialization_does_not_turn_tick_count_into_open_receipt_count = function()
+    local issue_number = 42
+    local issue_ref = repo .. "#issue/" .. tostring(issue_number)
+    local issue = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {})
+    mock_env(128, "1")
+    local department, model, github = make_department({ [issue_ref] = issue })
+    local receipt_department = make_receipt_department(github)
+    local pending = {}
+
+    for round = 1, 3 do
+      local version = proposal_id(issue_number) .. "/intake/2026-08-2" .. tostring(round) .. "T01-00-00Z"
+      table.insert(model.issues[issue_ref].comments,
+        comment(issue_number, "declined", version, host_login))
+      table.insert(pending, {
+        version = version,
+        receipt = only_receipt(run_read_only(department)),
+      })
+    end
+
+    t.eq(open_receipt_count(model), 0)
+    for _, item in ipairs(pending) do
+      materialize(receipt_department, item.receipt)
+      t.is_true(item.receipt.body:find("marker_version=" .. item.version, 1, true) ~= nil)
+    end
+
+    t.eq(open_receipt_count(model), 1)
+    t.eq(#model.receipt_creates, #pending)
+    for round, item in ipairs(pending) do
+      local carrier = model.issues[repo .. "#issue/" .. tostring(model.receipt_creates[round])]
+      t.is_true(carrier.body:find("marker_version=" .. item.version, 1, true) ~= nil)
+    end
+  end,
+
+  test_materializer_replay_reuses_the_visible_snapshot_carrier = function()
+    local issue_number = 43
+    local issue_ref = repo .. "#issue/" .. tostring(issue_number)
+    local issue = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {
+      comment(issue_number, "declined", proposal_id(issue_number) .. "/intake/v1", host_login),
+    })
+    mock_env(64, "1")
+    local department, model, github = make_department({ [issue_ref] = issue })
+    local receipt_department = make_receipt_department(github)
+    local request = only_receipt(run_read_only(department))
+
+    materialize(receipt_department, request)
+    materialize(receipt_department, request)
+
+    t.eq(#model.receipt_creates, 1)
+    t.eq(#model.receipt_closes, 0)
+    t.eq(open_receipt_count(model), 1)
+  end,
+
+  test_materializer_rejects_invalid_requests_before_write_mode_branching = function()
+    local ok, err = pcall(core.validate_triage_patrol_receipt_request, {
+      schema = "github-devloop-ops.triage-patrol-receipt.v1",
+      repo = repo,
+      entries = 1,
+      snapshot = "not-a-sha256",
+      body = "untrusted",
+    }, repo)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("triage-patrol-receipt-request-invalid", 1, true) ~= nil)
+  end,
+
+  test_materializer_exhaustively_retires_more_than_one_search_page = function()
+    local issue_number = 44
+    local issue_ref = repo .. "#issue/" .. tostring(issue_number)
+    local issues = {
+      [issue_ref] = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {
+        comment(issue_number, "declined", proposal_id(issue_number) .. "/intake/v1", host_login),
+      }),
+    }
+    for offset = 0, 124 do
+      local receipt_number = 1000 + offset
+      local body = table.concat({
+        "Triage patrol audit receipt.",
+        "",
+        '<!-- ' .. receipt_marker_prefix .. ' repo="' .. repo
+          .. '" snapshot="' .. tostring(10000 + offset) .. '" entries="1" -->',
+      }, "\n")
+      local receipt = issue_fixture(receipt_number, host_login, {}, {})
+      receipt.title = "Triage patrol audit receipt"
+      receipt.body = body
+      issues[repo .. "#issue/" .. tostring(receipt_number)] = receipt
+    end
+    mock_env(64, "1")
+    local department, model, github = make_department(issues)
+    local receipt_department = make_receipt_department(github)
+
+    materialize(receipt_department, only_receipt(run_read_only(department)))
+
+    t.eq(#model.receipt_closes, 125)
+    t.eq(#model.receipt_creates, 1)
+    t.eq(open_receipt_count(model), 1)
   end,
 
   test_labeled_candidate_without_an_authorized_marker_is_omitted = function()
@@ -530,9 +658,9 @@ return {
     mock_env(32)
     local department, model = make_department(issues)
 
-    local result = run_read_only(department)
+    local result = only_receipt(run_read_only(department))
 
-    t.eq(#result.raises, 0)
+    t.eq(result.entries, 0)
     t.eq(#model.writes, 0)
   end,
 
@@ -601,7 +729,7 @@ return {
     local first = only_receipt(run_read_only(department, first_tick))
     local second = only_receipt(run_read_only(department, second_tick))
 
-    t.is_true(first.dedup_key ~= second.dedup_key)
+    t.is_true(first.snapshot ~= second.snapshot)
     t.is_true(first.body ~= second.body)
     local deferred_candidate_covered = false
     for issue_number = 201, 201 + core.observability_limits().entity_cap do
@@ -651,15 +779,20 @@ return {
 
   test_department_spec_is_read_only_except_for_the_receipt_seam = function()
     mock_env(16)
-    local department = make_department({})
+    local department, _, github = make_department({})
+    local receipt_department = make_receipt_department(github)
     t.eq(department.spec.stall_window, "10m")
     t.eq(#department.spec.consumes, 1)
     t.eq(department.spec.consumes[1], "devloop_triage_patrol_tick")
     t.eq(#department.spec.produces, 1)
-    t.eq(department.spec.produces[1], "github-proxy.github_issue_create_request")
+    t.eq(department.spec.produces[1], "triage_patrol_receipt_request")
     for _, queue in ipairs(department.spec.consumes) do
       t.eq(queue:find("github-devloop.", 1, true), nil)
       t.eq(queue:find("github-devloop-pr.", 1, true), nil)
     end
+    t.eq(receipt_department.spec.stall_window, "10m")
+    t.eq(#receipt_department.spec.consumes, 1)
+    t.eq(receipt_department.spec.consumes[1], "triage_patrol_receipt_request")
+    t.eq(#receipt_department.spec.produces, 0)
   end,
 }

@@ -370,7 +370,9 @@ return {
       error(trace.consumer_result.message or "fire_raiser consumer failed")
     end
     t.eq(trace.consumer_result.status, "accepted")
-    t.eq(#trace.raised, 0)
+    t.eq(#trace.raised, 1)
+    t.eq(trace.raised[1].queue, "github-devloop-ops.triage_patrol_receipt_request")
+    t.eq(trace.raised[1].payload.entries, 0)
   end,
 ]]))
     local output = run_child(root)
