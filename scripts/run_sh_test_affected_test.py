@@ -658,10 +658,13 @@ class RunShTestAffectedTest(unittest.TestCase):
             h.close()
 
     def test_batched_affected_run_checks_once_and_executes_every_unit(self) -> None:
-        packages = ("consensus", "frontend-devloop", "github-devloop") + tuple(
-            f"extra-{index:02}" for index in range(1, 10)
+        packages = tuple(
+            path.parent.name for path in sorted((REPO_ROOT / "packages").glob("*/fkst.toml"))
         )
-        h = TestAffectedHarness(packages[3:])
+        built_in_packages = {"consensus", "frontend-devloop", "github-devloop"}
+        h = TestAffectedHarness(
+            tuple(package for package in packages if package not in built_in_packages)
+        )
         try:
             for package in packages:
                 h._write(f"packages/{package}/core.lua", "return {changed = true}\n")
