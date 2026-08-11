@@ -407,16 +407,9 @@ function C.has_review_reconcile_marker(comments, issue_proposal_id, issue_versio
   return false
 end
 
-<<<<<<< HEAD
 function C.fix_reconcile_fact(comments, proposal_id, issue_version, expected_action)
   if type(comments) ~= "table" then
     return nil
-=======
-function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
-  local n = valid_round(devloop_state.version_fix_round(issue_version))
-  if n == nil or type(comments) ~= "table" then
-    return false
->>>>>>> 2bddee3d25ce7cca25c871e1368e641ac8fb95ef
   end
   local expected_version = issue_version ~= nil and tostring(issue_version) or nil
   local best = nil
@@ -434,7 +427,6 @@ function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
           and valid_round(attr(marker, "round")) == n
           and n ~= nil
           and (action == "drop" or action == "re-design" or action == "re-cluster")
-          and (expected_action == nil or action == tostring(expected_action))
           and dedup == "fix-reconcile:" .. marker_version then
           local fact = {
             proposal_id = tostring(proposal_id),
@@ -461,10 +453,13 @@ function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
       end
     end
   end
+  if best ~= nil and expected_action ~= nil and best.action ~= tostring(expected_action) then
+    return nil
+  end
   return best
 end
 
-function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
+function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
   return C.fix_reconcile_fact(comments, proposal_id, issue_version) ~= nil
 end
 

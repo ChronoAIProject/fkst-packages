@@ -293,8 +293,7 @@ return {
     t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
 
     local marker = conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "drop")
-<<<<<<< HEAD
-    t.eq(conv_reconcile.has_fix_reconcile_marker(core, { marker }, issue_proposal_id, issue_version), true)
+    t.eq(conv_reconcile.has_fix_reconcile_marker({ marker }, issue_proposal_id, issue_version), true)
     local marker_fact = conv_reconcile.fix_reconcile_fact({ marker }, issue_proposal_id, issue_version, "drop")
     t.eq(marker_fact.action, "drop")
     t.eq(marker_fact.dedup_key, "fix-reconcile:" .. issue_version)
@@ -314,9 +313,10 @@ return {
       conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "re-design")
         .. "\n" .. marker,
     }, issue_proposal_id, issue_version), nil)
-=======
-    t.eq(conv_reconcile.has_fix_reconcile_marker({ marker }, issue_proposal_id, issue_version), true)
->>>>>>> 2bddee3d25ce7cca25c871e1368e641ac8fb95ef
+    t.eq(conv_reconcile.fix_reconcile_fact({
+      conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "re-design")
+        .. "\n" .. marker,
+    }, issue_proposal_id, issue_version, "drop"), nil)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="fix-reconcile:' .. issue_version .. '"', 1, true) ~= nil)
