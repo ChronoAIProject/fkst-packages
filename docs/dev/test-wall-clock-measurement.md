@@ -252,3 +252,43 @@ a validated model — it should be checked against a runtime count before anythi
 hypotheses in this document is assuming uniformity in a system that is concentrated everywhere. That
 bias reappeared here at the level of the **metric**: dividing by test count silently asserts tests
 are interchangeable. A per-unit number is only as good as the unit.
+
+## Retraction: the r = 0.90 result above is withdrawn — it loses to the null
+
+The section above claims the count of heavy test primitives predicts unit cost at `r = 0.90` and
+calls it "the first thing that actually correlates". **That claim is retracted.** The control was
+never run. Running it:
+
+| predictor | Pearson | Spearman (rank) | Pearson, dominant unit dropped |
+|---|---:|---:|---:|
+| plain test count | **0.97** | 0.81 | **0.87** |
+| heavy primitives | 0.90 | 0.83 | **0.77** |
+| test source lines | 0.99 | — | — |
+
+`r(test count, heavy primitives) = 0.94` — they are close to the same variable. Heavy-primitive
+count adds nothing over "the suite is big", and once the dominant unit is removed it is **worse**
+than the trivial null.
+
+**All of these correlations are artifacts of the power-law distribution this document itself
+documents.** One unit (`github-devloop`, 1424 tests, 582 s) is an extreme point on every axis, and
+Pearson's r on heavily skewed data is dominated by it. Reaching for a correlation coefficient that
+assumes roughly-even spread, on data already measured as concentrated at every granularity, was the
+error.
+
+**What survives:** unit cost tracks suite size, which is trivially true and explains nothing. The
+32x spread in cost-per-test (23 ms to 729 ms) is arithmetically real and **remains unexplained**.
+Nothing tested — composition, closure size, heavy-primitive count, test count — accounts for it.
+
+**The methodological point, now demonstrated three times in this document at three different
+levels.** The single bias behind most of the refuted hypotheses is assuming uniformity in a
+concentrated system. It appeared:
+
+1. in a **hypothesis** — "two packages hold 65% of test lines, so they are the problem" (refuted: one
+   package is the critical path);
+2. in a **metric** — dividing by test count silently asserts tests are interchangeable units;
+3. in a **statistical method** — Pearson's r on power-law data, where one point sets the answer.
+
+Naming the bias did not prevent recurrence; it recurred twice after being named. What caught it each
+time was **running a control that could falsify the current answer** — the null predictor, the rank
+statistic, the leave-one-out. A mechanical falsification step beats vigilance, because vigilance is
+what generated the number in the first place.
