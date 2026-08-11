@@ -6,7 +6,7 @@
 # "STUCK 8h"). now=`date +%s` is already zone-independent, so only the parse side needed fixing.
 epoch_utc() { [ -z "${1:-}" ] && { echo 0; return; }; TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || echo 0; }
 
-issue_author_ownership() { # $1 issue author login -> "peer" | "other" | "" (self/unknown)
+author_ownership() { # $1 issue-or-PR author login -> "peer" | "other" | "" (self/unknown)
   local author="$1"
   [ -n "$author" ] || return 1
   [ "$author" = "$BOT" ] && return 1
@@ -202,18 +202,22 @@ board_one() { # $1 name, $2 stale_hours
   # old `2>/dev/null | while` swallowing it into a silently-EMPTY section — an empty board is
   # indistinguishable from "all resolved" (real blind spot hit during the 2026-07-17 REST outage).
   local pr_rows pr_rc
-  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  # The author rides along because ownership decides whether a ⚠ is this host's problem at all;
+  # REST spells an app author `<login>[bot]` and GraphQL spells it `app/<login>`, and
+  # `author_ownership` already recognises both. Title stays last: it is the only field
+  # that may contain whitespace.
+  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.user.login)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   if [ "$pr_rc" -ne 0 ]; then
     pr_rows=$(gh pr list --repo "$REPO" --state open --limit 100 \
-      --json number,headRefOid,updatedAt,baseRefName,title \
-      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+      --json number,headRefOid,updatedAt,baseRefName,author,title \
+      -q '.[]|"\(.number)\t\(.headRefOid[0:8])\t\(.updatedAt)\t\(.baseRefName)\t\(.author.login)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
   fi
   if [ "$pr_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (pulls: REST and GraphQL both failed) — cross-check: gh pr list --repo $REPO --state open"
   else
-  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
+  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base author title; do
     [ -z "$num" ] && continue
-    local chk a flow pr_fact="" pr_fact_rc pr_condition condition_started_at pr_state pr_override onset_missing=0
+    local chk a flow pr_fact="" pr_fact_rc pr_condition condition_started_at pr_state pr_override onset_missing=0 pr_ownership
     chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
     a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
     pr_fact=$(pr_lifecycle_board_fact "$num"); pr_fact_rc=$?
@@ -239,6 +243,16 @@ board_one() { # $1 name, $2 stale_hours
     # reclassify terminal/pipeline-stuck states; it is not execution-liveness evidence.
     if [ -n "$pr_fact" ] && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
       flow="${pr_override#*$'\t'}"
+    fi
+    # Same ownership downgrade the issue rows apply, for the same reason: a PR authored by another
+    # managed bot belongs to that machine's loop, so a ⚠ on it sends the operator to investigate
+    # work that is not theirs. Downgrades warnings only — an informative classification (parked,
+    # tracked) already says more than who owns it.
+    if pr_ownership=$(author_ownership "$author"); then
+      case "$pr_ownership:$flow" in
+        peer:⚠*) flow="peer-owned($author)" ;;
+        other:⚠*) flow="$flow author=$author" ;;
+      esac
     fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
@@ -300,7 +314,7 @@ board_one() { # $1 name, $2 stale_hours
     # another managed bot is skipped here by design (`skip-fork-peer-bot`), so flagging it as this
     # host's problem sends the operator to investigate work that is not theirs.
     local ownership
-    if ownership=$(issue_author_ownership "$author"); then
+    if ownership=$(author_ownership "$author"); then
       # Ownership only downgrades a warning. A row that already classified as something informative
       # — a tracked dashboard, a parked terminal — keeps that classification, which says more than
       # who owns it.
