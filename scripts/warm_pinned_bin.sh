@@ -12,6 +12,14 @@ case "$worktree" in
   *) bootstrap_die "warm-pinned-bin-invalid-worktree: FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE must be absolute" ;;
 esac
 
+# A repository that declares no substrate pin has nothing to warm. fkst-substrate is the engine
+# itself and carries no `.fkst/substrate-ref`, so treat absence as not-applicable rather than as a
+# failure: erroring here fails the cache-preparation hook, which fails the whole implement attempt.
+if [ ! -f "$worktree/.fkst/substrate-ref" ]; then
+  printf 'warm-pinned-bin pin=none result=not-applicable\n'
+  exit 0
+fi
+
 pin="$(bootstrap_read_pin "$worktree")"
 bootstrap_result=""
 bootstrap_bin_on_total_miss "$worktree" bootstrap_result >/dev/null

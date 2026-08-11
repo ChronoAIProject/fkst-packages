@@ -173,6 +173,26 @@ class WarmPinnedBinTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_worktree_without_a_substrate_pin_is_not_applicable(self) -> None:
+        """fkst-substrate is the engine and carries no `.fkst/substrate-ref`.
+
+        Absence of a pin means there is nothing to warm, not that preparation failed. Erroring here
+        fails the cache-preparation hook, which fails the whole implement attempt: that regression
+        produced 18 dead-letters on the substrate target before it was caught.
+        """
+        h = WarmPinnedBinHarness(
+            "ProjectOwner/project-substrate@project-ref",
+            "WorktreeOwner/worktree-substrate@worktree-ref",
+        )
+        try:
+            (h.worktree / ".fkst" / "substrate-ref").unlink()
+            result = h.run(str(h.worktree))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("result=not-applicable", result.stdout)
+            self.assertEqual(h.calls(), "")
+        finally:
+            h.close()
+
     def test_missing_or_relative_worktree_fails_with_narrow_error(self) -> None:
         h = WarmPinnedBinHarness(
             "ProjectOwner/project-substrate@project-ref",
