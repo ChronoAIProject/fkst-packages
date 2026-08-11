@@ -64,6 +64,7 @@ public = [
   "devloop.hidden_state_conformance.declarations",
   "devloop.hidden_state_conformance.poll_fakes",
   "devloop.impl_failure",
+  "devloop.implementation_refusal",
   "devloop.intake.default",
   "devloop.liveness",
   "devloop.liveness.signal",

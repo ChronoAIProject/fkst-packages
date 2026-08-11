@@ -121,8 +121,17 @@ local function created_materialization_marker(blueprint, slot, predecessor_diges
   return built
 end
 
-local function workflow_history(include_revived_child, terminal_body)
-  local blueprint = core.default_catalog.records()[2].blueprint
+local function builtin_blueprint(workflow_id)
+  for _, record in ipairs(core.default_catalog.records()) do
+    if record.blueprint ~= nil and record.blueprint.id == workflow_id then
+      return record.blueprint
+    end
+  end
+  error("missing built-in workflow fixture: " .. tostring(workflow_id), 0)
+end
+
+local function workflow_history(include_revived_child, terminal_body, workflow_id)
+  local blueprint = builtin_blueprint(workflow_id or "software-refactor-flow")
   local blueprint_digest = core.digest.blueprint_digest(blueprint)
   local blueprint_marker, blueprint_err = core.marker.build_blueprint_marker(origin, blueprint.id, blueprint_digest)
   t.is_nil(blueprint_err)
@@ -195,6 +204,25 @@ local function stale_label_impl_failed_child_history()
     revived_child_issue,
     "Workflow child",
     { "fkst-dev:enabled", "fkst-dev:thinking" },
+    { { body = body } },
+    "OPEN"
+  )
+end
+
+local function already_satisfied_child_history()
+  local body = core.state_marker(revived_child, "blocked", child_version)
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implement-attempt:v1 proposal="' .. revived_child
+    .. '" dedup="' .. child_version
+    .. '" attempt="1" started_at="100" exec_ref="exec-1" -->'
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implementation-refusal:v1 proposal="' .. revived_child
+    .. '" reason="already-satisfied" attempt="1" dedup="' .. child_version
+    .. '" evidence="repository-ground-truth" -->'
+  return issue_json(
+    revived_child_issue,
+    "Workflow child",
+    { "fkst-dev:enabled", "fkst-dev:blocked" },
     { { body = body } },
     "OPEN"
   )
@@ -363,6 +391,7 @@ return {
   pr_origin_body = pr_origin_body,
   pr_view_json = pr_view_json,
   stale_label_impl_failed_child_history = stale_label_impl_failed_child_history,
+  already_satisfied_child_history = already_satisfied_child_history,
   mock_materialization_cycle = mock_materialization_cycle,
   mock_env = mock_env,
   mock_write_mode = mock_write_mode,
