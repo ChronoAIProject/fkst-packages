@@ -975,3 +975,76 @@ the other side. That is where the check phase's remaining time actually is, and 
 question rather than list order.
 
 ⟦AI:FKST⟧
+
+## Post-merge measurement of the ordering change: −5.0%, half the projection, and why
+
+The longest-first change was merged on a projection: the span sat 58.4 s above its makespan floor,
+that gap looked like the critical-path unit's start delay, so starting it first should recover it.
+CI's timing artifact makes the outcome measurable rather than projected. It did **not** recover the
+gap, it recovered **half** of it, and the missing half is a second-order effect the projection did not
+model.
+
+### Method
+
+Five dedicated-runner CI runs whose code state is known exactly — three before the change
+(`60527a57`, and the docs branches at `3289b124` / `c534002d`), two after (`f9fb6985` on dev and
+`83d3f1b7` on the change's own branch). Per-unit records come from the `fkst.test.unit_timing.v1`
+artifact.
+
+Raw spans are **uninterpretable**: the serial sum across the three "before" runs alone ranges
+906–1184 s, a 30% spread that swamps the effect. Every figure below is therefore normalised
+**within its own run** by that run's total over the 20 light units, which measures the runner's speed
+independently of how the two heavy units were scheduled.
+
+### The mechanism did exactly what it was designed to do
+
+| | before (alphabetical) | after (longest-first) |
+|---|---|---|
+| `github-devloop` dispatch position | 16 of 22 | **1** |
+| its start offset | 48.1 / 50.5 / 57.8 s | **0.0 / 0.0 s** |
+| span ÷ makespan floor | **1.11x** | **1.00x** |
+
+The pool now sits exactly at its floor: the span *is* the critical-path unit's duration, which is the
+optimum for this shape.
+
+### But the critical path itself got slower, consistently
+
+Normalised per run, so runner speed cannot explain it:
+
+| | `github-devloop` ÷ light | `github-devloop-pr` ÷ light |
+|---|---|---|
+| before (n=3) | 2.12, 2.04, 2.12 | 1.14, 1.08, 1.15 |
+| after (n=2) | **2.23, 2.20** | **1.23, 1.22** |
+
+**Every after-value exceeds every before-value, for both heavy units, with no overlap.** Ordering
+longest-first puts the two costliest units on the runner **simultaneously from t=0**, where before
+they overlapped only partially (`-pr` started at ~20 s, `github-devloop` at ~50 s). On a 4-core
+runner, two CPU-bound units started together slow each other by ~4% and ~8% respectively.
+
+**LPT assumes unit durations are independent of co-scheduling. Here they are not.** That assumption
+is invisible in the makespan formula and is why the projection was optimistic.
+
+### Net
+
+| | span ÷ light-unit work |
+|---|---:|
+| before | 2.329, 2.269, 2.348 → median **2.329** |
+| after | 2.227, 2.197 → median **2.212** |
+
+Again non-overlapping. **Net −5.0%**, decomposing as −9.9% of scheduling gain against +4.9% of
+co-scheduling penalty.
+
+**Stated limits:** n = 3 and 2. Non-overlapping ranges across independent runs on a shared CI fleet
+are a consistent signal, not a significance test. The co-scheduling penalty is *inferred* from the
+normalised ratios — the mechanism was not instrumented, and an alternative explanation in which
+longer units are simply more sensitive to runner variance is not excluded by this data.
+
+### What it opens
+
+If the penalty is real, the optimum is not pure LPT but a schedule that starts the critical-path unit
+at t=0 **without** placing the second-heaviest beside it — interleaving heavy units with light ones
+would keep the 1.00x floor while spreading contention. That is a further ~4%, it needs its own
+measurement rather than another projection, and it is worth recording that the first projection in
+this section was wrong by a factor of two in exactly the direction that flattered it.
+
+⟦AI:FKST⟧
