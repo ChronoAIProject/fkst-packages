@@ -108,6 +108,7 @@ require("core.output_obligation_resolution").install(M)
 require("core.conflict_telemetry").install(M)
 require("core.dependency_wait").install(M)
 require("core.state_gap").install(M)
+require("core.triage_patrol_receipt").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 M.linked_pr_delegation_surface_snapshot = function(...) return entity.linked_pr_delegation_surface_snapshot(base._max_dedup_len, ...) end
