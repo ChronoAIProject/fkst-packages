@@ -1,8 +1,11 @@
 local base_ids = require("devloop.base_ids")
+local config = require("devloop.config")
 local core = require("core")
 local devloop_base = require("devloop.base")
+local entity_view = require("devloop.github_proxy_entity_view")
 local github_author_policy = require("devloop.github_author_policy")
 local github_issue_create = require("contract.github_issue_create")
+local marker_shared = require("devloop.markers.shared")
 local transition_version = require("contract.transition_version")
 local parsers_misc = require("devloop.parsers.misc")
 local ports = require("forge.ports")
@@ -27,6 +30,10 @@ local admitted_states = {
 local blocked_verdicts = {
   ["child-pr-blocked"] = "derived",
 }
+
+local receipt_marker_pattern = "<!%-%- fkst:github%-devloop%-ops:triage%-patrol%-receipt:v1.-%-%->"
+local receipt_marker_prefix = "fkst:github-devloop-ops:triage-patrol-receipt:v1"
+local receipt_body_prefix = "Triage patrol audit receipt.\n\n"
 
 local function require_repo()
   local repo = devloop_base.read_env("FKST_GITHUB_REPO")
@@ -229,6 +236,107 @@ local function receipt_body(repo, rows, snapshot_digest)
   return body
 end
 
+local function receipt_marker_fact(body, repo)
+  local text = tostring(body or "")
+  if text:sub(1, #receipt_body_prefix) ~= receipt_body_prefix then
+    return nil
+  end
+  for marker in text:gmatch(receipt_marker_pattern) do
+    local marker_repo = marker_shared.marker_attr(marker, "repo")
+    local snapshot = marker_shared.marker_attr(marker, "snapshot")
+    local entries = marker_shared.marker_attr(marker, "entries")
+    local entry_count = tonumber(entries)
+    if marker_repo == base_ids.safe_repo(repo)
+      and strings.is_bounded_string(snapshot, base_ids.max_dedup_len)
+      and snapshot:match("^%d+$") ~= nil
+      and tostring(entries or ""):match("^%d+$") ~= nil
+      and entry_count ~= nil
+      and entry_count >= 0
+      and entry_count % 1 == 0 then
+      return {
+        snapshot = snapshot,
+        entries = entry_count,
+      }
+    end
+  end
+  return nil
+end
+
+local function trusted_open_receipt_fact(issue, repo, host_login)
+  if type(issue) ~= "table" or tostring(issue.state or ""):upper() ~= "OPEN" then
+    return nil
+  end
+  if parsers_misc.canonical_login(issue.author_login)
+    ~= parsers_misc.canonical_login(host_login) then
+    return nil
+  end
+  return receipt_marker_fact(issue.body, repo)
+end
+
+local function open_receipt_numbers(github, repo, timeout)
+  if type(github) ~= "table" or type(github.issue_search) ~= "function" then
+    error("github-devloop-ops: triage-patrol-receipt-search-port-missing: receipt retirement requires issue search")
+  end
+  local searched = github.issue_search(
+    repo,
+    "is:open " .. receipt_marker_prefix,
+    "number,state,author,body",
+    timeout
+  )
+  if type(searched) ~= "table" or searched.exit_code ~= 0 then
+    error("github-devloop-ops: triage-patrol-receipt-search-failed: receipt search failed: "
+      .. tostring(searched and searched.stderr or "missing result"))
+  end
+  local ok, decoded = pcall(json.decode, searched.stdout or "")
+  if not ok or type(decoded) ~= "table" then
+    error("github-devloop-ops: triage-patrol-receipt-search-invalid: receipt search returned invalid JSON")
+  end
+  local numbers = {}
+  local seen = {}
+  for _, issue in ipairs(decoded) do
+    local issue_number = type(issue) == "table" and tonumber(issue.number) or nil
+    if issue_number ~= nil
+      and issue_number >= 1
+      and issue_number % 1 == 0
+      and not seen[issue_number]
+      and tostring(issue.state or ""):upper() == "OPEN"
+      and receipt_marker_fact(issue.body, repo) ~= nil then
+      seen[issue_number] = true
+      table.insert(numbers, issue_number)
+    end
+  end
+  table.sort(numbers)
+  return numbers
+end
+
+local function retire_open_receipts(github, repo, host_login, timeout)
+  if config.write_mode() ~= "real" then
+    return
+  end
+  for _, issue_number in ipairs(open_receipt_numbers(github, repo, timeout)) do
+    local source_ref = base_ids.issue_source_ref(repo, issue_number)
+    local issue = github.read_issue(source_ref, {
+      consumer = "triage_patrol_receipt_retirement",
+      force_fresh = true,
+      cache_write = false,
+      timeout = timeout,
+    })
+    local fact = trusted_open_receipt_fact(issue, repo, host_login)
+    if fact ~= nil then
+      local closed = github.issue_close(repo, issue_number, { kind = "not_planned" }, timeout)
+      if type(closed) ~= "table" or closed.exit_code ~= 0 then
+        error("github-devloop-ops: triage-patrol-receipt-close-failed: receipt close failed: "
+          .. tostring(closed and closed.stderr or "missing result"))
+      end
+      entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
+      log.info("github-devloop-ops dept=triage_patrol tag=TRIAGE_RECEIPT_RETIRED"
+        .. " issue=" .. tostring(issue_number)
+        .. " snapshot=" .. tostring(fact.snapshot)
+        .. " entries=" .. tostring(fact.entries))
+    end
+  end
+end
+
 local function longest_admitted_state()
   local longest = ""
   for state in pairs(admitted_states) do
@@ -344,6 +452,7 @@ local function make_department(handles)
         receipt_cap
       )
       local rows = collect_snapshot(handles.github, repo, host_login, candidates, limits)
+      retire_open_receipts(handles.github, repo, host_login, limits.call_timeout)
       if #rows == 0 then
         return
       end
