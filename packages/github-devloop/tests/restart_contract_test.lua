@@ -333,7 +333,7 @@ return {
     t.eq(row.effects.kinds[1], "devloop_ready")
     t.eq(row.payload_builder_symbol, "devloop.payloads.builders.build_devloop_ready_payload")
     t.eq(row.payload_fields.proposal_id, "marker:state.proposal")
-    t.eq(row.payload_fields.dedup_key, "marker:impl-failure.dedup")
+    t.eq(row.payload_fields.dedup_key, "marker:state.version")
     t.is_true(row.version_identity:find("ready_payload_inner_version", 1, true) ~= nil)
   end,
 

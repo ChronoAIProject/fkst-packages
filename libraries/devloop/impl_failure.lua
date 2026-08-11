@@ -152,13 +152,6 @@ function M.retry_allowed(fact)
     and attempt < M.MAX_AUTO_RETRY_ATTEMPTS
 end
 
-function M.next_retry_attempt(fact)
-  if not M.retry_allowed(fact) then
-    return nil
-  end
-  return M.valid_attempt(fact.attempt or 1) + 1
-end
-
 function M.implementation_base_version(version)
   return transition_version.strip_trailing_reimplement(version)
 end
@@ -208,7 +201,6 @@ return {
   fact = M.fact,
   current_fact = M.current_fact,
   retry_allowed = M.retry_allowed,
-  next_retry_attempt = M.next_retry_attempt,
   implementation_base_version = M.implementation_base_version,
   implementation_branch_version = M.implementation_branch_version,
   implementation_attempt_version = M.implementation_attempt_version,
