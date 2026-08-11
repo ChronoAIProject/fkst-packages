@@ -4,6 +4,7 @@ local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local contract_time = require("contract.time")
 local m_facts = require("devloop.markers.facts")
+local devloop_state = require("devloop.state")
 local transition_version = require("contract.transition_version")
 local core = h.core
 local t = h.t
@@ -451,6 +452,7 @@ return {
     local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     mock_issue_close()
     mock_branch_config()
+    mock_branch_config()
     mock_rollup_landing(0)
     local blocked_comments = parent_comments({
       state = "blocked",
@@ -467,6 +469,7 @@ return {
     local projection = resume_comment(projection_result)
     t.is_true(projection ~= nil)
     t.is_true(projection.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+    t.is_true(projection.payload.body:find("fkst:github-devloop:autonomy-result:v1", 1, true) ~= nil)
     t.eq(projection.payload.body:find('state="merged"', 1, true), nil)
     if count_calls("gh issue close 42 --repo owner/repo") ~= 0 then
       error("projection pass closed the blocked parent before confirming its merged fact")
@@ -480,7 +483,18 @@ return {
     local projected_fact = m_facts.merged_fact(blocked_comments, parent, pr_number, blocked_version)
     t.is_true(projected_fact ~= nil)
     t.eq(projected_fact.head_sha, head_sha)
-    mock_branch_config()
+    local projected_state = devloop_state.current_state(blocked_comments, parent)
+    t.eq(projected_state.state, "blocked")
+    t.eq(projected_state.version, blocked_version)
+    local projected_autonomy = autonomy_ledger.autonomy_result_fact(
+      { projection.payload.body },
+      parent,
+      pr_number,
+      blocked_version,
+      head_sha
+    )
+    t.is_true(projected_autonomy ~= nil)
+    t.eq(projected_autonomy.valid_autonomous_merge, "pending")
     mock_rollup_landing(0)
     local confirmation_decisions = {}
     local active_log_cas_decision = devloop_logging.log_cas_decision
