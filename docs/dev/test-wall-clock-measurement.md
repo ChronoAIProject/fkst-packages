@@ -895,3 +895,47 @@ resolve to repo-root locations. The experiment above probes one known path, not 
 a confinement rollout would surface them as ENOENT failures rather than proving their absence first.
 
 ⟦AI:FKST⟧
+
+## Retraction: the check pool's "1.4–2.9x unexplained gap" was an artifact of my own model
+
+The section above ends by claiming the check phase's real cost is a 1.4–2.9x gap that list ordering
+does not explain, and names it the open question. **That claim is withdrawn.** It compared a model
+built from *serially* measured unit durations against *parallel* reality, and the gap is the
+difference between those two things, not a defect.
+
+Instrumenting `run_units_parallel` to stamp each unit's start and end — the method this document
+already prescribes and I had just spent a section violating — answers it in one run:
+
+| | measured |
+|---|---:|
+| span | **57.6 s** |
+| serial sum **under parallelism** | **381.9 s** |
+| serial sum measured **one unit at a time** | 260.3 s |
+| mean concurrency | **6.63** (median 8, max 8, on 8 slots) |
+| span with ≤1 unit running | 3.0 s = **5%** |
+| longest unit | 55.4 s, starts at **0.0 s** |
+| **span ÷ makespan floor** | **1.04x** |
+
+Three corrections follow.
+
+1. **The pool saturates.** Median concurrency is 8 of 8 slots. The earlier "mean concurrency 1.40 —
+   contention or packing defect UNKNOWN" reading, and my own 3.0 estimate derived by dividing a
+   serial sum by a wall-clock, are both artifacts of the same mistake: dividing *serial* work by
+   *parallel* time understates concurrency whenever units inflate under load.
+2. **Units inflate 47% under 8-way parallelism** — 260.3 s of serial work becomes 381.9 s. Any model
+   fed serially-measured durations will predict a makespan that reality cannot achieve, and will
+   then read the difference as an unexplained defect. It is not a defect; it is the model's input
+   being the wrong quantity.
+3. **The check pool is already near-optimal at 1.04x its floor**, and that floor is one unit's
+   duration. There is no scheduling lever here at all — not the ordering one already refuted, and not
+   the packing one I invented to replace it. The only way down is to make the longest unit cheaper,
+   which is the whole-repository check that an adversarial panel declined to remove, on grounds
+   recorded earlier in this document.
+
+**The methodological point, now demonstrated for the fourth time in this document and the second time
+against me in the same session.** Modelling from outside produced a phantom defect and an open
+question that did not exist. One `date +%s.%N` per unit inside the scheduler settled it. *Instrument
+from inside the machinery; do not decompose it from outside* — the rule was already written here, in
+this file, by the same author who then ignored it.
+
+⟦AI:FKST⟧
