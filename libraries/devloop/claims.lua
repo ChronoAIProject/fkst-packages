@@ -89,6 +89,16 @@ local function merge_managed_bot_logins(managed, observed)
   end
 end
 
+local function observed_claim_labels(labels)
+  local observed = {}
+  for _, label in ipairs(type(labels) == "table" and labels or {}) do
+    if claim_carriers.is_claim_family(label) then
+      table.insert(observed, label)
+    end
+  end
+  return observed
+end
+
 function C.claim_mode_active()
   return config.claim_mode()
 end
@@ -265,6 +275,8 @@ local function claim_inputs(current, repo, repository_peer_discovery)
   local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   local claim_mode = config.claim_mode()
+  local assignee_logins = C.assignee_logins(current and current.assignees)
+  local claim_labels = observed_claim_labels(current and current.labels)
   local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local managed = nil
   local trusted_author_policy = nil
@@ -314,6 +326,8 @@ local function claim_inputs(current, repo, repository_peer_discovery)
     status = status,
     claim_mode = claim_mode,
     repo = repo,
+    assignee_logins = assignee_logins,
+    claim_labels = claim_labels,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -385,6 +399,8 @@ function C.claim_admission_precheck(current, inputs)
     claim_mode = inputs.claim_mode,
     author = canonical_author,
     managed = inputs.managed,
+    assignee_logins = inputs.assignee_logins,
+    claim_labels = inputs.claim_labels,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
   local function settle(decision, action, reason)

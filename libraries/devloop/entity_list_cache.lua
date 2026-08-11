@@ -256,10 +256,12 @@ function C.run_if_current_poll_epoch(repo, poll_key, fn)
   if type(fn) ~= "function" then
     error("github-devloop: poll-epoch-guard-invalid: poll epoch guard requires a function")
   end
-  if not C.poll_epoch_is_current(repo, poll_key) then
-    return false, nil
-  end
-  return true, fn()
+  return with_lock(poll_epoch_cache_key(repo), function()
+    if not C.poll_epoch_is_current(repo, poll_key) then
+      return false, nil
+    end
+    return true, fn()
+  end)
 end
 
 function C.entity_list_poll_key(event)

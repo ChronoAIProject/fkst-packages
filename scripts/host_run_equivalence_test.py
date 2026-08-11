@@ -15,7 +15,6 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from host_run_process_group_test import ProcessGroupCleanupTest
 from host_run_test_support import run_bounded
 
 

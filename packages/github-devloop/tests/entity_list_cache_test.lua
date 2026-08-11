@@ -41,51 +41,66 @@ return {
     t.eq(missing, nil)
   end,
 
-  test_run_if_current_poll_epoch_does_not_hold_the_writer_lock_while_running = function()
-    local repo = "owner/lock-free-poll-guard"
+  test_run_if_current_poll_epoch_serializes_epoch_advance_with_effects = function()
+    local repo = "owner/atomic-poll-guard"
     local lock_key = entity_list_cache.poll_epoch_cache_key(repo)
     cache_set(lock_key, "")
     local recorded, poll_epoch = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:03Z")
     t.is_true(recorded)
 
     local previous_with_lock = with_lock
-    local epoch_lock_held = false
-    local epoch_lock_acquisitions = 0
+    local lock_owners = {}
     with_lock = function(key, fn)
-      if key ~= lock_key then
-        return previous_with_lock(key, fn)
+      local owner = coroutine.running()
+      while lock_owners[key] ~= nil do
+        coroutine.yield("waiting-for-lock", key)
       end
-      epoch_lock_acquisitions = epoch_lock_acquisitions + 1
-      if epoch_lock_held then
-        error("with_lock lock busy: " .. key)
-      end
-      epoch_lock_held = true
+      lock_owners[key] = owner
       local results = table.pack(pcall(fn))
-      epoch_lock_held = false
+      lock_owners[key] = nil
       if not results[1] then
         error(results[2])
       end
       return table.unpack(results, 2, results.n)
     end
 
-    local first_ran = false
-    local second_ran = false
+    local effect_finished = false
+    local guard_current = nil
+    local writer_recorded = nil
     local ok, err = pcall(function()
-      local first_current = entity_list_cache.run_if_current_poll_epoch(repo, poll_epoch, function()
-        first_ran = true
-        local second_current = entity_list_cache.run_if_current_poll_epoch(repo, poll_epoch, function()
-          second_ran = true
+      local guard = coroutine.create(function()
+        guard_current = entity_list_cache.run_if_current_poll_epoch(repo, poll_epoch, function()
+          coroutine.yield("effect-ready")
+          effect_finished = true
         end)
-        t.is_true(second_current)
       end)
-      t.is_true(first_current)
+      local writer = coroutine.create(function()
+        writer_recorded = entity_list_cache.record_poll_epoch(repo, "2026-08-10T01:02:04Z")
+      end)
+
+      local resumed, signal = coroutine.resume(guard)
+      t.is_true(resumed)
+      t.eq(signal, "effect-ready")
+
+      resumed, signal = coroutine.resume(writer)
+      t.is_true(resumed)
+      t.eq(signal, "waiting-for-lock")
+      t.eq(coroutine.status(writer), "suspended")
+      t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_epoch))
+
+      resumed = coroutine.resume(guard)
+      t.is_true(resumed)
+      t.eq(coroutine.status(guard), "dead")
+      resumed = coroutine.resume(writer)
+      t.is_true(resumed)
+      t.eq(coroutine.status(writer), "dead")
     end)
     with_lock = previous_with_lock
 
     t.is_true(ok, tostring(err))
-    t.is_true(first_ran)
-    t.is_true(second_ran)
-    t.eq(epoch_lock_acquisitions, 0)
+    t.is_true(guard_current)
+    t.is_true(effect_finished)
+    t.is_true(writer_recorded)
   end,
 
   test_run_if_current_poll_epoch_skips_a_stale_generation = function()

@@ -129,6 +129,9 @@ local function observe_department(run, fixture)
       proposal_id = proposal_id,
     }
     table.insert(boundary_calls, boundary)
+    if fixture ~= nil and type(fixture.on_claim_boundary) == "function" then
+      fixture.on_claim_boundary()
+    end
     boundary.outcome = original_claim_issue(
       dept,
       repo,
@@ -785,58 +788,55 @@ local function assert_malformed_fails_closed_before_cas()
 
 end
 
-local function assert_epoch_advance_after_precheck_stops_unmanaged_entry_effects()
+local function assert_unmanaged_entry_effects_hold_epoch_writer_lock()
   local repo = "owner/repo"
-  cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+  local lock_key = entity_list_cache.poll_epoch_cache_key(repo)
+  cache_set(lock_key, "")
   local recorded, poll_epoch = entity_list_cache.record_poll_epoch(repo, "2026-08-11T00:00:00Z")
   t.is_true(recorded)
-
   t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
-    stdout = "[]\n",
-    stderr = "",
-    exit_code = 0,
+    stdout = "[]\n", stderr = "", exit_code = 0,
   })
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
+    stdout = "dev", stderr = "", exit_code = 0,
   })
   t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "integration-fkst-test-bot",
-    stderr = "",
-    exit_code = 0,
+    stdout = "integration-fkst-test-bot", stderr = "", exit_code = 0,
   })
   t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
-    stdout = "[]\n",
-    stderr = "",
-    exit_code = 0,
+    stdout = "[]\n", stderr = "", exit_code = 0,
   })
-
   local event = h.issue({ poll_token = poll_epoch })
   h.mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
   h.mock_context_bundle(event)
-
-  local precheck_reached = false
-  local original_precheck = devloop_claims.claim_admission_precheck
-  devloop_claims.claim_admission_precheck = function(current, inputs)
-    local admission, detail = original_precheck(current, inputs)
-    precheck_reached = true
-    local advanced = entity_list_cache.record_poll_epoch(repo, "2026-08-11T00:00:01Z")
-    t.is_true(advanced)
-    return admission, detail
+  local previous_with_lock = with_lock
+  local epoch_lock_held = false
+  with_lock = function(key, fn)
+    if key ~= lock_key then
+      return previous_with_lock(key, fn)
+    end
+    t.eq(epoch_lock_held, false)
+    epoch_lock_held = true
+    local results = table.pack(pcall(fn))
+    epoch_lock_held = false
+    if not results[1] then
+      error(results[2])
+    end
+    return table.unpack(results, 2, results.n)
   end
+
+  local boundary_holds_lock = false
   local ok, result, _, _, boundary_calls = pcall(observe_department, function()
     return run_real_department(event)
-  end)
-  devloop_claims.claim_admission_precheck = original_precheck
-  if not ok then
-    error(result, 0)
-  end
-
-  t.is_true(precheck_reached)
-  t.eq(result.exit_code, 0, "stale admission epoch is a clean skip")
-  t.eq(#boundary_calls, 0, "stale admission epoch stops before the claim boundary")
-  t.eq(#result.raises, 0, "stale admission epoch emits no unmanaged-entry lifecycle effects")
+  end, {
+    on_claim_boundary = function() boundary_holds_lock = epoch_lock_held end,
+  })
+  with_lock = previous_with_lock
+  t.is_true(ok, tostring(result))
+  t.is_true(boundary_holds_lock, "the unmanaged claim and effects share the epoch writer lock")
+  t.eq(result.exit_code, 0)
+  t.eq(#boundary_calls, 1)
+  t.is_true(#result.raises > 0)
 end
 
 return {
@@ -908,8 +908,8 @@ return {
     assert_malformed_fails_closed_before_cas()
   end,
 
-  test_observe_issue_entry_epoch_advance_after_precheck_stops_effects = function()
-    assert_epoch_advance_after_precheck_stops_unmanaged_entry_effects()
+  test_observe_issue_entry_effects_hold_epoch_writer_lock = function()
+    assert_unmanaged_entry_effects_hold_epoch_writer_lock()
   end,
 
   test_r9_observe_issue_entry_old_corpus_remains_frozen = function()
