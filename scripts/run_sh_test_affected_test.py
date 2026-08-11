@@ -57,7 +57,7 @@ def _robust_rmtree(path: str) -> None:
 
 
 class TestAffectedHarness:
-    def __init__(self) -> None:
+    def __init__(self, extra_packages: tuple[str, ...] = ()) -> None:
         # mkdtemp (not TemporaryDirectory) so cleanup has a single explicit owner
         # via _robust_rmtree. Construction happens before the caller's
         # try/finally: h.close(), so clean up here if any construction step fails.
@@ -201,7 +201,7 @@ class TestAffectedHarness:
                 encoding="utf-8",
             )
             self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
-            self._init_repo()
+            self._init_repo(extra_packages)
         except BaseException:
             _robust_rmtree(self.tmp)
             raise
@@ -227,7 +227,7 @@ class TestAffectedHarness:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def _init_repo(self) -> None:
+    def _init_repo(self, extra_packages: tuple[str, ...]) -> None:
         self._git("init")
         # Deterministic fixture hygiene: forbid git's background auto-maintenance
         # so the repo has no detached gc/maintenance process that could write
@@ -257,6 +257,12 @@ class TestAffectedHarness:
             '[lib_deps]\nlibraries = []\n\n[event_deps]\n'
             'packages = ["github-devloop"]\n',
         )
+        for package in extra_packages:
+            self._write(f"packages/{package}/core.lua", "return {}\n")
+            self._write(
+                f"packages/{package}/fkst.toml",
+                f'kind = "package"\nname = "{package}"\n',
+            )
         self._write(
             "libraries/workflow/fkst.toml",
             'kind = "library"\nname = "workflow"\n\n[lib_deps]\n'
@@ -652,27 +658,21 @@ class RunShTestAffectedTest(unittest.TestCase):
             h.close()
 
     def test_batched_affected_run_checks_once_and_executes_every_unit(self) -> None:
-        h = TestAffectedHarness()
+        packages = ("consensus", "frontend-devloop", "github-devloop") + tuple(
+            f"extra-{index:02}" for index in range(1, 10)
+        )
+        h = TestAffectedHarness(packages[3:])
         try:
-            h._write("packages/consensus/core.lua", "return {changed = true}\n")
-            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+            for package in packages:
+                h._write(f"packages/{package}/core.lua", "return {changed = true}\n")
 
             result = h.run(use_run_sh=True)
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(
-                result_markers(result),
-                [result_marker("PASS", "NONE")],
-            )
+            self.assertEqual(result_markers(result), [result_marker("PASS", "NONE")])
             self.assertEqual(h.check_calls(), ["check"])
-            self.assertEqual(
-                h.runner_args(),
-                ["test consensus frontend-devloop github-devloop"],
-            )
-            self.assertEqual(
-                sorted(h.engine_packages()),
-                ["consensus", "frontend-devloop", "github-devloop"],
-            )
+            self.assertEqual(h.runner_args(), ["test " + " ".join(sorted(packages))])
+            self.assertEqual(sorted(h.engine_packages()), sorted(packages))
         finally:
             h.close()
 
