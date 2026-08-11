@@ -395,3 +395,45 @@ A,B,A,B, discard the first run as cold, and report the median — or do not clai
 **Still open:** what the 20.8 s actually is. It is not the fixture, not hashing, and not the result
 marshalling. It is inside the real bundle build at 10 MiB, and isolating it further needs per-test
 duration from the engine.
+
+## A located candidate for the remaining 20.8 s — read, not measured
+
+Everything cheap has been eliminated by measurement: the fixture (0.5 s), pure-Lua SHA-256 (absent
+from the production path), `json_string` over 10 MiB (0.44 s), the 10 MiB department result crossing
+the process boundary (interleaved A,B,A,B showed no effect), and `truncate_utf8` (an engine
+primitive, ~0 s at 10 MiB).
+
+What remains is inside the bundle build. Reading `libraries/devloop/context_bundle.lua:90-103`:
+
+```lua
+local function write_file(path, content, exec)
+  if exec ~= nil then
+    run_required("touch " .. shell_quote(path), 30, "write", exec)
+  end
+  local value = tostring(content or "")
+  local ok = pcall(file.write, path, value)
+  if ok then return end
+  run_required("printf %s " .. shell_quote(value) .. " > " .. shell_quote(path), 30, "write", ...)
+end
+```
+
+Two properties are visible without measuring anything:
+
+1. When `exec` is supplied, **every file written spawns a shell `touch` first** — the bundle writes
+   four to six files per build.
+2. If `file.write` fails for any reason, the fallback **shell-quotes the entire content into a
+   command line**. At the 10 MiB cap that means a multi-megabyte argv, and `shell_quote` is itself a
+   pure-Lua pass over those bytes.
+
+**`ASSUMED-UNVERIFIED`: whether the fallback actually triggers in this path.** A probe that appeared
+to show `file.write` failing was invalid — it wrote into a directory the probe never created, which
+is a defect in the probe, not evidence about production. The candidate is recorded because it is
+specific and locatable, not because it is established.
+
+**How to settle it** (for whoever continues): assert inside `write_file` which branch is taken for
+the 10 MiB issue file, or time `file.write` on 10 MiB into an existing directory. If the fallback is
+taken, this is a **production** defect and not a test one — a real 10 MiB issue body would take the
+same path in production, and the fix belongs in `write_file`, not in the test.
+
+That possibility is why the test was left alone. Optimising the test would have hidden a production
+cost rather than removing it.
