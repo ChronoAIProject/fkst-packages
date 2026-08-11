@@ -812,3 +812,86 @@ shape are solid; treat the minutes as the ceiling.*
   process CWD and stage the declared repo-root inputs into it, so an undeclared read fails because
   the file is absent. That is `scripts/`-side and measurable — and it is **`ASSUMED-UNVERIFIED`**
   whether the 43 reader files are the only relative-path behaviour that a CWD change would disturb.
+
+## The enforcement boundary is feasible: measured, with the cost that decides against it
+
+The section above leaves one thing `ASSUMED-UNVERIFIED` — whether confining the test process's CWD to
+its constructed root would work as an enforcement boundary, and what else it would disturb. That was
+settled by experiment rather than by reading, and the answer is: **it works, and the reason not to
+build it is cost, not feasibility.**
+
+### The experiment
+
+A probe test was added to a real constructed root (`scripts/composed_test_graph_roots.sh normal
+github-devloop-ops`, which produces a `$work` tree holding `packages/`, `libraries/` and
+`fkst.workspace.toml` and **no** `migration/`). The probe reads a repo-root file and raises on either
+outcome, so the result appears in the output rather than being collapsed into pass/fail:
+
+```lua
+local ok, content = pcall(file.read, "migration/restart-lifecycle.inventory.json")
+if not ok then error("PROBE_RESULT=READ_FAILED detail=" .. tostring(content)) end
+error("PROBE_RESULT=READ_OK bytes=" .. tostring(#content))
+```
+
+The identical engine invocation was then run twice, differing only in the process CWD:
+
+| | CWD = repository root (production) | CWD = the constructed root |
+|---|---|---|
+| probe | `PROBE_RESULT=READ_OK bytes=2065810` | `PROBE_RESULT=READ_FAILED: No such file or directory (os error 2)` |
+| everything else | 179 passed, 2 failed | 179 passed, 2 failed |
+| failing **set** | `fire_raiser_ops_test::…route_real_ticks`, probe | **identical** |
+
+Three results, none of them previously established:
+
+1. **A relative `file.read` resolves against the process CWD.** Measured, not inferred — the same
+   invocation reads 2 MB from one CWD and `ENOENT` from another.
+2. **Confinement fails closed**, which is exactly the enforcement property a sound narrowing needs.
+3. **Zero collateral damage** on a package that does not make such reads — the failing *sets* are
+   identical, not merely the counts.
+
+### The cost that decides it
+
+Confinement is only complete if it covers every package, and the two package kinds are not
+symmetric. `run_one_package` gives a **composed** package a constructed root
+(`test_project_root` = `$work/packages/<name>`, with `libraries/` and the repo layout mirrored
+alongside), but a **flat** package is run directly against its own directory — there is no mirrored
+root to confine it to.
+
+Classifying every package that makes a real repo-root `file.read` (a literal, or a module CONST
+holding one):
+
+| package | reader files | kind |
+|---|---:|---|
+| `github-devloop` | 30 | composed |
+| `github-devloop-pr` | 19 | composed |
+| `github-devloop-ops` | 1 | composed |
+| `archaudit` | 1 | composed |
+| **`github-proxy`** | **1** | **flat** — reads `libraries/contract/strings.lua` |
+
+So 51 of 52 reader files are in composed packages, which already pay for a constructed root and could
+be confined for free. The single flat reader is what breaks the symmetry, and closing it costs one of:
+
+- **build a mirrored root for flat packages too** — a full `libraries/` tar copy per flat package.
+  The document's own fixed-graph-cost section measures that copy at `F ≳ 1.1 s`, and notes `F` scales
+  with what is copied. Across ~10 flat packages that is ~10 s **added** to every suite run;
+- **or a second, different mechanism for flat packages** — a conformance check forbidding repo-root
+  reads there, with a shrink-only allowlist that starts at exactly 1 entry.
+
+The second is cheap and would work. But the benefit it unlocks is the narrowing this document already
+priced: the `docs/` + `.claude/` classes at 26 of 241 commits, plus the checker-only `migration/`
+ledgers — against a `migration/` class whose only Lua-read file resolves to the critical-path package
+and therefore saves nothing. **Adding a second enforcement mechanism, in a second place, with its own
+ledger to maintain, to unlock that** is the same trade the panel already declined, now with the cost
+side measured rather than estimated.
+
+**What this closes:** feasibility is no longer the open question, so nobody needs to re-run this
+experiment. What remains open is worth, and the measured cost moved it further from the line, not
+closer. The recipe is recorded above if a future change to the reader distribution — in particular
+`github-devloop` or `github-devloop-pr` losing their repo-root reads — makes it cheap enough to
+revisit.
+
+**Still `ASSUMED-UNVERIFIED`:** whether any of the 118 computed-path `file.read`/`file.write` calls
+resolve to repo-root locations. The experiment above probes one known path, not the computed set, and
+a confinement rollout would surface them as ENOENT failures rather than proving their absence first.
+
+⟦AI:FKST⟧
