@@ -51,6 +51,17 @@ local function attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
 end
 
+local function latest_marker_for(comment_body, marker_pattern, origin_proposal_id, slot_id)
+  local latest_marker = nil
+  for marker in comment_body:gmatch(marker_pattern) do
+    if attr(marker, "origin") == tostring(origin_proposal_id)
+      and (slot_id == nil or attr(marker, "slot") == tostring(slot_id)) then
+      latest_marker = marker
+    end
+  end
+  return latest_marker
+end
+
 local function validate_attr(value, path, limit)
   if type(value) ~= "string" then
     return false, fail(path, "not_string", "must be a string")
@@ -250,12 +261,7 @@ function M.parse_blueprint_marker(comment_body, origin_proposal_id)
   end
 
   -- Caller owns bot-author trust filtering; this parser only inspects one body string.
-  local latest_marker = nil
-  for marker in comment_body:gmatch(BLUEPRINT_MARKER_PATTERN) do
-    if attr(marker, "origin") == tostring(origin_proposal_id) then
-      latest_marker = marker
-    end
-  end
+  local latest_marker = latest_marker_for(comment_body, BLUEPRINT_MARKER_PATTERN, origin_proposal_id, nil)
   if latest_marker == nil then
     return nil
   end
@@ -369,12 +375,7 @@ function M.parse_materialization_marker(comment_body, origin_proposal_id, slot_i
   end
 
   -- Caller owns bot-author trust filtering; this parser only inspects one body string.
-  local latest_marker = nil
-  for marker in comment_body:gmatch(MATERIALIZATION_MARKER_PATTERN) do
-    if attr(marker, "origin") == tostring(origin_proposal_id) and attr(marker, "slot") == tostring(slot_id) then
-      latest_marker = marker
-    end
-  end
+  local latest_marker = latest_marker_for(comment_body, MATERIALIZATION_MARKER_PATTERN, origin_proposal_id, slot_id)
   if latest_marker == nil then
     return nil
   end
@@ -521,12 +522,7 @@ function M.parse_terminal_marker(comment_body, origin_proposal_id)
   end
 
   -- Caller owns bot-author trust filtering; this parser only inspects one body string.
-  local latest_marker = nil
-  for marker in comment_body:gmatch(TERMINAL_MARKER_PATTERN) do
-    if attr(marker, "origin") == tostring(origin_proposal_id) then
-      latest_marker = marker
-    end
-  end
+  local latest_marker = latest_marker_for(comment_body, TERMINAL_MARKER_PATTERN, origin_proposal_id, nil)
   if latest_marker == nil then
     return nil
   end
@@ -578,12 +574,7 @@ function M.parse_label_projection_marker(comment_body, origin_proposal_id)
     return nil
   end
 
-  local latest_marker = nil
-  for projection_marker in comment_body:gmatch(LABEL_PROJECTION_MARKER_PATTERN) do
-    if attr(projection_marker, "origin") == tostring(origin_proposal_id) then
-      latest_marker = projection_marker
-    end
-  end
+  local latest_marker = latest_marker_for(comment_body, LABEL_PROJECTION_MARKER_PATTERN, origin_proposal_id, nil)
   if latest_marker == nil then
     return nil
   end

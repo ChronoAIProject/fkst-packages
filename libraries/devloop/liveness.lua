@@ -1,4 +1,6 @@
 local S = {}
+local contract_time = require("contract.time")
+local devloop_state = require("devloop.state")
 local workflow_ports = require("devloop.adapters.workflow_ports")
 
 local function copy_map(map)
@@ -75,6 +77,23 @@ function S.with_restart_policy(resolved)
     out[key] = copy_map(value)
   end
   return out
+end
+
+function S.stall_suspect_age_minutes(version, now_seconds)
+  local marker_updated_at = devloop_state.version_updated_at(version)
+  if marker_updated_at == "" then
+    return nil
+  end
+  local marker_seconds = contract_time.iso_timestamp_epoch_seconds(marker_updated_at)
+  local current_seconds = tonumber(now_seconds)
+  if marker_seconds == nil or current_seconds == nil then
+    return nil
+  end
+  local age_seconds = current_seconds - marker_seconds
+  if age_seconds < 0 then
+    return nil
+  end
+  return math.floor(age_seconds / 60)
 end
 
 function S.new(policy, resolved)
