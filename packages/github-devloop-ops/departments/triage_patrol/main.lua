@@ -2,9 +2,11 @@ local base_ids = require("devloop.base_ids")
 local core = require("core")
 local devloop_base = require("devloop.base")
 local github_author_policy = require("devloop.github_author_policy")
+local github_issue_create = require("contract.github_issue_create")
 local transition_version = require("contract.transition_version")
 local parsers_misc = require("devloop.parsers.misc")
 local ports = require("forge.ports")
+local request_shared = require("devloop.requests.shared")
 local saga = require("workflow.saga")
 local strings = require("contract.strings")
 local devloop_logging = require("devloop.logging")
@@ -12,7 +14,7 @@ local devloop_state = require("devloop.state")
 
 local spec = {
   consumes = { "devloop_triage_patrol_tick" },
-  produces = {},
+  produces = { "triage_patrol_receipt_request" },
   stall_window = "10m",
 }
 
@@ -25,22 +27,6 @@ local admitted_states = {
 local blocked_verdicts = {
   ["child-pr-blocked"] = "derived",
 }
-
-local function require_repo()
-  local repo = devloop_base.read_env("FKST_GITHUB_REPO")
-  if repo == nil or base_ids.safe_repo(repo) ~= tostring(repo) then
-    error("github-devloop-ops: triage-patrol-repo-invalid: FKST_GITHUB_REPO is required")
-  end
-  return tostring(repo)
-end
-
-local function require_host_login()
-  local login = parsers_misc.canonical_login(parsers_misc.assert_trusted_bot_configured())
-  if login == nil then
-    error("github-devloop-ops: triage-patrol-bot-login-missing: FKST_GITHUB_BOT_LOGIN is required")
-  end
-  return login
-end
 
 local function candidate_labels()
   local labels = {}
@@ -175,7 +161,102 @@ local function collect_snapshot(github, repo, host_login, candidates, limits)
   return rows
 end
 
-local function log_deferred_candidates(listed, selected, deferred, entity_cap)
+local function snapshot_identity(rows)
+  local tuples = {}
+  for _, row in ipairs(rows or {}) do
+    table.insert(tuples, snapshot_tuple(row))
+  end
+  return table.concat(tuples, "\n")
+end
+
+local function display_field(value)
+  return devloop_base.neutralize_untrusted_comment_text(tostring(value or ""))
+    :gsub("`", "'")
+    :gsub("[\r\n]+", " ")
+end
+
+local function render_receipt_body(repo, rows, snapshot_digest)
+  local lines = {
+    "Triage patrol audit receipt.",
+    "",
+    core.triage_patrol_receipt_marker(repo, snapshot_digest, #rows),
+    "",
+    "Entries:",
+    "Fields: p=proposal_id i=issue s=state marker_version=state-marker-version a=marker_author why=blocked-why verdict=verdict",
+  }
+  if #rows == 0 then
+    table.insert(lines, "- none")
+  else
+    for _, row in ipairs(rows) do
+      table.insert(lines, "- `p=" .. display_field(row.proposal_id)
+        .. " i=" .. tostring(row.issue_number)
+        .. " s=" .. tostring(row.state)
+        .. " marker_version=" .. display_field(row.marker_version)
+        .. " a=" .. display_field(row.marker_author)
+        .. " why=" .. display_field(row.why)
+        .. " verdict=" .. tostring(row.verdict) .. "`")
+    end
+  end
+  table.insert(lines, "")
+  table.insert(lines, request_shared.ai_sentinel)
+  return table.concat(lines, "\n")
+end
+
+local function receipt_body(repo, rows, snapshot_digest)
+  local body = render_receipt_body(repo, rows, snapshot_digest)
+  if #body > github_issue_create.limits().body then
+    error("github-devloop-ops: triage-patrol-receipt-too-large: bounded patrol receipt exceeds issue-create contract")
+  end
+  return body
+end
+
+local function longest_admitted_state()
+  local longest = ""
+  for state in pairs(admitted_states) do
+    if #state > #longest then
+      longest = state
+    end
+  end
+  return longest
+end
+
+local function maximally_expanding_display_input(limit)
+  local marker_prefix = "<!-- fkst:"
+  local repeats = math.floor(limit / #marker_prefix)
+  return marker_prefix:rep(repeats) .. string.rep("x", limit % #marker_prefix)
+end
+
+local function worst_case_receipt_row(repo)
+  local max_issue = string.rep("9", base_ids.max_issue_key_len)
+  return {
+    proposal_id = base_ids.proposal_id(repo, max_issue),
+    issue_number = max_issue,
+    state = longest_admitted_state(),
+    marker_version = maximally_expanding_display_input(base_ids.max_dedup_len),
+    marker_author = string.rep("a", base_ids.max_key_len),
+    why = maximally_expanding_display_input(base_ids.max_dedup_len),
+    verdict = "abstain",
+  }
+end
+
+local function receipt_candidate_cap(repo, entity_cap)
+  local rows = {}
+  local worst_case_row = worst_case_receipt_row(repo)
+  for _ = 1, entity_cap do
+    table.insert(rows, worst_case_row)
+    local digest = core.triage_patrol_snapshot_digest(snapshot_identity(rows))
+    if #render_receipt_body(repo, rows, digest) > github_issue_create.limits().body then
+      local cap = #rows - 1
+      if cap < 1 then
+        error("github-devloop-ops: triage-patrol-receipt-contract-impossible: one bounded row exceeds issue-create contract")
+      end
+      return cap
+    end
+  end
+  return entity_cap
+end
+
+local function log_deferred_candidates(listed, selected, deferred, entity_cap, receipt_cap)
   if deferred < 1 then
     return
   end
@@ -183,26 +264,21 @@ local function log_deferred_candidates(listed, selected, deferred, entity_cap)
     "github-devloop-ops",
     "dept=triage_patrol",
     "tag=OBSERVE_DEFERRED",
-    "reason=entity-cap",
+    "reason=receipt-body-cap",
     "listed_issues=" .. tostring(listed),
     "processed_issues=" .. tostring(selected),
     "deferred_issues=" .. tostring(deferred),
     "entity_cap=" .. tostring(entity_cap),
+    "receipt_cap=" .. tostring(receipt_cap),
   }, " "))
 end
 
-local function audit_field(name, value)
-  return name .. "=" .. strings.json_string(value)
-end
-
-local function log_audit_row(row)
-  devloop_logging.log_line("info", "triage_patrol", row.proposal_id, "TRIAGE_PATROL_AUDIT", {
-    "issue=" .. tostring(row.issue_number),
-    audit_field("state", row.state),
-    audit_field("marker_version", row.marker_version),
-    audit_field("marker_author", row.marker_author),
-    audit_field("why", row.why),
-    audit_field("verdict", row.verdict),
+local function receipt_request(repo, rows)
+  local identity = snapshot_identity(rows)
+  local snapshot_digest = core.triage_patrol_snapshot_digest(identity)
+  return core.build_triage_patrol_receipt_request(repo, rows, {
+    identity = identity,
+    rendered = receipt_body(repo, rows, snapshot_digest),
   })
 end
 
@@ -213,26 +289,34 @@ local function make_department(handles)
     end,
     act = function(event)
       devloop_logging.log_entry("triage_patrol", event, "github-devloop/triage-patrol", "tick")
-      local repo = require_repo()
-      local host_login = require_host_login()
+      local repo = core.require_triage_patrol_repo()
+      local host_login = core.require_triage_patrol_host_login()
       local limits = core.observability_limits()
+      local receipt_cap = receipt_candidate_cap(repo, limits.entity_cap)
       local candidates, deferred_candidates, listed_candidates = list_candidates(
         handles.github,
         repo,
         limits,
         core.observability_rotation_seed(event),
-        limits.entity_cap
+        receipt_cap
       )
       log_deferred_candidates(
         listed_candidates,
         #candidates,
         deferred_candidates,
-        limits.entity_cap
+        limits.entity_cap,
+        receipt_cap
       )
       local rows = collect_snapshot(handles.github, repo, host_login, candidates, limits)
-      for _, row in ipairs(rows) do
-        log_audit_row(row)
-      end
+      local request = #rows == 0
+        and core.build_triage_patrol_receipt_request(repo, rows)
+        or receipt_request(repo, rows)
+      devloop_logging.log_raise(
+        "triage_patrol",
+        "triage-patrol/" .. (request.snapshot ~= "" and request.snapshot or "empty"),
+        "triage_patrol_receipt_request",
+        request
+      )
     end,
     wrap = devloop_logging.wrap_pipeline_failure,
     name = "triage_patrol",

@@ -119,11 +119,13 @@
 {"path":"packages/github-devloop-ops/core/output_obligation_resolution.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/observability_bounds.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/state_gap.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
+{"path":"packages/github-devloop-ops/core/triage_patrol_receipt.lua","owner":"cross-cutting","reason":"package-local receipt lifecycle preserves audit snapshots on the dashboard while retiring issue-shaped carriers."}
 {"path":"packages/github-devloop-ops/departments/dead_letter/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/doctor/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/ensure_repo/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/observability/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
-{"path":"packages/github-devloop-ops/departments/triage_patrol/main.lua","owner":"cross-cutting","reason":"owns read-only cross-saga triage patrol audits."}
+{"path":"packages/github-devloop-ops/departments/triage_patrol/main.lua","owner":"cross-cutting","reason":"owns cross-saga triage observations and package-local receipt intents."}
+{"path":"packages/github-devloop-ops/departments/triage_patrol_receipt/main.lua","owner":"cross-cutting","reason":"serializes package-local triage receipt publication and retirement."}
 {"path":"packages/github-devloop-pr/core/ci_repair_attempts.lua","owner":"pr","reason":"github-devloop-pr owns durable completed-round facts for PR-local own-CI repair."}
 {"path":"packages/github-devloop-pr/core/ci_verdict.lua","owner":"pr","reason":"github-devloop-pr owns the sealed, head-bound authority for PR-local own-CI actions."}
 {"path":"packages/github-devloop-pr/core/ci_repair_retry.lua","owner":"pr","reason":"github-devloop-pr owns PR-local own-CI repair replay admission and fresh CI re-observation."}
