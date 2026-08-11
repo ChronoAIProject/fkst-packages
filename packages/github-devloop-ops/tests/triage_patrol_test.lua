@@ -2,6 +2,7 @@ local t = fkst.test
 local base_ids = require("devloop.base_ids")
 local core = require("core")
 local github_issue_create = require("contract.github_issue_create")
+local transition_version = require("contract.transition_version")
 local content_filter = require("forge.github.content_filter")
 local devloop_state = require("devloop.state")
 local github_fake = require("forge.github_fake")
@@ -192,6 +193,19 @@ local function only_receipt(result)
   return result.raises[1].payload
 end
 
+local function receipt_at(department, clock)
+  local old_now = now
+  now = function()
+    return clock
+  end
+  local ok, result = pcall(run_read_only, department)
+  now = old_now
+  if not ok then
+    error(result, 0)
+  end
+  return only_receipt(result)
+end
+
 return {
   test_raiser_uses_the_existing_maintenance_cadence = function()
     local raiser = require("raisers.triage_patrol_poll")
@@ -275,16 +289,18 @@ return {
     t.is_true(first.body:find("p=" .. proposal_id(11), 1, true) ~= nil)
     t.is_true(first.body:find("i=11", 1, true) ~= nil)
     t.is_true(first.body:find("s=declined", 1, true) ~= nil)
-    t.is_true(first.body:find("v=" .. v11, 1, true) ~= nil)
+    t.is_true(first.body:find("marker_version=" .. v11, 1, true) ~= nil)
     t.is_true(first.body:find("p=" .. proposal_id(13), 1, true) ~= nil)
     t.is_true(first.body:find("i=13", 1, true) ~= nil)
     t.is_true(first.body:find("s=dependency_wait", 1, true) ~= nil)
-    t.is_true(first.body:find("v=" .. v13, 1, true) ~= nil)
+    t.is_true(first.body:find("marker_version=" .. v13, 1, true) ~= nil)
     t.is_true(first.body:find("a=" .. host_login, 1, true) ~= nil)
-    t.eq(select(2, first.body:gsub("verdict=abstain", "")), 2)
+    t.eq(select(2, first.body:gsub("verdict=abstain", "")), 3)
     t.eq(first.body:find(proposal_id(12), 1, true), nil)
     t.eq(first.body:find(peer_login, 1, true), nil)
-    t.eq(first.body:find(proposal_id(14), 1, true), nil)
+    t.is_true(first.body:find("p=" .. proposal_id(14)
+      .. " i=14 s=blocked marker_version=" .. v14
+      .. " a=" .. host_login .. " why= verdict=abstain", 1, true) ~= nil)
     t.is_true(first.body:find("fkst:github-devloop-ops:triage-patrol-receipt:v1", 1, true) ~= nil)
     t.is_true(first.body:find("⟦AI:FKST⟧", 1, true) ~= nil)
 
@@ -294,7 +310,60 @@ return {
     local changed = only_receipt(run_read_only(department))
     t.is_true(changed.dedup_key ~= first.dedup_key)
     t.is_true(changed.source_ref.ref ~= first.source_ref.ref)
-    t.is_true(changed.body:find("v=" .. changed_version, 1, true) ~= nil)
+    t.is_true(changed.body:find("marker_version=" .. changed_version, 1, true) ~= nil)
+    t.eq(#model.writes, 0)
+  end,
+
+  test_patrol_derives_child_pr_blocked_from_the_host_owned_marker_suffix = function()
+    local derived_version = transition_version.next_blocked(
+      proposal_id(31) .. "/intake/2026-08-10T01-00-00Z",
+      "child-pr-blocked"
+    )
+    local other_version = transition_version.next_blocked(
+      proposal_id(32) .. "/intake/2026-08-10T02-00-00Z",
+      "child-pr-blocked-other"
+    )
+    local nonfinal_version = transition_version.next_timeout(derived_version, "awaiting-pr")
+    local issues = {
+      [repo .. "#issue/31"] = issue_fixture(31, "another-account", { "fkst-dev:blocked" }, {
+        comment(31, "blocked", derived_version, "App/" .. host_login),
+      }),
+      [repo .. "#issue/32"] = issue_fixture(32, "another-account", { "fkst-dev:blocked" }, {
+        comment(32, "blocked", other_version, host_login),
+      }),
+      [repo .. "#issue/33"] = issue_fixture(33, "another-account", { "fkst-dev:blocked" }, {
+        comment(33, "thinking", proposal_id(33) .. "/intake/2026-08-10T03-00-00Z", host_login),
+      }),
+      [repo .. "#issue/34"] = issue_fixture(34, host_login, { "fkst-dev:blocked" }, {
+        comment(34, "blocked", transition_version.next_blocked(
+          proposal_id(34) .. "/intake/2026-08-10T04-00-00Z",
+          "child-pr-blocked"
+        ), peer_login),
+      }),
+      [repo .. "#issue/35"] = issue_fixture(35, "another-account", { "fkst-dev:blocked" }, {
+        comment(35, "blocked", nonfinal_version, host_login),
+      }),
+    }
+    mock_env(64)
+    local department, model = make_department(issues)
+
+    local first = receipt_at(department, 1000)
+    local later = receipt_at(department, 2000)
+
+    t.eq(first.title, "Triage patrol audit receipt")
+    t.eq(first.dedup_key, later.dedup_key)
+    t.eq(first.body, later.body)
+    t.is_true(first.body:find("p=" .. proposal_id(31)
+      .. " i=31 s=blocked marker_version=" .. derived_version
+      .. " a=" .. host_login .. " why=child-pr-blocked verdict=derived", 1, true) ~= nil)
+    t.is_true(first.body:find("p=" .. proposal_id(32)
+      .. " i=32 s=blocked marker_version=" .. other_version
+      .. " a=" .. host_login .. " why=child-pr-blocked-other verdict=abstain", 1, true) ~= nil)
+    t.is_true(first.body:find("p=" .. proposal_id(35)
+      .. " i=35 s=blocked marker_version=" .. nonfinal_version
+      .. " a=" .. host_login .. " why= verdict=abstain", 1, true) ~= nil)
+    t.eq(first.body:find(proposal_id(33), 1, true), nil)
+    t.eq(first.body:find(proposal_id(34), 1, true), nil)
     t.eq(#model.writes, 0)
   end,
 
@@ -431,7 +500,7 @@ return {
     local receipt = only_receipt(run_read_only(department, event))
 
     t.is_true(receipt.body:find("i=" .. tostring(tail_number) .. " ", 1, true) ~= nil)
-    t.is_true(receipt.body:find("v=" .. tail_version, 1, true) ~= nil)
+    t.is_true(receipt.body:find("marker_version=" .. tail_version, 1, true) ~= nil)
     local listed_tail_page = false
     for _, call in ipairs(model.issue_list_calls) do
       if call.label == "fkst-dev:declined" and call.page == 2 then
