@@ -686,59 +686,72 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: restart-effect-decision-illegal: observe issue entry decision rejected: "
         .. tostring(decision.reason_code))
     end
-    if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
-      issue.number, current, proposal_id, admission, admission_detail) then
-      return
-    end
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
-      "unmanaged", "thinking", decision.cas_outcome,
-      "starting consensus for opted-in issue")
-
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
-      dept = "observe_issue",
-      repo = issue.repo,
-      issue_number = issue.number,
-      proposal_id = proposal_id,
-      version = issue.dedup_key,
-      tick = event.ts,
-    })
-    local proposal = payloads_builders.build_board_proposal(issue, event.ts)
-    if not v_validate_proposal.validate_proposal(proposal) then
-      log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
-        .. " tag=SKIP reason=cannot-build-valid-proposal")
-      return
-    end
-    local grant = observe_issue_caps.restart_effects.mint_grant(
-      snapshot, decision, "comment:issue:thinking-state")
-    if grant == nil then
-      error("github-devloop: restart-effect-grant-mint-failed: observe issue entry grant was not minted")
-    end
-    local facade = observe_issue_caps.restart_effect_facade.make({
-      family = "observe-issue-entry",
-      verify_grant = observe_issue_caps.restart_effects.verify_grant,
-      sink_inventory = observe_issue_caps.sink_inventory,
-    })
-    if type(facade.emit) ~= "function" then
-      error("github-devloop: restart-effect-facade-invalid: observe issue entry facade emit is unavailable")
-    end
-
-    local effects = {}
-    local serializer_args = { core = core, issue = issue, proposal = proposal }
-    for _, effect_id in ipairs(decision.granted_effect_ids) do
-      local payload, rejection = facade.emit(grant, effect_id, snapshot, serializer_args)
-      if payload == nil then
-        error("github-devloop: restart-effect-facade-rejected: observe issue entry effect "
-          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    local epoch_current = m_claims.run_if_current_claim_admission_epoch(admission_detail, function()
+      if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
+        issue.number, current, proposal_id, admission, admission_detail) then
+        return
       end
-      table.insert(effects, { queue = effect_id, payload = payload })
-    end
-    local add_labels, remove_labels = devloop_state.state_label_changes("thinking")
-    devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, {
-      add = add_labels,
-      remove = remove_labels,
-    }, decision.granted_effect_ids)
-    for _, effect in ipairs(effects) do
-      devloop_logging.log_raise("observe_issue", proposal_id, effect.queue, effect.payload)
+      devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
+        "unmanaged", "thinking", decision.cas_outcome,
+        "starting consensus for opted-in issue")
+
+      issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
+        dept = "observe_issue",
+        repo = issue.repo,
+        issue_number = issue.number,
+        proposal_id = proposal_id,
+        version = issue.dedup_key,
+        tick = event.ts,
+      })
+      local proposal = payloads_builders.build_board_proposal(issue, event.ts)
+      if not v_validate_proposal.validate_proposal(proposal) then
+        log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
+          .. " tag=SKIP reason=cannot-build-valid-proposal")
+        return
+      end
+      local grant = observe_issue_caps.restart_effects.mint_grant(
+        snapshot, decision, "comment:issue:thinking-state")
+      if grant == nil then
+        error("github-devloop: restart-effect-grant-mint-failed: observe issue entry grant was not minted")
+      end
+      local facade = observe_issue_caps.restart_effect_facade.make({
+        family = "observe-issue-entry",
+        verify_grant = observe_issue_caps.restart_effects.verify_grant,
+        sink_inventory = observe_issue_caps.sink_inventory,
+      })
+      if type(facade.emit) ~= "function" then
+        error("github-devloop: restart-effect-facade-invalid: observe issue entry facade emit is unavailable")
+      end
+
+      local effects = {}
+      local serializer_args = { core = core, issue = issue, proposal = proposal }
+      for _, effect_id in ipairs(decision.granted_effect_ids) do
+        local payload, rejection = facade.emit(grant, effect_id, snapshot, serializer_args)
+        if payload == nil then
+          error("github-devloop: restart-effect-facade-rejected: observe issue entry effect "
+            .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+        end
+        table.insert(effects, { queue = effect_id, payload = payload })
+      end
+      local add_labels, remove_labels = devloop_state.state_label_changes("thinking")
+      devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, {
+        add = add_labels,
+        remove = remove_labels,
+      }, decision.granted_effect_ids)
+      for _, effect in ipairs(effects) do
+        devloop_logging.log_raise("observe_issue", proposal_id, effect.queue, effect.payload)
+      end
+    end)
+    if not epoch_current then
+      devloop_logging.log_cas_decision(
+        "observe_issue",
+        proposal_id,
+        state,
+        "peer-activity-epoch",
+        "thinking",
+        "skip-stale",
+        "peer activity authorization epoch is stale before unmanaged entry effects"
+      )
     end
 
 

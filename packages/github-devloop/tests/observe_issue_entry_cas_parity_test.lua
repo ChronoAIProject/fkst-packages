@@ -16,6 +16,7 @@ local devloop_claims = require("devloop.claims")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local dispatch_live_run = require("devloop.dispatch_live_run")
+local entity_list_cache = require("devloop.entity_list_cache")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local restart_authority = require("core.restart_authority")
 local restart_effect_facade = require("core.restart_effect_facade")
@@ -109,7 +110,15 @@ local function observe_department(run, fixture)
     end
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
-  devloop_claims.claim_issue_for_management = function(dept, repo, issue_number, current, proposal_id)
+  devloop_claims.claim_issue_for_management = function(
+    dept,
+    repo,
+    issue_number,
+    current,
+    proposal_id,
+    admission,
+    detail
+  )
     sequence = sequence + 1
     local boundary = {
       sequence = sequence,
@@ -120,7 +129,15 @@ local function observe_department(run, fixture)
       proposal_id = proposal_id,
     }
     table.insert(boundary_calls, boundary)
-    boundary.outcome = original_claim_issue(dept, repo, issue_number, current, proposal_id)
+    boundary.outcome = original_claim_issue(
+      dept,
+      repo,
+      issue_number,
+      current,
+      proposal_id,
+      admission,
+      detail
+    )
     return boundary.outcome
   end
 
@@ -768,6 +785,60 @@ local function assert_malformed_fails_closed_before_cas()
 
 end
 
+local function assert_epoch_advance_after_precheck_stops_unmanaged_entry_effects()
+  local repo = "owner/repo"
+  cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+  local recorded, poll_epoch = entity_list_cache.record_poll_epoch(repo, "2026-08-11T00:00:00Z")
+  t.is_true(recorded)
+
+  t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "integration-fkst-test-bot",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+
+  local event = h.issue({ poll_token = poll_epoch })
+  h.mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
+  h.mock_context_bundle(event)
+
+  local precheck_reached = false
+  local original_precheck = devloop_claims.claim_admission_precheck
+  devloop_claims.claim_admission_precheck = function(current, inputs)
+    local admission, detail = original_precheck(current, inputs)
+    precheck_reached = true
+    local advanced = entity_list_cache.record_poll_epoch(repo, "2026-08-11T00:00:01Z")
+    t.is_true(advanced)
+    return admission, detail
+  end
+  local ok, result, _, _, boundary_calls = pcall(observe_department, function()
+    return run_real_department(event)
+  end)
+  devloop_claims.claim_admission_precheck = original_precheck
+  if not ok then
+    error(result, 0)
+  end
+
+  t.is_true(precheck_reached)
+  t.eq(result.exit_code, 0, "stale admission epoch is a clean skip")
+  t.eq(#boundary_calls, 0, "stale admission epoch stops before the claim boundary")
+  t.eq(#result.raises, 0, "stale admission epoch emits no unmanaged-entry lifecycle effects")
+end
+
 return {
   test_observe_issue_entry_unmanaged_source_is_admitted_and_emits = function()
     assert_observe_issue_entry_shadow_case({
@@ -835,6 +906,10 @@ return {
 
   test_observe_issue_entry_malformed_payload_fails_closed_before_cas = function()
     assert_malformed_fails_closed_before_cas()
+  end,
+
+  test_observe_issue_entry_epoch_advance_after_precheck_stops_effects = function()
+    assert_epoch_advance_after_precheck_stops_unmanaged_entry_effects()
   end,
 
   test_r9_observe_issue_entry_old_corpus_remains_frozen = function()
