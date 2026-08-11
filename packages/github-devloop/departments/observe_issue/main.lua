@@ -475,6 +475,7 @@ local function reconcile_issue_event(event, opts)
           claim_verified = true
           if awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, issue_state, {
             proposal_id = proposal_id,
+            parent_comments = current.comments,
             current_pr = issue.child_pr,
             ["pr-delegation"] = current_delegation,
           }) then
@@ -590,6 +591,7 @@ local function reconcile_issue_event(event, opts)
         local closed
         closed, close_current_pr = awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, state, {
           proposal_id = proposal_id,
+          parent_comments = current.comments,
           ["pr-delegation"] = close_delegation,
         })
         if closed then
