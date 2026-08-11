@@ -2,6 +2,7 @@ local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
+local author_policy = require("testkit_internal.github_author_policy")
 local github_fake = require("forge.github_fake")
 local queue_starvation = require("devloop.queue_starvation")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -325,6 +326,7 @@ local function fake_department(opts)
     author_login = "fkst-test-bot",
   }
   local model = github_fake.model({
+    author_policy = author_policy.policy(),
     issues = {
       ["owner/repo#issue/42"] = source_fixture,
       ["owner/repo#issue/900"] = escalation_fixture,
