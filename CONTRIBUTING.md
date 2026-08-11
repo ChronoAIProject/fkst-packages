@@ -16,7 +16,7 @@ Useful commands:
 ```sh
 scripts/run.sh check
 scripts/run.sh test
-scripts/run.sh test <package>
+scripts/run.sh test <package ...>
 scripts/run.sh test-composed
 scripts/run.sh doctor
 scripts/run.sh run <package> <department> '{"payload":{}}'

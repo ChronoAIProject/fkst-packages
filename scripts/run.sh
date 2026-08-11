@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generic dev runner for fkst packages.
 #
-#   scripts/run.sh test [-v|--verbose] [package]
+#   scripts/run.sh test [-v|--verbose] [package ...]
 #       Run self-test, flat package conformance, package tests, and composed
 #       graph conformance. Tests use fresh runtime/durable roots and keep only
 #       failure-relevant lines unless -v/--verbose or FKST_TEST_VERBOSE=1 is set.
@@ -187,6 +187,8 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_interface_test.py"'
     'python3 -B "$ROOT/scripts/lua_coverage_to_lcov_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_layering_test.py"'
+    'python3 -B "$ROOT/scripts/run_script_contract_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_gh_git_adapter_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
@@ -203,10 +205,12 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/bin_cache_test.py"'
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
+    'python3 -B "$ROOT/scripts/run_bin_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
     'python3 -B "$ROOT/scripts/host_run_restart_test.py"'
     'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_process_group_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
@@ -477,11 +481,23 @@ run_quiet_keep() {
 
 load_composed_test_roots() { local script; script="$(bash "$ROOT/scripts/composed_test_graph_roots.sh" "$1" "$2")" || return 1; eval "$script"; }
 
-# Per-package `--report-json` files are written into a scratch dir and deleted at the end of
-# the run, so no CI run's per-test outcome is inspectable afterwards. When FKST_TEST_REPORT_DIR
-# is set (same shape as FKST_LUA_COVERAGE_OUTPUT), copy them there before cleaning up, so a CI
-# job can upload them as an artifact. Publishing must never change the run's verdict: a copy
-# failure warns and the reports are still removed.
+# The scratch report directory is the public artifact boundary for per-package `--report-json`
+# files and the nested `timing/` namespace. A successful timing observation writes exactly one
+# `timing/<unit>.timing.json` record per attempted unit with schema `fkst.test.unit_timing.v1` and
+# exactly these fields: `schema` and `unit` strings; `composed` boolean; integer
+# `started_at_unix_ns` and `ended_at_unix_ns` epoch timestamps bracketing the complete unit attempt;
+# numeric `elapsed_ms` derived from the corresponding monotonic-clock readings; and normalized
+# integer `exit_status` (0 or 1). Each interval includes the end clock adapter's own invocation
+# latency, including interpreter startup: about 20 ms per read on the measured host. This systematic
+# positive bias is material for sub-second units; the schema is for critical-path analysis of units
+# taking tens of seconds, not exact short-unit execution cost. The schema has no phase fields.
+# The timing writer atomically renames a private temporary file into this directory, so cmd_test must
+# keep its package-roots parent and scratch report directory on the same filesystem; both are
+# currently created beneath `${TMPDIR:-/tmp}`.
+# Observation failure warns, leaves no final timing record, and never changes the unit verdict. When
+# FKST_TEST_REPORT_DIR is set (same shape as FKST_LUA_COVERAGE_OUTPUT), publication must remain
+# recursive so both top-level reports and nested timing records arrive. Publication failure likewise
+# warns without changing the run verdict; the scratch report directory is removed in every case.
 finish_test_reports() {
   local dir="$1" dest="${FKST_TEST_REPORT_DIR:-}"
   if [ -n "$dest" ] && [ -d "$dir" ]; then
@@ -495,10 +511,10 @@ finish_test_reports() {
 }
 
 cmd_test() {
-  local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
+  local ran=0 fail=0 pkg name target selected verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a pkg_units=() ran_names=()
+  local -a targets=() pkg_units=() ran_names=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
@@ -506,7 +522,7 @@ cmd_test() {
     case "$1" in
       -v|--verbose) verbose=1 ;;
       -*) local_iteration_result_fail "CONFIGURATION"; echo "unknown test flag: $1" >&2; exit 2 ;;
-      *) target="$1" ;;
+      *) targets+=("$1") ;;
     esac
     shift
   done
@@ -539,6 +555,22 @@ cmd_test() {
   fi
 
   ensure_package_view
+  for target in ${targets[@]+"${targets[@]}"}; do
+    selected=0
+    for pkg in "$SOURCE_PACKAGES_ROOT"/*/; do
+      [ -d "$pkg" ] || continue
+      name="$(basename "$pkg")"
+      if [ "$name" = "$target" ] && [ -d "$LOCAL_PACKAGES_ROOT/$name" ]; then
+        selected=1
+        break
+      fi
+    done
+    if [ "$selected" -eq 0 ]; then
+      local_iteration_result_fail "CONFIGURATION"
+      echo "no packages matched for '$target'" >&2
+      exit 1
+    fi
+  done
   pool="$(detect_pool_size)"
   # Each package is an independent test unit; build the unit list, then run them
   # concurrently. Every unit gets its own ephemeral runtime/durable roots inside
@@ -549,7 +581,13 @@ cmd_test() {
     name="$(basename "$src_pkg")"
     pkg="$LOCAL_PACKAGES_ROOT/$name"
     [ -d "$pkg" ] || continue
-    if [ -n "$target" ] && [ "$name" != "$target" ]; then continue; fi
+    if [ "${#targets[@]}" -gt 0 ]; then
+      selected=0
+      for target in "${targets[@]}"; do
+        if [ "$name" = "$target" ]; then selected=1; break; fi
+      done
+      [ "$selected" -eq 1 ] || continue
+    fi
     ran=$((ran + 1))
     rc=0; is_composed "$pkg" || rc=$?
     case "$rc" in
@@ -570,14 +608,10 @@ cmd_test() {
   done
   if [ "$ran" -eq 0 ]; then
     local_iteration_result_fail "CONFIGURATION"
-    if [ -n "$target" ]; then
-      echo "no packages matched for '$target'" >&2
-    else
-      echo "no packages matched" >&2
-    fi
+    echo "no packages matched" >&2
     exit 1
   fi
-  if [ -z "$target" ]; then
+  if [ "${#targets[@]}" -eq 0 ]; then
     if ! cmd_test_composed; then
       fail=$((fail + 1))
     fi

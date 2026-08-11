@@ -21,6 +21,17 @@ local marker_attr = shared.marker_attr
 local decode_marker_attr = shared.decode_marker_attr
 C.parse_fix_feedback_fact = shared.parse_fix_feedback_fact
 
+function C.matching_dependency_marker_fact(marker_proposal, marker_version, proposal_id, version, comment_created_at)
+  if marker_proposal ~= tostring(proposal_id) or marker_version ~= tostring(version) then
+    return nil
+  end
+  return {
+    proposal_id = marker_proposal,
+    version = marker_version,
+    comment_created_at = comment_created_at,
+  }
+end
+
 local function review_proposal_from_dedup(dedup_key)
   return devloop_base.pr_review_proposal_id_from_consensus_dedup_key(dedup_key)
 end
