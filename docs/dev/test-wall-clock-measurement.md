@@ -617,3 +617,155 @@ unknown" into "no lever remains", the other turned "one timing point on an unrep
 into a cost table with three rows. **An adversarial seat found both; the author found neither.** That
 is the same ratio this document records elsewhere — 16 of 18 blocking findings in the earlier review
 rounds came from review, not from the author.
+
+## The local gate: where its 35% FULL fallback comes from, and why most of it is worth less than it looks
+
+Everything above measures `scripts/run.sh test` — the comprehensive gate. This section measures the
+*local* gate, `scripts/run.sh test-affected`, which is what an implement/fix codex pays inside its
+own budget. They are different questions and the second had not been measured.
+
+### The verdict distribution
+
+`test_affected_requires_full_suite()` classifies each changed path, and **any** path that requires
+the full suite forces `full=1` for the whole run. Replaying that function over the last 300
+non-merge commits of `origin/dev`:
+
+| verdict | commits |
+|---|---:|
+| SCOPED (graph-derived package subset) | 196 |
+| **FULL (all 22 packages + composed conformance)** | **104** |
+
+FULL, by the class of the first path that forced it:
+
+| class | commits |
+|---|---:|
+| `migration/` | 44 |
+| `scripts/` | 27 |
+| `docs/` | 13 |
+| `.claude/` | 11 |
+| `.fkst/` | 6 |
+| `CLAUDE.md` | 2 |
+| `fkst.workspace.toml` | 1 |
+
+The function's last statement is `return 0`: FULL is the **default** for every path it does not
+recognise. That is the correct fail-safe posture, and it is why the whole tail is here.
+
+### The root cause is a missing node kind, not an overbroad prefix rule
+
+`scripts/test_affected.py` builds nodes only for `libraries/*` and `packages/*` and edges only from
+their `fkst.toml` `lib_deps` / `event_deps`. It **raises** on any seed outside those two prefixes,
+and the shell falls back to `full=1`.
+
+Meanwhile package tests read repo-root data directly:
+
+```lua
+local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+...
+local inventory = json.decode(file.read(INVENTORY_PATH))
+```
+— `packages/github-devloop-pr/tests/old_behavior_observe_pr_decompose_intent_observation_test.lua:20,373`
+
+That read succeeds even though the filtered test root has no `migration/` directory:
+`copy_package()` tars only the package directory plus every library
+(`scripts/composed_test_graph_roots.sh:78-112`), and `run_one_package` invokes
+`"$BIN" test --project-root "$pkg" --package-root "$pkg"` with no `cd`
+(`scripts/test_parallel.sh:35,39`). So a relative `file.read` resolves against the **process CWD —
+the repository root** — an ambient filesystem input that escapes the declared root entirely.
+
+**So FULL is an honest UNKNOWN, not conservatism.** The selector has no mechanical proof of any
+repo-root path's complete consumer set, because nothing confines what a test may read.
+
+### Measuring the reader sets inverts the intuition twice
+
+First inversion — repo-root data *is* read from Lua, so "these classes are checker-only" is false.
+Second inversion — the files that are read are not the files that change.
+
+| `migration/` file | commits (of 300) | Lua readers |
+|---|---:|---:|
+| `lower-injected-m.inventory` | 12 | **0** |
+| `github-devloop-saga-split.inventory` | 9 | **0** |
+| `service-locator.inventory` | 4 | **0** |
+| `library-error-class.allowlist` | 4 | **0** |
+| **`restart-lifecycle.inventory.json`** | **4** | **read by 2 packages** |
+| 13 further ledgers | 15 | **0** |
+
+The ledgers that change often are exactly the ones no Lua file reads; the one file with a large
+reference count changed 4 times in 300 commits.
+
+And scoping *that* file buys nothing. The complete repo-root read surface is **43 test files, 100% of
+them in `github-devloop` (26) and `github-devloop-pr` (17)** — no library, no other package. Using
+the CI unit timings above, any scope containing `github-devloop` keeps the pool's critical path
+(582.3 s of a 640.7 s span), so the verdict moves the span by at most the ~9% scheduling headroom
+already identified. **The largest FULL class is worth far less than its commit count suggests.**
+
+### Two consumer families, so "relocate it under its owner" is refuted
+
+The obvious parsimonious fix — move each repo-root fixture under the package that reads it and let
+the existing manifest closure resolve it — fails on these files, because the Lua tests are not their
+owner. Each is read by **two independent consumer families**:
+
+| file(s) | Lua consumer | Python consumer |
+|---|---|---|
+| `migration/restart-lifecycle.inventory.json` | `github-devloop`, `github-devloop-pr` | `check_repo_restart_lifecycle.py:14`, `check_repo_restart_preflight.py:20` |
+| `migration/intent_bounded_replay/corpus/*.json` (13) | one package each | `check_repo_intent_bounded_replay_trace_catalog.py:9-23` |
+
+These are repository-wide R9 artifacts. Moving them under a package would invert the layering and
+put a repo-wide ratchet under one of its consumers. Their natural owner **is** the repository root.
+
+The frequently-changed ledgers are the clean case in the other direction: `migration/*.allowlist` and
+`migration/*.inventory` are read only by their checkers (`check_repo_dedup.py:16`,
+`check_repo_error_class.py:13-14`, `check_repo_gh_git_adapter.py:21`, and so on) and by nothing in
+Lua.
+
+### `docs/`, root `*.md` and `.claude/` are the only provably free classes
+
+- **No Lua source or test reads any repo-relative `.md`.** Every `.md` path literal under `packages/`
+  and `libraries/` is `/tmp/...` (github-proxy comment-body fixtures) except
+  `docs/integration-note.md`, and that occurrence is inside an *embedded Python fixture string* doing
+  `(root / "docs/integration-note.md").write_text(...)` into a temporary fixture root
+  (`packages/github-devloop-integration/tests/integration_sync_conflict_test.lua:156-158`). It writes;
+  it does not read the repository's copy.
+- **`.claude/` has zero Lua references.**
+- `.github/workflows/ci.yml` appears 5 times, but only as **mock stdout** in tests asserting that a
+  path under `.github/` classifies as high-risk (`packages/github-devloop/tests/core_basics_test.lua:92,98`).
+  The rule is under test, not the file.
+
+That is 26 commits of 300 (8.7%).
+
+### Why the measurement is not yet a licence to act
+
+Everything above is a **lexical** scan of quoted path literals, and one level of indirection already
+defeats the naive form of it: the corpus reads go through `file.read(CORPUS_PATH)` where
+`CORPUS_PATH` is a module-local constant, so a scan for `file.read("migration/` finds **3** sites
+while the real surface is 43. A computed path — `file.read("migration/" .. name)` — would be
+invisible and is not currently forbidden.
+
+The failure mode is asymmetric. A missed reference turns a correct FULL into an incorrect SCOPED, and
+the gate then passes a change that breaks a test it never ran. **A wrong SCOPED is a correctness
+regression; a wrong FULL is only slow.** So a lexical inventory is migration input, never verdict
+evidence.
+
+### The ordering result: the batching fix had to land first
+
+Before `test` accepted multiple package arguments, `cmd_test_affected` invoked
+`scripts/run.sh test <pkg>` once per selected package, and the `test` dispatch runs a full `cmd_check`
+before `cmd_test` (`scripts/run.sh:845-855`). So a SCOPED verdict selecting N packages paid N × the
+entire check phase — 204.6 s each in CI. Narrowing FULL into a multi-package SCOPED verdict was
+therefore **net-negative** for much of its own addressable set: it converted one check phase into
+several.
+
+That is now fixed — the gate runs once with all affected packages — which is the precondition for any
+further narrowing to have a positive sign at all. **The sequencing matters more than the selection
+rule: the batching fix was worth more than the narrowing it unblocks.**
+
+### What a proposal must start from
+
+- The residual opportunity is bounded by the 26 provably-free commits plus the checker-only
+  `migration/` ledgers, not by the headline 104.
+- Any narrowing needs an enforcement boundary that makes an undeclared repo-root read impossible or
+  fail closed, with every unknown or dynamic path retaining FULL. Without one, FULL is the correct
+  verdict and keeping it costs only time.
+- One such boundary needs no engine change: run each package test with its filtered root as the
+  process CWD and stage the declared repo-root inputs into it, so an undeclared read fails because
+  the file is absent. That is `scripts/`-side and measurable — and it is **`ASSUMED-UNVERIFIED`**
+  whether the 43 reader files are the only relative-path behaviour that a CWD change would disturb.
