@@ -537,7 +537,7 @@ function M.new(deps)
       if cached ~= nil then
         comments = comments_then_cached(comments, cached)
       end
-      entity_read_mocks.mock_pr_read_forms(t, {
+      mock_pr_origin_for({
         repo = "owner/repo",
         number = 7,
         comments = comments,
@@ -548,14 +548,6 @@ function M.new(deps)
         labels = {},
         times = 1,
       })
-      entity_read_mocks.mock_pr_view_selector(t, {
-        comments = comments,
-        head = entry.head or "devloop-owner-repo-42-01HY",
-        head_sha = entry.head_sha or "def456",
-        state = entry.state or "OPEN",
-        base_branch = "dev",
-        labels = {},
-      }, entity_read_mocks.pr_origin_selector)
     end
   end
 

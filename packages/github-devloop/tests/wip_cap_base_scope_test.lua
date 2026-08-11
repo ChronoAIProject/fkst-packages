@@ -94,7 +94,7 @@ return {
     mock_wip_list({ 51 })
     mock_wip_state(51, "pr-open", "integration")
 
-    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(core, REPO, 42)
+    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(REPO, 42)
     t.eq(allowed, true)
     t.eq(reason, "wip-cap-available")
     t.eq(count, 0)
@@ -117,7 +117,7 @@ return {
       m_mgw.merge_gate_wait_marker(proposal_id, pr_number, version, head_sha, "external-ci-red", "EXTERNAL_CI_RED"),
     })
 
-    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(core, REPO, 42)
+    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(REPO, 42)
     t.eq(allowed, true)
     t.eq(reason, "wip-cap-available")
     t.eq(count, 0)
@@ -135,7 +135,7 @@ return {
     mock_wip_state(issue_number, "merge-ready", INTEGRATION)
     mock_pr_merge_view(issue_number, pr_number, head_sha, {})
 
-    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(core, REPO, 42)
+    local allowed, reason, count, max = m_mq.wip_capacity_allows_start(REPO, 42)
     t.eq(allowed, false)
     t.eq(reason, "wip-cap-reached")
     t.eq(count, 1)
@@ -149,7 +149,7 @@ return {
     mock_wip_list({ 51 })
     mock_wip_state(51, "pr-open", INTEGRATION)
 
-    local allowed, reason, count = m_mq.wip_capacity_allows_start(core, REPO, 42)
+    local allowed, reason, count = m_mq.wip_capacity_allows_start(REPO, 42)
     t.eq(allowed, false)
     t.eq(reason, "wip-cap-reached")
     t.eq(count, 1)
@@ -162,7 +162,7 @@ return {
     mock_wip_list({ 51 })
     mock_wip_state(51, "implementing", nil)
 
-    local allowed, reason, count = m_mq.wip_capacity_allows_start(core, REPO, 42)
+    local allowed, reason, count = m_mq.wip_capacity_allows_start(REPO, 42)
     t.eq(allowed, false)
     t.eq(reason, "wip-cap-reached")
     t.eq(count, 1)

@@ -103,10 +103,13 @@ local function observe_department(run, opts)
     end
   end
   requests_lifecycle.build_implementing_state_comment_request = function(
-      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch,
       base_sha, attempt, started_at, exec_ref)
     table.insert(serializer_calls.comment, {
-      core = builder_core,
+      core = {
+        implement_attempt_marker = implement_attempt_marker,
+        output_language = output_language,
+      },
       issue = { repo = repo, number = issue_number },
       ready = ready,
       worktree = worktree,
@@ -118,7 +121,7 @@ local function observe_department(run, opts)
       exec_ref = exec_ref,
     })
     return original_implementing_comment(
-      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch,
       base_sha, attempt, started_at, exec_ref
     )
   end
@@ -178,8 +181,8 @@ local function observe_department(run, opts)
     })
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
-  payloads_predicates.verified_hand_off_state = function(M, repo, hand_off, expected)
-    local state, reason = original_verified_hand_off_state(M, repo, hand_off, expected)
+  payloads_predicates.verified_hand_off_state = function(repo, hand_off, expected)
+    local state, reason = original_verified_hand_off_state(repo, hand_off, expected)
     sequence = sequence + 1
     table.insert(handoff_checks, {
       sequence = sequence,
@@ -191,8 +194,8 @@ local function observe_department(run, opts)
     })
     return state, reason
   end
-  m_mq.wip_capacity_allows_start = function(M, repo, current_issue_number)
-    local allowed, reason, count, maximum = original_wip_capacity_allows_start(M, repo, current_issue_number)
+  m_mq.wip_capacity_allows_start = function(repo, current_issue_number)
+    local allowed, reason, count, maximum = original_wip_capacity_allows_start(repo, current_issue_number)
     sequence = sequence + 1
     table.insert(boundary_calls, {
       sequence = sequence,

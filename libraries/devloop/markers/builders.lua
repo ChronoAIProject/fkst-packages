@@ -344,7 +344,7 @@ function C.review_carry_over_marker(issue_proposal_id, version, old_review_propo
     .. '" proof="merge-tree-empty-delta" -->'
 end
 
-function C.merged_marker(M, issue_proposal_id, pr_number, version, head_sha, autonomy_record)
+function C.merged_marker(issue_proposal_id, pr_number, version, head_sha, autonomy_record)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
     error("github-devloop: pr-head-identity-invalid: invalid merged marker")
   end
@@ -364,6 +364,13 @@ function C.merging_marker(issue_proposal_id, pr_number, version, head_sha)
     .. '" version="' .. tostring(version)
     .. '" head_sha="' .. tostring(head_sha)
     .. '" -->'
+end
+
+function C.intake_class_carrier_marker(class_key)
+  if class_key == nil or tostring(class_key) == "" then
+    error("github-devloop: intake-class-key-invalid: invalid intake class key")
+  end
+  return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
 end
 
 function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, service_class, premise_fingerprint)

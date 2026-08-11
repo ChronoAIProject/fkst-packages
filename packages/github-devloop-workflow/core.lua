@@ -127,16 +127,16 @@ local function install_intake_surface(target)
   target.intake_service_class_label = intake_service_class.intake_service_class_label
   target.intake_service_class_labels = intake_service_class.intake_service_class_labels
   target.intake_service_class_label_changes = intake_service_class.intake_service_class_label_changes
-  target.build_intake_service_class_label_request = function(...) return intake_service_class.build_intake_service_class_label_request(target, ...) end
-  target.intake_class_identity = function(...) return intake_class.intake_class_identity(target, ...) end
-  target.intake_class_carrier_marker = function(...) return intake_class.intake_class_carrier_marker(target, ...) end
-  target.intake_class_followup_marker = function(...) return intake_class.intake_class_followup_marker(target, ...) end
-  target.fetch_recent_closed_intake_class_issues = function(...) return intake_class.fetch_recent_closed_intake_class_issues(target, ...) end
-  target.intake_class_issue_title = function(...) return intake_class.intake_class_issue_title(target, ...) end
-  target.find_open_intake_class_carrier = function(...) return intake_class.find_open_intake_class_carrier(target, ...) end
-  target.build_intake_class_followup_comment_request = function(...) return intake_class.build_intake_class_followup_comment_request(target, ...) end
-  target.build_intake_class_folded_label_request = function(...) return intake_class.build_intake_class_folded_label_request(target, ...) end
-  target.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(target, ...) end
+  target.build_intake_service_class_label_request = intake_service_class.build_intake_service_class_label_request
+  target.intake_class_identity = intake_class.intake_class_identity
+  target.intake_class_carrier_marker = intake_class.intake_class_carrier_marker
+  target.intake_class_followup_marker = intake_class.intake_class_followup_marker
+  target.fetch_recent_closed_intake_class_issues = intake_class.fetch_recent_closed_intake_class_issues
+  target.intake_class_issue_title = intake_class.intake_class_issue_title
+  target.find_open_intake_class_carrier = intake_class.find_open_intake_class_carrier
+  target.build_intake_class_followup_comment_request = intake_class.build_intake_class_followup_comment_request
+  target.build_intake_class_folded_label_request = intake_class.build_intake_class_folded_label_request
+  target.build_intake_class_issue_create_request = intake_class.build_intake_class_issue_create_request
   target.output_language = function(...) return devloop_prompts.output_language(...) end
   target.prompt_preamble = devloop_prompts.prompt_preamble
   target.judge_harness_clause = devloop_prompts.judge_harness_clause
@@ -148,7 +148,7 @@ local function install_intake_surface(target)
   target.build_intake_prompt = intake_prompt_surface.build_intake_prompt
   target.parse_intake_action = intake_prompt_surface.parse_intake_action
   target.intake_prompt_surface = intake_prompt_surface
-  target.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(target, ...) end
+  target.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(devloop_base._max_dedup_len, ...) end
 end
 
 M._max_dedup_len = devloop_base._max_dedup_len
@@ -173,7 +173,9 @@ function M.install(target)
   target.github_graphql_queries = devloop_dependency_gate.github_graphql_queries
   target.render_github_graphql_query = devloop_dependency_gate.render_github_graphql_query
   target.github_graphql = devloop_dependency_gate.github_graphql
-  local dependency_resolver = devloop_dependency_gate.new(target)
+  local dependency_resolver = devloop_dependency_gate.new({
+    github_graphql = function(...) return target.github_graphql(...) end,
+  })
   target.dependency_gate = dependency_resolver.dependency_gate
 end
 

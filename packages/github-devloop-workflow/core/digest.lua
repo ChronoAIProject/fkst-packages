@@ -36,6 +36,9 @@ function M.canonical_blueprint_string(doc)
     append_field(parts, "step.title", step.title)
     append_field(parts, "step.content.kind", step.content.kind)
     append_field(parts, "step.content.value", content_value(step))
+    if step.on_already_satisfied ~= nil then
+      append_field(parts, "step.on_already_satisfied", step.on_already_satisfied)
+    end
   end
   return table.concat(parts, "\n"), nil
 end

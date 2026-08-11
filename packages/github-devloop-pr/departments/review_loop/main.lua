@@ -11,6 +11,7 @@ local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
 local sink_inventory = require("core.restart.sink_inventory")
 local restart_package_name = assert(rawget(core, "restart_package_name"))
+local restart_policy = assert(rawget(core, "restart_policy"))
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 
@@ -186,14 +187,14 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local heartbeat_version = state.version
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
-    local facts = conv_rounds.review_converge_round_facts(core, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest)
+    local facts = conv_rounds.review_converge_round_facts(restart_policy, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest)
     local round = math.max(tonumber(unresolved.round) or 0, conv_rounds.max_converge_round(facts))
-    if conv_rounds.has_review_converge_round_marker(core, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest, round) then
+    if conv_rounds.has_review_converge_round_marker(restart_policy, current_pr.comments, unresolved.proposal_id, origin.proposal_id, heartbeat_version, reviewed_head_sha, sr_digest, round) then
       devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing", "skip-idempotent(review converge round marker already visible)", "review converge round marker for incoming round is already visible")
       return
     end
 
-    local marker_body = conv_rounds.review_converge_round_marker(core,
+    local marker_body = conv_rounds.review_converge_round_marker(restart_policy,
       unresolved.proposal_id,
       origin.proposal_id,
       heartbeat_version,
@@ -237,7 +238,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local next_n = round + 1
     local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)
-    local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
+    local context_fetch = { context_bundle.context_fetch_ref_from_bundle({
       dept = "review_loop",
       repo = repo,
       issue_number = origin.issue_number,
@@ -248,7 +249,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     }) }
     local content_fetch = context_fetch[1]
     local high_risk = context_fetch[2]
-    local proposal = payloads_builders.build_board_pr_review_loop_proposal(core, repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, next_n, {
+    local proposal = payloads_builders.build_board_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
       findings_record = facts_with_current[#facts_with_current] and facts_with_current[#facts_with_current].findings_record,

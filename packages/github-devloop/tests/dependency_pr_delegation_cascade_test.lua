@@ -80,7 +80,7 @@ local function mock_merged_child_pr()
     comments = {
       m_builders.pr_origin_marker(blocker_proposal, blocker_number, "devloop-owner-repo-61-01HY", blocker_version, "dev"),
       core.state_marker(blocker_proposal, "merged", blocker_version),
-      m_builders.merged_marker(core, blocker_proposal, child_pr_number, blocker_version, child_head_sha),
+      m_builders.merged_marker(blocker_proposal, child_pr_number, blocker_version, child_head_sha),
     },
   }, entity_read_mocks.pr_origin_selector)
 end

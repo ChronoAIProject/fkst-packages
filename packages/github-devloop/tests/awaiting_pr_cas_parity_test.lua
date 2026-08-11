@@ -192,7 +192,7 @@ local function child_comments(fixture)
     body = body .. "\n" .. h.state_comment(PROPOSAL_ID, fixture.child_state, version)
   end
   if fixture.child_state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(core, PROPOSAL_ID, PR_NUMBER, version, HEAD_SHA)
+    body = body .. "\n" .. m_builders.merged_marker(PROPOSAL_ID, PR_NUMBER, version, HEAD_SHA)
   end
   return { comment(body, "2026-06-03T01:04:03Z") }
 end
@@ -745,6 +745,7 @@ return {
       child_version = V_EQUAL,
       pr_state = "MERGED",
       admission_phase = "pre-cas",
+      effect_count = 1,
     })
   end,
 }

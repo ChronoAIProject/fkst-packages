@@ -1,4 +1,3 @@
-local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(kind, semantic_variant, effect_ids)
   local id = "github-devloop-pr/pr-open/" .. kind .. "/" .. semantic_variant
@@ -139,7 +138,7 @@ return function(M, h)
         },
       },
     }),
-    payload_builder = payloads_builders.build_devloop_reviewing_payload,
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_reviewing_payload",
     dedup_shape = "reviewing/<proposal_id>/<impl_version>/<pr>",
     required_facts = {
       fact("state", "marker-read"),

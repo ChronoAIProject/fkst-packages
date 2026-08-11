@@ -37,7 +37,7 @@ local forge_validators = require("devloop.forge_validators")
     return result
   end
 
-  local function runtime_root_path(M, runtime_root)
+  local function runtime_root_path(runtime_root)
     local root = strings.trim(runtime_root)
     if root == "" or root:find("[\r\n]") ~= nil then
       error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
@@ -242,13 +242,13 @@ local forge_validators = require("devloop.forge_validators")
 
 
 
-function C.helpers(M)
+function C.helpers()
   return {
     require_safe_branch = require_safe_branch,
     require_safe_sha = require_safe_sha,
     require_safe_repo = require_safe_repo,
     require_sync_result = require_sync_result,
-    runtime_root_path = function(runtime_root) return runtime_root_path(M, runtime_root) end,
+    runtime_root_path = runtime_root_path,
   }
 end
 

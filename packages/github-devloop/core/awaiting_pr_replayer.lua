@@ -11,7 +11,6 @@ local git_commands = require("devloop.commands.git_ops")
 local pr_commands = require("devloop.commands.prs")
 -- `awaiting-pr` is the issue-side `dependency_wait` twin: poll-reconcile the delegated PR's terminal fact and never drive `github-devloop-pr` internal lifecycle queues; the PR package owns those queues.
 local S, replay_fields = {}, require("devloop.replay_fields")
-local replayer = require("devloop.replayer")
 local forge_validators = require("devloop.forge_validators")
 local contract_time = require("contract.time")
 local contract_strings = require("contract.strings")
@@ -37,7 +36,7 @@ function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_co
   return false
 end
 
-function S.install(M)
+function S.install(M, replay_log_decline)
 local child_terminal_states = {
   merged = true,
   ["closed-unmerged"] = true,
@@ -45,7 +44,7 @@ local child_terminal_states = {
 }
 local canonical_pr_is_merged, origin_matches_delegation, canonical_merged_child_state, merged_child_landed_on_upstream
 local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason)
-  return replayer.replay_log_decline(M, "stuck", dept, proposal_id, state, from_state, to_state, outcome, reason)
+  return replay_log_decline("stuck", dept, proposal_id, state, from_state, to_state, outcome, reason)
 end
 
 local function raise_effects(dept, proposal_id, apply_state, version, label_changes, effects)
@@ -162,8 +161,8 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
     version = next_state.version,
     reviewed_head_sha = head_sha,
   }
-  local autonomy_record = autonomy_ledger.autonomy_result_record(M, issue.repo, issue.number, merge_ready, issue, autonomy_post_merge_pr(current_pr))
-  return "\n" .. m_builders.merged_marker(M, delegation.proposal_id, delegation.pr_number, next_state.version, head_sha, autonomy_record)
+  local autonomy_record = autonomy_ledger.autonomy_result_record(M.evaluate_ci_status_gate, issue.repo, issue.number, merge_ready, issue, autonomy_post_merge_pr(current_pr))
+  return "\n" .. m_builders.merged_marker(delegation.proposal_id, delegation.pr_number, next_state.version, head_sha, autonomy_record)
     .. "\n" .. autonomy_ledger.autonomy_result_marker(autonomy_record)
 end
 
@@ -220,6 +219,30 @@ local function build_resume_comment_request(issue, state, next_state, child_stat
     .. body_after_marker, comment_dedup_key, source_ref)
 end
 S.build_resume_comment_request = build_resume_comment_request
+
+local function build_parent_merged_projection_comment_request(issue, state, delegation, current_pr)
+  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
+  local next_state = {
+    to_state = "merged",
+    version = state.version,
+  }
+  local body = "github-devloop projected canonical delegated PR merge onto parent issue"
+    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
+    .. "\nParent recovery state: " .. tostring(state.state)
+    .. "\n" .. resume_terminal_markers(issue, next_state, delegation, current_pr)
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = issue.repo,
+    number = issue.number,
+  }, body, base_ids.dedup_key({
+    "awaiting-pr",
+    "parent-merged-projection",
+    tostring(delegation.proposal_id),
+    tostring(state.version),
+    tostring(delegation.pr_number),
+    tostring(delegation.delegation),
+  }), source_ref)
+end
 
 local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation, child_state)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
@@ -467,13 +490,51 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
   if type(current_pr) ~= "table" or current_pr.force_fresh ~= true then
     current_pr = read_delegated_child_pr(dept, issue, delegation)
   end
-  if canonical_merged_child_state(issue, state, delegation, current_pr) == nil then
+  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
+  if canonical_merged_state == nil then
     return false, current_pr
   end
   local landed, outcome, reason = merged_child_landed_on_upstream(dept, issue, state, delegation, current_pr)
   if not landed then
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", outcome, reason)
     return false, current_pr
+  end
+  if tostring(state and state.state or "") == "implementing" then
+    return false, current_pr
+  end
+  local parent_comments = facts.parent_comments
+  local admitted_parent = devloop_state.route_current(parent_comments, proposal_id, {
+    [tostring(state and state.state or "")] = true,
+  })
+  if admitted_parent.route ~= true
+    or tostring(admitted_parent.version or "") ~= tostring(state and state.version or "") then
+    error("github-devloop: canonical-merged-parent-view-stale: canonical merged issue close requires the admitted parent version")
+  end
+  local parent_merged = m_facts.merged_fact(
+    parent_comments,
+    proposal_id,
+    delegation.pr_number,
+    state.version
+  )
+  if parent_merged == nil then
+    local comment_request = build_parent_merged_projection_comment_request(
+      issue,
+      state,
+      delegation,
+      current_pr
+    )
+    devloop_logging.log_cas_decision(dept, proposal_id, state,
+      tostring(state and state.state or "unknown"), "parent-merged-fact",
+      "applied(parent-merged-projection-requested)",
+      "canonical delegated PR merge is landed and requires a parent-owned merged fact before close")
+    raise_effects(dept, proposal_id, tostring(state and state.state or "unknown"), state.version,
+      { add = {}, remove = {} }, {
+        { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
+      })
+    return true, current_pr
+  end
+  if tostring(parent_merged.head_sha or "") ~= tostring(canonical_merged_state.head_sha or "") then
+    error("github-devloop: canonical-merged-parent-fact-conflict: parent merged fact head does not match canonical delegated PR")
   end
   if config.write_mode() ~= "real" then
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", "skip-dry-run", "canonical merged delegated issue would close in real write mode")

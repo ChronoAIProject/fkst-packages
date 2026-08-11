@@ -58,7 +58,10 @@ local function command_indicates_not_found(result)
     or stderr:find("not found", 1, true) ~= nil
 end
 
-local function linked_pr_links(M, issue_comments, proposal_id)
+local devloop_commands = require("devloop.commands")
+local entity_view = require("devloop.github_proxy_entity_view")
+
+local function linked_pr_links(max_dedup_len, issue_comments, proposal_id)
   local links = {}
   local seen = {}
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
@@ -72,7 +75,7 @@ local function linked_pr_links(M, issue_comments, proposal_id)
       if marker_proposal == proposal_id
         and forge_validators.is_positive_pr_number(marker_pr)
         and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, M._max_dedup_len)
+        and strings.is_bounded_string(marker_impl_version, max_dedup_len)
         and forge_validators.is_git_ref_safe(marker_base_branch)
         and not seen[tostring(marker_pr)] then
         seen[tostring(marker_pr)] = true
@@ -88,7 +91,7 @@ local function linked_pr_links(M, issue_comments, proposal_id)
   return links
 end
 
-local function linked_pr_delegations(M, issue_comments, proposal_id)
+local function linked_pr_delegations(max_dedup_len, issue_comments, proposal_id)
   local links = {}
   local seen = {}
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-delegation:v1.-%-%->"
@@ -103,8 +106,8 @@ local function linked_pr_delegations(M, issue_comments, proposal_id)
       if marker_proposal == proposal_id
         and forge_validators.is_positive_pr_number(marker_pr)
         and tostring(proposal_pr_number or "") == tostring(marker_pr)
-        and strings.is_bounded_string(marker_version, M._max_dedup_len)
-        and strings.is_path_safe_key(marker_delegation, M._max_dedup_len)
+        and strings.is_bounded_string(marker_version, max_dedup_len)
+        and strings.is_path_safe_key(marker_delegation, max_dedup_len)
         and not seen[tostring(marker_pr)] then
         seen[tostring(marker_pr)] = true
         table.insert(links, {
@@ -120,7 +123,7 @@ local function linked_pr_delegations(M, issue_comments, proposal_id)
   return links
 end
 
-local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
+local function linked_pr_surface_snapshot(repo, issue_comments, links, opts)
   local options = opts or {}
   local snapshot = {
     comments = issue_comments or {},
@@ -133,21 +136,21 @@ local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
     local pr_number = link.pr_number
     local pr_view
     if options.cache_only == true then
-      pr_view = M.cached_entity_view(repo, "pr", pr_number)
+      pr_view = entity_view.cached_entity_view(repo, "pr", pr_number)
       if pr_view == nil then
         snapshot.deferred = true
         snapshot.defer_reason = "pr-surface-not-cached"
         return snapshot
       end
     elseif options.github ~= nil then
-      pr_view = M.gh_pr_view_freshness(
+      pr_view = devloop_commands.gh_pr_view_freshness(
         repo,
         pr_number,
         tonumber(options.timeout) or 30,
         options.github
       )
     else
-      pr_view = M.gh_pr_view_observe(repo, pr_number, 30)
+      pr_view = devloop_commands.gh_pr_view_observe(repo, pr_number, 30)
     end
     if pr_view.exit_code ~= 0 then
       if command_indicates_not_found(pr_view) then
@@ -173,22 +176,20 @@ local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
   return snapshot
 end
 
-function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
+function C.linked_pr_surface_snapshot(max_dedup_len, repo, proposal_id, issue_comments, opts)
   return linked_pr_surface_snapshot(
-    M,
     repo,
     issue_comments,
-    linked_pr_links(M, issue_comments, proposal_id),
+    linked_pr_links(max_dedup_len, issue_comments, proposal_id),
     opts
   )
 end
 
-function C.linked_pr_delegation_surface_snapshot(reader, repo, proposal_id, issue_comments, opts)
+function C.linked_pr_delegation_surface_snapshot(max_dedup_len, repo, proposal_id, issue_comments, opts)
   return linked_pr_surface_snapshot(
-    reader,
     repo,
     issue_comments,
-    linked_pr_delegations(reader, issue_comments, proposal_id),
+    linked_pr_delegations(max_dedup_len, issue_comments, proposal_id),
     opts
   )
 end

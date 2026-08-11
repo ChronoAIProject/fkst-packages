@@ -16,7 +16,6 @@ local operator_commands = require("devloop.operator_commands")
 local queue = require("devloop.queue")
 local transition_version = require("contract.transition_version")
 local observe_issue_caps = require("observe_issue_department_caps")
-local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
@@ -36,6 +35,7 @@ local log = log
 local M = {}
 local restart_policy = observe_issue_caps.restart_policy
 local restart_transition_table = restart_policy.restart_transition_table
+local replayer = observe_issue_caps.replayer
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
@@ -61,6 +61,7 @@ local operator_recovery = operator_recovery_factory.make({
   conv_reconcile = conv_reconcile,
   core = core,
   dependency_hold_fact = observe_issue_caps.dependency_hold_fact,
+  dependency_waiver_marker = observe_issue_caps.dependency_waiver_marker,
   devloop_logging = devloop_logging,
   devloop_state = devloop_state,
   operator_commands = operator_commands,
@@ -218,11 +219,11 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     if delivery ~= nil then
       facts.redrive_delivery = delivery
     end
-    return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
+    return replayer.replay_from_table("observe_issue", issue, state, row, facts)
   end
   if restart_policy.restart_row_observable_on(row, "issue")
     and state_is_issue_local
-    and replayer.replay_from_table(core, "observe_issue", issue, state, row, facts) then
+    and replayer.replay_from_table("observe_issue", issue, state, row, facts) then
     return true
   end
   if restart_policy.restart_row_observable_on(row, "issue") then
@@ -242,14 +243,35 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     return true
   end
   if admission == "other" then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, state.state, state.state, "skip-claim-lost", "CLAIM lost before managed issue handling")
+    local pending_commands = operator_commands.pending_issue_operator_command_facts(current.comments)
+    local pending_command_names = {}
+    local pending_command_keys = {}
+    for _, command in ipairs(pending_commands) do
+      table.insert(pending_command_names, command.command)
+      table.insert(pending_command_keys, command.key)
+    end
+    devloop_logging.log_cas_decision(
+      "observe_issue",
+      proposal_id,
+      state,
+      state.state,
+      state.state,
+      "skip-claim-lost",
+      "CLAIM lost before managed issue handling",
+      {
+        { name = "assignee_logins", values = detail.assignee_logins or {} },
+        { name = "claim_labels", values = detail.claim_labels or {} },
+        { name = "pending_operator_commands", values = pending_command_names },
+        { name = "pending_operator_command_keys", values = pending_command_keys },
+      }
+    )
     return false
   end
   if admission == "denied" then
     m_claims.log_claim_admission_skip("observe_issue", proposal_id, detail)
     return false
   end
-  return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
+  return m_claims.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
 local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
@@ -389,7 +411,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
       impl_version = refusal_reentry.implementation_version,
     }
   end
-  local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
+  local payload = payloads_builders.build_devloop_ready_payload(payload_source)
   local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
     issue.number,
     command,
@@ -460,6 +482,7 @@ local function reconcile_issue_event(event, opts)
           claim_verified = true
           if awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, issue_state, {
             proposal_id = proposal_id,
+            parent_comments = current.comments,
             current_pr = issue.child_pr,
             ["pr-delegation"] = current_delegation,
           }) then
@@ -490,7 +513,7 @@ local function reconcile_issue_event(event, opts)
         return
       end
       local row = replay_fields.restart_transition_row(restart_transition_table(), "awaiting-pr")
-      replayer.replay_from_table(core, "observe_issue", issue, issue_state, row, {
+      replayer.replay_from_table("observe_issue", issue, issue_state, row, {
         proposal_id = proposal_id,
         current = current,
         current_issue = current,
@@ -575,6 +598,7 @@ local function reconcile_issue_event(event, opts)
         local closed
         closed, close_current_pr = awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, state, {
           proposal_id = proposal_id,
+          parent_comments = current.comments,
           ["pr-delegation"] = close_delegation,
         })
         if closed then
@@ -661,7 +685,7 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: restart-effect-decision-illegal: observe issue entry decision rejected: "
         .. tostring(decision.reason_code))
     end
-    if not m_claims.claim_issue_for_management(core, "observe_issue", issue.repo,
+    if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
       issue.number, current, proposal_id) then
       return
     end
@@ -669,7 +693,7 @@ local function reconcile_issue_event(event, opts)
       "unmanaged", "thinking", decision.cas_outcome,
       "starting consensus for opted-in issue")
 
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "observe_issue",
       repo = issue.repo,
       issue_number = issue.number,
@@ -677,7 +701,7 @@ local function reconcile_issue_event(event, opts)
       version = issue.dedup_key,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
+    local proposal = payloads_builders.build_board_proposal(issue, event.ts)
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id)
         .. " tag=SKIP reason=cannot-build-valid-proposal")

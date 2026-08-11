@@ -4,10 +4,17 @@ local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_commands = require("devloop.commands")
-local S = {}
 local comment_strings = require("devloop.strings")
+local devloop_prompts = require("devloop.prompts")
+local marker_builders = require("devloop.markers.builders")
 
-function S.install(M)
+local function build_surface()
+local M = {
+  _max_title_len = devloop_base._max_title_len,
+  _max_meta_reason_len = devloop_base._max_meta_reason_len,
+  _max_body_len = devloop_base._max_body_len,
+  output_language = devloop_prompts.output_language,
+}
 local ai_sentinel = "⟦AI:FKST⟧"
 
 local stable_class_label_prefixes = {
@@ -144,12 +151,7 @@ function M.fetch_recent_closed_intake_class_issues(repo)
   return parsers_issue.parse_issue_list_intake(listed.stdout)
 end
 
-function M.intake_class_carrier_marker(class_key)
-  if class_key == nil or tostring(class_key) == "" then
-    error("github-devloop: intake-class-key-invalid: invalid intake class key")
-  end
-  return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
-end
+M.intake_class_carrier_marker = marker_builders.intake_class_carrier_marker
 
 function M.intake_class_issue_title(current, issue_number, class_key)
   local source_title = tostring(current and current.title or ("Issue #" .. tostring(issue_number or "unknown")))
@@ -276,6 +278,7 @@ function M.build_intake_class_issue_create_request(repo, issue_number, candidate
   }
 end
 
+return M
 end
 
-return S
+return build_surface()

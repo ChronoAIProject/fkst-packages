@@ -184,7 +184,7 @@ local function payload_for_queue(queue)
       dedup_key = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
     },
-    devloop_ready_session = payloads_builders.build_devloop_ready_payload(core, {
+    devloop_ready_session = payloads_builders.build_devloop_ready_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },

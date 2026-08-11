@@ -14,6 +14,7 @@ local v_fixing = require("devloop.validators.fixing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
 local decompose_lib = require("devloop.decompose")
 local prompt_installers = require("devloop.prompts")
@@ -161,7 +162,7 @@ return {
         { angle = "delete", verdict = "abstain", digest = "Remove the risky branch." },
       },
     })
-    local round_comment = requests_lifecycle.build_converge_round_comment_request(core, "owner/repo", "42", event, 2, marker)
+    local round_comment = requests_lifecycle.build_converge_round_comment_request(core.output_language, "owner/repo", "42", event, 2, marker)
     t.eq(round_comment.schema, "github-proxy.v1")
     t.eq(round_comment.issue_number, "42")
     t.is_true(round_comment.body:find("github-devloop convergence round 2", 1, true) ~= nil)
@@ -188,7 +189,7 @@ return {
     t.eq(conv_reconcile.is_supported_reconcile(reconcile), true)
     t.eq(conv_reconcile.is_supported_reconcile(copy_table(reconcile, { terminal_cause = "unknown" })), false)
     local reconcile_marker = conv_reconcile.reconcile_marker(proposal_id, base_version, 3, "drop", "no-semantic-progress")
-    t.eq(conv_reconcile.has_reconcile_marker(core, { reconcile_marker }, proposal_id, base_version, 3), true)
+    t.eq(conv_reconcile.has_reconcile_marker({ reconcile_marker }, proposal_id, base_version, 3), true)
     t.eq(conv_reconcile.reconcile_state_version(base_version, 3), base_version .. "/loop/3")
     local live_thinking_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
     local terminal_version = conv_reconcile.reconcile_terminal_state_version(live_thinking_version, 3)
@@ -245,7 +246,7 @@ return {
     t.eq(terminal_version, live_reviewing_version .. "/review-loop/10")
 
     local marker = conv_reconcile.review_reconcile_marker(issue_proposal_id, issue_version, 3, "drop", "no-semantic-progress")
-    t.eq(conv_reconcile.has_review_reconcile_marker(core, { marker }, issue_proposal_id, issue_version, 3), true)
+    t.eq(conv_reconcile.has_review_reconcile_marker({ marker }, issue_proposal_id, issue_version, 3), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="review-reconcile:' .. issue_version .. '/review-loop/3"', 1, true) ~= nil)
 
@@ -292,7 +293,7 @@ return {
     t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
 
     local marker = conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "drop")
-    t.eq(conv_reconcile.has_fix_reconcile_marker(core, { marker }, issue_proposal_id, issue_version), true)
+    t.eq(conv_reconcile.has_fix_reconcile_marker({ marker }, issue_proposal_id, issue_version), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="fix-reconcile:' .. issue_version .. '"', 1, true) ~= nil)
@@ -331,7 +332,7 @@ return {
       angle_digests = bare_angle_digests,
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
-    local marker = conv_rounds.review_converge_round_marker(core,
+    local marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id,
       issue_version,
@@ -342,9 +343,9 @@ return {
       event.narrowed_question,
       event.angle_digests
     )
-    local bare_facts = conv_rounds.review_converge_round_facts(core, { marker }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
+    local bare_facts = conv_rounds.review_converge_round_facts(restart_policy, { marker }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
     t.eq(#bare_facts, 1)
-    local forged_review_marker = conv_rounds.review_converge_round_marker(core,
+    local forged_review_marker = conv_rounds.review_converge_round_marker(restart_policy,
       event.proposal_id,
       issue_proposal_id,
       issue_version,
@@ -367,7 +368,7 @@ return {
       },
     })
 
-    local comment = requests_review.build_review_converge_round_comment_request(core, "owner/repo", "42", display_event, issue_proposal_id, 2, marker)
+    local comment = requests_review.build_review_converge_round_comment_request(core.output_language, "owner/repo", "42", display_event, issue_proposal_id, 2, marker)
     t.is_true(comment.body:find("github-devloop PR review convergence round 2", 1, true) ~= nil)
     t.is_true(comment.body:find("Which review finding should narrow?", 1, true) ~= nil)
     t.is_true(comment.body:find("minimal: abstain", 1, true) ~= nil)
@@ -375,7 +376,7 @@ return {
     t.is_true(comment.body:find("delete: abstain", 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
-    local facts = conv_rounds.review_converge_round_facts(core, { comment.body }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
+    local facts = conv_rounds.review_converge_round_facts(restart_policy, { comment.body }, event.proposal_id, issue_proposal_id, issue_version, head_sha, sr_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].round, 2)
     t.eq(facts[1].dedup, event.dedup_key .. "/loop/2")
@@ -398,8 +399,8 @@ return {
       count = 3,
     }
 
-    local zero = decompose_lib.build_decompose_replay_payload(core, fact, comments, source_ref(), 0)
-    local partial = decompose_lib.build_decompose_replay_payload(core, fact, comments, source_ref(), 2)
+    local zero = decompose_lib.build_decompose_replay_payload(core.restart_policy, fact, comments, source_ref(), 0)
+    local partial = decompose_lib.build_decompose_replay_payload(core.restart_policy, fact, comments, source_ref(), 2)
 
     t.is_true(zero.dedup_key ~= partial.dedup_key)
     t.is_true(zero.dedup_key:find("/3/0", 1, true) ~= nil)
@@ -412,17 +413,17 @@ return {
     local source = reached({
       framing = "Only include bounded issue comments; defer raising bounds.",
     })
-    local ready = payloads_builders.build_devloop_ready_payload(core, source)
+    local ready = payloads_builders.build_devloop_ready_payload(source)
     t.eq(ready.schema, "github-devloop.ready.v1")
     t.eq(ready.proposal_id, source.proposal_id)
     t.eq(ready.framing, source.framing)
     t.eq(ready.source_ref.ref, "owner/repo#issue/42")
     t.eq(v_ready.is_supported_ready(ready), true)
-    local ready_without_framing = payloads_builders.build_devloop_ready_payload(core, reached())
+    local ready_without_framing = payloads_builders.build_devloop_ready_payload(reached())
     t.is_nil(ready_without_framing.framing)
     t.is_nil(ready_without_framing.ready_hand_off)
     t.eq(v_ready.is_supported_ready(ready_without_framing), true)
-    local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
+    local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(copy_table(reached(), {
       include_ready_hand_off = true,
       ready_comment_id = "IC_123",
     }))
@@ -437,7 +438,7 @@ return {
     ready_with_hand_off.ready_hand_off.state = "ready"
     ready_with_hand_off.ready_hand_off.event_version = "ready/other"
     t.eq(v_ready.is_supported_ready(ready_with_hand_off), false)
-    ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
+    ready_with_hand_off = payloads_builders.build_devloop_ready_payload(copy_table(reached(), {
       include_ready_hand_off = true,
       impl_retry_attempt = 2,
     }))
@@ -551,11 +552,11 @@ return {
     t.eq(#label.remove_labels, 13)
     t.is_true(#label.dedup_key <= 512)
 
-    local comment = requests_lifecycle.build_implementing_comment_request(core, "owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local comment = requests_lifecycle.build_implementing_comment_request(core.implement_attempt_marker, core.output_language, "owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(comment.body:find("Worktree: /tmp/devloop-owner-repo-42", 1, true) ~= nil)
     t.is_true(comment.body:find("Branch: devloop-owner-repo-42-01HY", 1, true) ~= nil)
     t.is_true(comment.body:find(branch_marker, 1, true) ~= nil)
-    local attempt_comment = requests_lifecycle.build_implement_attempt_comment_request(core, "owner/repo", "42", ready, 2, "123")
+    local attempt_comment = requests_lifecycle.build_implement_attempt_comment_request(core.implement_attempt_marker, "owner/repo", "42", ready, 2, "123")
     t.is_true(attempt_comment.body:find("github-devloop implementation attempt started", 1, true) ~= nil)
     t.eq(core.implement_attempt_count({ attempt_comment.body }, ready.proposal_id, ready.dedup_key), 2)
 
@@ -571,14 +572,12 @@ return {
     t.eq(failed_label.remove_labels[7], "fkst-dev:fixing")
     t.eq(#failed_label.remove_labels, 13)
 
-    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "no-changes", "No files changed.", nil, "UNKNOWN", false)
+    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "no-changes", "No files changed.", nil, "UNKNOWN", false)
     t.is_true(failure_comment.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(failure_comment.body:find("No files changed.", 1, true) ~= nil)
 
     local forged = core.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
-    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(
-      core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
+    local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
     local current = core.current_state({ forged_failure.body }, ready.proposal_id)
@@ -805,7 +804,7 @@ return {
     t.is_true(v_validate_proposal.validate_proposal(thinking))
 
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local review = payloads_builders.build_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local review = payloads_builders.build_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge)
@@ -820,7 +819,7 @@ return {
     local function context_fetch_returns_high_risk()
       return "runtime-cache:github-devloop/context-bundle-manifest-v2/pr-review-owner-repo-7", true
     end
-    local high_risk_review = payloads_builders.build_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local high_risk_review = payloads_builders.build_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, {}, context_fetch_returns_high_risk())
@@ -828,7 +827,7 @@ return {
     t.is_true(high_risk_review.dedup_key:find("/loop/2", 1, true) ~= nil)
     t.is_true(v_validate_proposal.validate_proposal(high_risk_review))
 
-    local high_risk_board_review = payloads_builders.build_board_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
+    local high_risk_board_review = payloads_builders.build_board_pr_review_loop_proposal("owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
       body = "Body",
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, "2026-06-08T00:00:00Z", {}, context_fetch_returns_high_risk())

@@ -35,10 +35,6 @@ local function git_rev_parse_pr_head_oid_cmd(number)
   return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
 end
 
-local function issue_comments_api_cmd()
-  return "gh api --paginate --slurp repos/" .. repo .. "/issues/" .. tostring(issue_number) .. "/comments?per_page=100"
-end
-
 local function quoted_issue_comments_api_cmd()
   return "gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(issue_number) .. "/comments?per_page=100'"
 end
@@ -56,13 +52,17 @@ local function comment(body, created_at)
   }
 end
 
-local function parent_comments(state)
+local function parent_comments(state, parent_merged_projection)
   local current_state = state or "awaiting-pr"
   local current_version = current_state == "blocked" and blocked_version or version
-  return {
+  local comments = {
     comment(core.state_marker(parent, current_state, current_version), "2026-06-03T01:02:03Z"),
     comment(m_builders.pr_delegation_marker(parent, child_pr, child_pr_number, version, "g1"), "2026-06-03T01:03:03Z"),
   }
+  if parent_merged_projection ~= nil then
+    table.insert(comments, comment(parent_merged_projection, "2026-06-03T02:11:04Z"))
+  end
+  return comments
 end
 
 local function child_pr_comments(state)
@@ -70,7 +70,7 @@ local function child_pr_comments(state)
   local body = m_builders.pr_origin_marker(parent, issue_number, child_branch, version, integration_branch)
     .. "\n" .. core.state_marker(parent, child_state, version)
   if child_state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(core, parent, child_pr_number, version, child_head_sha)
+    body = body .. "\n" .. m_builders.merged_marker(parent, child_pr_number, version, child_head_sha)
   end
   return {
     comment(body, "2026-06-03T01:04:03Z"),
@@ -294,7 +294,7 @@ local function mock_rollup_landing(exit_code)
   })
 end
 
-local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_state)
+local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_state, parent_merged_projection)
   local effective_child_state = child_state or "merged"
   local current_issue_state = issue_lifecycle_state or "awaiting-pr"
   local current_label = current_issue_state == "blocked" and "fkst-dev:blocked" or "fkst-dev:awaiting-pr"
@@ -310,7 +310,7 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
     state = "OPEN",
     updated_at = "2026-06-03T01:02:03Z",
     labels = { "fkst-dev:enabled", current_label },
-    comments = parent_comments(current_issue_state),
+    comments = parent_comments(current_issue_state, parent_merged_projection),
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
   }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
@@ -336,23 +336,18 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
   })
 end
 
-local function mock_github_proxy_writes()
+local function mock_github_proxy_writes(issue_guard_reads)
   t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
     stdout = "1",
     stderr = "",
     exit_code = 0,
   })
-  for _, command in ipairs({
-    issue_comments_api_cmd(),
-    quoted_issue_comments_api_cmd(),
-  }) do
-    t.mock_command(command, {
-      stdout = "[[]]\n",
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-  for _ = 1, 2 do
+  t.mock_command(quoted_issue_comments_api_cmd(), {
+    stdout = "[[]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  for _ = 1, issue_guard_reads or 2 do
     t.mock_command(issue_rest_api_cmd(), {
       stdout = '{"labels":[{"name":"fkst-dev:awaiting-pr"}],"assignees":[{"login":"fkst-test-bot"}]}\n',
       stderr = "",
@@ -385,7 +380,8 @@ local function mock_everything(child_state, landed)
   mock_github_proxy_writes()
 end
 
-local function blocked_observe_event()
+local function blocked_observe_event(updated_at)
+  local observed_at = updated_at or "2026-06-03T02:10:04Z"
   return {
     queue = "github-devloop.devloop_observe_issue",
     source_ref = {
@@ -399,9 +395,9 @@ local function blocked_observe_event()
       number = issue_number,
       title = "Blocked child whose delegated PR later merged",
       state = "OPEN",
-      updated_at = "2026-06-03T02:10:04Z",
+      updated_at = observed_at,
       labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
-      dedup_key = repo .. "#issue#" .. tostring(issue_number) .. "@2026-06-03T02:10:04Z",
+      dedup_key = repo .. "#issue#" .. tostring(issue_number) .. "@" .. observed_at,
       source_ref = {
         kind = "external",
         ref = repo .. "#issue/" .. tostring(issue_number),
@@ -493,15 +489,30 @@ return {
     t.eq(h.count_calls("gh issue close " .. tostring(issue_number) .. " --repo " .. repo), 0)
   end,
 
-  test_blocked_issue_observe_closes_after_delegated_merge_lands = function()
+  test_blocked_issue_observe_projects_parent_merge_before_later_close = function()
     mock_common_env()
     mock_observe_issue_inputs("merged", true, "blocked")
+    mock_github_proxy_writes(1)
 
-    local trace = graph.require_quiescent(graph.run(blocked_observe_event(), { max_steps = 4 }))
-    graph.assert_covers(trace, {
+    local projection_trace = graph.require_quiescent(graph.run(blocked_observe_event(), { max_steps = 8 }))
+    graph.assert_covers(projection_trace, {
       "github-devloop.devloop_observe_issue -> github-devloop.observe_issue",
     })
-    t.eq(h.count_calls("git merge-base --is-ancestor " .. child_merge_commit_sha .. " " .. rollup_head_sha), 1)
+    local projection = graph.require_raise(projection_trace, "github-proxy.github_issue_comment_request")
+    t.is_true(projection.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+    t.eq(projection.payload.body:find('state="merged"', 1, true), nil)
+    t.eq(h.count_calls("gh issue close " .. tostring(issue_number) .. " --repo " .. repo), 0)
+
+    mock_observe_issue_inputs("merged", true, "blocked", projection.payload.body)
+    local confirmation_trace = graph.require_quiescent(graph.run(
+      blocked_observe_event("2026-06-03T02:11:04Z"),
+      { max_steps = 1 }
+    ))
+    graph.assert_covers(confirmation_trace, {
+      "github-devloop.devloop_observe_issue -> github-devloop.observe_issue",
+    })
+    t.eq(graph.find_raise(confirmation_trace, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(h.count_calls("git merge-base --is-ancestor " .. child_merge_commit_sha .. " " .. rollup_head_sha), 2)
     t.eq(h.count_calls("gh issue close " .. tostring(issue_number) .. " --repo " .. repo), 1)
   end,
 }

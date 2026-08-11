@@ -282,8 +282,7 @@ return {
 
   test_review_prompts_state_gate_owned_facts_are_out_of_scope = function()
     local version = h.reviewing().version
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       version,
@@ -297,8 +296,7 @@ return {
     t.is_true(proposal.body:find("Review contract: reject only for a stated issue requirement the diff fails", 1, true) ~= nil)
     t.is_true(#proposal.body < 512)
 
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
+    local reject_comment = requests_review.build_review_result_comment_request(core.output_language,       "owner/repo",
       "42",
       "github-devloop/issue/owner/repo/42",
       version,
@@ -312,8 +310,7 @@ return {
       },
       h.pr_source_ref()
     ).body
-    local fix_comment = requests_review.build_fix_reviewing_comment_request(core,
-      "owner/repo",
+    local fix_comment = requests_review.build_fix_reviewing_comment_request(core.output_language,       "owner/repo",
       "42",
       {
         proposal_id = "github-devloop/issue/owner/repo/42",
@@ -327,8 +324,7 @@ return {
       "feedface",
       core.next_fix_version(version)
     ).body
-    local rereview = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local rereview = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       core.next_fix_version(version),
@@ -480,8 +476,7 @@ return {
     t.is_true(prompt:find("Do not address advisory comments.", 1, true) ~= nil)
     t.is_true(prompt:find("State in your summary which gap you closed.", 1, true) ~= nil)
 
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
+    local reject_comment = requests_review.build_review_result_comment_request(core.output_language,       "owner/repo",
       "42",
       fix.proposal_id,
       fix.version,
@@ -495,8 +490,7 @@ return {
       },
       fix.source_ref
     ).body
-    local fix_comment = requests_review.build_fix_reviewing_comment_request(core,
-      "owner/repo",
+    local fix_comment = requests_review.build_fix_reviewing_comment_request(core.output_language,       "owner/repo",
       "42",
       {
         proposal_id = fix.proposal_id,
@@ -514,8 +508,7 @@ return {
       { body = reject_comment, author_login = "fkst-test-bot" },
       { body = fix_comment, author_login = "fkst-test-bot" },
     }
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       core.next_fix_version(fix.version),
@@ -534,8 +527,7 @@ return {
 
   test_fix_marker_write_uses_redrive_delivery_identity_only_for_redrives = function()
     local fix = h.fixing()
-    local forward = requests_review.build_fix_reviewing_comment_request(core,
-      "owner/repo",
+    local forward = requests_review.build_fix_reviewing_comment_request(core.output_language,       "owner/repo",
       "42",
       fix,
       "def456",
@@ -565,16 +557,14 @@ return {
         attempt = 2,
       },
     })
-    local first_request = requests_review.build_fix_reviewing_comment_request(core,
-      "owner/repo",
+    local first_request = requests_review.build_fix_reviewing_comment_request(core.output_language,       "owner/repo",
       "42",
       first,
       "def456",
       "feedface",
       core.next_fix_version(first.version)
     )
-    local second_request = requests_review.build_fix_reviewing_comment_request(core,
-      "owner/repo",
+    local second_request = requests_review.build_fix_reviewing_comment_request(core.output_language,       "owner/repo",
       "42",
       second,
       "def456",
@@ -592,8 +582,7 @@ return {
       blocking_gap = "first line\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" --> second",
     })
     local fix_version = core.next_fix_version(h.reviewing().version)
-    local request = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
+    local request = requests_review.build_review_result_comment_request(core.output_language,       "owner/repo",
       "42",
       "github-devloop/issue/owner/repo/42",
       fix_version,
@@ -713,8 +702,7 @@ return {
 
   test_prior_round_ledger_reads_pr_stream_not_issue_stream = function()
     local fix = h.fixing({ blocking_gap = "missing rollback guard" })
-    local reject_comment = requests_review.build_review_result_comment_request(core,
-      "owner/repo",
+    local reject_comment = requests_review.build_review_result_comment_request(core.output_language,       "owner/repo",
       "42",
       fix.proposal_id,
       fix.version,
@@ -728,8 +716,7 @@ return {
       },
       fix.source_ref
     ).body
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       core.next_fix_version(fix.version),

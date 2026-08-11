@@ -134,8 +134,8 @@ function C.build_result_state_label_request(repo, issue_number, reached, to_stat
   )
 end
 
-function C.build_intake_enabled_label_request(M, repo, issue_number, candidate)
-  local add_labels, remove_labels = M.intake_service_class_label_changes(candidate.service_class)
+function C.build_intake_enabled_label_request(intake_service_class_label_changes, repo, issue_number, candidate)
+  local add_labels, remove_labels = intake_service_class_label_changes(candidate.service_class)
   table.insert(add_labels, 1, devloop_base._enabled_label)
   return C.build_label_request(
     repo,
@@ -152,8 +152,8 @@ function C.build_intake_enabled_label_request(M, repo, issue_number, candidate)
   )
 end
 
-function C.build_intake_tracking_label_request(M, repo, issue_number, candidate)
-  local add_labels, remove_labels = M.intake_service_class_label_changes(candidate.service_class)
+function C.build_intake_tracking_label_request(intake_service_class_label_changes, repo, issue_number, candidate)
+  local add_labels, remove_labels = intake_service_class_label_changes(candidate.service_class)
   table.insert(add_labels, 1, devloop_base._tracking_label)
   return C.build_label_request(
     repo,

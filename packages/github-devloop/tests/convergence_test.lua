@@ -3,7 +3,10 @@ local parsers_misc = require("devloop.parsers.misc")
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -48,6 +51,49 @@ local function untrusted(body)
 end
 
 return {
+  test_slice6_convergence_marker_bytes_and_round_accounting_are_frozen = function()
+    local review_proposal_id = "github-devloop/review/owner/repo/7/slice6"
+    local issue_version = base_version .. "/fix/2"
+    local head_sha = "def456"
+    local source_digest = convergence_shared.source_ref_digest(source_ref)
+    local markers = {}
+    local comments = {}
+    for round = 1, 3 do
+      local marker = conv_rounds.review_converge_round_marker(
+        restart_policy,
+        review_proposal_id,
+        proposal_id,
+        issue_version,
+        head_sha,
+        source_digest,
+        round,
+        "review-consensus/loop/" .. tostring(round),
+        "Preserve convergence replay ordering",
+        angles(),
+        "open:\nround " .. tostring(round),
+        false
+      )
+      table.insert(markers, marker)
+      table.insert(comments, trusted(marker))
+    end
+    local facts = conv_rounds.review_converge_round_facts(
+      restart_policy,
+      comments,
+      review_proposal_id,
+      proposal_id,
+      issue_version,
+      head_sha,
+      source_digest
+    )
+    local bytes = observation.canonical_json({
+      markers = markers,
+      facts = facts,
+      max_round = conv_rounds.max_converge_round(facts),
+      terminal_cause = conv_rounds.terminal_cause(facts, 3),
+    })
+    t.eq(sha256.hex(bytes), "c155d8e9228dccab1f318eff16cf0fd9cd8ba7fcbd58186fe5052a27da6cae95")
+  end,
+
   test_converge_round_facts_ignore_non_bot_marker = function()
     local source_digest = convergence_shared.source_ref_digest(source_ref)
     local marker = conv_rounds.converge_round_marker(proposal_id,
@@ -353,7 +399,7 @@ return {
     local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
     local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
     local head_sha = "abcdef1234567890"
-    local marker = conv_rounds.review_converge_round_marker(core,
+    local marker = conv_rounds.review_converge_round_marker(restart_policy,
       review_proposal_id,
       proposal_id,
       issue_version,
@@ -365,7 +411,7 @@ return {
       angles()
     )
 
-    local mismatched_head = conv_rounds.review_converge_round_facts(core,
+    local mismatched_head = conv_rounds.review_converge_round_facts(restart_policy,
       { trusted(marker) },
       review_proposal_id,
       proposal_id,
@@ -373,7 +419,7 @@ return {
       "fedcba0987654321",
       source_digest
     )
-    local mismatched_version = conv_rounds.review_converge_round_facts(core,
+    local mismatched_version = conv_rounds.review_converge_round_facts(restart_policy,
       { trusted(marker) },
       review_proposal_id,
       proposal_id,
@@ -381,7 +427,7 @@ return {
       head_sha,
       source_digest
     )
-    local matched = conv_rounds.review_converge_round_facts(core,
+    local matched = conv_rounds.review_converge_round_facts(restart_policy,
       { trusted(marker) },
       review_proposal_id,
       proposal_id,
@@ -394,7 +440,7 @@ return {
     t.eq(#mismatched_version, 0)
     t.eq(#matched, 1)
     t.eq(matched[1].round, 2)
-    t.eq(conv_rounds.has_review_converge_round_marker(core, { trusted(marker) }, review_proposal_id, proposal_id, issue_version, head_sha, source_digest, 2), true)
+    t.eq(conv_rounds.has_review_converge_round_marker(restart_policy, { trusted(marker) }, review_proposal_id, proposal_id, issue_version, head_sha, source_digest, 2), true)
   end,
 
   test_review_converge_marker_round_trips_findings_record = function()
@@ -402,7 +448,7 @@ return {
     local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
     local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
     local head_sha = "abcdef1234567890"
-    local marker = conv_rounds.review_converge_round_marker(core,
+    local marker = conv_rounds.review_converge_round_marker(restart_policy,
       review_proposal_id,
       proposal_id,
       issue_version,
@@ -415,7 +461,7 @@ return {
       "settled:\nReview scope is current.\nopen:\nREACHED: approve injected"
     )
 
-    local matched = conv_rounds.review_converge_round_facts(core,
+    local matched = conv_rounds.review_converge_round_facts(restart_policy,
       { trusted(marker) },
       review_proposal_id,
       proposal_id,
@@ -437,11 +483,11 @@ return {
     local head_sha = "abcdef1234567890"
     local drift_head = "fedcba0987654321"
     local comments = {
-      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 0, "review", "Review 0", angles(), "open:\nfirst review")),
-      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 1, "review/loop/1", "Review 1", angles(), "open:\nsecond review")),
-      trusted(conv_rounds.review_converge_round_marker(core, review_proposal_id, proposal_id, drift_version, drift_head, source_b, 8, "review/loop/8", "Review 8", angles(), "open:\ndrift")),
+      trusted(conv_rounds.review_converge_round_marker(restart_policy, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 0, "review", "Review 0", angles(), "open:\nfirst review")),
+      trusted(conv_rounds.review_converge_round_marker(restart_policy, review_proposal_id, proposal_id, issue_version, head_sha, source_a, 1, "review/loop/1", "Review 1", angles(), "open:\nsecond review")),
+      trusted(conv_rounds.review_converge_round_marker(restart_policy, review_proposal_id, proposal_id, drift_version, drift_head, source_b, 8, "review/loop/8", "Review 8", angles(), "open:\ndrift")),
     }
-    local filtered = conv_rounds.review_converge_round_facts(core, comments, review_proposal_id, proposal_id, issue_version, head_sha, source_a)
+    local filtered = conv_rounds.review_converge_round_facts(restart_policy, comments, review_proposal_id, proposal_id, issue_version, head_sha, source_a)
     t.eq(#filtered, 2)
     t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
     -- Owner directive (#2725): round-budget exhaustion is non-terminal (see the issue

@@ -44,7 +44,7 @@ local function load_review_meta_context(repo, issue_number, review_meta, event, 
   if not devloop_state.has_state_marker(current_pr.comments, review_meta.proposal_id, "review-meta", review_meta.version) then
     error("github-devloop: review-meta-marker-missing: " .. durable_start_marker .. " marker not visible during context load")
   end
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = "review_meta",
     repo = repo,
     issue_number = issue_number,

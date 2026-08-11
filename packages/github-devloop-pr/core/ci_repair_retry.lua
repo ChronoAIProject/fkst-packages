@@ -205,8 +205,7 @@ function C.raise_speculative(M, repo, issue_number, fix, current_state, current_
       reviewed_head_sha = fix.reviewed_head_sha,
       dedup_key = fix.dedup_key,
     }
-    local comment_request = requests_review.build_merge_gate_fix_comment_request(M,
-      repo,
+    local comment_request = requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, repo,
       issue_number,
       merge_ready,
       next_version,
@@ -372,8 +371,7 @@ raise_admitted_round = function(M, dept, issue, state, proposal_id, link, feedba
     ci_failure_key = decision.ci_failure_key,
     gate_failure_excerpt = decision.gate_failure_excerpt or decision.reason,
   }, source_ref)
-  local request = requests_review.build_merge_gate_fix_comment_request(M,
-    issue.repo,
+  local request = requests_review.build_merge_gate_fix_comment_request(M.merge_gate_reason_class, M.output_language, issue.repo,
     issue.number,
     {
       proposal_id = proposal_id,

@@ -14,6 +14,8 @@ local transition_version = require("contract.transition_version")
 local ci_failure_keys = require("devloop.ci_failure_keys")
 local payload_registry = require("devloop.payload_registry")
 local premise_correction = require("devloop.premise_correction")
+local impl_failure = require("devloop.impl_failure")
+local devloop_prompts = require("devloop.prompts")
 
 local function resolve_payload_token(token, context)
   local value, failure = payload_registry.resolve(token, context)
@@ -86,7 +88,7 @@ function C.fixing_work_unit_key(fix)
   })
 end
 
-function C.build_devloop_ready_payload(M, source)
+function C.build_devloop_ready_payload(source)
   local ready_version = resolve_payload_token("dedup:ready", {
     dedup_key = source.dedup_key,
   })
@@ -143,7 +145,7 @@ function C.build_devloop_ready_payload(M, source)
   end
   local attempt = tonumber(source.impl_retry_attempt)
   if attempt ~= nil then
-    if attempt < 1 or attempt ~= math.floor(attempt) or attempt > M._max_impl_retry_attempts then
+    if attempt < 1 or attempt ~= math.floor(attempt) or attempt > impl_failure.MAX_RETRY_ATTEMPTS then
       error("github-devloop: implementation-retry-attempt-invalid: invalid implementation retry attempt")
     end
     payload.impl_retry_attempt = attempt
@@ -467,8 +469,8 @@ function C.build_proposal(issue)
   }
 end
 
-function C.build_board_proposal(M, issue, tick)
-  return board.append_board_digest_to_proposal(M, C.build_proposal(issue), issue.repo, tick)
+function C.build_board_proposal(issue, tick)
+  return board.append_board_digest_to_proposal(C.build_proposal(issue), issue.repo, tick)
 end
 
 -- Thread the synthesis narrowing plus canonical findings memory onto a re-raised
@@ -503,8 +505,8 @@ function C.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
   return apply_converge_fields(proposal, n, converge)
 end
 
-function C.build_board_loop_proposal(M, repo, issue_number, current, source_ref, n, converge, tick, content_fetch, dedup_key)
-  return board.append_board_digest_to_proposal(M, C.build_loop_proposal(repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key), repo, tick)
+function C.build_board_loop_proposal(repo, issue_number, current, source_ref, n, converge, tick, content_fetch, dedup_key)
+  return board.append_board_digest_to_proposal(C.build_loop_proposal(repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key), repo, tick)
 end
 
 local function apply_high_risk_angles(proposal, high_risk)
@@ -514,7 +516,7 @@ local function apply_high_risk_angles(proposal, high_risk)
   return proposal
 end
 
-function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
+function C.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
   local review_id = devloop_base.pr_review_proposal_id(repo, pr_number, version, head_sha)
   local title = "Review PR #" .. tostring(pr_number)
   if issue_number ~= nil then
@@ -523,20 +525,20 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
   if type(current_issue) == "table" and tostring(current_issue.title or "") ~= "" then
     title = "Review PR #" .. tostring(pr_number) .. ": " .. tostring(current_issue.title)
   end
-  if #title > M._max_title_len then
-    title = base_ids.truncate_utf8(title, M._max_title_len)
+  if #title > devloop_base._max_title_len then
+    title = base_ids.truncate_utf8(title, devloop_base._max_title_len)
   end
 
   local issue_title = type(current_issue) == "table" and tostring(current_issue.title or "") or ""
-  if #issue_title > M._max_title_len then
-    issue_title = base_ids.truncate_utf8(issue_title, M._max_title_len)
+  if #issue_title > devloop_base._max_title_len then
+    issue_title = base_ids.truncate_utf8(issue_title, devloop_base._max_title_len)
   end
   issue_title = devloop_base.neutralize_untrusted_prompt_text(devloop_base._neutralize_fkst_markers(issue_title))
   local body = "Review the PR diff and decide whether it should advance to merge-ready."
     .. "\nEntity proposal: " .. tostring(issue_number ~= nil and base_ids.proposal_id(repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title: " .. issue_title
-    .. "\n" .. M.short_review_observation_boundary_clause()
+    .. "\n" .. devloop_prompts.short_review_observation_boundary_clause()
     .. "\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment."
     .. "\nRead the local context bundle before judging."
   local issue_proposal_id = tostring(issue_number ~= nil and base_ids.proposal_id(repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
@@ -547,7 +549,7 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
       .. ledger
       .. "\nJudge whether THE NAMED GAP is closed; new objections only for fix regressions inside the issue's stated bounds. For rollup-red or failing-check re-review, scope the question to the diff change and the named failing check, not to restoration of gate state."
   end
-  if #body > M._max_body_len then
+  if #body > devloop_base._max_body_len then
     error("github-devloop: pr-review-proposal-body-limit-exceeded: PR review proposal exceeds bounded body")
   end
 
@@ -565,18 +567,18 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
   }, high_risk)
 end
 
-function C.build_board_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, tick, pr_comments, content_fetch, high_risk)
-  return board.append_board_digest_to_proposal(M, C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk), repo, tick)
+function C.build_board_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, tick, pr_comments, content_fetch, high_risk)
+  return board.append_board_digest_to_proposal(C.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk), repo, tick)
 end
 
-function C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key)
-  local proposal = C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
+function C.build_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key)
+  local proposal = C.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
   proposal.dedup_key = dedup_key or transition_version.loop_at(proposal.dedup_key, n)
   return apply_converge_fields(proposal, n, converge)
 end
 
-function C.build_board_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, tick, pr_comments, content_fetch, high_risk, dedup_key)
-  return board.append_board_digest_to_proposal(M, C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key), repo, tick)
+function C.build_board_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, tick, pr_comments, content_fetch, high_risk, dedup_key)
+  return board.append_board_digest_to_proposal(C.build_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key), repo, tick)
 end
 
 function C.implement_commit_subject(issue_number, current)

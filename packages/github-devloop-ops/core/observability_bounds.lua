@@ -65,13 +65,7 @@ function M.observability_result_timeout(result)
   -- in production it is not -- it is the `fkst.test` command mock that does not yet
   -- carry timed_out (substrate follow-up: propagate timed_out through the mock, then
   -- drop this fallback so exit_code is never consulted).
-  if type(result) ~= "table" then
-    return false
-  end
-  if result.timed_out ~= nil then
-    return result.timed_out == true
-  end
-  return tonumber(result.exit_code) == 124
+  return sweep_bounds.exec_result_timed_out(result)
 end
 
 function M.observability_merge_deferred_reason(current, incoming)
@@ -294,15 +288,25 @@ local function list_rotating_pages(first_cmd, page_cmd, parse, limits, deadline,
   return items, deferred_pages, nil
 end
 
-function M.observability_list_issue_candidates(repo, labels, limits, deadline, seed, exec)
+function M.observability_list_issue_candidates(repo, labels, limits, deadline, seed, exec, issue_list_observe)
+  local function issue_list_opts(label, page, include_headers)
+    if type(issue_list_observe) == "function" then
+      return {
+        run = function(timeout)
+          return issue_list_observe(repo, label, page, include_headers, timeout)
+        end,
+      }
+    end
+    return observe_commands.gh_issue_list_observe_opts(repo, label, page, include_headers)
+  end
   local items = {}
   local deferred_pages = 0
   local deferred_reason = nil
   for _, label in ipairs(labels or {}) do
     local listed, deferred, reason = list_rotating_pages(
-      observe_commands.gh_issue_list_observe_opts(repo, label, 1, true),
+      issue_list_opts(label, 1, true),
       function(page)
-        return observe_commands.gh_issue_list_observe_opts(repo, label, page)
+        return issue_list_opts(label, page, false)
       end,
       function(stdout)
         return parsers_issue.parse_issue_list_observe(stdout)

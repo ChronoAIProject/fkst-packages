@@ -62,7 +62,7 @@ mark_issue_merged_from_linked_pr = function(dept, issue, state, proposal_id, lin
   end
   local merged_body = comment_strings.comment_string(M.output_language, "merged_pr_prefix") .. tostring(link.pr_number)
     .. "\n\n" .. devloop_state.state_marker(proposal_id, "merged", state.version)
-    .. "\n" .. m_builders.merged_marker(M, proposal_id, link.pr_number, state.version, head_sha)
+    .. "\n" .. m_builders.merged_marker(proposal_id, link.pr_number, state.version, head_sha)
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
   local comment_request = entity_lib.build_entity_comment_request({
     kind = "issue",

@@ -252,19 +252,14 @@ function C.poll_epoch_is_current(repo, poll_key)
   return current ~= nil and current.epoch == tostring(poll_key)
 end
 
-function C.with_current_poll_epoch(repo, poll_key, fn)
+function C.run_if_current_poll_epoch(repo, poll_key, fn)
   if type(fn) ~= "function" then
     error("github-devloop: poll-epoch-guard-invalid: poll epoch guard requires a function")
   end
-  if poll_key == nil or tostring(poll_key) == "" then
-    return true, fn()
+  if not C.poll_epoch_is_current(repo, poll_key) then
+    return false, nil
   end
-  return with_lock(poll_epoch_cache_key(repo), function()
-    if not C.poll_epoch_is_current(repo, poll_key) then
-      return false, nil
-    end
-    return true, fn()
-  end)
+  return true, fn()
 end
 
 function C.entity_list_poll_key(event)
@@ -297,18 +292,18 @@ function C.entity_list_poll_epoch(event)
   return nil
 end
 
-function C.fetch_shared_issue_observe_list(M, repo, opts)
+function C.fetch_shared_issue_observe_list(gh_issue_list_observe_opts, repo, opts)
   local options = opts or {}
-  local exec_opts = M.gh_issue_list_observe_opts(repo)
+  local exec_opts = gh_issue_list_observe_opts(repo)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "issue", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)
   end)
 end
 
-function C.fetch_shared_pr_observe_list(M, repo, opts)
+function C.fetch_shared_pr_observe_list(gh_pr_list_observe_opts, repo, opts)
   local options = opts or {}
-  local exec_opts = M.gh_pr_list_observe_opts(repo)
+  local exec_opts = gh_pr_list_observe_opts(repo)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "pr", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)

@@ -84,7 +84,7 @@ M.execution_boundary_clause = devloop_prompts.execution_boundary_clause
 M.render_prompt_template = devloop_prompts.render_prompt_template
 M.build_decompose_prompt = prompt_surface.build_decompose_prompt
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.saga").install(M)
 require("core.decompose").install(M)
 

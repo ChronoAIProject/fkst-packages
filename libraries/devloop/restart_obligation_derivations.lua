@@ -26,6 +26,11 @@ local function validate_derivation_inputs(owner_edges, witness_index)
   validate_owner_edges(owner_edges)
 end
 
+local function begin_derivation(owner_edges, witness_index)
+  validate_derivation_inputs(owner_edges, witness_index)
+  return {}, {}, {}
+end
+
 function M.new(primitives)
   local K = {}
   local define = primitives.define
@@ -36,34 +41,70 @@ function M.new(primitives)
   K.derive_bounded_loop = bounded_loop.derive_bounded_loop
   K.derive_generation = generation_derivation.new(primitives).derive_generation
 
-  function K.derive_edge(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
+  local function reserve_edge_id(seen_edge_ids, edge_id, duplicate_context)
+    if seen_edge_ids[edge_id] then
+      error("devloop.restart_obligations: duplicate-edge-id: " .. duplicate_context .. edge_id)
+    end
+    seen_edge_ids[edge_id] = true
+  end
 
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+  local function validate_edge_pending_order(edge)
+    local pending_order = edge.pending_order
+    if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
+      error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
+    end
+    if pending_order.predecessor_state ~= nil then
+      require_nonempty_string(
+        pending_order.predecessor_state,
+        "owner_edges edge.pending_order.predecessor_state"
+      )
+    elseif pending_order.participates then
+      error("devloop.restart_obligations: pending-predecessor-missing: participating edge must have a predecessor_state")
+    end
+    return pending_order
+  end
+
+  local function validate_optional_cas_identity(edge)
+    if edge.cas_policy_id ~= nil then
+      require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
+    end
+    if edge.cas_variant ~= nil then
+      require_nonempty_string(edge.cas_variant, "owner_edges edge.cas_variant")
+    end
+  end
+
+  local function append_witness_obligation(obligations, edge, witness, obligation_kind, case_kind)
+    table.insert(obligations, {
+      obligation_id = edge.id .. "/" .. obligation_kind,
+      owner = edge.owner,
+      edge_id = edge.id,
+      case_kind = case_kind,
+      input_fixture_id = witness.input_fixture_id,
+      expected_decision = witness.expected_decision,
+      expected_effect_ids = witness.expected_effect_ids,
+      expected_payload_obligations = witness.expected_payload_obligations,
+      witness_id = witness.witness_id,
+    })
+  end
+
+  local function finish_derivation(obligations, unmapped)
+    define(obligations)
+    return {
+      obligations = obligations,
+      unmapped = unmapped,
+    }
+  end
+
+  function K.derive_edge(owner_edges, witness_index)
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
       require_nonempty_string(edge.owner, "owner_edges edge.owner")
-      local pending_order = edge.pending_order
-      if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
-        error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
-      end
-      if pending_order.predecessor_state ~= nil then
-        require_nonempty_string(
-          pending_order.predecessor_state,
-          "owner_edges edge.pending_order.predecessor_state"
-        )
-      elseif pending_order.participates then
-        error("devloop.restart_obligations: pending-predecessor-missing: participating edge must have a predecessor_state")
-      end
+      local pending_order = validate_edge_pending_order(edge)
       require_nonempty_string(edge.target, "owner_edges edge.target")
       require_nonempty_string(edge.kind, "owner_edges edge.kind")
-      if seen_edge_ids[edge.id] then
-        error("devloop.restart_obligations: duplicate-edge-id: duplicate edge id " .. edge.id)
-      end
-      seen_edge_ids[edge.id] = true
+      reserve_edge_id(seen_edge_ids, edge.id, "duplicate edge id ")
 
       local predecessor_state = pending_order.predecessor_state
       local witness = witness_index[edge.id]
@@ -93,43 +134,22 @@ function M.new(primitives)
           reason = unmapped_reason,
         })
       else
-        table.insert(obligations, {
-          obligation_id = edge.id .. "/edge",
-          owner = edge.owner,
-          edge_id = edge.id,
-          case_kind = "edge",
-          input_fixture_id = witness.input_fixture_id,
-          expected_decision = witness.expected_decision,
-          expected_effect_ids = witness.expected_effect_ids,
-          expected_payload_obligations = witness.expected_payload_obligations,
-          witness_id = witness.witness_id,
-        })
+        append_witness_obligation(obligations, edge, witness, "edge", "edge")
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   function K.derive(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       if edge.cas_policy_id ~= nil then
         require_nonempty_string(edge.id, "owner_edges edge.id")
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
-        if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate-edge-id: duplicate CAS edge id " .. edge.id)
-        end
-        seen_edge_ids[edge.id] = true
+        reserve_edge_id(seen_edge_ids, edge.id, "duplicate CAS edge id ")
 
         local witness = witness_index[edge.id]
         if witness == nil then
@@ -149,34 +169,16 @@ function M.new(primitives)
             reason = "frozen-witness-identity-mismatch",
           })
         else
-          table.insert(obligations, {
-            obligation_id = edge.id .. "/cas-admission",
-            owner = edge.owner,
-            edge_id = edge.id,
-            case_kind = "cas-matrix",
-            input_fixture_id = witness.input_fixture_id,
-            expected_decision = witness.expected_decision,
-            expected_effect_ids = witness.expected_effect_ids,
-            expected_payload_obligations = witness.expected_payload_obligations,
-            witness_id = witness.witness_id,
-          })
+          append_witness_obligation(obligations, edge, witness, "cas-admission", "cas-matrix")
         end
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   function K.derive_pending(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local pending_order = edge.pending_order
@@ -191,10 +193,7 @@ function M.new(primitives)
           pending_order.predecessor_state,
           "owner_edges edge.pending_order.predecessor_state"
         )
-        if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate-edge-id: duplicate pending edge id " .. edge.id)
-        end
-        seen_edge_ids[edge.id] = true
+        reserve_edge_id(seen_edge_ids, edge.id, "duplicate pending edge id ")
 
         local witness = witness_index[edge.id]
         local unmapped_reason = nil
@@ -217,26 +216,12 @@ function M.new(primitives)
             reason = unmapped_reason,
           })
         else
-          table.insert(obligations, {
-            obligation_id = edge.id .. "/pending-participation",
-            owner = edge.owner,
-            edge_id = edge.id,
-            case_kind = "pending",
-            input_fixture_id = witness.input_fixture_id,
-            expected_decision = witness.expected_decision,
-            expected_effect_ids = witness.expected_effect_ids,
-            expected_payload_obligations = witness.expected_payload_obligations,
-            witness_id = witness.witness_id,
-          })
+          append_witness_obligation(obligations, edge, witness, "pending-participation", "pending")
         end
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   local function same_string_array(left, right)
@@ -314,41 +299,18 @@ function M.new(primitives)
   end
 
   function K.derive_edge_pair(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
       require_nonempty_string(edge.owner, "owner_edges edge.owner")
       require_nonempty_string(edge.target, "owner_edges edge.target")
       require_nonempty_string(edge.kind, "owner_edges edge.kind")
-      if edge.cas_policy_id ~= nil then
-        require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
-      end
-      if edge.cas_variant ~= nil then
-        require_nonempty_string(edge.cas_variant, "owner_edges edge.cas_variant")
-      end
-      local pending_order = edge.pending_order
-      if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
-        error("devloop.restart_obligations: pending-order-participates-invalid: edge.pending_order.participates must be a boolean")
-      end
-      if pending_order.predecessor_state ~= nil then
-        require_nonempty_string(
-          pending_order.predecessor_state,
-          "owner_edges edge.pending_order.predecessor_state"
-        )
-      elseif pending_order.participates then
-        error("devloop.restart_obligations: pending-predecessor-missing: participating edge must have a predecessor_state")
-      end
-      if seen_edge_ids[edge.id] then
-        error("devloop.restart_obligations: duplicate-edge-id: duplicate edge id " .. edge.id)
-      end
-      seen_edge_ids[edge.id] = true
+      validate_optional_cas_identity(edge)
+      validate_edge_pending_order(edge)
+      reserve_edge_id(seen_edge_ids, edge.id, "duplicate edge id ")
     end
 
-    local obligations = {}
-    local unmapped = {}
     for _, edge_a in ipairs(owner_edges) do
       for _, edge_b in ipairs(owner_edges) do
         if edge_a.id ~= edge_b.id
@@ -415,11 +377,7 @@ function M.new(primitives)
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   local function entitlement_expected_effect_ids(entitlements)
@@ -477,11 +435,7 @@ function M.new(primitives)
   end
 
   function K.derive_entitlement(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local entitlements = edge.transition_effect_entitlements
@@ -493,10 +447,7 @@ function M.new(primitives)
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         validate_entitlement_case(entitlements, "apply", "edge.transition_effect_entitlements")
         validate_entitlement_case(entitlements, "idempotent", "edge.transition_effect_entitlements")
-        if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate-edge-id: duplicate entitlement edge id " .. edge.id)
-        end
-        seen_edge_ids[edge.id] = true
+        reserve_edge_id(seen_edge_ids, edge.id, "duplicate entitlement edge id ")
 
         local expected_effect_ids = entitlement_expected_effect_ids(entitlements)
         local witness = witness_index[edge.id]
@@ -516,26 +467,12 @@ function M.new(primitives)
             reason = unmapped_reason,
           })
         else
-          table.insert(obligations, {
-            obligation_id = edge.id .. "/effect-entitlement",
-            owner = edge.owner,
-            edge_id = edge.id,
-            case_kind = "entitlement",
-            input_fixture_id = witness.input_fixture_id,
-            expected_decision = witness.expected_decision,
-            expected_effect_ids = witness.expected_effect_ids,
-            expected_payload_obligations = witness.expected_payload_obligations,
-            witness_id = witness.witness_id,
-          })
+          append_witness_obligation(obligations, edge, witness, "effect-entitlement", "entitlement")
         end
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   local function family_variant_groups(owner_edges)
@@ -544,12 +481,7 @@ function M.new(primitives)
       if edge.cas_variant ~= nil and edge.cas_policy_id == nil then
         error("devloop.restart_obligations: cas-variant-policy-missing: edge.cas_variant requires edge.cas_policy_id")
       end
-      if edge.cas_policy_id ~= nil then
-        require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
-      end
-      if edge.cas_variant ~= nil then
-        require_nonempty_string(edge.cas_variant, "owner_edges edge.cas_variant")
-      end
+      validate_optional_cas_identity(edge)
       if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil then
         local variants = groups[edge.cas_policy_id]
         if variants == nil then
@@ -574,22 +506,15 @@ function M.new(primitives)
   end
 
   function K.derive_family_variant(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
     local groups = family_variant_groups(owner_edges)
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
     for _, edge in ipairs(owner_edges) do
       if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil
           and has_multiple_variants(groups[edge.cas_policy_id]) then
         require_nonempty_string(edge.id, "owner_edges edge.id")
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(edge.target, "owner_edges edge.target")
-        if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate-edge-id: duplicate family variant edge id " .. edge.id)
-        end
-        seen_edge_ids[edge.id] = true
+        reserve_edge_id(seen_edge_ids, edge.id, "duplicate family variant edge id ")
 
         local witness = witness_index[edge.id]
         local unmapped_reason = nil
@@ -617,34 +542,16 @@ function M.new(primitives)
             reason = unmapped_reason,
           })
         else
-          table.insert(obligations, {
-            obligation_id = edge.id .. "/family-variant",
-            owner = edge.owner,
-            edge_id = edge.id,
-            case_kind = "family-variant",
-            input_fixture_id = witness.input_fixture_id,
-            expected_decision = witness.expected_decision,
-            expected_effect_ids = witness.expected_effect_ids,
-            expected_payload_obligations = witness.expected_payload_obligations,
-            witness_id = witness.witness_id,
-          })
+          append_witness_obligation(obligations, edge, witness, "family-variant", "family-variant")
         end
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
   function K.derive_timeout(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local resolver = edge.timeout_evidence_policy_id
@@ -652,10 +559,7 @@ function M.new(primitives)
         require_nonempty_string(edge.id, "owner_edges edge.id")
         require_nonempty_string(edge.owner, "owner_edges edge.owner")
         require_nonempty_string(resolver, "owner_edges edge.timeout_evidence_policy_id")
-        if seen_edge_ids[edge.id] then
-          error("devloop.restart_obligations: duplicate-edge-id: duplicate timeout edge id " .. edge.id)
-        end
-        seen_edge_ids[edge.id] = true
+        reserve_edge_id(seen_edge_ids, edge.id, "duplicate timeout edge id ")
 
         local witness = witness_index[edge.id]
         local unmapped_reason = nil
@@ -682,26 +586,12 @@ function M.new(primitives)
             reason = unmapped_reason,
           })
         else
-          table.insert(obligations, {
-            obligation_id = edge.id .. "/timeout-resolver",
-            owner = edge.owner,
-            edge_id = edge.id,
-            case_kind = "timeout",
-            input_fixture_id = witness.input_fixture_id,
-            expected_decision = witness.expected_decision,
-            expected_effect_ids = witness.expected_effect_ids,
-            expected_payload_obligations = witness.expected_payload_obligations,
-            witness_id = witness.witness_id,
-          })
+          append_witness_obligation(obligations, edge, witness, "timeout-resolver", "timeout")
         end
       end
     end
 
-    define(obligations)
-    return {
-      obligations = obligations,
-      unmapped = unmapped,
-    }
+    return finish_derivation(obligations, unmapped)
   end
 
 

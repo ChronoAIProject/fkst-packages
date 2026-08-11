@@ -6,6 +6,8 @@ local contract_time = require("contract.time")
 local no_revert_reopen = require("devloop.autonomy.no_revert_reopen")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
+local observation = require("testkit_internal.old_behavior_observation_support")
+local sha256 = require("contract.sha256")
 
 local function mock_check_runs(json)
   t.mock_command("gh api 'repos/owner/repo/commits/def456/check-runs'", {
@@ -71,6 +73,26 @@ local function assert_transitive(events)
 end
 
 return {
+  test_slice5_autonomy_result_record_bytes_are_frozen = function()
+    local evaluator = function()
+      return true, "rollup-green"
+    end
+    local record = autonomy_ledger.autonomy_result_record(evaluator, "owner/repo", 42, {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      pr_number = 7,
+      version = "ready/github-devloop/issue/owner/repo/42/fix/2",
+      reviewed_head_sha = "def456",
+    }, {
+      labels = { { name = "task-class:L2" } },
+    }, {
+      merged_at = "2026-06-03T01:30:00Z",
+      status_check_rollup = {
+        { status = "COMPLETED", conclusion = "SUCCESS" },
+      },
+    })
+    t.eq(sha256.hex(observation.canonical_json(record)), "10823adbf044aca0a76a1d0be0f97f65201263f02b4a57eddd4f707ca7a5d434")
+  end,
+
   test_autonomy_event_comparator_uses_global_nil_created_seconds_policy = function()
     local earlier = ledger_event({ comment_created_at = "2026-06-03T01:00:00Z", sequence = 30 })
     local later = ledger_event({ comment_created_at = "2026-06-03T01:00:01Z", sequence = 20 })
@@ -151,7 +173,7 @@ return {
   end,
 
   test_post_merge_probe_gate_uses_existing_rollup_and_fails_closed = function()
-    local green_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core, {
+    local green_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core.evaluate_ci_status_gate, {
       head_sha = "def456",
       status_check_rollup = {
         { status = "COMPLETED", conclusion = "SUCCESS" },
@@ -159,7 +181,7 @@ return {
     })
     t.eq(green_gate, "pass")
 
-    local red_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core, {
+    local red_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core.evaluate_ci_status_gate, {
       head_sha = "def456",
       status_check_rollup = {
         { status = "COMPLETED", conclusion = "FAILURE" },
@@ -168,7 +190,7 @@ return {
     t.eq(red_gate, "fail")
 
     mock_check_runs('{"total_count":0,"check_runs":[]}\n')
-    local missing_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core, {
+    local missing_gate = autonomy_ledger.autonomy_post_merge_probe_gate(core.evaluate_ci_status_gate, {
       head_sha = "def456",
       status_check_rollup = {},
     }, { repo = "owner/repo" })
@@ -299,7 +321,7 @@ return {
       },
     }
 
-    local marker = m_builders.merged_marker(core, record.proposal_id, record.pr_number, record.version, record.head_sha, record)
+    local marker = m_builders.merged_marker(record.proposal_id, record.pr_number, record.version, record.head_sha, record)
     t.is_true(marker:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
     t.is_true(marker:find('autonomy_result="v1"', 1, true) ~= nil)
     t.is_true(marker:find('valid_autonomous_merge="pending"', 1, true) ~= nil)
@@ -367,7 +389,7 @@ return {
     mock_check_runs('{"total_count":0,"check_runs":[]}\n')
     local marker = autonomy_ledger.autonomy_result_marker(record)
     local fact = autonomy_ledger.autonomy_audited_result_fact(
-      core,
+      core.evaluate_ci_status_gate,
       { marker },
       record.proposal_id,
       record.pr_number,
@@ -409,11 +431,11 @@ return {
     local comments = {
       trusted_comment(core.implement_attempt_marker(proposal_id, version, 1, "100"), "2026-06-03T01:00:00Z", 1101),
       trusted_comment(autonomy_ledger.autonomy_result_marker(autonomy_record), "2026-06-03T01:31:00Z", 1103),
-      trusted_comment(m_builders.merged_marker(core, proposal_id, "7", version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1102),
+      trusted_comment(m_builders.merged_marker(proposal_id, "7", version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1102),
     }
 
     local fact = autonomy_ledger.autonomy_audited_result_fact(
-      core,
+      core.evaluate_ci_status_gate,
       comments,
       proposal_id,
       "7",
@@ -476,7 +498,7 @@ return {
       trusted_comment(core.implement_attempt_marker(proposal_id, first_version, 1, "100"), "2026-06-03T01:00:00Z", 1001),
       trusted_comment(core.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
       trusted_comment(core.implement_attempt_marker(proposal_id, second_version, 2, "200"), "2026-06-03T01:20:00Z", 1003),
-      trusted_comment(m_builders.merged_marker(core, proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),
+      trusted_comment(m_builders.merged_marker(proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),
     }
 
     local projection = autonomy_ledger.autonomy_attempt_projection(comments, "owner/repo", "42")
@@ -540,11 +562,11 @@ return {
       trusted_comment(core.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
       trusted_comment(core.implement_attempt_marker(proposal_id, second_version, 2, "200"), "2026-06-03T01:20:00Z", 1003),
       trusted_comment(autonomy_ledger.autonomy_result_marker(autonomy_record), "2026-06-03T01:31:00Z", 1005),
-      trusted_comment(m_builders.merged_marker(core, proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),
+      trusted_comment(m_builders.merged_marker(proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),
     }
 
     local fact = autonomy_ledger.autonomy_audited_result_fact(
-      core,
+      core.evaluate_ci_status_gate,
       comments,
       proposal_id,
       "7",

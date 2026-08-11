@@ -57,14 +57,14 @@ function E.execution_intake_hand_off(request)
   }
 end
 
-function E.build_execution_start_proposal(core, repo, issue_number, request, current, event_ts, dept)
+function E.build_execution_start_proposal(repo, issue_number, request, current, event_ts, dept)
   local issue = {
     repo = repo,
     number = issue_number,
     title = current.title,
     updated_at = current.updated_at,
     source_ref = request.source_ref,
-    content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = dept or "execute_start",
       repo = repo,
       issue_number = issue_number,
@@ -73,15 +73,15 @@ function E.build_execution_start_proposal(core, repo, issue_number, request, cur
       tick = event_ts,
     }),
   }
-  local proposal = payloads_builders.build_board_proposal(core, issue, event_ts)
+  local proposal = payloads_builders.build_board_proposal(issue, event_ts)
   proposal.dedup_key = request.dedup_key
   proposal.effect_version = request.dedup_key
   proposal.intake_hand_off = E.execution_intake_hand_off(request)
   return v_validate_proposal.validate_proposal(proposal) and proposal or nil
 end
 
-function E.build_execution_start_effects(core, repo, issue_number, request, current, event_ts, dept)
-  local proposal = E.build_execution_start_proposal(core, repo, issue_number, request, current, event_ts, dept)
+function E.build_execution_start_effects(output_language, repo, issue_number, request, current, event_ts, dept)
+  local proposal = E.build_execution_start_proposal(repo, issue_number, request, current, event_ts, dept)
   if proposal == nil then
     return nil
   end
@@ -92,7 +92,7 @@ function E.build_execution_start_effects(core, repo, issue_number, request, curr
   }
   return {
     proposal = proposal,
-    thinking_comment_request = requests_lifecycle.build_observe_comment_request(core, issue_ref, proposal),
+    thinking_comment_request = requests_lifecycle.build_observe_comment_request(output_language, issue_ref, proposal),
     thinking_label_request = requests_labels.build_thinking_label_request(issue_ref, proposal),
   }
 end

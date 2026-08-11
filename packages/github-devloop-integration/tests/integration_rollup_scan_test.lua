@@ -5,6 +5,14 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local rollup_health = require("core.rollup_health")
 local zh_summary = string.char(228, 184, 173, 230, 150, 135, 230, 145, 152, 232, 166, 129)
 
+local function command_result(exit_code, stderr, stdout)
+  return {
+    stdout = stdout or "",
+    stderr = stderr or "",
+    exit_code = exit_code,
+  }
+end
+
 local function opts(name, extra)
   local env = {
     FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
@@ -22,24 +30,16 @@ local function opts(name, extra)
 end
 
 local function mock_env(write_mode, rollup_merge, integration, release_notes_fallback)
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = integration or "integration/dev", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = write_mode or "", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = integration or "integration/dev", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', { stdout = rollup_merge or "auto", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_RELEASE_NOTES_FALLBACK"', {
-    stdout = release_notes_fallback or "",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', command_result(0, "", "dev"))
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', command_result(0, "", integration or "integration/dev"))
+  t.mock_command('printf %s "$FKST_GITHUB_REPO"', command_result(0, "", "owner/repo"))
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", write_mode))
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", write_mode))
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', command_result(0, "", "dev"))
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', command_result(0, "", integration or "integration/dev"))
+  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', command_result(0, "", rollup_merge or "auto"))
+  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES"', command_result(0))
+  t.mock_command('printf %s "$FKST_DEVLOOP_RELEASE_NOTES_FALLBACK"', command_result(0, "", release_notes_fallback))
 end
 
 local function run_scan(run_opts)
@@ -50,54 +50,41 @@ local function run_scan(run_opts)
 end
 
 local function mock_fetches()
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'dev'", command_result(0))
+  t.mock_command("git fetch 'origin' 'integration/dev'", command_result(0))
 end
 
 local function mock_missing_integration_fetch()
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", {
-    stdout = "",
-    stderr = "fatal: couldn't find remote ref integration/dev\n",
-    exit_code = 128,
-  })
+  t.mock_command("git fetch 'origin' 'dev'", command_result(0))
+  t.mock_command("git fetch 'origin' 'integration/dev'", command_result(
+    128,
+    "fatal: couldn't find remote ref integration/dev\n"
+  ))
 end
 
 local function mock_fetches_for(integration)
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' '" .. tostring(integration) .. "'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' 'dev'", command_result(0))
+  t.mock_command("git fetch 'origin' '" .. tostring(integration) .. "'", command_result(0))
 end
 
 local function mock_ahead(count)
-  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'integration/dev'", {
-    stdout = tostring(count) .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'integration/dev'",
+    command_result(0, "", tostring(count) .. "\n"))
 end
 
 local function mock_ahead_for(integration, count)
-  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'" .. tostring(integration) .. "'", {
-    stdout = tostring(count) .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'" .. tostring(integration) .. "'",
+    command_result(0, "", tostring(count) .. "\n"))
 end
 
 local function mock_content_diff(has_diff)
-  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/integration/dev", {
-    stdout = "",
-    stderr = "",
-    exit_code = has_diff and 1 or 0,
-  })
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/integration/dev",
+    command_result(has_diff and 1 or 0))
 end
 
 local function mock_content_diff_for(integration, has_diff)
-  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/" .. tostring(integration), {
-    stdout = "",
-    stderr = "",
-    exit_code = has_diff and 1 or 0,
-  })
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/" .. tostring(integration),
+    command_result(has_diff and 1 or 0))
 end
 
 local function mock_pr_list(pr)
@@ -109,11 +96,10 @@ local function mock_pr_list(pr)
       h.json_string(pr.head_sha or "def456")
     )
   end
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&per_page=100&base=dev'", {
-    stdout = stdout,
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&per_page=100&base=dev'",
+    command_result(0, "", stdout)
+  )
 end
 
 local function mock_pr_list_for(integration, pr)
@@ -126,11 +112,10 @@ local function mock_pr_list_for(integration, pr)
       h.json_string(integration)
     )
   end
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3A" .. tostring(integration) .. "&per_page=100&base=dev'", {
-    stdout = stdout,
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command(
+    "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3A" .. tostring(integration) .. "&per_page=100&base=dev'",
+    command_result(0, "", stdout)
+  )
 end
 
 local function comments_json(comments)
@@ -147,19 +132,13 @@ local function comments_json(comments)
 end
 
 local function mock_integration_head(head)
-  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", {
-    stdout = (head or "def456") .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}",
+    command_result(0, "", (head or "def456") .. "\n"))
 end
 
 local function mock_integration_head_for(integration, head)
-  t.mock_command("refs/remotes/'origin'/'" .. tostring(integration) .. "'^{commit}", {
-    stdout = (head or "def456") .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("refs/remotes/'origin'/'" .. tostring(integration) .. "'^{commit}",
+    command_result(0, "", (head or "def456") .. "\n"))
 end
 
 local function mock_rollup_pr_view(fields)
@@ -175,8 +154,10 @@ local function mock_rollup_pr_view(fields)
   end
   local updated_at = fields.updated_at or "2026-06-14T01:02:03Z"
   local completed_at = fields.completed_at or updated_at
-  t.mock_command("gh pr view '" .. tostring(fields.pr_number or 9) .. "'", {
-    stdout = string.format(
+  t.mock_command("gh pr view '" .. tostring(fields.pr_number or 9) .. "'", command_result(
+    0,
+    "",
+    string.format(
       '{"number":%d,"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"headRepositoryOwner":{"login":"owner"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"test","state":"%s","conclusion":"%s","headSha":"%s","completedAt":"%s"}]}\n',
       fields.pr_number or 9,
       h.json_string(fields.head_ref or "integration/dev"),
@@ -187,10 +168,8 @@ local function mock_rollup_pr_view(fields)
       h.json_string(conclusion),
       h.json_string(fields.check_head_sha or fields.head_sha or "def456"),
       h.json_string(completed_at)
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
+    )
+  ))
 end
 
 local function observe_clean()
@@ -203,16 +182,12 @@ local function observe_clean()
 end
 
 local function mock_release_notes(body)
-  t.mock_command("git log", {
-    stdout = "abc123\tRollup change\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("codex exec", {
-    stdout = body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel),
-    stderr = "",
-    exit_code = 0,
-  })
+  t.mock_command("git log", command_result(0, "", "abc123\tRollup change\n"))
+  t.mock_command("codex exec", command_result(
+    0,
+    "",
+    body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+  ))
 end
 
 local function find_call(needle)
@@ -275,7 +250,7 @@ return {
     mock_pr_list(nil)
     mock_integration_head("def456")
     mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
-    t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/9\n", stderr = "", exit_code = 0 })
+    t.mock_command("gh pr create", command_result(0, "", "https://github.example/owner/repo/pull/9\n"))
     mock_pr_list({ number = 9 })
     mock_integration_head("def456")
     mock_rollup_pr_view()
@@ -313,8 +288,8 @@ return {
     mock_content_diff(true)
     mock_pr_list(nil)
     mock_integration_head("def456")
-    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
-    t.mock_command("codex exec", { stdout = "", stderr = "model unavailable", exit_code = 1 })
+    t.mock_command("git log", command_result(0, "", "abc123\tRollup change\n"))
+    t.mock_command("codex exec", command_result(1, "model unavailable"))
     local result = run_scan(opts("rollup-codex-fail", { FKST_GITHUB_WRITE = "1" }))
     t.is_true(result.exit_code ~= 0)
     t.eq(h.count_calls("gh pr create"), 0)
@@ -327,8 +302,8 @@ return {
     mock_content_diff(true)
     mock_pr_list(nil)
     mock_integration_head("def456")
-    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
-    t.mock_command("codex exec", { stdout = "\n" .. core._release_notes_ai_sentinel .. "\n", stderr = "", exit_code = 0 })
+    t.mock_command("git log", command_result(0, "", "abc123\tRollup change\n"))
+    t.mock_command("codex exec", command_result(0, "", "\n" .. core._release_notes_ai_sentinel .. "\n"))
     local result = run_scan(opts("rollup-codex-empty", { FKST_GITHUB_WRITE = "1" }))
     t.is_true(result.exit_code ~= 0)
     t.eq(h.count_calls("gh pr create"), 0)
@@ -341,9 +316,9 @@ return {
     mock_content_diff(true)
     mock_pr_list(nil)
     mock_integration_head("def456")
-    t.mock_command("git log", { stdout = "abc123\tRollup change\n", stderr = "", exit_code = 0 })
-    t.mock_command("codex exec", { stdout = "", stderr = "model unavailable", exit_code = 1 })
-    t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/9\n", stderr = "", exit_code = 0 })
+    t.mock_command("git log", command_result(0, "", "abc123\tRollup change\n"))
+    t.mock_command("codex exec", command_result(1, "model unavailable"))
+    t.mock_command("gh pr create", command_result(0, "", "https://github.example/owner/repo/pull/9\n"))
     mock_pr_list({ number = 9 })
     mock_integration_head("def456")
     mock_rollup_pr_view()
@@ -370,7 +345,7 @@ return {
     mock_pr_list(nil)
     mock_integration_head("def456")
     mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
-    t.mock_command("gh pr create", { stdout = "", stderr = "create failed", exit_code = 1 })
+    t.mock_command("gh pr create", command_result(1, "create failed"))
     local result = run_scan(opts("rollup-create-fail", { FKST_GITHUB_WRITE = "1" }))
     t.is_true(result.exit_code ~= 0)
     t.eq(h.count_calls("gh pr create"), 1)
@@ -386,11 +361,10 @@ return {
     mock_pr_list(nil)
     mock_integration_head("def456")
     mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
-    t.mock_command("gh pr create", {
-      stdout = "",
-      stderr = "pull request create failed: GraphQL: No commits between dev and integration/dev",
-      exit_code = 1,
-    })
+    t.mock_command("gh pr create", command_result(
+      1,
+      "pull request create failed: GraphQL: No commits between dev and integration/dev"
+    ))
     local result = run_scan(opts("rollup-no-commits-between", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
@@ -406,11 +380,10 @@ return {
     mock_pr_list_for("integration", nil)
     mock_integration_head_for("integration", "def456")
     mock_release_notes("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
-    t.mock_command("gh pr create", {
-      stdout = "",
-      stderr = "pull request create failed: GraphQL: No commits between dev and integration",
-      exit_code = 1,
-    })
+    t.mock_command("gh pr create", command_result(
+      1,
+      "pull request create failed: GraphQL: No commits between dev and integration"
+    ))
     local result = run_scan(opts("rollup-no-commits-between-unslashed", {
       FKST_GITHUB_WRITE = "1",
       FKST_DEVLOOP_INTEGRATION_BRANCH = "integration",
@@ -514,8 +487,8 @@ return {
     local previous_sampled_ms = (now() - 60) * 1000
     h.mock_author_policy_configure(core._test_bot_login)
     mock_env("1", "auto")
-    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = prod_bot, stderr = "", exit_code = 0 })
-    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = prod_bot, stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', command_result(0, "", prod_bot))
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', command_result(0, "", prod_bot))
     mock_fetches()
     mock_ahead(2)
     mock_content_diff(true)

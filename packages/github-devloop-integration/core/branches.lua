@@ -24,7 +24,7 @@ local function bounded_lock_key(max_key_len, shared, prefix, repo, components)
 end
 
 function S.install(M)
-  local shared = require("devloop.git_mechanics").helpers(M)
+  local shared = require("devloop.git_mechanics").helpers()
   local function package_lock_key(prefix, repo, components)
     return bounded_lock_key(M._max_key_len, shared, prefix, repo, components)
   end
