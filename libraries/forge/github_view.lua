@@ -156,7 +156,7 @@ function M.repo_owner_login(repo)
   return name_with_owner and name_with_owner:match("^([^/]+)/") or nil
 end
 
-local function decode_pr_view(value)
+function M.decode_pr_view(value)
   if type(value) == "table" then
     return value
   end
@@ -233,7 +233,7 @@ local function status_rollup_entries(value)
 end
 
 function M.parse_pr_view_merge(value)
-  local decoded = decode_pr_view(value)
+  local decoded = M.decode_pr_view(value)
   local is_cross_repository = decoded.isCrossRepository
   if is_cross_repository == nil then
     is_cross_repository = decoded.is_cross_repository
