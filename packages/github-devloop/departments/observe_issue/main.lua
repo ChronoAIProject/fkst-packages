@@ -238,7 +238,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
 end
 
 local function ensure_managed_issue_claim(issue, proposal_id, current, state)
-  local admission, detail = m_claims.claim_admission_precheck(current, m_claims.claim_admission_inputs(current, issue.repo))
+  local admission, detail = m_claims.claim_admission_precheck(current, m_claims.claim_management_inputs(current, issue.repo))
   if admission == "held" then
     return true
   end

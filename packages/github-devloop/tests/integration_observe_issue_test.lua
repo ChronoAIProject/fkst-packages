@@ -180,40 +180,13 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
-  test_observe_tokenless_authorized_other_author_denies_before_peer_scan_or_fork = function()
-    local run_opts = opts("observe-authorized-other-author-fork")
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "trusted-human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
-    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
-      stdout = "[]",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
-      stdout = "dev",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), {
-      stdout = "integration-fkst-test-bot",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
-      stdout = "[]",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = '{"title":"Issue title","createdAt":"' .. os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1) .. '","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"trusted-human"}}\n',
-      stderr = "",
-      exit_code = 0,
-    })
+  test_observe_post_admission_self_held_authorized_human_continues_without_peer_discovery = function()
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
 
-    local result = run_observe(issue(), run_opts)
+    local result = run_observe(issue(), opts("observe-self-held-authorized-human"))
+
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
-    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
     t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
   end,

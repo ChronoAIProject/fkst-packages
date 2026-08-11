@@ -286,6 +286,28 @@ return {
     t.eq(admission, "held")
   end,
 
+  test_post_admission_self_held_org_member_continues_without_repository_peer_discovery = function()
+    mock_bot("fkst-test-bot", "")
+    mock_authorized_login("")
+    mock_org_member_authorization()
+
+    local ok = m_claims.claim_issue_for_management(
+      "claim_contract",
+      "owner/repo",
+      42,
+      self_current({
+        assignees = { "fkst-test-bot" },
+        author_login = "org-member",
+      }),
+      "github-devloop/issue/owner/repo/42"
+    )
+
+    t.eq(ok, true)
+    t.eq(count_calls("gh api --paginate --slurp 'orgs/owner/members?per_page=100'"), 1)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
+    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
+  end,
+
   test_other_author_unassigned_issue_after_grace_raises_self_assigned_fork = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")

@@ -7,6 +7,7 @@ local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
 local opts = h.opts
+local count_calls = h.count_calls
 
 local function execution_request(extra)
   local payload = execution_start.build_execution_request_payload({
@@ -130,6 +131,20 @@ return {
     t.eq(result.exit_code, 0)
     assert_execution_effects(result.raises, request)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
+  end,
+
+  test_execute_start_post_admission_self_held_authorized_human_continues_without_peer_discovery = function()
+    local request = execution_request()
+    h.mock_bot_env()
+    mock_execute_start_issue({ author_login = "trusted-human" })
+    h.mock_context_bundle(request)
+
+    local result = run_execute_start(request, opts("execute-start-self-held-authorized-human"))
+
+    t.eq(result.exit_code, 0)
+    assert_execution_effects(result.raises, request)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
+    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
   end,
 
   test_execute_start_publishes_execution_request_seam = function()

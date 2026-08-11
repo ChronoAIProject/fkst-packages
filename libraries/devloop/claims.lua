@@ -261,7 +261,7 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
   return true, "fork-grace-elapsed", age_seconds
 end
 
-function C.claim_admission_inputs(current, repo, poll_key)
+local function claim_inputs(current, repo, repository_peer_discovery)
   local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   local claim_mode = config.claim_mode()
@@ -280,8 +280,10 @@ function C.claim_admission_inputs(current, repo, poll_key)
         C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
       )
       if not C.is_managed_bot_login(canonical_author, managed)
-        and github_author_policy.is_authorized(trusted_author_policy, canonical_author) then
+        and github_author_policy.is_authorized(trusted_author_policy, canonical_author)
+        and repository_peer_discovery ~= nil then
         local peer_repo = repo or (current and current.repo)
+        local poll_key = repository_peer_discovery.poll_key
         if poll_key == nil or tostring(poll_key) == "" then
           peer_discovery_error = "peer-activity-poll-epoch-unavailable"
         elseif peer_repo == nil or tostring(peer_repo) == "" then
@@ -317,6 +319,14 @@ function C.claim_admission_inputs(current, repo, poll_key)
     peer_discovery_error = peer_discovery_error,
     peer_snapshot_provenance = peer_snapshot_provenance,
   }
+end
+
+function C.claim_admission_inputs(current, repo, poll_key)
+  return claim_inputs(current, repo, { poll_key = poll_key })
+end
+
+function C.claim_management_inputs(current, repo)
+  return claim_inputs(current, repo, nil)
 end
 
 function C.claim_admission_poll_epoch(event)
@@ -432,7 +442,7 @@ end
 
 function C.claim_issue_for_management(dept, repo, issue_number, current, proposal_id, admission, detail)
   if admission == nil then
-    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
+    admission, detail = C.claim_admission_precheck(current, C.claim_management_inputs(current, repo))
   end
   if admission == "held" then
     return true
