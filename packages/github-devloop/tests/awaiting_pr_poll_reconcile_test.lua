@@ -550,6 +550,42 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
   end,
 
+  test_ready_issue_projects_and_confirms_parent_merge_before_close = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_branch_config()
+    mock_rollup_landing(0)
+    local ready_comments = parent_comments({ state = "ready" })
+    local projection_result = run_observe(ready_comments, child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:ready" },
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(projection_result.exit_code, 0)
+    local projection = resume_comment(projection_result)
+    t.is_true(projection ~= nil)
+    t.is_true(projection.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+    t.eq(projection.payload.body:find('state="merged"', 1, true), nil)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+
+    table.insert(ready_comments, comment(
+      projection.payload.body,
+      core._test_bot_login,
+      "2026-06-03T04:04:05Z"
+    ))
+    mock_rollup_landing(0)
+    local close_result = run_observe(ready_comments, child_comments("merged"), {
+      labels = { "fkst-dev:enabled", "fkst-dev:ready" },
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(close_result.exit_code, 0)
+    t.eq(resume_comment(close_result), nil)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
   test_rollup_receipt_scan_fetches_containing_receipt_before_probing_absent_orphan_object = function()
     local newer_head = "3333333333333333333333333333333333333333"
     local orphan_object_available = false

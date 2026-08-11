@@ -499,6 +499,9 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", outcome, reason)
     return false, current_pr
   end
+  if tostring(state and state.state or "") == "implementing" then
+    return false, current_pr
+  end
   local parent_comments = facts.parent_comments
   local admitted_parent = devloop_state.route_current(parent_comments, proposal_id, {
     [tostring(state and state.state or "")] = true,
@@ -507,33 +510,31 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
     or tostring(admitted_parent.version or "") ~= tostring(state and state.version or "") then
     error("github-devloop: canonical-merged-parent-view-stale: canonical merged issue close requires the admitted parent version")
   end
-  if tostring(state and state.state or "") == "blocked" then
-    local parent_merged = m_facts.merged_fact(
-      parent_comments,
-      proposal_id,
-      delegation.pr_number,
-      state.version
+  local parent_merged = m_facts.merged_fact(
+    parent_comments,
+    proposal_id,
+    delegation.pr_number,
+    state.version
+  )
+  if parent_merged == nil then
+    local comment_request = build_parent_merged_projection_comment_request(
+      issue,
+      state,
+      delegation,
+      current_pr
     )
-    if parent_merged == nil then
-      local comment_request = build_parent_merged_projection_comment_request(
-        issue,
-        state,
-        delegation,
-        current_pr
-      )
-      devloop_logging.log_cas_decision(dept, proposal_id, state,
-        tostring(state and state.state or "unknown"), "parent-merged-fact",
-        "applied(parent-merged-projection-requested)",
-        "canonical delegated PR merge is landed and requires a parent-owned merged fact before close")
-      raise_effects(dept, proposal_id, tostring(state and state.state or "unknown"), state.version,
-        { add = {}, remove = {} }, {
-          { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-        })
-      return true, current_pr
-    end
-    if tostring(parent_merged.head_sha or "") ~= tostring(canonical_merged_state.head_sha or "") then
-      error("github-devloop: canonical-merged-parent-fact-conflict: parent merged fact head does not match canonical delegated PR")
-    end
+    devloop_logging.log_cas_decision(dept, proposal_id, state,
+      tostring(state and state.state or "unknown"), "parent-merged-fact",
+      "applied(parent-merged-projection-requested)",
+      "canonical delegated PR merge is landed and requires a parent-owned merged fact before close")
+    raise_effects(dept, proposal_id, tostring(state and state.state or "unknown"), state.version,
+      { add = {}, remove = {} }, {
+        { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
+      })
+    return true, current_pr
+  end
+  if tostring(parent_merged.head_sha or "") ~= tostring(canonical_merged_state.head_sha or "") then
+    error("github-devloop: canonical-merged-parent-fact-conflict: parent merged fact head does not match canonical delegated PR")
   end
   if config.write_mode() ~= "real" then
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", "skip-dry-run", "canonical merged delegated issue would close in real write mode")
