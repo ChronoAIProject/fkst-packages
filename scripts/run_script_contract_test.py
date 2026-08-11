@@ -63,7 +63,11 @@ class RunScriptContractTest(unittest.TestCase):
         self.assertIn('LOCAL_PACKAGES_ROOT="$FKST_DIR/local-packages"', source)
         self.assertIn('EXTERNAL_PACKAGES_ROOT="$FKST_DIR/packages"', source)
         self.assertIn('ln -sfn ../packages "$LOCAL_PACKAGES_ROOT"', source)
-        self.assertIn('for src_pkg in "$SOURCE_PACKAGES_ROOT"/*/; do', source)
+        # The enumeration is still driven from SOURCE_PACKAGES_ROOT; it is ordered by
+        # test_units_longest_first rather than by the directory glob, so that the pool
+        # dispatches its costliest unit first. The property frozen here is the source of
+        # the package list, not the order.
+        self.assertIn('done < <(test_units_longest_first "$SOURCE_PACKAGES_ROOT")', source)
         self.assertIn('pkg="$LOCAL_PACKAGES_ROOT/$name"', source)
 
     def test_full_test_blocks_on_repository_check_before_engine_resolution(self) -> None:

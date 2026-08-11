@@ -514,7 +514,7 @@ cmd_test() {
   local ran=0 fail=0 pkg name target selected verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a targets=() pkg_units=() ran_names=()
+  local -a targets=() pkg_units=() ran_names=() ordered_pkgs=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
@@ -576,7 +576,14 @@ cmd_test() {
   # concurrently. Every unit gets its own ephemeral runtime/durable roots inside
   # run_one_package, and its report/coverage land in $name-keyed collection dirs, so
   # the aggregated pass/fail + coverage fan-in is identical to the former serial loop.
-  for src_pkg in "$SOURCE_PACKAGES_ROOT"/*/; do
+  # Dispatch order is longest-first, not the directory glob's alphabetical order; ordering
+  # changes only WHEN each unit launches, never which units run or their verdicts. See
+  # test_units_longest_first in scripts/test_parallel.sh for why and for the key's limits.
+  while IFS= read -r src_pkg; do
+    [ -n "$src_pkg" ] || continue
+    ordered_pkgs+=("$src_pkg")
+  done < <(test_units_longest_first "$SOURCE_PACKAGES_ROOT")
+  for src_pkg in ${ordered_pkgs[@]+"${ordered_pkgs[@]}"}; do
     [ -d "$src_pkg" ] || continue
     name="$(basename "$src_pkg")"
     pkg="$LOCAL_PACKAGES_ROOT/$name"

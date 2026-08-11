@@ -743,5 +743,116 @@ class CheckVerdictMappingTest(unittest.TestCase):
         self.assertEqual(self._verdict_for("10 1"), ":")
 
 
+class TestUnitsLongestFirstTest(unittest.TestCase):
+    """The pool launches strictly in list order, so this function IS the dispatch order.
+
+    Its contract is narrow and load-bearing: rank by descending test-file count, break ties
+    deterministically, and emit every package exactly once. The last clause is the one a
+    plausible edit breaks silently — a `head`, a `grep`, or a filter that drops a package
+    makes its tests stop running while every remaining unit still passes, so the suite goes
+    green having tested less. Order is a performance property; cardinality is a correctness
+    property, and they are asserted separately here.
+    """
+
+    @staticmethod
+    def _fixture(tmp: Path, layout: dict[str, int]) -> Path:
+        root = tmp / "packages"
+        for name, count in layout.items():
+            tests = root / name / "tests"
+            tests.mkdir(parents=True)
+            for i in range(count):
+                (tests / f"f{i}_test.lua").write_text("return {}\n", encoding="utf-8")
+        return root
+
+    def _order(self, root: Path, strict: bool = False) -> list[str]:
+        """strict=True reproduces run.sh's own shell options (`set -euo pipefail`).
+
+        The distinction is load-bearing: under errexit + pipefail a command that exits
+        nonzero inside this function aborts it, and an aborted ordering function hands the
+        pool an EMPTY unit list -- every package silently skipped. Testing only under the
+        laxer flags this module otherwise uses would not sample that.
+        """
+        opts = "set -euo pipefail" if strict else "set -uo pipefail"
+        script = f'{opts}\n. "{TEST_PARALLEL}"\ntest_units_longest_first {shlex.quote(str(root))}\n'
+        result = subprocess.run(
+            ["/bin/bash", "-c", script], capture_output=True, text=True, cwd=REPO_ROOT
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [Path(line).name for line in result.stdout.splitlines() if line.strip()]
+
+    def test_ranks_by_descending_test_file_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture(Path(tmp), {"small": 1, "huge": 9, "medium": 4})
+            self.assertEqual(self._order(root), ["huge", "medium", "small"])
+
+    def test_ties_break_by_name_so_the_order_is_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture(Path(tmp), {"beta": 3, "alpha": 3, "gamma": 3})
+            first = self._order(root)
+            self.assertEqual(first, ["alpha", "beta", "gamma"])
+            self.assertEqual(self._order(root), first)
+
+    def test_a_package_with_no_tests_directory_sorts_last_and_is_not_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture(Path(tmp), {"has_tests": 2})
+            (root / "no_tests").mkdir()
+            self.assertEqual(self._order(root), ["has_tests", "no_tests"])
+
+    def test_a_missing_tests_directory_does_not_abort_under_errexit(self) -> None:
+        """Regression: this shipped broken and the suite above did not catch it.
+
+        run.sh runs under `set -euo pipefail`. The first implementation counted files with
+        `find "$dir/tests" ... 2>/dev/null`, which silences the message but not the nonzero
+        exit; on a package with no tests/ directory that aborted the whole function, so the
+        pool received an empty unit list and reported only "no packages matched". The
+        original tests missed it because they ran without errexit — a harness that did not
+        reproduce production's shell options.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "packages"
+            (root / "no_tests_at_all").mkdir(parents=True)
+            (root / "also_none").mkdir()
+            self.assertEqual(self._order(root, strict=True), ["also_none", "no_tests_at_all"])
+
+    def test_repository_scale_ordering_holds_under_errexit(self) -> None:
+        source = REPO_ROOT / "packages"
+        expected = sorted(d.name for d in source.iterdir() if d.is_dir())
+        self.assertEqual(sorted(self._order(source, strict=True)), expected)
+
+    def test_emits_every_package_exactly_once_at_repository_scale(self) -> None:
+        """Cardinality at the real domain size, not a toy fixture.
+
+        A truncating mutant (`| head -n N`) survives a 3-package fixture whenever N >= 3, so
+        the guard is asserted against the actual package set — the scale the function runs at.
+        """
+        source = REPO_ROOT / "packages"
+        expected = sorted(d.name for d in source.iterdir() if d.is_dir())
+        emitted = self._order(source)
+        self.assertEqual(sorted(emitted), expected)
+        self.assertEqual(len(emitted), len(set(emitted)), "a package was emitted twice")
+
+    def test_the_costliest_package_is_dispatched_first(self) -> None:
+        """The whole point: the unit that dominates the span must launch at t=0.
+
+        Asserted against the real tree rather than a fixture, because the property that
+        matters is about THIS suite's shape, and an alphabetical ordering — the behaviour this
+        replaced — puts the costliest unit two thirds of the way down the list.
+        """
+        source = REPO_ROOT / "packages"
+        emitted = self._order(source)
+        counts = {
+            d.name: len(list((d / "tests").glob("*_test.lua")))
+            for d in source.iterdir()
+            if d.is_dir()
+        }
+        costliest = max(counts, key=lambda name: (counts[name], name))
+        self.assertEqual(emitted[0], costliest)
+        self.assertNotEqual(
+            emitted,
+            sorted(emitted),
+            "dispatch order is alphabetical again, so the ordering is not in effect",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
