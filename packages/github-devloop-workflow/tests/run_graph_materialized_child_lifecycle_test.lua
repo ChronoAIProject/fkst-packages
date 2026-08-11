@@ -174,9 +174,20 @@ local function mock_child_materialization(created_issue, child_dedup)
     .. "/sub_issues -F sub_issue_id=987654321", { stdout = "", stderr = "", exit_code = 0 })
 end
 
+<<<<<<< HEAD
 local function mock_native_merge_observation()
   fixtures.mock_claim_label_binding()
   mock_write_mode("1", 7)
+=======
+local function mock_native_merge_observation(parent_merged_projection)
+  local projection_pending = parent_merged_projection == nil
+  mock_write_mode("1", projection_pending and 5 or 3)
+  for _ = 1, (projection_pending and 3 or 2) do
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), {
+      stdout = "fkst-test-bot", stderr = "", exit_code = 0,
+    })
+  end
+>>>>>>> a7b4eb7b745893cfd859f882f8f63cafc0ca81a7
   t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
     stdout = upstream_branch, stderr = "", exit_code = 0,
   })
@@ -189,14 +200,31 @@ local function mock_native_merge_observation()
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(revived_pr) .. "/comments?per_page=100'", {
     stdout = rest_comments_json({ { body = pr_origin_body() } }), stderr = "", exit_code = 0,
   })
-  t.mock_command("gh api 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "'", {
-    stdout = issue_rest_json(), stderr = "", exit_code = 0,
-  })
-  t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "/comments?per_page=100'", {
-    stdout = rest_comments_json({ { body = revived_child_body() } }),
-    stderr = "",
-    exit_code = 0,
-  })
+  local parent_comments = { { body = revived_child_body() } }
+  if parent_merged_projection ~= nil then
+    table.insert(parent_comments, {
+      body = parent_merged_projection,
+      created_at = "2026-07-12T00:26:02Z",
+    })
+  end
+  for _ = 1, (projection_pending and 2 or 1) do
+    t.mock_command("gh api 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "'", {
+      stdout = issue_rest_json(), stderr = "", exit_code = 0,
+    })
+    t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(revived_child_issue) .. "/comments?per_page=100'", {
+      stdout = rest_comments_json(parent_comments),
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  if projection_pending then
+    t.mock_command("gh api --method POST repos/" .. repo .. "/issues/" .. tostring(revived_child_issue)
+      .. "/comments --field 'body=", {
+        stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+  end
   t.mock_command(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch), {
     stdout = '[[{"number":' .. tostring(rollup_pr)
       .. ',"state":"closed","merged_at":"2026-07-12T00:24:02Z"'
@@ -211,12 +239,15 @@ local function mock_native_merge_observation()
   t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha, {
     stdout = "", stderr = "", exit_code = 0,
   })
-  t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue, { kind = "completed" }), {
-    stdout = "closed\n", stderr = "", exit_code = 0,
-  })
+  if not projection_pending then
+    t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue, { kind = "completed" }), {
+      stdout = "closed\n", stderr = "", exit_code = 0,
+    })
+  end
 end
 
-local function native_pr_merged_event()
+local function native_pr_merged_event(updated_at)
+  local observed_at = updated_at or "2026-07-12T00:25:02Z"
   return {
     queue = "github-proxy.github_entity_changed",
     payload = {
@@ -225,8 +256,8 @@ local function native_pr_merged_event()
       repo = repo,
       number = revived_pr,
       state = "MERGED",
-      updated_at = "2026-07-12T00:25:02Z",
-      dedup_key = repo .. "#pr#" .. tostring(revived_pr) .. "@2026-07-12T00:25:02Z",
+      updated_at = observed_at,
+      dedup_key = repo .. "#pr#" .. tostring(revived_pr) .. "@" .. observed_at,
       source_ref = { kind = "external", ref = repo .. "#pr/" .. tostring(revived_pr) },
     },
     source_ref = { kind = "external", reference = repo .. "#pr/" .. tostring(revived_pr) },
@@ -278,11 +309,32 @@ return {
 
     mock_env()
     mock_native_merge_observation()
-    local merged_trace = graph.require_quiescent(graph.run(native_pr_merged_event(), { max_steps = 4 }))
+    local projection_trace = graph.require_quiescent(graph.run(native_pr_merged_event(), { max_steps = 8 }))
+    graph.assert_covers(projection_trace, {
+      "github-proxy.github_entity_changed -> github-devloop.observe_issue",
+    })
+    local projection = graph.require_raise(projection_trace, "github-proxy.github_issue_comment_request")
+    t.is_true(projection.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
+    t.eq(projection.payload.body:find('state="merged"', 1, true), nil)
+    local close_calls = 0
+    for _, call in ipairs(t.command_calls()) do
+      if gh_argv.call_contains(call, "gh issue close " .. tostring(revived_child_issue))
+        and gh_argv.call_contains(call, "--repo " .. repo) then
+        close_calls = close_calls + 1
+      end
+    end
+    t.eq(close_calls, 0)
+
+    mock_native_merge_observation(projection.payload.body)
+    local merged_trace = graph.require_quiescent(graph.run(
+      native_pr_merged_event("2026-07-12T00:26:02Z"),
+      { max_steps = 4 }
+    ))
     graph.assert_covers(merged_trace, {
       "github-proxy.github_entity_changed -> github-devloop.observe_issue",
     })
-    local close_calls = 0
+    t.eq(graph.find_raise(merged_trace, "github-proxy.github_issue_comment_request"), nil)
+    close_calls = 0
     for _, call in ipairs(t.command_calls()) do
       if gh_argv.call_contains(call, "gh issue close " .. tostring(revived_child_issue))
         and gh_argv.call_contains(call, "--repo " .. repo) then

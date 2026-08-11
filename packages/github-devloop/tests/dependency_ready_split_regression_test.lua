@@ -129,6 +129,15 @@ local function mock_blocker_issue(issue_number, state_name)
   ))
 end
 
+local function mock_thinking_dependency_wait_with_ready_blocker(current, labels)
+  h.mock_issue_result(labels, {
+    core.state_marker(current.proposal_id, "thinking", current.dedup_key),
+  })
+  mock_blocked_by(42, { { number = 51 } })
+  mock_blocked_by(51, {})
+  mock_blocker_issue(51, "ready")
+end
+
 local function mock_observe_issue(labels, comments)
   entity_read_mocks.mock_issue_read_forms(t, {
     repo = repo,
@@ -652,12 +661,7 @@ return {
 
   test_consensus_result_dependency_wait_projects_the_committed_target = function()
     local current = reached()
-    h.mock_issue_result({ "fkst-dev:thinking", "fkst-dev:impl-failed" }, {
-      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
-    })
-    mock_blocked_by(42, { { number = 51 } })
-    mock_blocked_by(51, {})
-    mock_blocker_issue(51, "ready")
+    mock_thinking_dependency_wait_with_ready_blocker(current, { "fkst-dev:thinking", "fkst-dev:impl-failed" })
 
     local result = h.run_result(current, h.opts("ready-split-regression-result-target-dependency-wait"))
     t.eq(result.exit_code, 0)
@@ -670,12 +674,7 @@ return {
 
   test_consensus_result_dependency_wait_comment_hands_off_only_the_label_projection = function()
     local current = reached()
-    h.mock_issue_result({ "fkst-dev:thinking" }, {
-      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
-    })
-    mock_blocked_by(42, { { number = 51 } })
-    mock_blocked_by(51, {})
-    mock_blocker_issue(51, "ready")
+    mock_thinking_dependency_wait_with_ready_blocker(current, { "fkst-dev:thinking" })
 
     local result = h.run_result(current, h.opts("ready-split-regression-result-hold-handoff"))
     t.eq(result.exit_code, 0)
