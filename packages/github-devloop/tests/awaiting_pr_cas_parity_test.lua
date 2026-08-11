@@ -745,6 +745,7 @@ return {
       child_version = V_EQUAL,
       pr_state = "MERGED",
       admission_phase = "pre-cas",
+      effect_count = 1,
     })
   end,
 }
