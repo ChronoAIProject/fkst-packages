@@ -139,3 +139,66 @@ execution, and this repository has no remaining lever on test wall-clock that is
   figure; the job includes checkout and a Rust build and is not the same quantity.
 
 ⟦AI:FKST⟧
+
+## Addendum: per-test cost varies 32x, and that is not explained
+
+The analysis above asks *which unit is the critical path*. It never asked *why that unit is
+expensive per unit of work*. Dividing the CI timings by each package's test count:
+
+| ms/test | package | unit s | tests |
+|---:|---|---:|---:|
+| 729 | github-devloop-intake-default | 34.3 | 47 |
+| 707 | github-devloop-intake | 51.6 | 73 |
+| 435 | github-devloop-pr | 312.1 | 717 |
+| **409** | **github-devloop** | **582.3** | **1423** |
+| 366 | github-devloop-integration | 56.3 | 154 |
+| 173 | github-devloop-workflow | 55.1 | 319 |
+| 69 | github-proxy | 23.3 | 337 |
+| 32 | consensus | 6.0 | 188 |
+| 23 | github-external-pr-intake | 1.5 | 66 |
+
+Repository mean: 307 ms/test (1167 s / 3800 tests). **Spread: 32x.** The expensive end is entirely
+the devloop family; everything outside it is 23–99 ms/test.
+
+If `github-devloop` ran at `github-proxy`'s 69 ms/test it would take 98 s instead of 582 s. **The
+critical path is not expensive because it has many tests; it is expensive because each of its tests
+costs 6–18x more than a test elsewhere in the same repository.** That is a test-design question,
+entirely inside `packages/`, and it needs no engine capability.
+
+**This is stated as a measured fact with no verified explanation.** Candidate causes were examined
+and none was confirmed:
+
+- Package `core.lua` size does not correlate — `github-proxy` has the largest (722 lines) and is
+  among the cheapest.
+- `packages/github-devloop/tests/devloop_helpers.lua` is 7 lines; it delegates to
+  `libraries/testkit_internal/devloop_helpers_fixtures.lua` (461 lines). Module loading is cached
+  per process, so it is not a per-test cost.
+- `materialize_context_bundle` in that fixture does per-call `mkdir` plus one or two JSON file
+  writes — real filesystem work per test, but not obviously hundreds of milliseconds.
+- Primitive usage across the 205 test files is assertion-heavy: `t.eq` 5680, `t.is_true` 1498,
+  `t.mock_command` 562, `t.run_department` 16, `fkst.codex_runs` 32. Nothing there is obviously
+  hundreds of milliseconds per test.
+
+Splitting the unit into its conformance / normal / graph phases would narrow this, and **five
+attempts to obtain that split all failed**, each for a different reason. They are recorded so the
+next attempt does not repeat them:
+
+1. Timestamping the run's log — defeated by the engine block-buffering stdout when piped: the whole
+   package phase flushes at process exit, so the timestamps measure when the reader saw the lines,
+   not when the engine produced them. Yields an implausible 0.0 s per phase.
+2. `python3 -m unittest scripts.check_repo_test.<Class>` — `scripts` is not a package; every run
+   failed to import in ~0.09 s and the crash exit codes read as results.
+3. Sourcing `run.sh` and invoking the phases directly — variable names were guessed rather than
+   read; `load_composed_test_roots` emits `test_project_root` / `test_pkg_args`.
+4. and 5. With the correct names, root construction times cleanly (0.6 s) but the subsequent engine
+   invocation terminates the harness before it can report.
+
+A sixth attempt was not made: the information is wanted once, not routinely, and the natural next
+step — re-adding per-phase instrumentation — would reverse a decision that was correct on the
+evidence available when it was made (per-phase intervals were polluted by ~20 ms of interpreter
+startup, which is fatal for a 42 ms phase and noise for a 30 s one; nothing in the design
+distinguished the two).
+
+**Open question for whoever picks this up:** why does a `github-devloop` test cost 409 ms when a
+`github-proxy` test costs 69 ms? Answering it is worth more than any scheduling change measured
+above, and unlike those it requires nothing from the engine.
