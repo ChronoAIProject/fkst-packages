@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generic dev runner for fkst packages.
 #
-#   scripts/run.sh test [-v|--verbose] [package]
+#   scripts/run.sh test [-v|--verbose] [package ...]
 #       Run self-test, flat package conformance, package tests, and composed
 #       graph conformance. Tests use fresh runtime/durable roots and keep only
 #       failure-relevant lines unless -v/--verbose or FKST_TEST_VERBOSE=1 is set.
@@ -187,6 +187,8 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_interface_test.py"'
     'python3 -B "$ROOT/scripts/lua_coverage_to_lcov_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_library_layering_test.py"'
+    'python3 -B "$ROOT/scripts/run_script_contract_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_gh_git_adapter_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_github_content_ingress_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_error_class_test.py"'
@@ -203,10 +205,12 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/bin_cache_test.py"'
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
+    'python3 -B "$ROOT/scripts/run_bin_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
     'python3 -B "$ROOT/scripts/host_run_restart_test.py"'
     'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_process_group_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
@@ -495,10 +499,10 @@ finish_test_reports() {
 }
 
 cmd_test() {
-  local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
+  local ran=0 fail=0 pkg name target selected verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a pkg_units=() ran_names=()
+  local -a targets=() pkg_units=() ran_names=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
@@ -506,7 +510,7 @@ cmd_test() {
     case "$1" in
       -v|--verbose) verbose=1 ;;
       -*) local_iteration_result_fail "CONFIGURATION"; echo "unknown test flag: $1" >&2; exit 2 ;;
-      *) target="$1" ;;
+      *) targets+=("$1") ;;
     esac
     shift
   done
@@ -539,6 +543,22 @@ cmd_test() {
   fi
 
   ensure_package_view
+  for target in ${targets[@]+"${targets[@]}"}; do
+    selected=0
+    for pkg in "$SOURCE_PACKAGES_ROOT"/*/; do
+      [ -d "$pkg" ] || continue
+      name="$(basename "$pkg")"
+      if [ "$name" = "$target" ] && [ -d "$LOCAL_PACKAGES_ROOT/$name" ]; then
+        selected=1
+        break
+      fi
+    done
+    if [ "$selected" -eq 0 ]; then
+      local_iteration_result_fail "CONFIGURATION"
+      echo "no packages matched for '$target'" >&2
+      exit 1
+    fi
+  done
   pool="$(detect_pool_size)"
   # Each package is an independent test unit; build the unit list, then run them
   # concurrently. Every unit gets its own ephemeral runtime/durable roots inside
@@ -549,7 +569,13 @@ cmd_test() {
     name="$(basename "$src_pkg")"
     pkg="$LOCAL_PACKAGES_ROOT/$name"
     [ -d "$pkg" ] || continue
-    if [ -n "$target" ] && [ "$name" != "$target" ]; then continue; fi
+    if [ "${#targets[@]}" -gt 0 ]; then
+      selected=0
+      for target in "${targets[@]}"; do
+        if [ "$name" = "$target" ]; then selected=1; break; fi
+      done
+      [ "$selected" -eq 1 ] || continue
+    fi
     ran=$((ran + 1))
     rc=0; is_composed "$pkg" || rc=$?
     case "$rc" in
@@ -570,14 +596,10 @@ cmd_test() {
   done
   if [ "$ran" -eq 0 ]; then
     local_iteration_result_fail "CONFIGURATION"
-    if [ -n "$target" ]; then
-      echo "no packages matched for '$target'" >&2
-    else
-      echo "no packages matched" >&2
-    fi
+    echo "no packages matched" >&2
     exit 1
   fi
-  if [ -z "$target" ]; then
+  if [ "${#targets[@]}" -eq 0 ]; then
     if ! cmd_test_composed; then
       fail=$((fail + 1))
     fi
