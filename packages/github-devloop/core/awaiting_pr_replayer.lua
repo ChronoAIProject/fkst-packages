@@ -507,8 +507,7 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
     or tostring(admitted_parent.version or "") ~= tostring(state and state.version or "") then
     error("github-devloop: canonical-merged-parent-view-stale: canonical merged issue close requires the admitted parent version")
   end
-  local blocked_parent = devloop_state.route_current(parent_comments, proposal_id, { blocked = true })
-  if blocked_parent.route == true then
+  if tostring(state and state.state or "") == "blocked" then
     local parent_merged = m_facts.merged_fact(
       parent_comments,
       proposal_id,
