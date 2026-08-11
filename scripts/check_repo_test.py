@@ -14,8 +14,6 @@ import unittest
 from unittest import mock
 from pathlib import Path
 import ratchet_base_test
-from check_repo_library_layering_test import LibraryLayeringGuardTest
-from run_script_contract_test import RunScriptContractTest
 
 
 def load_check_repo():
