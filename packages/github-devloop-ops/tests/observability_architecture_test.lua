@@ -10,6 +10,14 @@ local function read_source(path)
   return body
 end
 
+local function assert_source_absent(path)
+  local handle = io.open(package_root .. "/" .. path, "r")
+  if handle ~= nil then
+    handle:close()
+  end
+  t.eq(handle, nil)
+end
+
 local function line_count(body)
   local count = 0
   for _ in tostring(body or ""):gmatch("\n") do
@@ -26,6 +34,27 @@ local function assert_module(path, install_name)
 end
 
 return {
+  test_whole_board_triage_patrol_producers_are_retired = function()
+    assert_source_absent("departments/triage_patrol/main.lua")
+    assert_source_absent("raisers/triage_patrol_poll.lua")
+  end,
+
+  test_triage_patrol_audit_receipt_surface_is_retired = function()
+    assert_source_absent("core/triage_patrol_receipt.lua")
+    assert_source_absent("departments/triage_patrol_receipt/main.lua")
+  end,
+
+  test_observability_retains_its_issue_creation_authority = function()
+    local observability = require("departments.observability.main")
+    local issue_create = false
+    for _, queue in ipairs(observability.spec.produces or {}) do
+      issue_create = issue_create or queue == "github-proxy.github_issue_create_request"
+    end
+
+    t.eq(observability.spec.consumes[1], "devloop_observe_tick")
+    t.eq(issue_create, true)
+  end,
+
   test_observability_core_does_not_depend_on_department_private_modules = function()
     local core_body = read_source("core.lua")
     t.eq(core_body:find('require("core.observability")', 1, true), nil)

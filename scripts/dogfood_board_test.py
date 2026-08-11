@@ -70,20 +70,22 @@ class DogfoodBoardHarness:
                     case "$4" in
                       *head.ref*) ;;
                       *)
-                        printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration 'Old condition fresh metadata'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration 'Condition onset unavailable'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration 'Independent CI failure'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 54 nofact 2026-06-27T11:00:00Z integration 'Managed fact unavailable'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 55 unmanaged 2026-06-27T11:00:00Z integration 'Unmanaged PR'
-                        printf '%s\t%s\t%s\t%s\t%s\n' 56 fetcherr 2026-06-27T11:00:00Z integration 'Lifecycle fetch unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration loning 'Terminal blocked PR'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 51 oldstate 2026-06-27T11:00:00Z integration loning 'Old condition fresh metadata'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 52 noonset 2026-06-27T11:00:00Z integration loning 'Condition onset unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 53 redstate 2026-06-27T11:00:00Z integration loning 'Independent CI failure'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 54 nofact 2026-06-27T11:00:00Z integration loning 'Managed fact unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 55 unmanaged 2026-06-27T11:00:00Z integration loning 'Unmanaged PR'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 56 fetcherr 2026-06-27T11:00:00Z integration loning 'Lifecycle fetch unavailable'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 57 peerred 2026-06-27T11:00:00Z integration app/fkst-other-machine 'Peer-authored red PR'
+                        printf '%s\t%s\t%s\t%s\t%s\t%s\n' 58 otherred 2026-06-27T11:00:00Z integration random-user 'Foreign-authored red PR'
                         ;;
                     esac
                     ;;
                   repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*|repos/ChronoAIProject/fkst-packages/commits/oldstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/noonset/check-runs*|repos/ChronoAIProject/fkst-packages/commits/nofact/check-runs*|repos/ChronoAIProject/fkst-packages/commits/unmanaged/check-runs*|repos/ChronoAIProject/fkst-packages/commits/fetcherr/check-runs*)
                     printf '%s\n' success
                     ;;
-                  repos/ChronoAIProject/fkst-packages/commits/redstate/check-runs*)
+                  repos/ChronoAIProject/fkst-packages/commits/redstate/check-runs*|repos/ChronoAIProject/fkst-packages/commits/peerred/check-runs*|repos/ChronoAIProject/fkst-packages/commits/otherred/check-runs*)
                     printf '%s\n' failure
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/50/comments?per_page=100)
@@ -400,6 +402,25 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertRegex(result.stdout, r"PR#52\b.*⚠ CONDITION-ONSET-UNAVAILABLE fixing")
             self.assertNotRegex(result.stdout, r"PR#52\b.*✓ flowing")
+        finally:
+            h.close()
+
+    def test_pr_ownership_downgrades_a_warning_the_same_way_issue_ownership_does(self) -> None:
+        # A PR authored by another managed bot is that machine's work: this host stands off it by
+        # design, exactly as it does for that bot's issues. Flagging it ⚠ sends the operator to
+        # re-derive ownership by hand for every peer PR, every wake.
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#57\b.*peer-owned\(app/fkst-other-machine\)")
+            self.assertNotRegex(result.stdout, r"PR#57\b.*⚠")
+            # Ownership downgrades only a peer's row. An unrecognised author stays a warning —
+            # it may be work this host should have claimed — but names who filed it.
+            self.assertRegex(result.stdout, r"PR#58\b.*⚠ CI-RED author=random-user")
+            # A self-authored PR is unaffected: its CI failure is still this host's problem.
+            self.assertRegex(result.stdout, r"PR#53\b.*⚠ CI-RED")
+            self.assertNotRegex(result.stdout, r"PR#53\b.*author=")
         finally:
             h.close()
 
