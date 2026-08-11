@@ -427,17 +427,28 @@ return {
     t.eq(count_calls(pr_peer_command), 0)
   end,
 
-  test_self_claim_skips_outcome_neutral_repo_peer_discovery = function()
-    mock_bot("fkst-test-bot")
-    mock_authorized_login("trusted-human")
-    local current = current_issue("trusted-human", {})
-    current.assignees = { { login = "fkst-test-bot" } }
+  test_repo_observed_peer_admission_precedes_claim_carrier_state = function()
+    for _, carrier in ipairs({
+      { name = "self", assignees = { { login = "fkst-test-bot" } } },
+      { name = "other", assignees = { { login = "other-holder" } } },
+    }) do
+      mock_bot("fkst-test-bot")
+      mock_authorized_login("trusted-human")
+      mock_repo_peer_scan({
+        issue_row(7, {
+          state_marker_comment("trusted-human"),
+        }),
+      }, {})
+      local current = current_issue("trusted-human", {})
+      current.assignees = carrier.assignees
 
-    local admission = admission_for(current, repo)
+      local admission, detail = admission_for(current, repo)
 
-    t.eq(admission, "held")
-    t.eq(count_calls(issue_peer_command), 0)
-    t.eq(count_calls(pr_peer_command), 0)
+      t.eq(admission, "denied", carrier.name .. " carrier must not override peer authorship")
+      t.eq(detail.action, "skip-peer-authored")
+    end
+    t.eq(count_calls(issue_peer_command), 2)
+    t.eq(count_calls(pr_peer_command), 2)
   end,
 
   test_repo_peer_discovery_failure_is_not_an_empty_peer_set = function()

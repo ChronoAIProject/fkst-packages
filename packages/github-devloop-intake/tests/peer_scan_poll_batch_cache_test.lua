@@ -165,8 +165,24 @@ end
 local function assert_no_admission_effect(result)
   t.eq(result.exit_code, 0)
   t.eq(#result.raises, 0)
+  t.eq(#result.writes, 0)
   t.eq(h.find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
   t.eq(h.find_raise(result.raises, "devloop_intake_candidate"), nil)
+end
+
+local function observing_claims(observation)
+  return {
+    claim_admission_inputs = m_claims.claim_admission_inputs,
+    claim_admission_precheck = function(current, inputs)
+      local admission, detail = m_claims.claim_admission_precheck(current, inputs)
+      observation.admission = admission
+      observation.action = detail and detail.action or nil
+      return admission, detail
+    end,
+    claim_issue_for_management = m_claims.claim_issue_for_management,
+    log_claim_admission_skip = m_claims.log_claim_admission_skip,
+    run_if_current_claim_admission_epoch = m_claims.run_if_current_claim_admission_epoch,
+  }
 end
 
 local function claims_advancing_epoch_after_precheck(next_epoch)
@@ -179,6 +195,7 @@ local function claims_advancing_epoch_after_precheck(next_epoch)
       return admission, detail
     end,
     claim_issue_for_management = m_claims.claim_issue_for_management,
+    log_claim_admission_skip = m_claims.log_claim_admission_skip,
     run_if_current_claim_admission_epoch = m_claims.run_if_current_claim_admission_epoch,
   }
 end
@@ -220,6 +237,34 @@ local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_
 end
 
 return {
+  test_repo_observed_peer_author_stops_self_and_other_carriers_before_admission_effects = function()
+    local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
+    for index, carrier in ipairs({
+      { name = "self", assignees = { "fkst-test-bot" } },
+      { name = "other", assignees = { "other-holder" } },
+    }) do
+      local run_opts = h.opts("repo-peer-carrier-" .. carrier.name)
+      local capacity = { calls = 0 }
+      local observation = {}
+      mock_peer_result(issue_peer_command, { stdout = peer_rows, stderr = "", exit_code = 0 })
+      mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+
+      local result = run_admission(run_opts, 90 + index, "repo-peer-carrier-" .. carrier.name, nil, {
+        capacity = counting_capacity(capacity),
+        claims = observing_claims(observation),
+        current = {
+          assignees = carrier.assignees,
+          author_login = "trusted-human",
+        },
+      })
+
+      assert_no_admission_effect(result)
+      t.eq(capacity.calls, 0, carrier.name .. " carrier must not authorize capacity")
+      t.eq(observation.admission, "denied")
+      t.eq(observation.action, "skip-peer-authored")
+    end
+  end,
+
   test_peer_activity_scan_budget_is_constant_within_a_poll_batch = function()
     local run_opts = h.opts("peer-scan-poll-batch-budget")
     mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 7)

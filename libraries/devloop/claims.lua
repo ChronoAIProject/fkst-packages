@@ -265,15 +265,6 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   local claim_mode = config.claim_mode()
-  if status == "other" then
-    return {
-      owner = owner,
-      status = status,
-      claim_mode = claim_mode,
-      repo = repo,
-    }
-  end
-
   local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local managed = nil
   local trusted_author_policy = nil
@@ -289,8 +280,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
         C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
       )
       if not C.is_managed_bot_login(canonical_author, managed)
-        and github_author_policy.is_authorized(trusted_author_policy, canonical_author)
-        and status ~= "self" then
+        and github_author_policy.is_authorized(trusted_author_policy, canonical_author) then
         local peer_repo = repo or (current and current.repo)
         if poll_key == nil or tostring(poll_key) == "" then
           peer_discovery_error = "peer-activity-poll-epoch-unavailable"
@@ -398,19 +388,10 @@ function C.claim_admission_precheck(current, inputs)
     end
     C.assert_current_claim_label_binding(inputs.repo)
   end
-  if inputs.status == "other" then
-    return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
-  end
-
-  if canonical_author == nil then
-    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
-  end
-  if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
+  local canonical_owner = parsers_misc.canonical_login(inputs.owner)
+  if canonical_author ~= nil and canonical_author ~= canonical_owner then
     if not C.claim_admission_epoch_is_current(inputs) then
       return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
-    end
-    if inputs.peer_discovery_error ~= nil then
-      return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
     end
     if C.is_managed_bot_login(canonical_author, inputs.managed) then
       return settle(
@@ -419,6 +400,18 @@ function C.claim_admission_precheck(current, inputs)
         "issue author belongs to another managed bot login"
       )
     end
+    if inputs.peer_discovery_error ~= nil and inputs.status ~= "other" then
+      return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
+    end
+  end
+  if inputs.status == "other" then
+    return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
+  end
+
+  if canonical_author == nil then
+    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
+  end
+  if canonical_author ~= canonical_owner then
     if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
       return settle(
         "denied",
