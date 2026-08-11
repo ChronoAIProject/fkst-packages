@@ -26,9 +26,9 @@ the general model, **dynamic result-driven materialization**.
 
 - **`workflow_select`** (intake policy) consumes each intake candidate. On an issue that matches a
   workflow (cheap selector prefilter → a bounded codex judgment), it takes the origin materialization
-  lease (assignee) and writes ONE immutable `workflow-blueprint` marker co-located with a `track`
-  marker — **no child, no content**. A non-workflow issue is delegated, with zero drift, to the same
-  canonical default intake engine `github-devloop-intake-default` uses.
+  lease (the active per-appliance claim label) and writes ONE immutable `workflow-blueprint` marker
+  co-located with a `track` marker — **no child, no content**. A non-workflow issue is delegated,
+  with zero drift, to the same canonical default intake engine `github-devloop-intake-default` uses.
 - **`workflow_materialize_next`** (a bounded level-triggered reconciler, 5-minute poll) discovers
   leased blueprint-bearing origins and performs exactly one action per origin: **materialize** the
   frontier slot's child issue (static slot = literal body; generated slot = a codex that fetches the

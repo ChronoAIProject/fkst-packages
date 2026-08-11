@@ -94,6 +94,25 @@ return {
     mock_pr_fix({ origin_marker }, branch, "feedface")
 
     local result = run_fix(event, opts("fix-commit-subject", { FKST_GITHUB_WRITE = "1" }))
+    local claim_calls = {}
+    local all_calls = {}
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = gh_argv.call_rendered(call)
+      table.insert(all_calls, rendered
+        .. " => exit=" .. tostring(call.exit_code)
+        .. " stdout=" .. tostring(call.stdout):gsub("\n", "\\n"))
+      if rendered:find("gh issue view", 1, true) ~= nil
+        or rendered:find("/labels/fkst-dev:claimed", 1, true) ~= nil then
+        table.insert(claim_calls, rendered)
+      end
+    end
+    error("diagnostic-fix-result: exit=" .. tostring(result.exit_code)
+      .. " raises=" .. tostring(#(result.raises or {}))
+      .. " stdout=" .. tostring(result.stdout)
+      .. " stderr=" .. tostring(result.stderr)
+      .. " error=" .. tostring(result.error)
+      .. " claim_calls=" .. table.concat(claim_calls, " || ")
+      .. " all_calls=" .. table.concat(all_calls, " || "))
     t.eq(result.exit_code, 0)
     t.is_true(has_commit_subject("auto-fix refs #42: Use issue-derived subjects"))
     t.eq(has_commit_subject_with_prefix("auto-fix #42"), false)
