@@ -323,6 +323,7 @@ return {
       proposal_id(32) .. "/intake/2026-08-10T02-00-00Z",
       "child-pr-blocked-other"
     )
+    local nonfinal_version = transition_version.next_timeout(derived_version, "awaiting-pr")
     local issues = {
       [repo .. "#issue/31"] = issue_fixture(31, "another-account", { "fkst-dev:blocked" }, {
         comment(31, "blocked", derived_version, "App/" .. host_login),
@@ -338,6 +339,9 @@ return {
           proposal_id(34) .. "/intake/2026-08-10T04-00-00Z",
           "child-pr-blocked"
         ), peer_login),
+      }),
+      [repo .. "#issue/35"] = issue_fixture(35, "another-account", { "fkst-dev:blocked" }, {
+        comment(35, "blocked", nonfinal_version, host_login),
       }),
     }
     mock_env(64)
@@ -355,6 +359,9 @@ return {
     t.is_true(first.body:find("p=" .. proposal_id(32)
       .. " i=32 s=blocked marker_version=" .. other_version
       .. " a=" .. host_login .. " why=child-pr-blocked-other verdict=abstain", 1, true) ~= nil)
+    t.is_true(first.body:find("p=" .. proposal_id(35)
+      .. " i=35 s=blocked marker_version=" .. nonfinal_version
+      .. " a=" .. host_login .. " why= verdict=abstain", 1, true) ~= nil)
     t.eq(first.body:find(proposal_id(33), 1, true), nil)
     t.eq(first.body:find(proposal_id(34), 1, true), nil)
     t.eq(#model.writes, 0)
