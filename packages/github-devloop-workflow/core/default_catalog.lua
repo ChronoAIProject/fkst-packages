@@ -32,6 +32,7 @@ local SOURCES = {
     {
       "id": "production-slice",
       "title": "Complete the production slice",
+      "on_already_satisfied": "hold",
       "content": {
         "kind": "generated",
         "generator": "Read the origin issue and the MERGED walking-skeleton result through the predecessor source_ref, then emit exactly one child issue title and body for the production-slice step. Scope the child PR to complete the accepted behavior on top of the merged skeleton, including edge cases, negative cases, and tests, all green. Keep it one bounded vertical increment. TDD/tests live inside this child PR: the child writes its own tests and leaves them green. Do not ask the child to duplicate devloop consensus, CI, PR review, or merge gates; devloop provides those. If no production-slice diff remains, the child must produce no changes with a clear WHY; no-changes is fatal and blocks the origin."
@@ -141,6 +142,13 @@ local SOURCES = {
   },
 }
 
+-- Exact persisted content-address transitions. Unknown digests stay fail-closed.
+local PINNED_DIGEST_MIGRATIONS = {
+  ["builtin:software-feature-flow"] = {
+    ["d-1784791911"] = "d-4147428082",
+  },
+}
+
 -- Structural count of built-in catalogs: no json.decode, safe at module load.
 M.count = #SOURCES
 
@@ -157,6 +165,14 @@ function M.records()
     end
   end
   return out
+end
+
+function M.pinned_digest_migration_target(path, pinned_digest)
+  local by_digest = PINNED_DIGEST_MIGRATIONS[tostring(path or "")]
+  if by_digest == nil then
+    return nil
+  end
+  return by_digest[tostring(pinned_digest or "")]
 end
 
 function M.install(target)

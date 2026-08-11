@@ -139,6 +139,7 @@ JSON
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 59 "$old" '__fkst_stateless__' 'fkst-other-machine[bot]' 'Peer app REST spelling'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 60 "$old" '__fkst_dashboard__' ElonSG 'Peer-authored dashboard'
                     printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 61 "$old" 'fkst-dev:dependency_wait' loning 'Dependency wait standalone'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 62 "$old" '__fkst_stateless__' loning 'Workflow delivery hold'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/34/comments?per_page=100|repos/ChronoAIProject/fkst-packages/issues/47/comments?per_page=100)
                     num=${2#*/issues/}; num=${num%%/*}
@@ -180,6 +181,11 @@ JSON
                   repos/ChronoAIProject/fkst-packages/issues/42/comments?per_page=100)
                     cat <<'JSON'
 [{"user":{"login":"random-user"},"body":"github-devloop thinking: consensus started\\n\\n<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/42\\\" state=\\\"thinking\\\" version=\\\"untrusted-version\\\" stage_rank=\\\"100\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/62/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"This issue is managed by workflow software-feature-flow.\\n\\n<!-- fkst:github-devloop-workflow:blueprint:v1 origin=\\"github-devloop/issue/ChronoAIProject/fkst-packages/62\\" workflow=\\"software-feature-flow\\" digest=\\"d-1234567890\\" -->\\n<!-- fkst:github-devloop:intake-decision:v1 proposal=\\"github-devloop/issue/ChronoAIProject/fkst-packages/62\\" decision=\\"track\\" class=\\"standard\\" dedup=\\"candidate-dedup\\" -->\\n\\n<!-- fkst:github-proxy:comment:workflow/blueprint-decision/github-devloop/issue/ChronoAIProject/fkst-packages/62/candidate-dedup -->"},{"user":{"login":"loning"},"body":"Workflow blocked: child-fatal-production-slice.\\n\\n<!-- fkst:github-devloop-workflow:terminal:v1 origin=\\"github-devloop/issue/ChronoAIProject/fkst-packages/62\\" state=\\"blocked\\" reason_code=\\"child-fatal-production-slice\\" monotonic=\\"false\\" -->\\n\\n<!-- fkst:github-proxy:comment:workflow/comment/github-devloop/issue/ChronoAIProject/fkst-packages/62/terminal/blocked/child-fatal-production-slice -->"},{"user":{"login":"loning"},"body":"Workflow held: origin-delivery-unverified.\\n\\n<!-- fkst:github-devloop-workflow:hold:v1 origin=\\"github-devloop/issue/ChronoAIProject/fkst-packages/62\\" reason_code=\\"origin-delivery-unverified\\" generation=\\"2\\" -->\\n\\n<!-- fkst:github-proxy:comment:workflow/comment/github-devloop/issue/ChronoAIProject/fkst-packages/62/hold/2/origin-delivery-unverified -->"}]
 JSON
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/43/comments?per_page=100)
@@ -331,6 +337,10 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertIn("#61   [dependency_wait] parked(dependency-wait)", result.stdout)
             self.assertNotIn("UNRENDERED-STATE dependency_wait", result.stdout)
             self.assertNotIn("#60   [dashboard   ] peer-owned", result.stdout)
+            self.assertIn(
+                "#62   [workflow    ] parked(workflow:software-feature-flow hold(origin-delivery-unverified))",
+                result.stdout,
+            )
             self.assertIn(
                 "#38   [workflow    ] parked(workflow:software-feature-flow blocked(child-fatal-walking-skeleton))",
                 result.stdout,

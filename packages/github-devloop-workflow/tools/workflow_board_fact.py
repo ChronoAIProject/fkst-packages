@@ -17,6 +17,7 @@ MAX_SLOT_ID_BYTES = 128
 MAX_CHILD_ISSUE_BYTES = 30
 MAX_TERMINAL_REASON_CODE_BYTES = 128
 MAX_DEDUP_KEY_BYTES = 512
+MAX_GENERATION = 2147483647
 
 MATERIALIZATION_STATE_RANK = {
     "pending": 1,
@@ -25,7 +26,7 @@ MATERIALIZATION_STATE_RANK = {
 }
 TERMINAL_STATES = {"done", "blocked", "error"}
 
-MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop-workflow:(blueprint|materialization|terminal):v1\b(.*?)-->")
+MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop-workflow:(blueprint|materialization|terminal|hold):v1\b(.*?)-->")
 DEVLOOP_MARKER_RE = re.compile(r"<!--\s*fkst:github-devloop:[A-Za-z0-9_-]+:v1\b")
 INTAKE_DECISION_RE = re.compile(r"<!--\s*fkst:github-devloop:intake-decision:v1\b(.*?)-->")
 DEBUG_STAMP_RE = re.compile(r"\s*<!--\s*fkst:debug-stamp:v1\b.*?-->\s*$", re.DOTALL)
@@ -240,11 +241,30 @@ def terminal_fact(attrs: dict[str, str], origin: str, seq: int, body: str) -> di
     return {"state": state, "reason_code": reason_code, "seq": seq}
 
 
+def hold_fact(attrs: dict[str, str], origin: str, seq: int, body: str) -> dict[str, Any] | None:
+    marker_origin = safe_attr(attrs.get("origin"), MAX_ORIGIN_PROPOSAL_ID_BYTES)
+    reason_code = safe_attr(attrs.get("reason_code"), MAX_TERMINAL_REASON_CODE_BYTES)
+    raw_generation = safe_attr(attrs.get("generation"), len(str(MAX_GENERATION)))
+    if marker_origin != origin or reason_code is None or raw_generation is None:
+        return None
+    try:
+        generation = int(raw_generation)
+    except ValueError:
+        return None
+    if generation < 1 or generation > MAX_GENERATION or str(generation) != raw_generation:
+        return None
+    expected_dedup = dedup_key(["workflow", "comment", origin, "hold", raw_generation, reason_code])
+    if not has_tail_proxy_stamp(body, expected_dedup):
+        return None
+    return {"kind": "hold", "reason_code": reason_code, "generation": generation, "seq": seq}
+
+
 def collect_facts(comments: list[dict[str, Any]], origin: str) -> dict[str, Any]:
     facts: dict[str, Any] = {
         "blueprint": None,
         "materializations": [],
-        "terminal": None,
+        "monotonic_terminal": None,
+        "reversible": None,
     }
     seq = 0
     for comment in comments:
@@ -264,7 +284,14 @@ def collect_facts(comments: list[dict[str, Any]], origin: str) -> dict[str, Any]
             elif kind == "terminal":
                 fact = terminal_fact(attrs, origin, seq, body)
                 if fact is not None:
-                    facts["terminal"] = fact
+                    if fact["state"] == "blocked":
+                        facts["reversible"] = {"kind": "terminal", **fact}
+                    else:
+                        facts["monotonic_terminal"] = fact
+            elif kind == "hold":
+                fact = hold_fact(attrs, origin, seq, body)
+                if fact is not None:
+                    facts["reversible"] = fact
     return facts
 
 
@@ -286,15 +313,23 @@ def latest_materialization_by_slot(facts: list[dict[str, Any]]) -> dict[str, dic
 
 def board_fact(facts: dict[str, Any]) -> tuple[str, str] | None:
     blueprint = facts.get("blueprint")
-    terminal = facts.get("terminal")
+    monotonic_terminal = facts.get("monotonic_terminal")
+    reversible = facts.get("reversible")
     materializations = facts.get("materializations")
     if not isinstance(blueprint, dict):
         return None
 
     workflow = str(blueprint.get("workflow") or "unknown")
-    if isinstance(terminal, dict):
-        state = str(terminal.get("state") or "unknown")
-        reason_code = str(terminal.get("reason_code") or "unknown")
+    if isinstance(monotonic_terminal, dict):
+        state = str(monotonic_terminal.get("state") or "unknown")
+        reason_code = str(monotonic_terminal.get("reason_code") or "unknown")
+        return "workflow", f"parked(workflow:{workflow} {state}({reason_code}))"
+
+    if isinstance(reversible, dict):
+        reason_code = str(reversible.get("reason_code") or "unknown")
+        if reversible.get("kind") == "hold":
+            return "workflow", f"parked(workflow:{workflow} hold({reason_code}))"
+        state = str(reversible.get("state") or "unknown")
         return "workflow", f"parked(workflow:{workflow} {state}({reason_code}))"
 
     if isinstance(materializations, list):
