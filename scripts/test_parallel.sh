@@ -222,6 +222,42 @@ finish_one_package_timing() {
 # `exit` — an `exit` terminates the pool's capturing subshell before it records the exit
 # code, which run_units_parallel then fail-closes as a failure. run_one_package must be
 # invoked only via run_units_parallel (its FKST_RUNTIME_ROOT export relies on the subshell).
+# Emit package source directories ordered by DESCENDING test-file count, ties broken by
+# name so the order is deterministic across runs and machines.
+#
+# Why order at all: run_units_parallel launches strictly in list order as slots free, so the
+# list IS the dispatch order and whatever sits last starts last. A pool's makespan is bounded
+# below by max(longest unit, total work / slots); when one unit is most of the span, its start
+# delay is added to that floor and nothing downstream can recover it. Enumerating packages by
+# directory glob ordered them alphabetically, which is uncorrelated with cost.
+#
+# What this does NOT change: which units run, or their verdicts. Each unit is an independent
+# process with its own ephemeral roots and a $name-keyed report, so the pool result is a
+# commutative AND-fold -- reordering moves launch times only.
+#
+# The key is a heuristic for cost, not cost. The engine's test report carries no per-test
+# duration (fkst-substrate#371), so real per-unit cost is unknown before the run. Test-file
+# count is used only to RANK, and it ranks the part that matters: the two costliest units are
+# also the two largest by file count with a wide margin to the third. A wrong ranking further
+# down costs at most what an unordered list already costs.
+test_units_longest_first() {
+  local root="$1" dir name count
+  for dir in "$root"/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    # Test the directory explicitly rather than letting find fail into 2>/dev/null: run.sh
+    # runs under `set -euo pipefail`, so a find that exits nonzero on a package without a
+    # tests/ directory aborts this function and the pool is handed an EMPTY unit list --
+    # every package silently skipped, reported only as "no packages matched".
+    if [ -d "$dir/tests" ]; then
+      count="$(find "$dir/tests" -name '*_test.lua' -type f | wc -l | tr -d ' ')"
+    else
+      count=0
+    fi
+    printf '%s\t%s\t%s\n' "$count" "$name" "$dir"
+  done | LC_ALL=C sort -k1,1nr -k2,2 | cut -f3-
+}
+
 run_one_package() {
   local name="$1" pkg="$2" is_pkg_composed="$3"
   local report_dir="$4" coverage_report_dir="$5" roots_parent="$6" test_failure_filter="$7"
