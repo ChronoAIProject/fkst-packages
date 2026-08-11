@@ -437,3 +437,28 @@ same path in production, and the fix belongs in `write_file`, not in the test.
 
 That possibility is why the test was left alone. Optimising the test would have hidden a production
 cost rather than removing it.
+
+## That candidate is refuted too: `file.write` handles 10 MiB in 3 ms
+
+The experiment named above was run. `file` is an engine-injected bare global (as `truncate_utf8` is),
+not `fkst.file` — an earlier probe reached for the wrong name and its failure was a defect in the
+probe, not evidence. With the right name:
+
+| size | `file.write` | `file.read` |
+|---:|---:|---:|
+| 1 KiB | 0.000 s | 0.000 s |
+| 1 MiB | 0.000 s | 0.000 s |
+| **10 MiB** | **0.003 s** | 0.002 s |
+
+**The shell fallback in `write_file` is never reached, and the write path is not the cost.** The
+observation about that fallback stands as a latent hazard — a `file.write` failure at the cap would
+put a multi-megabyte argv on a command line — but it is not what makes this test slow.
+
+**So the 20.8 s is still unexplained, and everything cheap has now been eliminated:** fixture
+construction, SHA-256, `json_string`, the department result marshalling, `truncate_utf8`, and file
+I/O. What remains is inside the bundle build between those steps, and separating it needs per-test
+or per-step timing that the engine does not emit — the same prerequisite this document reaches from
+four other directions.
+
+**Seventeen hypotheses were tested here. Seventeen were wrong.** None reached a merged change. The
+value of this document is that list, not a conclusion.
