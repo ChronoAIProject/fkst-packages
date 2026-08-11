@@ -39,8 +39,9 @@ local function blueprint()
   }
 end
 
-local function blueprint_marker()
-  local built, err = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(blueprint()))
+local function blueprint_marker(bp)
+  local selected = bp or blueprint()
+  local built, err = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(selected))
   t.is_nil(err)
   return built
 end
@@ -83,9 +84,10 @@ local function generated_spec(slot, body)
   }
 end
 
-local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state)
-  local slot = slot_id == "second" and blueprint().steps[2] or blueprint().steps[1]
-  local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(blueprint()), slot, predecessor_ref_digest, spec)
+local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state, bp)
+  local selected = bp or blueprint()
+  local slot = slot_id == "second" and selected.steps[2] or selected.steps[1]
+  local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(selected), slot, predecessor_ref_digest, spec)
   local built, err = marker.build_materialization_marker(
     origin,
     entry.blueprint_digest,
@@ -106,8 +108,8 @@ local function generated_comment(slot_id, predecessor_ref_digest, spec)
   return comment(built)
 end
 
-local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue)
-  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, child_issue, "created")
+local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue, bp)
+  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, child_issue, "created", bp)
   return comment(built)
 end
 

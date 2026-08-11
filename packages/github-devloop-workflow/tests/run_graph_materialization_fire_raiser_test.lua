@@ -181,7 +181,13 @@ return {
     local child_stdout = already_satisfied_child_history()
     mock_env()
     mock_write_mode("", 4)
-    mock_materialization_cycle(workflow_history(true), "OPEN", nil, false, child_stdout)
+    mock_materialization_cycle(
+      workflow_history(true, nil, "software-feature-flow"),
+      "OPEN",
+      nil,
+      false,
+      child_stdout
+    )
 
     local trace = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",
@@ -189,11 +195,28 @@ return {
       source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/already-satisfied-hold" },
     }, { max_steps = 4 }))
 
-    local hold = graph.require_raise(trace, "github-proxy.github_issue_comment_request")
-    t.is_true(hold.payload.body:find("hold:v1", 1, true) ~= nil)
-    t.is_true(hold.payload.body:find('reason_code="origin-delivery-unverified"', 1, true) ~= nil)
-    t.is_true(hold.payload.body:find("terminal:v1", 1, true) == nil)
-    t.is_true(hold.payload.body:find('state="done"', 1, true) == nil)
-    t.is_true(hold.payload.body:find("result_ready", 1, true) == nil)
+    local hold_count = 0
+    for _, step in ipairs(trace.steps or {}) do
+      for _, raised in ipairs(step.raises or {}) do
+        local payload = raised.payload or {}
+        local body = tostring(payload.body or "")
+        t.is_true(raised.queue ~= "github-proxy.github_issue_create_request")
+        t.is_true(raised.queue ~= "github-proxy.github_issue_close_request")
+        t.is_nil(payload.disposition)
+        t.is_true(tostring(payload.state or "") ~= "done")
+        t.is_true(tostring(payload.status or "") ~= "result_ready")
+        t.is_true(body:find('terminal:v1', 1, true) == nil)
+        t.is_true(body:find('state="done"', 1, true) == nil)
+        t.is_true(body:find("result_ready", 1, true) == nil)
+        for _, label in ipairs(payload.add_labels or {}) do
+          t.is_true(label ~= "fkst-dev:merged")
+        end
+        if body:find("hold:v1", 1, true) ~= nil then
+          hold_count = hold_count + 1
+          t.is_true(body:find('reason_code="origin-delivery-unverified"', 1, true) ~= nil)
+        end
+      end
+    end
+    t.eq(hold_count, 1)
   end,
 }

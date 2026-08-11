@@ -350,19 +350,22 @@ return {
   end,
 
   test_delivery_hold_finishes_active_label_projection_on_later_poll = function()
+    local hold_blueprint = blueprint()
+    hold_blueprint.steps[2].on_already_satisfied = "hold"
     local first_spec = generated_spec("first")
     local second_spec = generated_spec("second")
     local first_ref = { kind = "external", ref = repo .. "#issue/108" }
     local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-second-already-satisfied")
     t.is_nil(terminal_err)
     local base_comments = {
-      comment(blueprint_marker()),
-      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
+      comment(blueprint_marker(hold_blueprint)),
+      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108, hold_blueprint),
       created_comment(
         "second",
         materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
         second_spec,
-        109
+        109,
+        hold_blueprint
       ),
       comment(blocked_terminal),
       label_projection_comment("blocked", 1),
@@ -373,6 +376,7 @@ return {
     }
 
     local held = run_with({
+      blueprint = hold_blueprint,
       current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
       child_statuses = child_statuses,
     })
@@ -384,6 +388,7 @@ return {
       visible_comments = comments_with(visible_comments, comment(request.payload.body))
     end
     local replay = run_with({
+      blueprint = hold_blueprint,
       current = issue(visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
       child_statuses = child_statuses,
     })

@@ -31,6 +31,11 @@ local STEP_FIELDS = {
   id = true,
   title = true,
   content = true,
+  on_already_satisfied = true,
+}
+
+local ALREADY_SATISFIED_POLICIES = {
+  hold = true,
 }
 
 local SELECTOR_FIELDS = {
@@ -198,6 +203,18 @@ local function validate_step(step, index, seen_ids)
   seen_ids[step.id] = true
   ok, why = require_string(step.title, path .. ".title", M.MAX_STEP_TITLE_BYTES)
   if not ok then return ok, why end
+  if step.on_already_satisfied ~= nil then
+    if type(step.on_already_satisfied) ~= "string" then
+      return false, fail(path .. ".on_already_satisfied", "not_string", "must be a string")
+    end
+    if ALREADY_SATISFIED_POLICIES[step.on_already_satisfied] ~= true then
+      return false, fail(
+        path .. ".on_already_satisfied",
+        "unsupported_already_satisfied_policy",
+        "must be hold"
+      )
+    end
+  end
   return validate_content(step.content, path .. ".content")
 end
 

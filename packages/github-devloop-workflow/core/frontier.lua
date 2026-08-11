@@ -181,7 +181,9 @@ function M.compute_frontier(plan, ledger_facts, child_status_of)
       local exact_predecessor = predecessor ~= nil
         and type(entry) == "table"
         and entry.predecessor_ref_digest == materialization.predecessor_ref_digest(predecessor)
-      if exact_predecessor and child_statuses[index - 1] == "result_ready" then
+      if step.on_already_satisfied == "hold"
+        and exact_predecessor
+        and child_statuses[index - 1] == "result_ready" then
         return wait("origin-delivery-unverified", step.id, child_refs[index])
       end
       return terminal_blocked(

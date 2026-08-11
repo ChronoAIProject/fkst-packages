@@ -311,6 +311,18 @@ local reject_cases = {
     path = "steps[1].needs",
   },
   {
+    name = "unsupported already-satisfied policy",
+    mutate = function(doc) doc.steps[2].on_already_satisfied = "complete" end,
+    code = "unsupported_already_satisfied_policy",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
+    name = "non-string already-satisfied policy",
+    mutate = function(doc) doc.steps[2].on_already_satisfied = true end,
+    code = "not_string",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
     name = "missing step id",
     mutate = function(doc) doc.steps[1].id = nil end,
     code = "not_string",
@@ -573,6 +585,14 @@ local tests = {
       labels_any = { "workflow", "fkst" },
       title_contains_any = { "orchestrate", "workflow" },
     }
+    local ok, err = blueprint.validate(doc)
+    t.eq(ok, true)
+    t.is_nil(err)
+  end,
+
+  test_valid_step_accepts_explicit_already_satisfied_hold_policy = function()
+    local doc = valid_blueprint()
+    doc.steps[2].on_already_satisfied = "hold"
     local ok, err = blueprint.validate(doc)
     t.eq(ok, true)
     t.is_nil(err)

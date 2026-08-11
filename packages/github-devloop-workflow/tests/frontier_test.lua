@@ -249,7 +249,9 @@ local tests = {
     local current_entry = created("second", current)
     current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
 
-    local action = frontier.compute_frontier(blueprint(), {
+    local plan = blueprint()
+    plan.steps[2].on_already_satisfied = "hold"
+    local action = frontier.compute_frontier(plan, {
       first = created("first", predecessor),
       second = current_entry,
     }, function(child)
@@ -263,6 +265,37 @@ local tests = {
 
     t.eq(action.action, "wait")
     t.eq(action.why, "origin-delivery-unverified")
+    t.eq(action.slot, "second")
+    t.eq(action.child_ref, current)
+  end,
+
+  test_unconfigured_already_satisfied_child_with_exact_ready_predecessor_remains_fatal = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current = {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    }
+    local current_entry = created("second", current)
+    current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
+
+    local action = frontier.compute_frontier(blueprint(), {
+      first = created("first", predecessor),
+      second = current_entry,
+    }, function(child)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      return "satisfied_unverified", {
+        implementation_refusal_reason = "already-satisfied",
+      }
+    end)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal-second-already-satisfied")
     t.eq(action.slot, "second")
     t.eq(action.child_ref, current)
   end,

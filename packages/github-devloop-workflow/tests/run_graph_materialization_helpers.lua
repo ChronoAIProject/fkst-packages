@@ -121,8 +121,17 @@ local function created_materialization_marker(blueprint, slot, predecessor_diges
   return built
 end
 
-local function workflow_history(include_revived_child, terminal_body)
-  local blueprint = core.default_catalog.records()[2].blueprint
+local function builtin_blueprint(workflow_id)
+  for _, record in ipairs(core.default_catalog.records()) do
+    if record.blueprint ~= nil and record.blueprint.id == workflow_id then
+      return record.blueprint
+    end
+  end
+  error("missing built-in workflow fixture: " .. tostring(workflow_id), 0)
+end
+
+local function workflow_history(include_revived_child, terminal_body, workflow_id)
+  local blueprint = builtin_blueprint(workflow_id or "software-refactor-flow")
   local blueprint_digest = core.digest.blueprint_digest(blueprint)
   local blueprint_marker, blueprint_err = core.marker.build_blueprint_marker(origin, blueprint.id, blueprint_digest)
   t.is_nil(blueprint_err)
