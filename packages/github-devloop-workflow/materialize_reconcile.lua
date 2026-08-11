@@ -243,8 +243,9 @@ local function reconcile_done_projection(repo, issue_number, origin, current_lab
   return false
 end
 
-local function reconcile_active_projection(repo, issue_number, origin, terminal_fact, current_labels, current_projection, unit)
-  if terminal_fact ~= nil and tostring(terminal_fact.state or "") == "blocked" then
+local function reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current_labels, current_projection, unit)
+  local reversible_terminal = terminal_fact ~= nil and tostring(terminal_fact.state or "") == "blocked"
+  if reversible_terminal or hold_fact ~= nil then
     return reconcile_label_projection(
       repo,
       issue_number,
@@ -538,11 +539,11 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
   local facts = discovery.materialization_facts(core, current, origin)
   local created_marker = actions.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, discovery.trusted_comments, unit.log_decision, unit.raise_request)
   if created_marker == "wait" then
-    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
     return "wait"
   end
   if created_marker then
-    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
     return "created-marker"
   end
 
@@ -557,7 +558,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
     "reason=" .. tostring(decision.reason_code or decision.why or ""),
   })
   if decision.action == "wait" then
-    reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+    reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
     if decision.why == "origin-delivery-unverified" then
       reconcile_hold(repo, issue_number, origin, decision.why, hold_fact, unit)
     end
@@ -589,7 +590,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
       error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
     end
     if not dependency_is_satisfied(dependency) then
-      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+      reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
       unit.log_decision(
         origin,
         "frontier",
@@ -601,7 +602,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
     end
     local outcome = perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event, unit)
     if outcome ~= "terminal" then
-      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+      reconcile_active_projection(repo, issue_number, origin, terminal_fact, hold_fact, current.labels, label_projection, unit)
     end
     return outcome
   end

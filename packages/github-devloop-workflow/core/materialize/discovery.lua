@@ -134,34 +134,42 @@ function M.latest_blueprint(core, current, origin)
   return fact
 end
 
-local function latest_disposition(core, current, origin)
-  local disposition = nil
+local function latest_dispositions(core, current, origin)
+  local monotonic_terminal = nil
+  local reversible = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
     local body = parsers_misc.comment_body(comment)
     local terminal = marker.parse_terminal_marker(body, origin)
     if terminal ~= nil then
-      disposition = { kind = "terminal", fact = terminal }
+      if tostring(terminal.state or "") == "blocked" then
+        reversible = { kind = "terminal", fact = terminal }
+      else
+        monotonic_terminal = terminal
+      end
     end
     local hold = marker.parse_hold_marker(body, origin)
     if hold ~= nil then
-      disposition = { kind = "hold", fact = hold }
+      reversible = { kind = "hold", fact = hold }
     end
   end
-  return disposition
+  return monotonic_terminal, reversible
 end
 
 function M.latest_terminal(core, current, origin)
-  local disposition = latest_disposition(core, current, origin)
-  if disposition ~= nil and disposition.kind == "terminal" then
-    return disposition.fact
+  local monotonic_terminal, reversible = latest_dispositions(core, current, origin)
+  if monotonic_terminal ~= nil then
+    return monotonic_terminal
+  end
+  if reversible ~= nil and reversible.kind == "terminal" then
+    return reversible.fact
   end
   return nil
 end
 
 function M.latest_hold(core, current, origin)
-  local disposition = latest_disposition(core, current, origin)
-  if disposition ~= nil and disposition.kind == "hold" then
-    return disposition.fact
+  local monotonic_terminal, reversible = latest_dispositions(core, current, origin)
+  if monotonic_terminal == nil and reversible ~= nil and reversible.kind == "hold" then
+    return reversible.fact
   end
   return nil
 end

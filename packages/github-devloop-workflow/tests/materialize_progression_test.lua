@@ -349,6 +349,53 @@ return {
     t.is_true(active_labels[1].payload.dedup_key ~= blocked_labels[1].payload.dedup_key)
   end,
 
+  test_delivery_hold_finishes_active_label_projection_on_later_poll = function()
+    local first_spec = generated_spec("first")
+    local second_spec = generated_spec("second")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-second-already-satisfied")
+    t.is_nil(terminal_err)
+    local base_comments = {
+      comment(blueprint_marker()),
+      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
+      created_comment(
+        "second",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109
+      ),
+      comment(blocked_terminal),
+      label_projection_comment("blocked", 1),
+    }
+    local child_statuses = {
+      ["108"] = "result_ready",
+      ["109"] = "satisfied_unverified",
+    }
+
+    local held = run_with({
+      current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = child_statuses,
+    })
+    local held_comments = only_queue(held, "github-proxy.github_issue_comment_request")
+    t.eq(#held_comments, 2)
+
+    local visible_comments = base_comments
+    for _, request in ipairs(held_comments) do
+      visible_comments = comments_with(visible_comments, comment(request.payload.body))
+    end
+    local replay = run_with({
+      current = issue(visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = child_statuses,
+    })
+    local label_requests = only_queue(replay, "github-proxy.github_issue_label_request")
+
+    t.eq(#only_queue(replay, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(#label_requests, 1)
+    t.eq(label_requests[1].payload.add_labels[1], "fkst-dev:thinking")
+    t.eq(label_requests[1].payload.marker_guard.expected.state, "thinking")
+    t.eq(label_requests[1].payload.marker_guard.expected.generation, "2")
+  end,
+
   test_wait_when_predecessor_running_raises_nothing = function()
     local first_spec = generated_spec("first")
     local raised = run_with({
