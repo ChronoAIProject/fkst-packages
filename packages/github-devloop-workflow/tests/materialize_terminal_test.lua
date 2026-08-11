@@ -216,4 +216,33 @@ return {
     t.eq(closed.issue, origin_issue)
     t.eq(closed.origin, origin)
   end,
+
+  test_later_hold_does_not_hide_done_terminal = function()
+    local done_terminal, terminal_err = marker.build_terminal_marker(origin, "done", "all-slots-result-ready")
+    t.is_nil(terminal_err)
+    local hold, hold_err = marker.build_hold_marker(origin, "origin-delivery-unverified", 1)
+    t.is_nil(hold_err)
+    local released = false
+    local closed = false
+
+    local raised = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(done_terminal),
+        comment(hold),
+      }, { labels = { "fkst-dev:merged" } }),
+      release_done_claim = function()
+        released = true
+        return true
+      end,
+      close_done_origin = function()
+        closed = true
+        return true
+      end,
+    })
+
+    t.eq(#raised, 0)
+    t.eq(released, true)
+    t.eq(closed, true)
+  end,
 }
