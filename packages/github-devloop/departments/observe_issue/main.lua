@@ -645,6 +645,18 @@ local function reconcile_issue_event(event, opts)
         return
       end
     end
+    local admission, admission_detail
+    local intake_fact = m_facts.intake_decision_fact(current.comments, proposal_id)
+    if intake_fact == nil or intake_fact.decision ~= "enable" then
+      admission, admission_detail = m_claims.claim_admission_precheck(
+        current,
+        m_claims.claim_admission_inputs(
+          current,
+          issue.repo,
+          m_claims.claim_admission_poll_epoch(event)
+        )
+      )
+    end
     local grant_version = state.version or issue.dedup_key
     local snapshot = observe_issue_caps.restart_effects.seal_snapshot({
       owner = observe_issue_caps.restart_package_name,
@@ -679,7 +691,7 @@ local function reconcile_issue_event(event, opts)
         .. tostring(decision.reason_code))
     end
     if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
-      issue.number, current, proposal_id) then
+      issue.number, current, proposal_id, admission, admission_detail) then
       return
     end
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state,

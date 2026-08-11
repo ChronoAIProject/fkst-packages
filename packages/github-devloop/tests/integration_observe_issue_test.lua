@@ -87,6 +87,7 @@ local count_calls = fixture.count_calls
 local find_raise = fixture.find_raise
 local find_causal_raise = fixture.find_causal_raise
 local take_consensus_proposal = fixture.take_consensus_proposal
+local entity_list_cache = require("devloop.entity_list_cache")
 
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
@@ -181,7 +182,14 @@ return {
   end,
 
   test_observe_post_admission_self_held_authorized_human_continues_without_peer_discovery = function()
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {
+      m_builders.intake_decision_marker(
+        "github-devloop/issue/owner/repo/42",
+        "enable",
+        "intake/github-devloop/issue/owner/repo/42/v1",
+        "standard"
+      ),
+    }, { "fkst-test-bot" }, "trusted-human")
 
     local result = run_observe(issue(), opts("observe-self-held-authorized-human"))
 
@@ -189,6 +197,34 @@ return {
     t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
     t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
+  end,
+
+  test_observe_unmanaged_repo_peer_stops_before_claim_or_lifecycle_effects = function()
+    local runtime_root = assert(os.getenv("FKST_RUNTIME_ROOT"))
+    cache_set(entity_list_cache.poll_epoch_cache_key("owner/repo"), "")
+    local recorded, poll_epoch = entity_list_cache.record_poll_epoch(
+      "owner/repo",
+      "observe-unmanaged-repo-peer"
+    )
+    t.is_true(recorded)
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, { "fkst-test-bot" }, "trusted-human")
+
+    local result = run_observe(issue({ poll_token = poll_epoch }), opts("observe-unmanaged-repo-peer", {
+      FKST_RUNTIME_ROOT = runtime_root,
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 1)
+    t.eq(count_calls("gh issue edit"), 0)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()
