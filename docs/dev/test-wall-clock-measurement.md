@@ -571,3 +571,49 @@ reason, and there is no cheap correct fix. Options that remain, none of them fre
 with an injectable smaller limit (changes what is exercised and needs its own argument), accept the
 cost, or move the capacity check out of the default suite (changes when it runs, not whether). None
 was pursued here; all three are behaviour or policy changes, not refactors.
+
+## Two corrections an adversarial panel found in this document
+
+Both are errors in what is written above, both verified by re-derivation, and both were overstatements
+in the direction that made the conclusion sound cleaner.
+
+### 1. "No scheduling lever remains" overstates the measurement by 58.4 s
+
+The identical-machine makespan lower bound is `max(p_max, W/cores)`. With `p_max = 582.3 s`,
+`W = 1166.9 s` and 4 cores that is `max(582.3, 291.7) = 582.3 s`. The observed span was **640.7 s**.
+
+So the pool sits **58.4 s above its own floor — 9.1% of the span — not at it.** The correct statement
+is that scheduling headroom is *bounded* at 9.1%, not that it is zero. Whether any of that 58.4 s is
+recoverable is **`ASSUMED-UNVERIFIED`**: it would need a controlled ordering A/B, and the earlier
+sections of this document establish that a single before/after run on the dogfood host is not
+evidence.
+
+The claim "the package pool is at ~91% of its capacity floor" is correct. The claim that therefore
+"no scheduling lever remains" does not follow from it.
+
+### 2. The parser size comparison is wrong by 4.9x, and the extrapolation is unverified
+
+The section above says a 50 KiB issue body is "three orders of magnitude" smaller than the 10 MiB
+cap. **10 MiB / 50 KiB = 204.8x**, not 1000x — the published figure is off by a factor of 4.9.
+
+More importantly, the entire cost table below the 10 MiB row was **extrapolated from a single timing
+point** on one fixture. What the source actually establishes is a per-character pass; what was
+measured is 9.45 s at 10 MiB on a fixture that is one long run of `a` with no redactable content.
+The following are all **`ASSUMED-UNVERIFIED`** and should not have been stated as a table of costs:
+
+- that the whole function is linear across real JSON shapes, rather than only on that fixture;
+- the ~0.05 s figure for a 50 KiB body;
+- the production size distribution — production parses issue JSON **including comments**, not a bare
+  body, so the relevant input is not the one that was measured.
+
+The conclusion that the 9.45 s is unreachable in production may still be right, but **it is not
+established by what was measured**, and "unreachable in production" should be read as a hypothesis,
+not a finding.
+
+### Why both errors point the same way
+
+Neither error is random. Each made the story tidier: one turned "9.1% headroom, recoverability
+unknown" into "no lever remains", the other turned "one timing point on an unrepresentative fixture"
+into a cost table with three rows. **An adversarial seat found both; the author found neither.** That
+is the same ratio this document records elsewhere — 16 of 18 blocking findings in the earlier review
+rounds came from review, not from the author.
