@@ -193,8 +193,26 @@ next attempt does not repeat them:
 4. and 5. With the correct names, root construction times cleanly (0.6 s) but the subsequent engine
    invocation terminates the harness before it can report.
 
-A sixth attempt was not made: the information is wanted once, not routinely, and the natural next
-step — re-adding per-phase instrumentation — would reverse a decision that was correct on the
+A sixth attempt was made along a different axis — per-FILE rather than per-phase, by hand-building
+filtered roots each holding ~10 test files — and failed too: the engine refused to start with
+`manifest catalog is required: missing fkst.workspace.toml`, because a hand-rolled root lacks the
+workspace manifest, the libraries and the composed dependencies that `load_composed_test_roots`
+supplies. It reported `0.0 s` and `tests=0`, i.e. **a startup crash read as a measurement** — the
+same shape as attempt 2. In both cases the tell was an implausibly clean zero.
+
+**Six structurally different attempts to decompose this cost from OUTSIDE the engine all failed, each
+at a different boundary.** That is itself evidence for the conclusion above: per-test cost
+attribution is not something a caller can assemble externally in this repository; the engine has to
+emit it.
+
+The contrast is sharp and worth stating as a rule. The one measurement in this whole exercise that
+worked cleanly was the timing witness itself, which sits INSIDE `run_one_package` and records what
+that function already knows. **Instrument from inside the machinery; do not try to decompose it from
+outside.** Every external decomposition here hit a boundary the machinery exists to manage —
+buffering, workspace manifests, composed dependency roots, library resolution.
+
+Re-adding per-phase instrumentation was deliberately not attempted, because the information is
+wanted once rather than routinely, and it would reverse a decision that was correct on the
 evidence available when it was made (per-phase intervals were polluted by ~20 ms of interpreter
 startup, which is fatal for a 42 ms phase and noise for a 30 s one; nothing in the design
 distinguished the two).
