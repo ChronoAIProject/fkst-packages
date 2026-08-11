@@ -152,6 +152,12 @@ local function mock_base_probe(worktree, outcome)
     stderr = "",
     exit_code = 0,
   })
+  -- The base probe now proves the tree materialized before any test verdict can form, so the
+  -- harness must model those reads; an unmocked command fails closed and would look like an
+  -- unmaterialized tree.
+  t.mock_command("status --porcelain", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("ls-files", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("ls-tree", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("rev-parse HEAD", { stdout = "abc123\n", stderr = "", exit_code = 0 })
   t.mock_command("scripts/run.sh test-affected", {
     stdout = local_iteration_marker(outcome),

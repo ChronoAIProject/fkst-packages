@@ -1,3 +1,4 @@
+local strings = require("contract.strings")
 local M = {}
 
 local function neutralizer(labels)
@@ -15,19 +16,7 @@ local function neutralizer(labels)
       end
       return line
     end
-    local output = {}
-    local start = 1
-    while true do
-      local newline = value:find("\n", start, true)
-      if newline == nil then
-        table.insert(output, neutralize_line(value:sub(start)))
-        break
-      end
-      table.insert(output, neutralize_line(value:sub(start, newline - 1)))
-      table.insert(output, "\n")
-      start = newline + 1
-    end
-    return table.concat(output)
+    return strings.map_lines(value, neutralize_line)
   end
 end
 
@@ -158,6 +147,13 @@ local function weakest_instruction(verdict_mode, angle)
   return "After the required sentinel lines, write WEAKEST: followed by the weakest assumption in your judgment."
 end
 
+local function render_optional_block(prefix, value, neutralize)
+  if value == nil or value == "" then
+    return ""
+  end
+  return prefix .. neutralize(value)
+end
+
 function M.install(core, deps)
   local neutralize = neutralizer({
     verdict = deps.verdict_label,
@@ -215,14 +211,8 @@ function M.install(core, deps)
       error("consensus: invalid-rebuttal-seat: own result must be a table")
     end
     local prompt = require("consensus.prompts.rebuttal")
-    local context_block = ""
-    if proposal.context ~= nil and proposal.context ~= "" then
-      context_block = "Context:\n" .. neutralize(proposal.context)
-    end
-    local convergence_block = ""
-    if proposal.convergence_question ~= nil and proposal.convergence_question ~= "" then
-      convergence_block = "Current convergence question:\n" .. neutralize(proposal.convergence_question)
-    end
+    local context_block = render_optional_block("Context:\n", proposal.context, neutralize)
+    local convergence_block = render_optional_block("Current convergence question:\n", proposal.convergence_question, neutralize)
     local findings_record_block = render_findings_record_block(proposal, neutralize)
     local verdict_mode = core.verdict_mode(proposal)
 
@@ -256,14 +246,8 @@ function M.install(core, deps)
         return core.render_prompt_template(template, vars, target_proposal)
       end,
       vars = function(repair, prior_result, parse_failure)
-        local context_block = ""
-        if proposal.context ~= nil and proposal.context ~= "" then
-          context_block = "Context:\n" .. neutralize(proposal.context)
-        end
-        local convergence_block = ""
-        if proposal.convergence_question ~= nil and proposal.convergence_question ~= "" then
-          convergence_block = "Current convergence question:\n" .. neutralize(proposal.convergence_question)
-        end
+        local context_block = render_optional_block("Context:\n", proposal.context, neutralize)
+        local convergence_block = render_optional_block("Current convergence question:\n", proposal.convergence_question, neutralize)
         local findings_record_block = render_findings_record_block(proposal, neutralize)
         local verdict_mode = core.verdict_mode(proposal)
         local repair_instruction = "This is the first synthesis attempt."

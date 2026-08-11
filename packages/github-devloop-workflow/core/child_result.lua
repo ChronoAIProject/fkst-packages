@@ -3,6 +3,7 @@ local devloop_marker_facts = require("devloop.markers.facts")
 local M = {}
 
 M.STATUS_RESULT_READY = "result_ready"
+M.STATUS_SATISFIED_UNVERIFIED = "satisfied_unverified"
 M.STATUS_FATAL = "fatal"
 M.STATUS_RECOVERABLE = "recoverable"
 M.STATUS_RUNNING = "running"
@@ -140,6 +141,19 @@ function M.child_result_status(deps, child_ref)
   end
   if native_merged then
     return M.STATUS_RESULT_READY, { merged = true }
+  end
+
+  local refusal, refusal_ok = call_reader(deps.implementation_refusal, child_ref)
+  if not refusal_ok then
+    return M.STATUS_UNKNOWN
+  end
+  if type(refusal) == "table" then
+    if refusal.reason == "already-satisfied" then
+      return M.STATUS_SATISFIED_UNVERIFIED, {
+        implementation_refusal_reason = refusal.reason,
+      }
+    end
+    return M.STATUS_FATAL
   end
 
   local impl_failed_fatal = impl_failed_is_fatal(deps, child_ref)

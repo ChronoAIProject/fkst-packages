@@ -100,6 +100,19 @@ function S.safe_marker_attr(value, limit)
   return text
 end
 
+function S.bounded_xml_marker_attr(value, limit)
+  local text = tostring(value or "")
+  if limit ~= nil and #text > limit then
+    text = base_ids.truncate_utf8(text, limit)
+  end
+  return text:gsub("\r", " ")
+    :gsub("\n", " ")
+    :gsub("&", "&amp;")
+    :gsub('"', "&quot;")
+    :gsub("<", "&lt;")
+    :gsub(">", "&gt;")
+end
+
 function S.encode_exact_marker_attr(value)
   return (tostring(value or ""):gsub("([^%w%-%._~])", function(char)
     return string.format("%%%02X", string.byte(char))

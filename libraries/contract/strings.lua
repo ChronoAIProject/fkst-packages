@@ -5,6 +5,22 @@ function S.trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+function S.map_lines(value, transform)
+  local output = {}
+  local start = 1
+  while true do
+    local newline = value:find("\n", start, true)
+    if newline == nil then
+      table.insert(output, transform(value:sub(start)))
+      break
+    end
+    table.insert(output, transform(value:sub(start, newline - 1)))
+    table.insert(output, "\n")
+    start = newline + 1
+  end
+  return table.concat(output)
+end
+
 -- contract.strings.json_string is a temporary byte-identical stopgap for #976 only:
 -- canonical JSON encoding remains deferred to a dedicated encoder boundary.
 -- Keep this body matched to the folded github-devloop encode_json_string copies;
