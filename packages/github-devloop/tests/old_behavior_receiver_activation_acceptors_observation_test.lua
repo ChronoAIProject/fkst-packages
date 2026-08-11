@@ -576,8 +576,6 @@ local function capture_implement(fixture)
   local ok, result = pcall(testing.run_fake, implement_department, event)
   restore_all(restorations)
   if not ok then error(result, 0) end
-  t.eq(transition_lock_count(lock_calls), 0,
-    fixture.disposition .. ": implementation never enters a transition lock")
   local selected = nil
   for _, decision in ipairs(decisions) do
     if decision.outcome == fixture.cas then
@@ -592,7 +590,7 @@ local function capture_implement(fixture)
     lock_calls = lock_calls,
     effect_sequence = effect_sequence,
     adapter_writes = copy_value(github_model.writes),
-  }
+  }, transition_lock_count(lock_calls)
 end
 
 local function build_record(dept, fixture)
@@ -807,5 +805,10 @@ return {
 
   test_implement_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_site("implement", IMPLEMENT_FIXTURES, 8)
+  end,
+
+  test_implement_dispatch_admission_retains_transition_serialization = function()
+    local _, _, _, transition_lock_calls = capture_implement(IMPLEMENT_FIXTURES[8])
+    t.eq(transition_lock_calls, 1)
   end,
 }

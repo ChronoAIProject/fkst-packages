@@ -472,7 +472,6 @@ local function capture(fixture)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)
   ra.restore_all(restorations)
-  t.eq(transition_lock_calls, 0, fixture.disposition .. ": fix never enters a transition lock")
   if fixture.worktree_owner_role ~= nil then
     local destructive_calls = 0
     for _, write in ipairs(ports.git_model.writes) do
@@ -514,14 +513,16 @@ local function capture(fixture)
   fixture.effect_version = captured.applies[#captured.applies] and captured.applies[#captured.applies].version or nil
   fixture.issue_number = ISSUE_NUMBER
   return ra.record({ dept = "fix", fixture = fixture, result = result, captured = captured,
-    event = event, prefix = PREFIX, site = SITE, source_state = "fixing", boundary = "entry_acceptor" })
+    event = event, prefix = PREFIX, site = SITE, source_state = "fixing", boundary = "entry_acceptor" }),
+    transition_lock_calls
 end
 
 return {
   test_live_implement_owner_with_same_proposal_defers_without_touching_worktree = function()
-    local record = capture(live_implement_owner_fixture())
+    local record, transition_lock_calls = capture(live_implement_owner_fixture())
     t.eq(record.old_outcome.reason_code, "live-implement-owner")
     t.eq(#record.old_outcome.emitted_effects, 0)
+    t.eq(transition_lock_calls, 1, "fix live-run admission is serialized")
   end,
 
   test_fix_codex_and_publish_sinks_consume_exact_grants = function()
@@ -537,6 +538,13 @@ return {
     if not ok then error(failure, 0) end
     t.eq(verified[CODEX], true)
     t.eq(verified[PUSH], true)
+  end,
+
+  test_fix_dispatch_admission_retains_transition_serialization = function()
+    local _, transition_lock_calls = capture(
+      sink_probe_fixture("serialized-fix-dispatch", "review-reject")
+    )
+    t.eq(transition_lock_calls, 1)
   end,
 
   test_fix_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()

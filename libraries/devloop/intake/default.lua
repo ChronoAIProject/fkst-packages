@@ -18,6 +18,8 @@ local v_intake_candidate = require("devloop.validators.intake_candidate")
 local workflow_codex = require("workflow_internal.codex")
 local premise_correction = require("devloop.premise_correction")
 local devloop_prompts = require("devloop.prompts")
+local contract_time = require("contract.time")
+local entity_highwater = require("devloop.entity_highwater")
 
 local prompt = {
   template = [[You are the github-devloop intake judge.
@@ -286,36 +288,75 @@ local function apply_intake_decision(intake_class, intake_service_class, dept, r
   elseif is_tracking(parsed.action) then
     table.insert(apply_add, 1, devloop_base._tracking_label)
   end
-  devloop_logging.log_apply(dept, candidate.proposal_id, parsed.action, candidate.dedup_key, {
-    add = apply_add,
-    remove = apply_remove,
-  }, raised)
-  devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  if parsed.action == "escalate-to-class" then
-    local followup_comment = intake_class.build_intake_class_followup_comment_request(
-      repo,
-      issue_number,
-      candidate,
-      class_carrier,
-      "folded",
-      parsed.reason
-    )
-    local folded_label = intake_class.build_intake_class_folded_label_request(repo, issue_number, candidate)
-    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", followup_comment)
-    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", folded_label)
-    if class_carrier == nil then
-      local create_request = intake_class.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
-      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_create_request", create_request)
-    end
+  local planned_epoch = contract_time.iso_timestamp_epoch_seconds(current.updated_at)
+  if planned_epoch == nil then
+    error("github-devloop: intake-currency-missing: commit planning requires issue updatedAt")
   end
-  if is_enable(parsed.action) then
-    raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
-  elseif is_tracking(parsed.action) then
-    local label_request = requests_labels.build_intake_tracking_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
-    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
-  else
-    local label_request = intake_service_class.build_intake_service_class_label_request(repo, issue_number, candidate)
-    devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  local planned_currency = entity_highwater.commit_currency(
+    string.format("%020d", planned_epoch),
+    tostring(current.updated_at) .. "|" .. tostring(decision_dedup_key)
+  )
+  local commit_key = entity_highwater.commit_cache_key(gate.lock_key, "intake")
+  local accepted = entity_highwater.commit({
+    planned = planned_currency,
+    committed = planned_currency,
+    lock_key = gate.lock_key,
+    refresh = function()
+      local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
+      if view.exit_code ~= 0 then
+        error("github-devloop: gh-issue-view-failed: gh issue intake commit view failed: " .. tostring(view.stderr))
+      end
+      local fresh = parsers_issue.parse_issue_view_intake_judge(view.stdout)
+      local fresh_epoch = contract_time.iso_timestamp_epoch_seconds(fresh.updated_at)
+      if fresh_epoch == nil then
+        return nil
+      end
+      return entity_highwater.commit_currency(
+        string.format("%020d", fresh_epoch),
+        tostring(fresh.updated_at) .. "|" .. tostring(decision_dedup_key)
+      )
+    end,
+    load = function() return entity_highwater.commit_cache_load(commit_key) end,
+    store = function(committed) entity_highwater.commit_cache_store(commit_key, committed) end,
+    publish = function()
+      devloop_logging.log_apply(dept, candidate.proposal_id, parsed.action, candidate.dedup_key, {
+        add = apply_add,
+        remove = apply_remove,
+      }, raised)
+      devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+      if parsed.action == "escalate-to-class" then
+        local followup_comment = intake_class.build_intake_class_followup_comment_request(
+          repo,
+          issue_number,
+          candidate,
+          class_carrier,
+          "folded",
+          parsed.reason
+        )
+        local folded_label = intake_class.build_intake_class_folded_label_request(repo, issue_number, candidate)
+        devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", followup_comment)
+        devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", folded_label)
+        if class_carrier == nil then
+          local create_request = intake_class.build_intake_class_issue_create_request(repo, issue_number, candidate, current, parsed.reason, class_key)
+          devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_create_request", create_request)
+        end
+      end
+      if is_enable(parsed.action) then
+        raise_enable_successor(intake_service_class, dept, repo, issue_number, candidate, current, event.ts, decision_dedup_key)
+      elseif is_tracking(parsed.action) then
+        local label_request = requests_labels.build_intake_tracking_label_request(intake_service_class.intake_service_class_label_changes, repo, issue_number, candidate)
+        devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
+      else
+        local label_request = intake_service_class.build_intake_service_class_label_request(repo, issue_number, candidate)
+        devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_label_request", label_request)
+      end
+    end,
+  })
+  if not accepted then
+    devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = decision_dedup_key },
+      "candidate", parsed.action, "skip-stale(source-currency-changed)",
+      "issue intake inputs changed after effect planning")
+    return
   end
 end
 
@@ -342,6 +383,7 @@ local function act(intake_class, intake_service_class, event, opts)
   if gate == nil then
     return
   end
+  gate.lock_key = lock_key
 
   local ctx = {
     repo = repo,

@@ -433,7 +433,21 @@ local function reconcile_issue_event(event, opts)
   devloop_logging.log_entry("observe_issue", event, proposal_id, issue.dedup_key)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
-  local function process_issue_event(_, record_authoritative_version)
+  local commit_current = nil
+  local function refresh_commit_current()
+    if commit_current ~= nil then
+      return commit_current
+    end
+    local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
+      force_fresh = true,
+    })
+    if state_view.exit_code ~= 0 then
+      error("github-devloop: issue-commit-read-failed: gh issue commit view failed: " .. tostring(state_view.stderr))
+    end
+    commit_current = parsers_issue.parse_issue_view_state(state_view.stdout)
+    return commit_current
+  end
+  local function process_issue_event(_, record_authoritative_version, commit_effects)
     parsers_misc.assert_trusted_bot_configured()
 
     local state_view = devloop_entity_view.fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
@@ -680,10 +694,6 @@ local function reconcile_issue_event(event, opts)
       issue.number, current, proposal_id) then
       return
     end
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
-      "unmanaged", "thinking", decision.cas_outcome,
-      "starting consensus for opted-in issue")
-
     issue.content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "observe_issue",
       repo = issue.repo,
@@ -723,20 +733,47 @@ local function reconcile_issue_event(event, opts)
       table.insert(effects, { queue = effect_id, payload = payload })
     end
     local add_labels, remove_labels = devloop_state.state_label_changes("thinking")
-    devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, {
-      add = add_labels,
-      remove = remove_labels,
-    }, decision.granted_effect_ids)
-    for _, effect in ipairs(effects) do
-      devloop_logging.log_raise("observe_issue", proposal_id, effect.queue, effect.payload)
+    local lifecycle_accepted, lifecycle_reason
+    local highwater_accepted, highwater_reason = commit_effects(function()
+      lifecycle_accepted, lifecycle_reason = observe_issue_caps.restart_effects.commit_grant(
+        grant, snapshot, {
+          refresh_current = function()
+            if refresh_commit_current().updated_at ~= current.updated_at then
+              return false
+            end
+            return { state = state.state, version = grant_version }
+          end,
+          publish = function()
+            devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
+              "unmanaged", "thinking", decision.cas_outcome,
+              "starting consensus for opted-in issue")
+            devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, {
+              add = add_labels,
+              remove = remove_labels,
+            }, decision.granted_effect_ids)
+            for _, effect in ipairs(effects) do
+              devloop_logging.log_raise("observe_issue", proposal_id, effect.queue, effect.payload)
+            end
+          end,
+        })
+    end)
+    local rejection = highwater_accepted == false and highwater_reason or lifecycle_reason
+    if highwater_accepted == false or lifecycle_accepted == false then
+      if rejection ~= "source-currency-changed" then
+        error("github-devloop: observe-issue-effect-commit-rejected: " .. tostring(rejection))
+      end
+      devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
+        "unmanaged", "thinking", "skip-stale(source-currency-changed)",
+        "issue source changed before effect commit")
     end
-
-
   end
   return entity_highwater.reconcile({
     consumer = "github-devloop/observe_issue",
     enabled = options.highwater_enabled,
     event = event,
+    refresh_authoritative_version = function()
+      return refresh_commit_current().updated_at
+    end,
     work = process_issue_event,
   })
 end

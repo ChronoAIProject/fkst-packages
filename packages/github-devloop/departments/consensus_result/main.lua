@@ -223,7 +223,7 @@ local function granted_result_payloads(snapshot, decision, args)
     end
     payloads[effect_id] = payload
   end
-  return payloads
+  return payloads, grant
 end
 
 local function receive_consensus_request(event)
@@ -305,8 +305,25 @@ local function make_department(ports)
         consumer = "consensus_result",
         force_fresh = true,
       })
-      devloop_logging.log_forged_markers("consensus_result", reached.proposal_id, current.comments)
       local state = devloop_state.current_state(current.comments, reached.proposal_id)
+      local source_updated_at = current.updated_at
+      if type(source_updated_at) ~= "string" or source_updated_at == "" then
+        error("github-devloop: consensus-result-source-currency-missing: issue updated_at is required")
+      end
+      local function refresh_current_state()
+        local fresh = ports.github.read_issue({
+          kind = "external",
+          ref = repo .. "#issue/" .. tostring(issue_number),
+        }, {
+          consumer = "consensus_result",
+          force_fresh = true,
+        })
+        if fresh.updated_at ~= source_updated_at then
+          return false
+        end
+        return state
+      end
+      devloop_logging.log_forged_markers("consensus_result", reached.proposal_id, current.comments)
       local trusted_author_policy = github_author_policy.from_handle_policy(ports.github)
       if not github_author_policy.is_authorized(trusted_author_policy, current.author_login) then
         devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", "thinking", "skip-non-whitelisted-author", "issue author is not authorized for GitHub content")
@@ -356,17 +373,38 @@ local function make_department(ports)
             devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, "skip-idempotent(result effects complete)", "all declared result effects are derivable")
             return
           end
-          raise_result_effects(
-            repo,
-            issue_number,
-            reached,
-            current,
-            state,
-            gate,
-            "applied(result effects incomplete)",
-            decision.incoming_version,
-            to_state
-          )
+          local granted_payloads, grant = granted_result_payloads(snapshot, decision, {
+            core = core,
+            repo = repo,
+            issue_number = issue_number,
+            reached = reached,
+            to_state = to_state,
+          })
+          local accepted, rejection = consensus_result_caps.restart_effects.commit_grant(grant, snapshot, {
+            refresh_current = refresh_current_state,
+            publish = function()
+              raise_result_effects(
+                repo,
+                issue_number,
+                reached,
+                current,
+                state,
+                gate,
+                "applied(result effects incomplete)",
+                decision.incoming_version,
+                to_state,
+                granted_payloads
+              )
+            end,
+          })
+          if not accepted then
+            if rejection ~= "source-currency-changed" then
+              error("github-devloop: consensus-result-effect-commit-rejected: " .. tostring(rejection))
+            end
+            devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state,
+              "thinking", to_state, "skip-stale(source-currency-changed)",
+              "consensus result source changed before effect commit")
+          end
           return
         end
         devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "consensus result cannot advance current marker")
@@ -376,17 +414,31 @@ local function make_department(ports)
         devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "thinking state marker not yet visible")
         error("github-devloop: state-marker-pending: thinking state marker not yet visible for consensus result; retrying")
       end
-      devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "consensus decision=" .. tostring(reached.decision))
-
-      local granted_payloads = granted_result_payloads(snapshot, decision, {
+      local granted_payloads, grant = granted_result_payloads(snapshot, decision, {
         core = core,
         repo = repo,
         issue_number = issue_number,
         reached = reached,
         to_state = to_state,
       })
-      raise_result_effects(repo, issue_number, reached, current, state, gate,
-        decision.cas_outcome, decision.incoming_version, to_state, granted_payloads)
+      local accepted, rejection = consensus_result_caps.restart_effects.commit_grant(grant, snapshot, {
+        refresh_current = refresh_current_state,
+        publish = function()
+          devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state,
+            "thinking", to_state, decision.cas_outcome,
+            "consensus decision=" .. tostring(reached.decision))
+          raise_result_effects(repo, issue_number, reached, current, state, gate,
+            decision.cas_outcome, decision.incoming_version, to_state, granted_payloads)
+        end,
+      })
+      if not accepted then
+        if rejection ~= "source-currency-changed" then
+          error("github-devloop: consensus-result-effect-commit-rejected: " .. tostring(rejection))
+        end
+        devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state,
+          "thinking", to_state, "skip-stale(source-currency-changed)",
+          "consensus result source changed before effect commit")
+      end
     end
   end
 

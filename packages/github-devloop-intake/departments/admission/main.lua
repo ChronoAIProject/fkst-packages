@@ -88,13 +88,20 @@ local function admit_issue_event(context, event, entity)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
+  local poll_key = m_claims.claim_admission_poll_epoch(event)
+  local function read_current()
+    local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
+    return current
+  end
   return entity_highwater.reconcile({
     consumer = "github-devloop-intake/admission",
     event = event,
-    work = function(_, record_authoritative_version)
+    refresh_authoritative_version = function()
+      return read_current().updated_at
+    end,
+    work = function(_, record_authoritative_version, commit_effects)
       parsers_misc.assert_trusted_bot_configured()
-      local poll_key = m_claims.claim_admission_poll_epoch(event)
-      local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at, poll_key)
+      local current = read_current()
       record_authoritative_version(current.updated_at)
 
       devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
@@ -159,10 +166,12 @@ local function admit_issue_event(context, event, entity)
         local payload = correction ~= nil
           and admission_core.build_premise_correction_candidate(repo, issue, correction)
           or core.build_intake_admission_candidate(repo, issue, now())
-        devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-          "devloop_intake_candidate",
-        })
-        devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+        commit_effects(function()
+          devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
+            "devloop_intake_candidate",
+          })
+          devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+        end)
       end)
       if not epoch_current then
         devloop_logging.log_cas_decision(

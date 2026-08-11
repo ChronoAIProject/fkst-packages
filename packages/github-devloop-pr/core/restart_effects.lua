@@ -2,6 +2,8 @@ local core = require("core")
 local restart_effect_entitlements = require("devloop.restart_effect_entitlements")
 local restart_metadata = require("devloop.restart_metadata")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local entity_lib = require("devloop.entity")
+local entity_highwater = require("devloop.entity_highwater")
 
 local owner = core.restart_package_name
 local restart_authority = require("core.restart_authority")
@@ -90,6 +92,8 @@ local function complete_pr_grant_binding(record, decision_record)
     decision_status = decision_record.result.status,
     effect_entitlement_id = decision_record.entitlement.id,
     effect_ids = copy_array(decision_record.entitlement.effect_ids),
+    incoming_version = decision_record.result.incoming_version,
+    target_version = decision_record.result.target_version,
   }
 end
 
@@ -278,11 +282,79 @@ local function verify_pr_effect_grant(grant, expected_effect_id, expected_snapsh
   return true
 end
 
+local function pr_lifecycle_currency(state, version, fallback_order)
+  if state == nil then
+    return entity_highwater.commit_currency(fallback_order, "source:nil")
+  end
+  if not is_nonempty_string(state) or not is_nonempty_string(version) then
+    return nil
+  end
+  return entity_highwater.commit_currency(
+    restart_metadata.marker_order_key(version, state),
+    "state:" .. tostring(#state) .. ":" .. state .. ":version:" .. tostring(#version) .. ":" .. version
+  )
+end
+
+local function commit_pr_effect_grant(grant, expected_snapshot, opts)
+  local binding = issued_grants[grant]
+  local snapshot = pr_snapshot_record(expected_snapshot)
+  if binding == nil
+    or snapshot == nil
+    or binding.snapshot ~= expected_snapshot
+    or binding.committed == true
+    or type(opts) ~= "table"
+    or type(opts.refresh_current) ~= "function"
+    or type(opts.publish) ~= "function" then
+    return false, "grant-invalid"
+  end
+  for _, effect_id in ipairs(binding.effect_ids) do
+    if binding.remaining[effect_id] ~= 0 then
+      return false, "grant-effects-unconsumed"
+    end
+  end
+
+  local target_version = binding.target_version or binding.incoming_version or binding.version
+  local committed = pr_lifecycle_currency(binding.target, target_version)
+  if committed == nil then
+    error("github-devloop: restart-effect-commit-target-invalid: target state and version are required")
+  end
+  local source_state = snapshot.fields.current.state
+  local source_version = source_state == nil and nil or snapshot.fields.current.version
+  local planned = pr_lifecycle_currency(source_state, source_version, committed.order)
+  local lock_key = entity_lib.transition_lock_key(snapshot.fields.proposal_id)
+  if planned == nil or lock_key == nil then
+    error("github-devloop: restart-effect-commit-source-invalid: source currency and transition lock are required")
+  end
+  local cache_key = entity_highwater.commit_cache_key(lock_key, owner .. "-lifecycle")
+  local accepted, reason = entity_highwater.commit({
+    planned = planned,
+    committed = committed,
+    lock_key = lock_key,
+    refresh = function()
+      local current = opts.refresh_current()
+      if current == false then
+        return nil
+      end
+      local state = type(current) == "table" and current.state or nil
+      local version = state == nil and nil or current.version
+      return pr_lifecycle_currency(state, version, committed.order)
+    end,
+    load = function() return entity_highwater.commit_cache_load(cache_key) end,
+    store = function(value) entity_highwater.commit_cache_store(cache_key, value) end,
+    publish = opts.publish,
+  })
+  if accepted then
+    binding.committed = true
+  end
+  return accepted, reason
+end
+
 M.seal_snapshot = seal_pr_snapshot
 M.decide_transition = decide_pr_transition
 M.decide_receiver_dispatch = decide_pr_receiver_dispatch
 M.assert_decision_admissible = assert_pr_decision_admissible
 M.mint_grant = mint_pr_effect_grant
 M.verify_grant = verify_pr_effect_grant
+M.commit_grant = commit_pr_effect_grant
 
 return M

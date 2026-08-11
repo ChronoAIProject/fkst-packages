@@ -6,6 +6,98 @@ local strings = require("contract.strings")
 local H = {}
 local changed_queue = "github-proxy.github_entity_changed"
 
+local function valid_commit_currency(value)
+  return type(value) == "table"
+    and type(value.order) == "string"
+    and value.order ~= ""
+    and value.order:find("\n", 1, true) == nil
+    and type(value.token) == "string"
+    and value.token:find("\n", 1, true) == nil
+end
+
+function H.commit_currency(order, token)
+  local value = { order = tostring(order or ""), token = tostring(token or "") }
+  if not valid_commit_currency(value) then
+    error("devloop: optimistic-commit-currency-invalid: order and token must be single-line strings")
+  end
+  return value
+end
+
+local function same_commit_currency(left, right)
+  return valid_commit_currency(left)
+    and valid_commit_currency(right)
+    and left.order == right.order
+    and left.token == right.token
+end
+
+function H.commit_cache_key(lock_key, owner)
+  return base_ids.dedup_key({ tostring(lock_key), "optimistic-commit", tostring(owner) })
+end
+
+function H.commit_cache_load(key)
+  local raw = cache_get(key)
+  if type(raw) ~= "string" or raw == "" then
+    return nil
+  end
+  local split = raw:find("\n", 1, true)
+  if split == nil then
+    error("devloop: optimistic-commit-cache-invalid: committed currency is malformed")
+  end
+  return H.commit_currency(raw:sub(1, split - 1), raw:sub(split + 1))
+end
+
+function H.commit_cache_store(key, currency)
+  if not valid_commit_currency(currency) then
+    error("devloop: optimistic-commit-currency-invalid: committed currency is malformed")
+  end
+  cache_set(key, currency.order .. "\n" .. currency.token)
+end
+
+local function committed_after_plan(committed, planned)
+  if committed == nil then
+    return false
+  end
+  if committed.order ~= planned.order then
+    return committed.order > planned.order
+  end
+  return committed.token ~= planned.token
+end
+
+function H.commit(args)
+  if type(args) ~= "table"
+    or type(args.refresh) ~= "function"
+    or type(args.publish) ~= "function"
+    or type(args.load) ~= "function"
+    or type(args.store) ~= "function"
+    or type(args.lock_key) ~= "string"
+    or args.lock_key == ""
+    or not valid_commit_currency(args.planned)
+    or not valid_commit_currency(args.committed) then
+    error("devloop: optimistic-commit-arguments-invalid: complete commit arguments are required")
+  end
+  if args.committed.order < args.planned.order then
+    error("devloop: optimistic-commit-regression: committed currency cannot precede planned currency")
+  end
+
+  local fresh = args.refresh()
+  if not same_commit_currency(args.planned, fresh) then
+    return false, "source-currency-changed"
+  end
+
+  return with_lock(args.lock_key, function()
+    local latest = args.load()
+    if committed_after_plan(latest, args.planned) then
+      return false, "source-currency-changed"
+    end
+    args.publish()
+    if latest == nil or latest.order < args.committed.order
+      or (latest.order == args.committed.order and latest.token == args.committed.token) then
+      args.store(args.committed)
+    end
+    return true, nil
+  end)
+end
+
 local function parse_external_entity(source_ref)
   if type(source_ref) ~= "table" or source_ref.kind ~= "external" then
     return nil
@@ -101,23 +193,50 @@ local function run_work(args, context, prepared)
     end
   end
 
-  local result = args.work(prepared, record_authoritative_version)
-  local reconciled, reconciled_epoch = stored, stored_epoch
-  if context ~= nil and authoritative_epoch ~= nil then
-    -- Work always re-reads the external entity before producing effects. The only
-    -- shared mutable state owned here is this consumer-local high-water value, so
-    -- lock only its monotonic read-modify-write instead of the source reconciliation.
-    with_lock(context.key, function()
-      local latest = cache_get(context.key)
-      local latest_epoch = contract_time.iso_timestamp_epoch_seconds(latest)
-      if latest_epoch == nil or authoritative_epoch > latest_epoch then
-        cache_set(context.key, authoritative)
-        reconciled, reconciled_epoch = authoritative, authoritative_epoch
-      else
-        reconciled, reconciled_epoch = latest, latest_epoch
-      end
-    end)
+  local commit_attempted = false
+  local function currency(value)
+    local epoch = contract_time.iso_timestamp_epoch_seconds(value)
+    if epoch == nil then
+      return nil
+    end
+    return H.commit_currency(string.format("%020d", epoch), value)
   end
+  local function commit_effects(publish)
+    if type(publish) ~= "function" then
+      error("devloop: reconcile-effect-publisher-missing: commit_effects requires a publisher")
+    end
+    commit_attempted = true
+    if context == nil or authoritative_epoch == nil then
+      publish()
+      return true
+    end
+    local planned = currency(authoritative)
+    return H.commit({
+      planned = planned,
+      committed = planned,
+      lock_key = context.key,
+      refresh = function()
+        if type(args.refresh_authoritative_version) ~= "function" then
+          return planned
+        end
+        return currency(args.refresh_authoritative_version(prepared))
+      end,
+      load = function()
+        return currency(cache_get(context.key))
+      end,
+      store = function(committed)
+        cache_set(context.key, committed.token)
+      end,
+      publish = publish,
+    })
+  end
+
+  local result = args.work(prepared, record_authoritative_version, commit_effects)
+  if not commit_attempted and context ~= nil and authoritative_epoch ~= nil then
+    commit_effects(function() end)
+  end
+  local reconciled = context and cache_get(context.key) or stored
+  local reconciled_epoch = contract_time.iso_timestamp_epoch_seconds(reconciled)
   return {
     outcome = "reconciled",
     reconciled_updated_at = context ~= nil and reconciled_epoch ~= nil and reconciled or nil,

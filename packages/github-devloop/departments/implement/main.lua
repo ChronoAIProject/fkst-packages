@@ -799,7 +799,7 @@ local function process_ready_event(event)
   end
 
   local worktree, codex_started_at, exec_ref, receiver_authorization
-  do
+  with_lock(lock_key, function()
     local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision = precheck_implementation_write_gate(
       repo,
       issue_number,
@@ -835,7 +835,7 @@ local function process_ready_event(event)
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
     end
-  end
+  end)
   if worktree == nil then
     return
   end

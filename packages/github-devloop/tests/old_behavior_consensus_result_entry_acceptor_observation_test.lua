@@ -196,12 +196,25 @@ local function capture(fixture)
     issues = {
       [SOURCE_REF.ref] = {
         repo = REPO, number = ISSUE_NUMBER, title = "Consensus result entry fixture", body = "Entry fixture",
+        updated_at = "2026-06-03T01:02:03Z",
         state = "OPEN", labels = fixture.labels or (fixture.current_state and { "fkst-dev:" .. fixture.current_state } or {}),
         comments = comments, assignees = { "fkst-test-bot" }, author_login = fixture.author_login or "fkst-test-bot",
       },
     },
   })
   local github = github_fake.new(model)
+  if fixture.commit_updated_at ~= nil then
+    local read_issue = github.read_issue
+    local read_count = 0
+    github.read_issue = function(...)
+      read_count = read_count + 1
+      local current = read_issue(...)
+      if read_count > 1 then
+        current.updated_at = fixture.commit_updated_at
+      end
+      return current
+    end
+  end
   local department = consensus_result_module.make_department({ github = github, git = {} })
   department.ports = { github = github }
   department.model = model
@@ -239,5 +252,22 @@ return {
       dept = "consensus_result", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
       transform_committed_record = transform_projected_handoff_record,
     })
+  end,
+
+  test_consensus_result_discards_planned_effects_after_a_source_update = function()
+    local record = capture({
+      disposition = "skip-source-updated-before-commit",
+      status = "rejected",
+      reason = "source-currency-changed",
+      cas = "skip-stale(source-currency-changed)",
+      target = "ready",
+      source_line = 429,
+      current_state = "thinking",
+      current_version = VERSION,
+      commit_updated_at = "2026-06-03T01:02:04Z",
+      effects = ra.json_array(),
+    })
+    t.eq(#record.old_outcome.emitted_effects, 0)
+    t.eq(#record.old_outcome.observable_writes, 0)
   end,
 }

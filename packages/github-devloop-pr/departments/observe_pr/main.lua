@@ -652,7 +652,22 @@ local function reconcile_pr_event(event)
     }
   end
 
-  local function process_pr_event(prepared, record_authoritative_version)
+  local function refresh_commit_current(prepared)
+    if prepared.commit_current_pr ~= nil then
+      return prepared.commit_current_pr
+    end
+    local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
+      force_fresh = true,
+      consumer = "observe_pr",
+    })
+    if pr_view.exit_code ~= 0 then
+      error("github-devloop: gh-pr-commit-view-failed: gh pr commit view failed: " .. tostring(pr_view.stderr))
+    end
+    prepared.commit_current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
+    return prepared.commit_current_pr
+  end
+
+  local function process_pr_event(prepared, record_authoritative_version, commit_effects)
     local branches = prepared.branches
     local current_pr = prepared.current_pr
     local has_issue_origin = prepared.has_issue_origin
@@ -783,7 +798,6 @@ local function reconcile_pr_event(event)
     if maybe_redrive_not_mergeable_pr(origin, pr.number, current_pr, state, source_ref, issue_current) then
       return
     end
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", "applied", "writing PR-local reviewing marker")
     local grant = observe_pr_caps.restart_effects.mint_grant(
       snapshot, decision, "comment:pr:observe-reviewing")
     if grant == nil then
@@ -818,9 +832,35 @@ local function reconcile_pr_event(event)
     for _, effect in ipairs(effects) do
       table.insert(raised, effect.queue)
     end
-    devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", origin.impl_version, { add = {}, remove = {} }, raised)
-    for _, effect in ipairs(effects) do
-      devloop_logging.log_raise("observe_pr", origin.proposal_id, effect.queue, effect.payload)
+    local lifecycle_accepted, lifecycle_reason
+    local highwater_accepted, highwater_reason = commit_effects(function()
+      lifecycle_accepted, lifecycle_reason = observe_pr_caps.restart_effects.commit_grant(
+        grant, snapshot, {
+          refresh_current = function()
+            if refresh_commit_current(prepared).updated_at ~= current_pr.updated_at then
+              return false
+            end
+            return { state = state.state, version = grant_version }
+          end,
+          publish = function()
+            devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+              "pr-open", "reviewing", "applied", "writing PR-local reviewing marker")
+            devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing",
+              origin.impl_version, { add = {}, remove = {} }, raised)
+            for _, effect in ipairs(effects) do
+              devloop_logging.log_raise("observe_pr", origin.proposal_id, effect.queue, effect.payload)
+            end
+          end,
+        })
+    end)
+    local rejection = highwater_accepted == false and highwater_reason or lifecycle_reason
+    if highwater_accepted == false or lifecycle_accepted == false then
+      if rejection ~= "source-currency-changed" then
+        error("github-devloop: observe-pr-effect-commit-rejected: " .. tostring(rejection))
+      end
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+        "pr-open", "reviewing", "skip-stale(source-currency-changed)",
+        "PR source changed before effect commit")
     end
   end
 
@@ -828,6 +868,9 @@ local function reconcile_pr_event(event)
     consumer = "github-devloop-pr/observe_pr",
     event = event,
     prepare = prepare,
+    refresh_authoritative_version = function(prepared)
+      return refresh_commit_current(prepared).updated_at
+    end,
     work = process_pr_event,
   })
 end

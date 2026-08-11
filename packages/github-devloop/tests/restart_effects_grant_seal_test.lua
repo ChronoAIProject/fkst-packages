@@ -222,4 +222,25 @@ return {
     t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1]), true)
     t.eq(restart_effects.verify_grant(grant, APPLY_EFFECT_IDS[1]), false)
   end,
+
+  test_consumed_grant_rejects_publish_when_source_currency_changed = function()
+    local sealed = snapshot()
+    local decided = decision(sealed, "apply")
+    local grant = restart_effects.mint_grant(sealed, decided, AUTHORITATIVE_SINK)
+    for _, effect_id in ipairs(APPLY_EFFECT_IDS) do
+      t.eq(restart_effects.verify_grant(grant, effect_id, sealed), true)
+    end
+    local published = false
+    local accepted, reason = restart_effects.commit_grant(grant, sealed, {
+      refresh_current = function()
+        return { state = "ready", version = V_NEWER }
+      end,
+      publish = function()
+        published = true
+      end,
+    })
+    t.eq(accepted, false)
+    t.eq(reason, "source-currency-changed")
+    t.eq(published, false)
+  end,
 }

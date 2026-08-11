@@ -27,6 +27,7 @@ local function issue_stdout(current)
   return "{"
     .. quoted("title") .. ":" .. quoted(current.title) .. ","
     .. quoted("body") .. ":" .. quoted(current.body) .. ","
+    .. quoted("updatedAt") .. ":" .. quoted(current.updated_at) .. ","
     .. quoted("state") .. ":" .. quoted(current.state) .. ","
     .. quoted("labels") .. ":" .. named_array("name", current.labels) .. ","
     .. quoted("comments") .. ":[],"
@@ -39,6 +40,7 @@ local function current(extra)
   local value = {
     title = "Implement bounded work",
     body = "Add the requested behavior and regression coverage.",
+    updated_at = "2026-08-10T00:00:00Z",
     state = "OPEN",
     labels = {},
     assignees = { "fkst-test-bot" },
@@ -64,10 +66,8 @@ local function assert_before(events, earlier, later)
   t.is_true(first ~= nil and second ~= nil and first < second)
 end
 
--- `currents` is the sequence of issue snapshots the two reads observe: the gate read
--- that feeds the codex prompt, then the commit re-read that re-derives the decision
--- dedup key. A different title on the second snapshot models the issue being edited
--- while the codex was running.
+-- `currents` is the sequence observed by the prompt read, the post-codex planning
+-- read, and the pre-lock commit read. The final read validates the buffered effects.
 local function run_case(currents, action)
   local events = {}
   local raised = {}
@@ -124,9 +124,11 @@ local function run_case(currents, action)
     return { exit_code = 0, stdout = "decision", stderr = "" }
   end
   devloop_logging.log_raise = function(_dept, _proposal_id, queue, payload)
+    events[#events + 1] = in_lock and "raise-inside" or "raise-outside"
     raised[#raised + 1] = { queue = queue, payload = payload }
   end
   devloop_logging.log_apply = function()
+    events[#events + 1] = in_lock and "apply-inside" or "apply-outside"
     applied = applied + 1
   end
   requests_lifecycle.build_intake_decision_comment_request = function()
@@ -207,21 +209,27 @@ return {
   -- They are reads-for-decision over repo-wide search results and protect nothing this
   -- lock owns, so they now precede it.
   test_intake_runs_recurring_class_scans_before_the_commit_lock = function()
-    local events = run_case({ current(), current() }, "escalate-to-class")
+    local events = run_case({ current(), current(), current() }, "escalate-to-class")
     assert_before(events, "codex-outside", "closed-scan-outside")
     assert_before(events, "closed-scan-outside", "carrier-scan-outside")
     assert_before(events, "carrier-scan-outside", "read-2-outside")
+    assert_before(events, "read-2-outside", "read-3-outside")
+    assert_before(events, "read-3-outside", "lock-enter")
+    assert_before(events, "lock-enter", "apply-inside")
+    assert_before(events, "apply-inside", "raise-inside")
     t.is_nil(index_of(events, "read-1-inside"))
     t.is_nil(index_of(events, "read-2-inside"))
     t.is_nil(index_of(events, "closed-scan-inside"))
     t.is_nil(index_of(events, "carrier-scan-inside"))
-    t.is_nil(index_of(events, "lock-enter"))
+    t.is_nil(index_of(events, "read-3-inside"))
+    t.is_nil(index_of(events, "apply-outside"))
+    t.is_nil(index_of(events, "raise-outside"))
   end,
 
   -- Control: the escalation still publishes its full effect set, so hoisting the scans
   -- cannot be mistaken for suppressing the path.
   test_intake_escalation_still_publishes_its_effects = function()
-    local _events, raised, applied = run_case({ current(), current() }, "escalate-to-class")
+    local _events, raised, applied = run_case({ current(), current(), current() }, "escalate-to-class")
     t.is_true(#raised > 0)
     t.is_true(applied > 0)
   end,
@@ -234,6 +242,17 @@ return {
       { current(), current({ title = "Implement bounded work, revised" }) },
       "escalate-to-class"
     )
+    t.eq(#raised, 0)
+    t.eq(applied, 0)
+  end,
+
+  test_intake_discards_plan_when_currency_changes_after_the_planning_read = function()
+    local events, raised, applied = run_case({
+      current(),
+      current(),
+      current({ updated_at = "2026-08-10T00:00:01Z" }),
+    }, "escalate-to-class")
+    t.is_true(index_of(events, "read-3-outside") ~= nil)
     t.eq(#raised, 0)
     t.eq(applied, 0)
   end,

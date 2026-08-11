@@ -842,9 +842,9 @@ local function act_fix(event)
     return
   end
   local receiver_authorization = nil
-  do
+  with_lock(lock_key, function()
     receiver_authorization = pre_spawn_fix_attempt(repo, fix, attempt_plan)
-  end
+  end)
   if receiver_authorization == nil or receiver_authorization == false then
     return
   end
