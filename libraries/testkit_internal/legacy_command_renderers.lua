@@ -259,7 +259,7 @@ function M.new(rendering)
     end
 
     core.gh_pr_view_origin_cmd = core.gh_pr_view_origin_cmd or function(repo, number)
-      return gh_pr_view_command(repo, number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus")
+      return gh_pr_view_command(repo, number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,mergeCommit,comments,labels,author,mergeable,mergeStateStatus")
     end
     core.gh_pr_view_observe_cmd = core.gh_pr_view_observe_cmd or core.gh_pr_view_origin_cmd
     core.gh_pr_view_merge_cmd = core.gh_pr_view_merge_cmd or function(repo, number)

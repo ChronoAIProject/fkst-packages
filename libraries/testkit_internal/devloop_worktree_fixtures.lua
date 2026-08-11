@@ -548,7 +548,7 @@ function M.new(deps)
     local count = gh_argv.count_calls(t, needle)
     local alternate = nil
     if needle == "--json headRefName,headRefOid,baseRefName,state,comments" then
-      alternate = "--json title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus"
+      alternate = "--json title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,mergeCommit,comments,labels,author,mergeable,mergeStateStatus"
     end
     if alternate ~= nil then
       for _, call in ipairs(t.command_calls()) do

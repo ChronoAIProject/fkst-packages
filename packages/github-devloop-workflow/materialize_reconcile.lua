@@ -15,6 +15,7 @@ local child_status = require("core.materialize.child_status")
 local currency = require("core.materialize.currency")
 local discovery = require("core.materialize.discovery")
 local lease = require("core.materialize.lease")
+local verified_delivery = require("core.materialize.verified_delivery")
 
 local M = {}
 
@@ -526,11 +527,25 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
     return "created-marker"
   end
 
-  local decision = frontier.compute_frontier(
-    record.blueprint,
-    actions.ledger_for_frontier(repo, facts),
-    child_status.reader(core, deps, repo)
-  )
+  local ledger = actions.ledger_for_frontier(repo, facts)
+  local child_observer = child_status.observer(core, deps, repo)
+  local delivery = verified_delivery.new({
+    deps = deps,
+    repo = repo,
+    issue_number = issue_number,
+    origin = origin,
+    workflow = blueprint_fact.workflow,
+    blueprint_digest = current_digest,
+    ledger = ledger,
+    child_observer = child_observer,
+    refresh_child_observer = function()
+      return child_status.observer(core, deps, repo)
+    end,
+    satisfaction_facts = discovery.verified_satisfaction_facts(core, current, origin),
+    unit = unit,
+  })
+  local decision = frontier.compute_frontier(record.blueprint, ledger, delivery.child_status)
+  delivery.decorate_decision(decision)
   devloop_logging.log_line("info", M.DEPT, origin, "FRONTIER", {
     "action=" .. tostring(decision.action),
     "slot=" .. tostring(decision.slot or ""),
@@ -542,6 +557,18 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
     return "wait"
   end
   if decision.action == "terminal" then
+    if delivery.stage_verification(decision, unit) then
+      reconcile_active_projection(
+        repo,
+        issue_number,
+        origin,
+        terminal_fact,
+        current.labels,
+        label_projection,
+        unit
+      )
+      return "wait"
+    end
     if terminal_fact ~= nil
       and tostring(terminal_fact.state or "") == "blocked"
       and tostring(decision.state or "error") == "blocked" then

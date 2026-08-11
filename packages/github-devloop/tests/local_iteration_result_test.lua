@@ -1,6 +1,6 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
-local result = require("departments.implement.local_iteration_result")
+local result = require("devloop.local_iteration_result")
 
 local function classify(command_result)
   return result.from_command(command_result)

@@ -18,7 +18,14 @@ local M = {}
 -- An effect that genuinely IS authorized by labels does not rely on this token: it
 -- registers its own commit guard and re-validates that authorization against the
 -- fresh snapshot (see the irreversible done cleanup in materialize_reconcile).
-local PARTS = { "state", "assignees", "terminal", "blueprint", "materializations" }
+local PARTS = {
+  "state",
+  "assignees",
+  "terminal",
+  "blueprint",
+  "materializations",
+  "verified_satisfactions",
+}
 
 local function sorted_join(values)
   table.sort(values)
@@ -59,6 +66,22 @@ local function materializations_part(core, current, origin)
   return sorted_join(entries)
 end
 
+local function verified_satisfactions_part(core, current, origin)
+  local entries = {}
+  for _, fact in ipairs(discovery.verified_satisfaction_facts(core, current, origin)) do
+    entries[#entries + 1] = table.concat({
+      tostring(fact.workflow or ""),
+      tostring(fact.blueprint_digest or ""),
+      tostring(fact.slot or ""),
+      tostring(fact.child_issue or ""),
+      tostring(fact.predecessor_commit or ""),
+      tostring(fact.tree or ""),
+      tostring(fact.verification or ""),
+    }, "|")
+  end
+  return sorted_join(entries)
+end
+
 function M.origin_currency(core, current, origin)
   return {
     state = tostring(current and current.state or ""):upper(),
@@ -66,6 +89,7 @@ function M.origin_currency(core, current, origin)
     terminal = terminal_part(core, current, origin),
     blueprint = blueprint_part(core, current, origin),
     materializations = materializations_part(core, current, origin),
+    verified_satisfactions = verified_satisfactions_part(core, current, origin),
   }
 end
 

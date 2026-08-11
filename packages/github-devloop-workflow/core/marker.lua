@@ -2,6 +2,7 @@ local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
 local devloop_base = require("devloop.base")
 local fail = require("core.errors").fail
+local gitref = require("forge.gitref")
 
 local M = {}
 
@@ -45,6 +46,7 @@ local TERMINAL_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:terminal:
 local LABEL_PROJECTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:label%-projection:v1.-%-%->"
 local LINEAGE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
 local TRANSFER_ACCEPT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:transfer%-accept:v1.-%-%->"
+local VERIFIED_SATISFACTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:verified%-satisfaction:v1.-%-%->"
 
 local function attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
@@ -154,6 +156,50 @@ end
 
 local function validate_reason_code(value, path)
   return validate_attr(value, path, M.MAX_TERMINAL_REASON_CODE_BYTES)
+end
+
+local function validate_sha(value, path)
+  if not gitref.is_git_sha(value) then
+    return false, fail(path, "invalid_sha", "must be a bounded hexadecimal git object id")
+  end
+  return true, nil
+end
+
+local function validate_verified_satisfaction(value)
+  if type(value) ~= "table" then
+    return false, fail("fact", "not_table", "must be a table")
+  end
+  local ok, err = validate_origin(value.origin, "origin")
+  if not ok then return false, err end
+  ok, err = validate_workflow(value.workflow, "workflow")
+  if not ok then return false, err end
+  ok, err = validate_digest(value.blueprint_digest, "blueprint_digest")
+  if not ok then return false, err end
+  ok, err = validate_slot(value.slot, "slot")
+  if not ok then return false, err end
+  local child_issue
+  ok, err, child_issue = validate_child_issue(value.child_issue, "child_issue")
+  if not ok then return false, err end
+  if child_issue == "" then
+    return false, fail("child_issue", "empty", "must not be empty")
+  end
+  ok, err = validate_sha(value.predecessor_commit, "predecessor_commit")
+  if not ok then return false, err end
+  ok, err = validate_sha(value.tree, "tree")
+  if not ok then return false, err end
+  if value.verification ~= "PASS" then
+    return false, fail("verification", "not_pass", "must be PASS")
+  end
+  return true, nil, {
+    origin = value.origin,
+    workflow = value.workflow,
+    blueprint_digest = value.blueprint_digest,
+    slot = value.slot,
+    child_issue = child_issue,
+    predecessor_commit = value.predecessor_commit,
+    tree = value.tree,
+    verification = "PASS",
+  }
 end
 
 local function validate_issue_source_ref(value, path)
@@ -415,6 +461,62 @@ function M.latest_materialization_by_slot(facts)
     end
   end
   return by_slot
+end
+
+function M.build_verified_satisfaction_marker(value)
+  local ok, err, fact = validate_verified_satisfaction(value)
+  if not ok then return nil, err end
+  return '<!-- fkst:github-devloop-workflow:verified-satisfaction:v1 origin="' .. fact.origin
+    .. '" workflow="' .. fact.workflow
+    .. '" blueprint_digest="' .. fact.blueprint_digest
+    .. '" slot="' .. fact.slot
+    .. '" child_issue="' .. fact.child_issue
+    .. '" predecessor_commit="' .. fact.predecessor_commit
+    .. '" tree="' .. fact.tree
+    .. '" verification="' .. fact.verification
+    .. '" -->',
+    nil
+end
+
+local function verified_satisfaction_fact_from_marker(found, origin_proposal_id)
+  local ok, _, fact = validate_verified_satisfaction({
+    origin = attr(found, "origin"),
+    workflow = attr(found, "workflow"),
+    blueprint_digest = attr(found, "blueprint_digest"),
+    slot = attr(found, "slot"),
+    child_issue = attr(found, "child_issue"),
+    predecessor_commit = attr(found, "predecessor_commit"),
+    tree = attr(found, "tree"),
+    verification = attr(found, "verification"),
+  })
+  if not ok or fact.origin ~= tostring(origin_proposal_id) then
+    return nil
+  end
+  local canonical = M.build_verified_satisfaction_marker(fact)
+  if canonical ~= found then
+    return nil
+  end
+  return fact
+end
+
+function M.parse_verified_satisfaction_marker(comment_body, origin_proposal_id)
+  if type(comment_body) ~= "string" then
+    return nil
+  end
+  local ok = validate_origin(origin_proposal_id, "origin_proposal_id")
+  if not ok then
+    return nil
+  end
+  local latest = nil
+  for found in comment_body:gmatch(VERIFIED_SATISFACTION_MARKER_PATTERN) do
+    if attr(found, "origin") == tostring(origin_proposal_id) then
+      latest = found
+    end
+  end
+  if latest == nil then
+    return nil
+  end
+  return verified_satisfaction_fact_from_marker(latest, origin_proposal_id)
 end
 
 function M.build_terminal_marker(origin_proposal_id, terminal_state, reason_code)

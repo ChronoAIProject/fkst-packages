@@ -3,6 +3,7 @@ local core = h.core
 local t = h.t
 local sweep_bounds = require("devloop.sweep_bounds")
 local github_adapter = require("forge.github")
+local git_adapter = require("forge.git")
 local github = require("devloop.github_factory").production_handle
 local author_policy = require("testkit_internal.github_author_policy")
 
@@ -303,9 +304,14 @@ return {
       t.mock_command(core.mkdir_p_cmd("/tmp"), { stdout = "", stderr = "", exit_code = 0 })
       core.git_worktree_add_remote_branch("/tmp/wt", "origin", "feature/a", true, 43)
       core.git_push_branch("feature/a", 44)
+      local git = git_adapter.new(exec_argv)
+      git.head_tree("/tmp/wt", 45)
+      git.is_ancestor_worktree("/tmp/wt", "abc123", "def456", 46)
     end)
 
-    assert_argv_equal(calls[1].argv, { "git", "-C", "/tmp/wt", "status", "--porcelain" })
+    assert_argv_equal(calls[1].argv, {
+      "git", "-C", "/tmp/wt", "status", "--porcelain", "--untracked-files=all",
+    })
     assert_argv_equal(calls[2].argv, { "git", "rev-list", "--count", "abc123..refs/heads/feature/a" })
     assert_argv_equal(calls[3].argv, {
       "git",
@@ -318,6 +324,10 @@ return {
       "refs/remotes/origin/feature/a",
     })
     assert_argv_equal(calls[4].argv, { "git", "push", "origin", "feature/a" })
+    assert_argv_equal(calls[5].argv, { "git", "-C", "/tmp/wt", "rev-parse", "HEAD^{tree}" })
+    assert_argv_equal(calls[6].argv, {
+      "git", "-C", "/tmp/wt", "merge-base", "--is-ancestor", "abc123", "def456",
+    })
     for index, call in ipairs(calls) do
       t.eq(call.argv[1], "git")
       t.eq(call.timeout, index + 40)

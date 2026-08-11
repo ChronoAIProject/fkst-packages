@@ -5,7 +5,9 @@ local child_transfer_chain = require("core.child_transfer_chain")
 local commands = require("devloop.commands")
 local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
+local implementation_refusal = require("devloop.implementation_refusal")
 local devloop_marker_facts = require("devloop.markers.facts")
+local pr_safety = require("devloop.pr_safety")
 local devloop_state = require("devloop.state")
 local parsers_issue = require("devloop.parsers.issue")
 local parsers_pr = require("devloop.parsers.pr")
@@ -65,6 +67,7 @@ local function production_child_status_deps(core, repo, opts)
   local issue_cache = {}
   local pr_cache = {}
   local impl_failure_cache = {}
+  local current_state_cache = {}
 
   local function issue(child_ref)
     local number = tostring(child_ref.issue_number or child_ref.number or "")
@@ -119,6 +122,19 @@ local function production_child_status_deps(core, repo, opts)
     return impl_failure_cache[number]
   end
 
+  local function current_blocked_state(child_ref)
+    local number = tostring(child_ref.issue_number or child_ref.number or "")
+    if current_state_cache[number] == nil then
+      local child = issue(child_ref)
+      current_state_cache[number] = devloop_state.route_current(
+        child.comments,
+        child.proposal_id or child_ref.proposal_id,
+        { blocked = true }
+      )
+    end
+    return current_state_cache[number]
+  end
+
   local child_deps = {
     has_merged_marker = function(child_ref)
       local link = linked_pr(child_ref)
@@ -155,11 +171,7 @@ local function production_child_status_deps(core, repo, opts)
     end,
     irreversible_terminal = function(child_ref)
       local child = issue(child_ref)
-      local current = devloop_state.route_current(
-        child.comments,
-        child.proposal_id or child_ref.proposal_id,
-        { blocked = true }
-      )
+      local current = current_blocked_state(child_ref)
       if current.route == true then
         return true
       end
@@ -232,19 +244,59 @@ local function production_child_status_deps(core, repo, opts)
     }
   end
 
-  return child_deps, resolved_tip
+  return child_deps, resolved_tip, {
+    current_implementation_refusal = function(child_ref)
+      local tip = resolved_tip(child_ref)
+      local child = issue(tip)
+      local current = current_blocked_state(tip)
+      if current.route ~= true or current.version == nil then
+        return nil
+      end
+      return implementation_refusal.fact(
+        child.comments,
+        tip.proposal_id,
+        current.version,
+        impl_failure.latest_implement_attempt_fact(
+          child.comments,
+          tip.proposal_id,
+          current.version
+        )
+      )
+    end,
+    merged_pr = function(child_ref)
+      local tip = resolved_tip(child_ref)
+      local link = linked_pr(tip)
+      local current_pr = pr(link)
+      if not pr_is_merged(current_pr)
+        or not pr_safety.is_safe_head_sha(current_pr and current_pr.merge_commit_sha) then
+        return nil
+      end
+      return current_pr
+    end,
+  }
+end
+
+function M.observer(core, deps, repo)
+  local selected = deps or {}
+  if type(selected.child_status) == "function" then
+    return {
+      status = function(child_ref)
+        return selected.child_status(core, child_ref)
+      end,
+      current_implementation_refusal = selected.child_current_implementation_refusal
+        or function() return nil end,
+      merged_pr = selected.child_merged_pr or function() return nil end,
+    }
+  end
+  local child_deps, resolved_tip, inspection = production_child_status_deps(core, repo, selected)
+  inspection.status = function(child_ref)
+    return child_result.child_result_status(child_deps, resolved_tip(child_ref))
+  end
+  return inspection
 end
 
 function M.reader(core, deps, repo)
-  if type(deps.child_status) == "function" then
-    return function(child_ref)
-      return deps.child_status(core, child_ref)
-    end
-  end
-  local child_deps, resolved_tip = production_child_status_deps(core, repo, deps)
-  return function(child_ref)
-    return child_result.child_result_status(child_deps, resolved_tip(child_ref))
-  end
+  return M.observer(core, deps, repo).status
 end
 
 return M

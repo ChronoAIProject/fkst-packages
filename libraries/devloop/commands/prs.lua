@@ -42,7 +42,7 @@ local validators = require("devloop.commands.validators")
       return (github or support.github()).pr_cli_view(
         repo,
         pr_number,
-        "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus",
+        "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,mergeCommit,comments,labels,author,mergeable,mergeStateStatus",
         timeout
       )
     end)

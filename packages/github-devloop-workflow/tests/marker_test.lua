@@ -436,6 +436,49 @@ local tests = {
     t.eq(err.path, "successor_source_ref")
     t.eq(err.code, "same_as_predecessor")
   end,
+
+  test_verified_satisfaction_marker_round_trips_the_bound_postcondition = function()
+    local fact = {
+      origin = origin,
+      workflow = "software-feature-flow",
+      blueprint_digest = digest,
+      slot = "production-slice",
+      child_issue = "109",
+      predecessor_commit = "1111111111111111111111111111111111111111",
+      tree = "2222222222222222222222222222222222222222",
+      verification = "PASS",
+    }
+    local built, err = marker.build_verified_satisfaction_marker(fact)
+
+    t.is_nil(err)
+    local parsed = marker.parse_verified_satisfaction_marker("Verified.\n" .. built, origin)
+    for key, value in pairs(fact) do
+      t.eq(parsed[key], value, key)
+    end
+  end,
+
+  test_verified_satisfaction_marker_fails_closed_for_a_changed_binding = function()
+    local built = assert(marker.build_verified_satisfaction_marker({
+      origin = origin,
+      workflow = "software-feature-flow",
+      blueprint_digest = digest,
+      slot = "production-slice",
+      child_issue = "109",
+      predecessor_commit = "1111111111111111111111111111111111111111",
+      tree = "2222222222222222222222222222222222222222",
+      verification = "PASS",
+    }))
+
+    t.is_nil(marker.parse_verified_satisfaction_marker(built, origin .. "/other"))
+    t.is_nil(marker.parse_verified_satisfaction_marker(
+      built:gsub('verification="PASS"', 'verification="UNKNOWN"'),
+      origin
+    ))
+    t.is_nil(marker.parse_verified_satisfaction_marker(
+      built:gsub(' origin="', ' not_origin="' .. origin .. '" origin="'),
+      origin
+    ))
+  end,
 }
 
 return tests

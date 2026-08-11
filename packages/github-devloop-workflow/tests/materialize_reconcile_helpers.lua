@@ -201,15 +201,21 @@ local function run_with(fakes)
         end
         return result
       end,
+      child_current_implementation_refusal = fake.child_current_implementation_refusal,
+      child_merged_pr = fake.child_merged_pr,
+      current_checkout = fake.current_checkout,
+      is_ancestor = fake.is_ancestor,
+      run_local_iteration = fake.run_local_iteration,
       load_blueprints = function()
         if fake.workflow_missing then
           return { valid = {} }
         end
+        local selected = fake.blueprint or blueprint()
         return {
           valid = {
-            ["workflow-one"] = {
+            [selected.id] = {
               path = "test-workflow.json",
-              blueprint = fake.blueprint or blueprint(),
+              blueprint = selected,
             },
           },
         }

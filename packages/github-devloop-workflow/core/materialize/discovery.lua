@@ -163,4 +163,18 @@ function M.materialization_facts(core, current, origin)
   return facts
 end
 
+function M.verified_satisfaction_facts(core, current, origin)
+  local facts = {}
+  for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
+    local fact = marker.parse_verified_satisfaction_marker(
+      parsers_misc.comment_body(comment),
+      origin
+    )
+    if fact ~= nil then
+      facts[#facts + 1] = fact
+    end
+  end
+  return facts
+end
+
 return M

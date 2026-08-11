@@ -11,6 +11,7 @@ local marker = require("core.marker")
 local materialize_reconcile = require("materialize_reconcile")
 local materialization = require("core.materialization")
 local select_request = require("core.select_request")
+local verified_satisfaction = require("core.verified_satisfaction")
 local default_intake = require("devloop.intake.default")
 local intake_class = require("core.intake_class")
 local intake_service_class = require("core.intake_service_class")
@@ -51,6 +52,7 @@ M = {
   marker = marker,
   materialize_reconcile = materialize_reconcile,
   materialization = materialization,
+  verified_satisfaction = verified_satisfaction,
   default_intake = default_intake,
   conformance_errors = conformance_errors,
 }

@@ -192,6 +192,26 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
   })
 end
 
+function M.verified_satisfaction_request(repo, issue_number, origin, fact)
+  local built, err = marker.build_verified_satisfaction_marker(fact)
+  if built == nil then
+    error("github-devloop-workflow: verified-satisfaction-marker-build-failed: "
+      .. tostring(err and err.code or "unknown"))
+  end
+  local body = "Workflow postcondition verified for current tree `" .. tostring(fact.tree)
+    .. "` with predecessor commit `" .. tostring(fact.predecessor_commit) .. "` in its history.\n\n"
+    .. built
+  return build_comment_request(repo, issue_number, origin, body, {
+    "verified-satisfaction",
+    tostring(fact.workflow),
+    tostring(fact.blueprint_digest),
+    tostring(fact.slot),
+    tostring(fact.child_issue),
+    tostring(fact.predecessor_commit),
+    tostring(fact.tree),
+  })
+end
+
 function M.terminal_projection_state(terminal_fact)
   local terminal_state = tostring(terminal_fact and terminal_fact.state or "")
   if terminal_state == "blocked" or terminal_state == "error" then

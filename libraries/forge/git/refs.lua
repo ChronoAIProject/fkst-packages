@@ -42,6 +42,14 @@ local function is_ancestor_worktree_branch_argv(worktree, maybe_ancestor_sha, br
   }
 end
 
+local function is_ancestor_worktree_argv(worktree, maybe_ancestor_sha, descendant_sha)
+  return {
+    "git", "-C", tostring(worktree), "merge-base", "--is-ancestor",
+    gitref.require_safe_sha("ancestor sha", maybe_ancestor_sha, "forge.git"),
+    gitref.require_safe_sha("descendant sha", descendant_sha, "forge.git"),
+  }
+end
+
 local function fetch_branch_argv(remote, branch)
   return { "git", "fetch", tostring(remote), tostring(branch) }
 end
@@ -278,7 +286,7 @@ local function empty_commit_message_argv(worktree, message)
 end
 
 local function status_porcelain_argv(worktree)
-  return worktree_argv(worktree, "status", "--porcelain")
+  return worktree_argv(worktree, "status", "--porcelain", "--untracked-files=all")
 end
 
 local function clean_fd_argv(worktree)
@@ -308,6 +316,10 @@ end
 
 local function head_sha_argv(worktree)
   return worktree_argv(worktree, "rev-parse", "HEAD")
+end
+
+local function head_tree_argv(worktree)
+  return worktree_argv(worktree, "rev-parse", "HEAD^{tree}")
 end
 
 local function remote_ahead_count_argv(upstream, integration)
@@ -400,6 +412,15 @@ function M.install(handle)
       is_ancestor_worktree_branch_argv(worktree, maybe_ancestor_sha, branch),
       timeout,
       "git merge-base --is-ancestor worktree branch"
+    )
+  end
+
+  function handle.is_ancestor_worktree(worktree, maybe_ancestor_sha, descendant_sha, timeout)
+    return exec_result(
+      handle,
+      is_ancestor_worktree_argv(worktree, maybe_ancestor_sha, descendant_sha),
+      timeout,
+      "git merge-base --is-ancestor worktree"
     )
   end
 
@@ -500,6 +521,10 @@ function M.install(handle)
 
   function handle.head_sha(worktree, timeout)
     return exec_result(handle, head_sha_argv(worktree), timeout, "git rev-parse HEAD")
+  end
+
+  function handle.head_tree(worktree, timeout)
+    return exec_result(handle, head_tree_argv(worktree), timeout, "git rev-parse HEAD tree")
   end
 
   function handle.merge_no_ff(worktree, sha, timeout)
