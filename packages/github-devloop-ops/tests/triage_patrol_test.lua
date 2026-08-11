@@ -1,6 +1,7 @@
 local t = fkst.test
 local base_ids = require("devloop.base_ids")
 local core = require("core")
+local dashboard_contract = require("devloop.dashboard")
 local github_issue_create = require("contract.github_issue_create")
 local transition_version = require("contract.transition_version")
 local content_filter = require("forge.github.content_filter")
@@ -14,6 +15,7 @@ local repo = "o/" .. string.rep("r", base_ids.max_repo_key_len - 2)
 local host_login = string.rep("h", base_ids.max_key_len)
 local peer_login = "peer-bot"
 local receipt_marker_prefix = "fkst:github-devloop-ops:triage-patrol-receipt:v1"
+local dashboard_issue_number = 2578
 
 local function proposal_id(issue_number)
   return "github-devloop/issue/" .. repo .. "/" .. tostring(issue_number)
@@ -37,6 +39,14 @@ local function issue_fixture(number, author_login, labels, comments)
     comments = comments,
     author = { login = author_login },
   }
+end
+
+local function dashboard_fixture(author_login)
+  local issue = issue_fixture(dashboard_issue_number, author_login, { dashboard_contract.label }, {})
+  issue.title = dashboard_contract.title
+  issue.body = "# " .. dashboard_contract.title .. "\n\n"
+    .. dashboard_contract.marker("fixture", "2026-08-11T00:00:00Z")
+  return issue
 end
 
 local function has_label(issue, expected)
@@ -95,8 +105,6 @@ end
 
 local function install_receipt_lifecycle(github, model)
   model.receipt_closes = {}
-  model.receipt_creates = {}
-  model.next_receipt_number = 911
   github.api_paginate_slurp = function(path, timeout)
     t.eq(path, "repos/" .. repo .. "/issues?state=open&per_page=" .. "100")
     t.eq(timeout, core.observability_limits().call_timeout)
@@ -130,26 +138,6 @@ local function install_receipt_lifecycle(github, model)
       exit_code = 0,
     }
   end
-  github.api_method = function(method, path, fields, input_file, include_headers, timeout)
-    t.eq(method, "POST")
-    t.eq(path, "repos/" .. repo .. "/issues")
-    t.eq(fields, nil)
-    t.eq(include_headers, nil)
-    t.eq(timeout, core.observability_limits().call_timeout)
-    local payload = json.decode(file.read(input_file))
-    local issue_number = model.next_receipt_number
-    model.next_receipt_number = issue_number + 1
-    local issue = issue_fixture(issue_number, host_login, payload.labels, {})
-    issue.title = payload.title
-    issue.body = payload.body
-    model.issues[repo .. "#issue/" .. tostring(issue_number)] = issue
-    table.insert(model.receipt_creates, issue_number)
-    return {
-      stdout = '{"number":' .. tostring(issue_number) .. "}",
-      stderr = "",
-      exit_code = 0,
-    }
-  end
   github.issue_close = function(close_repo, issue_number, disposition, timeout)
     t.eq(close_repo, repo)
     t.eq(disposition.kind, "not_planned")
@@ -163,10 +151,15 @@ local function install_receipt_lifecycle(github, model)
   end
 end
 
-local function make_department(issues)
+local function make_department(issues, opts)
+  local model_issues = issues or {}
+  if not (opts and opts.dashboard == false) then
+    local dashboard_ref = repo .. "#issue/" .. tostring(dashboard_issue_number)
+    model_issues[dashboard_ref] = model_issues[dashboard_ref] or dashboard_fixture(host_login)
+  end
   local policy = content_filter.author_policy_from_logins({ host_login, peer_login })
   local model = github_fake.model({
-    issues = issues or {},
+    issues = model_issues,
     author_policy = policy,
   })
   local github = github_fake.new(model)
@@ -289,6 +282,36 @@ local function materialize(department, payload)
     queue = "triage_patrol_receipt_request",
     payload = payload,
   })
+end
+
+local function only_comment_request(result)
+  t.eq(#result.raises, 1)
+  t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request")
+  local payload = result.raises[1].payload
+  t.eq(payload.schema, "github-proxy.v1")
+  t.eq(payload.repo, repo)
+  t.eq(payload.issue_number, dashboard_issue_number)
+  t.eq(payload.source_ref.kind, "external")
+  t.eq(payload.source_ref.ref, repo .. "#issue/" .. tostring(dashboard_issue_number))
+  return payload
+end
+
+local function apply_comment_request(model, request)
+  local dashboard = model.issues[repo .. "#issue/" .. tostring(request.issue_number)]
+  t.is_true(dashboard ~= nil, "dashboard comment target must exist")
+  local marker = "<!-- fkst:github-proxy:comment:" .. tostring(request.dedup_key) .. " -->"
+  for _, existing in ipairs(dashboard.comments or {}) do
+    if tostring(existing.author and existing.author.login or "") == host_login
+      and tostring(existing.body or ""):find(marker, 1, true) ~= nil then
+      return existing
+    end
+  end
+  local written = {
+    author = { login = host_login },
+    body = request.body .. "\n\n" .. marker,
+  }
+  table.insert(dashboard.comments, written)
+  return written
 end
 
 local function receipt_at(department, clock)
@@ -501,9 +524,10 @@ return {
     local receipt_department = make_receipt_department(github)
 
     local request = only_receipt(run_read_only(department))
-    materialize(receipt_department, request)
+    local materialized = materialize(receipt_department, request)
 
     t.eq(request.entries, 0)
+    t.eq(#materialized.raises, 0)
     t.eq(model.issues[repo .. "#issue/901"].state, "CLOSED")
     t.eq(model.issues[repo .. "#issue/902"].state, "OPEN")
     t.eq(model.issues[repo .. "#issue/903"].state, "OPEN")
@@ -511,7 +535,7 @@ return {
     t.eq(model.receipt_closes[1], 901)
   end,
 
-  test_changed_snapshots_remain_retrievable_while_open_receipts_stay_bounded = function()
+  test_changed_snapshots_remain_retrievable_on_the_dashboard_with_no_open_receipts = function()
     local issue_number = 41
     local issue_ref = repo .. "#issue/" .. tostring(issue_number)
     local issue = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {})
@@ -519,6 +543,7 @@ return {
     local department, model, github = make_department({ [issue_ref] = issue })
     local receipt_department = make_receipt_department(github)
     local retained_versions = {}
+    local retained_digests = {}
 
     for round = 1, 3 do
       local version = proposal_id(issue_number) .. "/intake/2026-08-1" .. tostring(round) .. "T01-00-00Z"
@@ -526,9 +551,14 @@ return {
         comment(issue_number, "declined", version, host_login))
       local receipt = only_receipt(run_read_only(department))
       table.insert(retained_versions, version)
-      materialize(receipt_department, receipt)
+      table.insert(retained_digests, receipt.snapshot)
+      local comment_request = only_comment_request(materialize(receipt_department, receipt))
+      local carrier = apply_comment_request(model, comment_request)
 
-      t.eq(open_receipt_count(model), 1)
+      t.eq(open_receipt_count(model), 0)
+      t.eq(comment_request.dedup_key,
+        base_ids.dedup_key({ "triage-patrol-receipt", repo, receipt.snapshot }))
+      t.eq(carrier.body:find(receipt.snapshot, 1, true) ~= nil, true)
       t.is_true(receipt.body:find("marker_version=" .. version, 1, true) ~= nil)
       t.is_true(receipt.body:find("verdict=abstain", 1, true) ~= nil)
       t.is_true(receipt.body:find('snapshot="', 1, true) ~= nil)
@@ -537,18 +567,20 @@ return {
     table.insert(model.issues[issue_ref].comments,
       comment(issue_number, "thinking", proposal_id(issue_number) .. "/intake/2026-08-20T01-00-00Z", host_login))
     local empty = only_receipt(run_read_only(department))
-    materialize(receipt_department, empty)
+    local empty_result = materialize(receipt_department, empty)
 
     t.eq(empty.entries, 0)
+    t.eq(#empty_result.raises, 0)
     t.eq(open_receipt_count(model), 0)
-    t.eq(#model.receipt_closes, 3)
+    t.eq(#model.receipt_closes, 0)
+    local dashboard = model.issues[repo .. "#issue/" .. tostring(dashboard_issue_number)]
+    t.eq(#dashboard.comments, #retained_versions)
     for round, version in ipairs(retained_versions) do
-      local carrier = model.issues[repo .. "#issue/" .. tostring(model.receipt_creates[round])]
-      t.eq(carrier.state, "CLOSED")
+      local carrier = dashboard.comments[round]
       t.is_true(carrier.body:find(receipt_marker_prefix, 1, true) ~= nil)
       t.is_true(carrier.body:find("marker_version=" .. version, 1, true) ~= nil)
       t.is_true(carrier.body:find("verdict=abstain", 1, true) ~= nil)
-      t.is_true(carrier.body:find('snapshot="', 1, true) ~= nil)
+      t.is_true(carrier.body:find('snapshot="' .. retained_digests[round] .. '"', 1, true) ~= nil)
     end
   end,
 
@@ -573,19 +605,20 @@ return {
 
     t.eq(open_receipt_count(model), 0)
     for _, item in ipairs(pending) do
-      materialize(receipt_department, item.receipt)
+      apply_comment_request(model, only_comment_request(materialize(receipt_department, item.receipt)))
       t.is_true(item.receipt.body:find("marker_version=" .. item.version, 1, true) ~= nil)
     end
 
-    t.eq(open_receipt_count(model), 1)
-    t.eq(#model.receipt_creates, #pending)
+    t.eq(open_receipt_count(model), 0)
+    local dashboard = model.issues[repo .. "#issue/" .. tostring(dashboard_issue_number)]
+    t.eq(#dashboard.comments, #pending)
     for round, item in ipairs(pending) do
-      local carrier = model.issues[repo .. "#issue/" .. tostring(model.receipt_creates[round])]
+      local carrier = dashboard.comments[round]
       t.is_true(carrier.body:find("marker_version=" .. item.version, 1, true) ~= nil)
     end
   end,
 
-  test_materializer_replay_reuses_the_visible_snapshot_carrier = function()
+  test_materializer_replay_reuses_the_dashboard_comment_identity = function()
     local issue_number = 43
     local issue_ref = repo .. "#issue/" .. tostring(issue_number)
     local issue = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {
@@ -596,12 +629,15 @@ return {
     local receipt_department = make_receipt_department(github)
     local request = only_receipt(run_read_only(department))
 
-    materialize(receipt_department, request)
-    materialize(receipt_department, request)
+    local first = only_comment_request(materialize(receipt_department, request))
+    local second = only_comment_request(materialize(receipt_department, request))
+    apply_comment_request(model, first)
+    apply_comment_request(model, second)
 
-    t.eq(#model.receipt_creates, 1)
+    t.eq(first.dedup_key, second.dedup_key)
     t.eq(#model.receipt_closes, 0)
-    t.eq(open_receipt_count(model), 1)
+    t.eq(open_receipt_count(model), 0)
+    t.eq(#model.issues[repo .. "#issue/" .. tostring(dashboard_issue_number)].comments, 1)
   end,
 
   test_materializer_rejects_invalid_requests_before_write_mode_branching = function()
@@ -615,6 +651,63 @@ return {
 
     t.eq(ok, false)
     t.is_true(tostring(err):find("triage-patrol-receipt-request-invalid", 1, true) ~= nil)
+
+    local string_cases = {
+      { entries = "0", snapshot = "", body = "" },
+      {
+        entries = "1",
+        snapshot = string.rep("a", 64),
+        body = table.concat({
+          "Triage patrol audit receipt.",
+          "",
+          '<!-- ' .. receipt_marker_prefix .. ' repo="' .. repo
+            .. '" snapshot="' .. string.rep("a", 64) .. '" entries="1" -->',
+        }, "\n"),
+      },
+    }
+    for _, case in ipairs(string_cases) do
+      local string_ok, string_err = pcall(core.validate_triage_patrol_receipt_request, {
+        schema = "github-devloop-ops.triage-patrol-receipt.v1",
+        repo = repo,
+        title = "Triage patrol audit receipt",
+        entries = case.entries,
+        snapshot = case.snapshot,
+        body = case.body,
+      }, repo)
+      t.eq(string_ok, false)
+      t.is_true(tostring(string_err):find("triage-patrol-receipt-request-invalid", 1, true) ~= nil)
+    end
+  end,
+
+  test_nonempty_materialization_requires_the_trusted_dashboard_before_closing_receipts = function()
+    local issue_number = 45
+    local issue_ref = repo .. "#issue/" .. tostring(issue_number)
+    local receipt = issue_fixture(904, host_login, {}, {})
+    receipt.title = "Triage patrol audit receipt"
+    receipt.body = table.concat({
+      "Triage patrol audit receipt.",
+      "",
+      '<!-- ' .. receipt_marker_prefix .. ' repo="' .. repo .. '" snapshot="10001" entries="1" -->',
+    }, "\n")
+    local attacker_dashboard = dashboard_fixture("attacker")
+    local issues = {
+      [issue_ref] = issue_fixture(issue_number, "another-account", { "fkst-dev:declined" }, {
+        comment(issue_number, "declined", proposal_id(issue_number) .. "/intake/v1", host_login),
+      }),
+      [repo .. "#issue/904"] = receipt,
+      [repo .. "#issue/" .. tostring(dashboard_issue_number)] = attacker_dashboard,
+    }
+    mock_env(64, "1")
+    local department, model, github = make_department(issues, { dashboard = false })
+    local receipt_department = make_receipt_department(github)
+    local request = only_receipt(run_read_only(department))
+
+    local ok, err = pcall(materialize, receipt_department, request)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("triage-patrol-dashboard-missing", 1, true) ~= nil)
+    t.eq(model.issues[repo .. "#issue/904"].state, "OPEN")
+    t.eq(#model.receipt_closes, 0)
   end,
 
   test_materializer_exhaustively_retires_more_than_one_search_page = function()
@@ -642,11 +735,15 @@ return {
     local department, model, github = make_department(issues)
     local receipt_department = make_receipt_department(github)
 
-    materialize(receipt_department, only_receipt(run_read_only(department)))
+    local request = only_comment_request(materialize(
+      receipt_department,
+      only_receipt(run_read_only(department))
+    ))
+    apply_comment_request(model, request)
 
     t.eq(#model.receipt_closes, 125)
-    t.eq(#model.receipt_creates, 1)
-    t.eq(open_receipt_count(model), 1)
+    t.eq(open_receipt_count(model), 0)
+    t.eq(#model.issues[repo .. "#issue/" .. tostring(dashboard_issue_number)].comments, 1)
   end,
 
   test_labeled_candidate_without_an_authorized_marker_is_omitted = function()
@@ -793,6 +890,7 @@ return {
     t.eq(receipt_department.spec.stall_window, "10m")
     t.eq(#receipt_department.spec.consumes, 1)
     t.eq(receipt_department.spec.consumes[1], "triage_patrol_receipt_request")
-    t.eq(#receipt_department.spec.produces, 0)
+    t.eq(#receipt_department.spec.produces, 1)
+    t.eq(receipt_department.spec.produces[1], "github-proxy.github_issue_comment_request")
   end,
 }

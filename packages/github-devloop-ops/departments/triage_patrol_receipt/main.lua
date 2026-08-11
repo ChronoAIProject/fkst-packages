@@ -7,7 +7,7 @@ local saga = require("workflow.saga")
 
 local spec = {
   consumes = { "triage_patrol_receipt_request" },
-  produces = {},
+  produces = { "github-proxy.github_issue_comment_request" },
   stall_window = "10m",
 }
 
@@ -20,21 +20,25 @@ local function make_department(handles)
       local repo = core.require_triage_patrol_repo()
       local payload = event.payload or {}
       core.validate_triage_patrol_receipt_request(payload, repo)
-      if config.write_mode() ~= "real" then
+      local mode = config.write_mode()
+      if mode ~= "real" then
         log.info("github-devloop-ops dept=triage_patrol_receipt tag=TRIAGE_RECEIPT_DRY_RUN"
           .. " snapshot=" .. tostring(payload.snapshot or "")
           .. " entries=" .. tostring(payload.entries or ""))
-        return
       end
       local host_login = core.require_triage_patrol_host_login()
       with_lock("github-devloop/triage-patrol-receipt/" .. base_ids.safe_repo(repo), function()
-        core.reconcile_triage_patrol_receipt(
+        local request = core.reconcile_triage_patrol_receipt(
           handles.github,
           repo,
           host_login,
           payload,
+          mode,
           core.observability_limits().call_timeout
         )
+        if request ~= nil then
+          raise("github-proxy.github_issue_comment_request", request)
+        end
       end)
     end,
     wrap = core.wrap_pipeline_failure,

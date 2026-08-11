@@ -1,7 +1,7 @@
 local base_ids = require("devloop.base_ids")
+local dashboard_contract = require("devloop.dashboard")
 local devloop_base = require("devloop.base")
 local entity_view = require("devloop.github_proxy_entity_view")
-local github_view = require("forge.github_view")
 local marker_shared = require("devloop.markers.shared")
 local parsers_misc = require("devloop.parsers.misc")
 local sha256 = require("contract.sha256")
@@ -15,8 +15,7 @@ local receipt_marker_pattern = "<!%-%- fkst:github%-devloop%-ops:triage%-patrol%
 local receipt_body_prefix = receipt_title .. ".\n\n"
 
 local function is_nonnegative_integer(value)
-  local number = tonumber(value)
-  return number ~= nil and number >= 0 and number % 1 == 0
+  return type(value) == "number" and value >= 0 and value % 1 == 0
 end
 
 local function is_snapshot_digest(value)
@@ -37,14 +36,14 @@ local function receipt_marker_fact(body, repo)
     local marker_repo = marker_shared.marker_attr(marker, "repo")
     local snapshot = marker_shared.marker_attr(marker, "snapshot")
     local entries = marker_shared.marker_attr(marker, "entries")
+    local entry_count = tostring(entries or ""):match("^%d+$") ~= nil and tonumber(entries) or nil
     if marker_repo == base_ids.safe_repo(repo)
       and strings.is_bounded_string(snapshot, base_ids.max_dedup_len)
       and is_retirable_snapshot(snapshot)
-      and tostring(entries or ""):match("^%d+$") ~= nil
-      and is_nonnegative_integer(entries) then
+      and is_nonnegative_integer(entry_count) then
       return {
         snapshot = snapshot,
-        entries = tonumber(entries),
+        entries = entry_count,
       }
     end
   end
@@ -56,18 +55,18 @@ local function validated_request(payload, repo)
     or payload.schema ~= receipt_schema
     or payload.repo ~= repo
     or base_ids.safe_repo(payload.repo) ~= payload.repo
+    or payload.title ~= receipt_title
     or not is_nonnegative_integer(payload.entries) then
     error("github-devloop-ops: triage-patrol-receipt-request-invalid: invalid receipt request")
   end
-  local entries = tonumber(payload.entries)
+  local entries = payload.entries
   if entries == 0 then
     if payload.snapshot ~= "" or payload.body ~= "" then
       error("github-devloop-ops: triage-patrol-receipt-request-invalid: empty receipt request carries content")
     end
     return payload
   end
-  if payload.title ~= receipt_title
-    or not is_snapshot_digest(payload.snapshot)
+  if not is_snapshot_digest(payload.snapshot)
     or type(payload.body) ~= "string" then
     error("github-devloop-ops: triage-patrol-receipt-request-invalid: populated receipt request is invalid")
   end
@@ -78,7 +77,7 @@ local function validated_request(payload, repo)
   return payload
 end
 
-local function list_open_receipts(github, repo, host_login, timeout)
+local function list_open_receipt_state(github, repo, host_login, timeout)
   if type(github) ~= "table" or type(github.api_paginate_slurp) ~= "function" then
     error("github-devloop-ops: triage-patrol-receipt-list-port-missing: receipt reconciliation requires paginated issue listing")
   end
@@ -98,15 +97,27 @@ local function list_open_receipts(github, repo, host_login, timeout)
     error("github-devloop-ops: triage-patrol-receipt-list-invalid: receipt listing returned invalid JSON")
   end
   local receipts = {}
+  local dashboard = nil
   local seen = {}
   for _, issue in ipairs(issues) do
     local issue_number = tonumber(issue.number)
     local fact = receipt_marker_fact(issue.body, repo)
+    local trusted = parsers_misc.canonical_login(issue.author_login)
+      == parsers_misc.canonical_login(host_login)
+    if issue_number ~= nil
+      and issue_number >= 1
+      and issue_number % 1 == 0
+      and trusted
+      and tostring(issue.title or "") == dashboard_contract.title
+      and dashboard_contract.is_anchor_body(issue.body)
+      and (dashboard == nil or issue_number < dashboard.number) then
+      dashboard = { number = issue_number }
+    end
     if issue_number ~= nil
       and issue_number >= 1
       and issue_number % 1 == 0
       and not seen[issue_number]
-      and parsers_misc.canonical_login(issue.author_login) == parsers_misc.canonical_login(host_login)
+      and trusted
       and fact ~= nil then
       seen[issue_number] = true
       table.insert(receipts, {
@@ -118,7 +129,7 @@ local function list_open_receipts(github, repo, host_login, timeout)
   table.sort(receipts, function(left, right)
     return left.number < right.number
   end)
-  return receipts
+  return dashboard, receipts
 end
 
 local function retire_receipt(github, repo, receipt, timeout)
@@ -134,48 +145,19 @@ local function retire_receipt(github, repo, receipt, timeout)
     .. " entries=" .. tostring(receipt.fact.entries))
 end
 
-local function write_receipt_input(core, payload)
-  local path = "/tmp/fkst-github-devloop-triage-patrol-" .. payload.snapshot .. ".json"
-  local body = core.with_github_debug_stamp(payload.body, {
-    emitter = "github-devloop-ops.triage-patrol-receipt",
-    target = "issue:" .. tostring(payload.repo) .. "#new",
-    dedup_key = payload.snapshot,
-  })
-  file.write(path, "{"
-    .. '"title":' .. github_view.json_value(payload.title)
-    .. ',"body":' .. github_view.json_value(body)
-    .. ',"labels":[]'
-    .. "}\n")
-  return path
-end
-
-local function create_receipt(core, github, payload, timeout)
-  if type(github.api_method) ~= "function" then
-    error("github-devloop-ops: triage-patrol-receipt-create-port-missing: receipt reconciliation requires issue creation")
-  end
-  local path = write_receipt_input(core, payload)
-  local created = github.api_method(
-    "POST",
-    "repos/" .. tostring(payload.repo) .. "/issues",
-    nil,
-    path,
-    nil,
-    timeout
-  )
-  if type(created) ~= "table" or created.exit_code ~= 0 then
-    error("github-devloop-ops: triage-patrol-receipt-create-failed: receipt creation failed: "
-      .. tostring(created and created.stderr or "missing result"))
-  end
-  local ok, decoded = pcall(json.decode, created.stdout or "")
-  local issue_number = ok and type(decoded) == "table" and tonumber(decoded.number) or nil
-  if issue_number == nil or issue_number < 1 or issue_number % 1 ~= 0 then
-    error("github-devloop-ops: triage-patrol-receipt-create-invalid: receipt creation returned no issue number")
-  end
-  entity_view.invalidate_entity_after_write(payload.repo, "issue", issue_number)
-  log.info("github-devloop-ops dept=triage_patrol_receipt tag=TRIAGE_RECEIPT_CREATED"
-    .. " issue=" .. tostring(issue_number)
-    .. " snapshot=" .. tostring(payload.snapshot)
-    .. " entries=" .. tostring(payload.entries))
+local function receipt_comment_request(repo, dashboard, payload)
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = dashboard.number,
+    body = payload.body,
+    dedup_key = base_ids.dedup_key({
+      "triage-patrol-receipt",
+      repo,
+      payload.snapshot,
+    }),
+    source_ref = base_ids.issue_source_ref(repo, dashboard.number),
+  }
 end
 
 function M.install(core)
@@ -236,20 +218,21 @@ function M.install(core)
     return validated_request(payload, repo)
   end
 
-  function core.reconcile_triage_patrol_receipt(github, repo, host_login, payload, timeout)
+  function core.reconcile_triage_patrol_receipt(github, repo, host_login, payload, mode, timeout)
     validated_request(payload, repo)
-    local retained = nil
-    for _, receipt in ipairs(list_open_receipts(github, repo, host_login, timeout)) do
-      if payload.entries > 0 and receipt.fact.snapshot == payload.snapshot and retained == nil then
-        retained = receipt
-      else
+    local dashboard, receipts = list_open_receipt_state(github, repo, host_login, timeout)
+    if payload.entries > 0 and dashboard == nil then
+      error("github-devloop-ops: triage-patrol-dashboard-missing: nonempty receipt requires the trusted dashboard")
+    end
+    if mode == "real" then
+      for _, receipt in ipairs(receipts) do
         retire_receipt(github, repo, receipt, timeout)
       end
     end
-    if payload.entries == 0 or retained ~= nil then
-      return
+    if payload.entries == 0 then
+      return nil
     end
-    create_receipt(core, github, payload, timeout)
+    return receipt_comment_request(repo, dashboard, payload)
   end
 end
 
