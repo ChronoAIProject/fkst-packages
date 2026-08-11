@@ -690,6 +690,27 @@ return {
     t.eq(malformed.decision, "eligible")
     t.eq(malformed.action, "receipt")
 
+    local incomplete_receipt = first.request.body:gsub(
+      ' terminal_authority="delegated%-fix%-reconcile:v1"',
+      ""
+    )
+    table.insert(parent.comments, bot_comment(incomplete_receipt, "2026-07-31T00:00:30Z"))
+    local incomplete = decide_delegated(parent, pr, children)
+    t.eq(incomplete.decision, "eligible")
+    t.eq(incomplete.action, "receipt")
+
+    local reconcile_receipt = '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
+      .. proposal_id
+      .. '" terminal_state="blocked" terminal_version="' .. delegated_parent_version
+      .. '" terminal_authority="reconcile:v1" action="drop"'
+      .. ' terminal_cause="no-semantic-progress" dwell_minutes="1440"'
+      .. ' decompose_check="no-proposal-pr-delegation-or-terminal-lineage-decomposed"'
+      .. ' operator_handling_check="no-post-terminal-human-comment" -->'
+    table.insert(parent.comments, bot_comment(reconcile_receipt, "2026-07-31T00:00:45Z"))
+    local wrong_authority = decide_delegated(parent, pr, children)
+    t.eq(wrong_authority.decision, "eligible")
+    t.eq(wrong_authority.action, "receipt")
+
     table.insert(parent.comments, bot_comment(first.request.body, "2026-07-31T00:01:00Z"))
     local unchanged = decide_delegated(parent, pr, children)
     t.eq(unchanged.decision, "eligible")

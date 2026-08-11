@@ -187,10 +187,7 @@ local function retirement_receipt_visible(comments, fact)
       if marker_shared.marker_attr(marker, "proposal") == fact.proposal_id
         and marker_shared.marker_attr(marker, "terminal_state") == fact.terminal_state
         and marker_shared.marker_attr(marker, "terminal_version") == fact.terminal_version then
-        if fact.terminal_authority ~= "reconcile:v1" then
-          if fact.terminal_authority ~= "delegated-fix-reconcile:v1" then
-            return true
-          end
+        if fact.terminal_authority == "delegated-fix-reconcile:v1" then
           if marker_shared.marker_attr(marker, "terminal_authority") == "delegated-fix-reconcile:v1"
             and marker_shared.marker_attr(marker, "action") == "drop"
             and marker_shared.marker_attr(marker, "delegated_pr") == tostring(fact.delegated_pr_number)
@@ -202,14 +199,17 @@ local function retirement_receipt_visible(comments, fact)
               == "no-post-terminal-human-comment-on-parent-or-pr" then
             return true
           end
-        end
-        if marker_shared.marker_attr(marker, "terminal_authority") == "reconcile:v1"
-          and marker_shared.marker_attr(marker, "action") == "drop"
-          and marker_shared.marker_attr(marker, "terminal_cause") == "no-semantic-progress"
-          and marker_shared.marker_attr(marker, "dwell_minutes") == tostring(fact.dwell_minutes)
-          and marker_shared.marker_attr(marker, "decompose_check")
-            == "no-proposal-pr-delegation-or-terminal-lineage-decomposed"
-          and marker_shared.marker_attr(marker, "operator_handling_check") == "no-post-terminal-human-comment" then
+        elseif fact.terminal_authority == "reconcile:v1" then
+          if marker_shared.marker_attr(marker, "terminal_authority") == "reconcile:v1"
+            and marker_shared.marker_attr(marker, "action") == "drop"
+            and marker_shared.marker_attr(marker, "terminal_cause") == "no-semantic-progress"
+            and marker_shared.marker_attr(marker, "dwell_minutes") == tostring(fact.dwell_minutes)
+            and marker_shared.marker_attr(marker, "decompose_check")
+              == "no-proposal-pr-delegation-or-terminal-lineage-decomposed"
+            and marker_shared.marker_attr(marker, "operator_handling_check") == "no-post-terminal-human-comment" then
+            return true
+          end
+        else
           return true
         end
       end
@@ -610,9 +610,16 @@ local function read_delegated_evidence(github, repo, issue, expected, limits, de
   if type(child_list) ~= "table" or child_list.exit_code ~= 0 then
     return { pr = pr }, nil
   end
+  local child_issues, child_observation = decompose.parse_decompose_child_issue_list(
+    child_list.stdout,
+    child_list.result_limit
+  )
+  if type(child_observation) ~= "table" or child_observation.complete ~= true then
+    return { pr = pr }, nil
+  end
   return {
     pr = pr,
-    child_issues = decompose.parse_decompose_child_issue_list(child_list.stdout),
+    child_issues = child_issues,
   }, nil
 end
 

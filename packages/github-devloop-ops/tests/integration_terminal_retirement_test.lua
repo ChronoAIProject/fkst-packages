@@ -162,6 +162,26 @@ local function delegated_child_issues()
   }
 end
 
+local function saturated_child_issues()
+  local issues = delegated_child_issues()
+  for index = 3, 100 do
+    table.insert(issues, {
+      number = 100 + index,
+      title = "Historical child " .. tostring(index),
+      state = "OPEN",
+      author_login = "fkst-test-bot",
+      body = decompose.decompose_child_marker(
+        proposal_id,
+        delegated_version .. "/historical/" .. tostring(index),
+        delegated_pr_number,
+        1
+      ),
+      url = "https://example.test/owner/repo/issues/" .. tostring(100 + index),
+    })
+  end
+  return issues
+end
+
 local function child_issue_list_stdout(issues)
   local rows = {}
   for _, issue in ipairs(issues or {}) do
@@ -714,6 +734,7 @@ return {
       { pr_comments = delegated_pr_comments(nil, { pr_link = false }), child_issues = delegated_child_issues() },
       { pr_comments = delegated_pr_comments({ human_comment }), child_issues = delegated_child_issues() },
       { pr_comments = delegated_pr_comments(), child_issues = duplicate_children },
+      { pr_comments = delegated_pr_comments(), child_issues = saturated_child_issues() },
       {
         pr_comments = delegated_pr_comments(nil, {
           reconcile_marker = conv_reconcile.review_reconcile_marker(
