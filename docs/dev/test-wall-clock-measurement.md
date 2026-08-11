@@ -220,3 +220,35 @@ distinguished the two).
 **Open question for whoever picks this up:** why does a `github-devloop` test cost 409 ms when a
 `github-proxy` test costs 69 ms? Answering it is worth more than any scheduling change measured
 above, and unlike those it requires nothing from the engine.
+
+## Correction: "ms/test" was the wrong unit, and cost tracks heavy primitives (r = 0.90)
+
+The addendum above frames the finding as "per-test cost varies 32x". That arithmetic is right and
+**the framing is wrong**, for the same reason hypothesis 3 was wrong: it assumes a test is a
+comparable unit of work. It is not. `github-devloop` contains 5680 `t.eq` and 1498 `t.is_true`
+calls — trivial — alongside 16 `t.run_department` invocations, which drive whole departments.
+
+Three candidate predictors of a unit's cost were tested against the CI timings (n = 22):
+
+| predictor | result |
+|---|---|
+| composed vs flat | composed median 249 ms/test vs flat 36 ms/test — but `frontend-devloop` has the **most** deps (9 packages) and is nearly the **cheapest** (0.2 s), so this is not the mechanism |
+| composed closure size in KB | **r = 0.21** — no useful signal. Largest closure (7232 KB) is nearly the cheapest unit; `github-devloop-intake` is 669 KB and among the most expensive per test |
+| **count of heavy test primitives** (`run_department`, `run_graph`, `fire_raiser`, `codex_runs`, `setup_worktree`, `mock_observe`) | **r = 0.90** (n = 20; two packages use none and are excluded) |
+
+`github-devloop` makes 193 heavy calls and costs 582.3 s. `github-proxy` makes 101 and costs 23.3 s.
+
+**So the lever for test cost is the number and price of heavy integration primitives, not the number
+of tests, not file organisation, and not composition.** That is actionable inside `packages/` and
+needs nothing from the engine — unlike every scheduling conclusion above.
+
+Limits, stated: the heavy-primitive count is a **lexical** count of call sites in test sources, not a
+runtime count of invocations; a loop or a helper would break it. Cost per heavy call still varies
+across packages (0.07 s to 4.59 s), so the count is a strong predictor and not a complete
+explanation. `r = 0.90` on n = 20 with a hand-picked primitive list is a **found** relationship, not
+a validated model — it should be checked against a runtime count before anything is built on it.
+
+**The methodological point is the durable one.** The single bias behind most of the refuted
+hypotheses in this document is assuming uniformity in a system that is concentrated everywhere. That
+bias reappeared here at the level of the **metric**: dividing by test count silently asserts tests
+are interchangeable. A per-unit number is only as good as the unit.
