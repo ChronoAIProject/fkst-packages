@@ -170,10 +170,11 @@ end
 
 return {
   test_claim_lost_logs_carriers_and_pending_operator_command = function()
+    local foreign_claim_label = "fkst-dev:claimed:peer outcome=applied"
     local event = issue({ labels = {
       "fkst-dev:enabled",
       "fkst-dev:impl-failed",
-      "fkst-dev:claimed",
+      foreign_claim_label,
     } })
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local version = payloads_builders.build_devloop_ready_payload(reached()).dedup_key
@@ -203,7 +204,8 @@ return {
       "claim-lost outcome missing from logs: " .. joined)
     t.is_true(joined:find("assignee_logins=fkst-test-bot", 1, true) ~= nil,
       "claim-lost assignees missing from logs: " .. joined)
-    t.is_true(joined:find("claim_labels=fkst-dev:claimed", 1, true) ~= nil,
+    t.eq(select(2, joined:gsub("outcome=", "")), 1)
+    t.is_true(joined:find("claim_labels=fkst-dev:claimed:peer%20outcome%3Dapplied", 1, true) ~= nil,
       "claim-lost labels missing from logs: " .. joined)
     t.is_true(joined:find("pending_operator_commands=reimplement", 1, true) ~= nil,
       "claim-lost command missing from logs: " .. joined)

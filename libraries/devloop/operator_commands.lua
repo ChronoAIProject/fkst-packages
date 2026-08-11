@@ -22,6 +22,10 @@ local issue_operator_command_names = {
   "reimplement",
   "dependency-waiver",
 }
+local issue_operator_command_name_set = {}
+for _, command_name in ipairs(issue_operator_command_names) do
+  issue_operator_command_name_set[command_name] = true
+end
 local rereview_state_modes = {
   blocked = "direct",
   ["review-meta"] = "direct",
@@ -122,7 +126,10 @@ end
 local function parse_command(body)
   local line = first_command_line(body)
   local command = line:match("^fkst:%s*([%w_-]+)")
-  if command == "rereview" or command == "reready" or command == "reimplement" then
+  if issue_operator_command_name_set[command] ~= true then
+    return nil
+  end
+  if command ~= "dependency-waiver" then
     return {
       command = command,
       output_obligation = parse_output_obligation_command(body, command),
@@ -519,10 +526,7 @@ end
 
 function C.operator_command_marker(command, outcome, reason)
   if type(command) ~= "table"
-    or (command.command ~= "rereview"
-      and command.command ~= "reready"
-      and command.command ~= "reimplement"
-      and command.command ~= "dependency-waiver") then
+    or issue_operator_command_name_set[command.command] ~= true then
     error("github-devloop: operator-command-marker-invalid: invalid operator command marker")
   end
   if outcome ~= "applied" and outcome ~= "refused" then

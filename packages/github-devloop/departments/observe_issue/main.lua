@@ -259,10 +259,10 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
       "skip-claim-lost",
       "CLAIM lost before managed issue handling",
       {
-        "assignee_logins=" .. table.concat(detail.assignee_logins or {}, ","),
-        "claim_labels=" .. table.concat(detail.claim_labels or {}, ","),
-        "pending_operator_commands=" .. table.concat(pending_command_names, ","),
-        "pending_operator_command_keys=" .. table.concat(pending_command_keys, ","),
+        { name = "assignee_logins", values = detail.assignee_logins or {} },
+        { name = "claim_labels", values = detail.claim_labels or {} },
+        { name = "pending_operator_commands", values = pending_command_names },
+        { name = "pending_operator_command_keys", values = pending_command_keys },
       }
     )
     return false
