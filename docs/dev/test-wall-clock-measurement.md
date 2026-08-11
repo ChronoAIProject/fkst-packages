@@ -292,3 +292,51 @@ Naming the bias did not prevent recurrence; it recurred twice after being named.
 time was **running a control that could falsify the current answer** — the null predictor, the rank
 statistic, the leave-one-out. A mechanical falsification step beats vigilance, because vigilance is
 what generated the number in the first place.
+
+## Partial explanation: a fixed graph-run cost, which accounts for the SMALL packages only
+
+One structural fact was missed above. `run_one_package` invokes the engine a **second** time, over a
+freshly rebuilt filtered root, for any package that has `tests/run_graph*_test.lua`. Packages
+without such tests skip it entirely — including two composed ones.
+
+That splits the 22 units far more cleanly than composed-vs-flat:
+
+| | median ms/test |
+|---|---:|
+| pays the graph run (12) | ~307 |
+| does not (10, incl. 2 composed) | ~34 |
+
+The two cheap composed packages are exactly the two that skip it: `frontend-devloop` (0.2 s total,
+9-package closure) and `github-devloop-ops` (92 ms/test). **So composed root construction is not
+inherently expensive — paying for a second engine invocation is.**
+
+**The control, run before claiming anything this time.** If a fixed graph cost `F` is amortised over
+a package's tests, then small graph-paying packages should total roughly `F`, and subtracting `F`
+should leave a residual comparable to non-graph packages. Small graph-paying packages cluster at
+1.1–3.4 s, giving `F ≳ 1.1 s`. Subtracting it:
+
+| package | raw ms/test | residual | tests |
+|---|---:|---:|---:|
+| marketing-radar | 155 | **0** | 7 |
+| integration-coverage-producer | 183 | 28 | 7 |
+| git-branch-detector | 99 | 21 | 14 |
+| archaudit | 33 | 23 | 109 |
+| **github-devloop** | **409** | **408** | 1424 |
+| **github-devloop-pr** | **435** | **434** | 717 |
+| **github-devloop-intake** | **707** | **693** | 73 |
+
+**Confirmed for small packages; refuted as a general explanation.** The fixed graph cost accounts for
+essentially all of the apparent "expensive per test" in packages with few tests. It accounts for
+almost none of it in the large devloop packages, which still cost **170–700 ms/test** after
+subtraction while non-devloop packages cost **23–92 ms/test**.
+
+Two limits, stated rather than smoothed over: `F` is treated as a constant and is not — subtracting
+1.1 s from `github-devloop-worktree-gc` yields a **negative** residual, so `F` must scale with what
+the root rebuild has to copy. And `github-devloop-ops` is devloop-family, skips the graph run, and is
+cheap (92 ms/test), so "devloop family" is not itself the explanation either.
+
+**The open question is narrower, not answered.** It is no longer "why does cost per test vary 32x" —
+much of that was one fixed cost divided by small denominators. It is: **after removing the graph-run
+cost, why does a test in the large devloop packages still cost 3–10x more than a test elsewhere?**
+Answering it needs per-test duration from the engine, which is the prerequisite this document keeps
+arriving at.
