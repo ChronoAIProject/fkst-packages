@@ -370,9 +370,7 @@ return {
       error(trace.consumer_result.message or "fire_raiser consumer failed")
     end
     t.eq(trace.consumer_result.status, "accepted")
-    t.eq(#trace.raised, 1)
-    t.eq(trace.raised[1].queue, "github-proxy.github_issue_create_request")
-    t.eq(trace.raised[1].payload.schema, "github-proxy.issue-create.v1")
+    t.eq(#trace.raised, 0)
   end,
 ]]))
     local output = run_child(root)

@@ -367,17 +367,15 @@ return {
     t.eq(#model.writes, 0)
   end,
 
-  test_zero_candidate_pass_still_emits_one_deduplicated_empty_receipt = function()
+  test_zero_admitted_rows_emit_no_receipt = function()
     mock_env(32)
     local department, model = make_department({})
 
-    local first = only_receipt(run_read_only(department))
-    local second = only_receipt(run_read_only(department))
+    local first = run_read_only(department)
+    local second = run_read_only(department)
 
-    t.eq(first.dedup_key, second.dedup_key)
-    t.eq(first.body, second.body)
-    t.is_true(first.body:find('entries="0"', 1, true) ~= nil)
-    t.eq(first.body:find("verdict=abstain", 1, true), nil)
+    t.eq(#first.raises, 0)
+    t.eq(#second.raises, 0)
     t.eq(#model.writes, 0)
   end,
 
@@ -390,10 +388,9 @@ return {
     mock_env(32)
     local department, model = make_department(issues)
 
-    local receipt = only_receipt(run_read_only(department))
+    local result = run_read_only(department)
 
-    t.is_true(receipt.body:find('entries="0"', 1, true) ~= nil)
-    t.eq(receipt.body:find(proposal_id(15), 1, true), nil)
+    t.eq(#result.raises, 0)
     t.eq(#model.writes, 0)
   end,
 

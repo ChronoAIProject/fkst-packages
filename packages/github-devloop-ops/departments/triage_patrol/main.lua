@@ -344,6 +344,9 @@ local function make_department(handles)
         receipt_cap
       )
       local rows = collect_snapshot(handles.github, repo, host_login, candidates, limits)
+      if #rows == 0 then
+        return
+      end
       local request = receipt_request(repo, rows)
       devloop_logging.log_raise(
         "triage_patrol",
