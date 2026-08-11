@@ -895,3 +895,156 @@ resolve to repo-root locations. The experiment above probes one known path, not 
 a confinement rollout would surface them as ENOENT failures rather than proving their absence first.
 
 ⟦AI:FKST⟧
+
+## The check pool does not have the package pool's ordering defect — measured, hypothesis discarded
+
+Ordering the package pool longest-first was worth doing because one unit was 91% of the span and
+started sixteenth. The obvious next move was to apply the same fix to `cmd_check`, whose 64 units are
+a hand-written literal list in no cost order. **It was measured and discarded.** The reasoning that
+motivated it is wrong for a pool with this shape, and the way it is wrong is worth recording.
+
+### First: the full per-unit cost table, which did not exist
+
+Each unit timed individually, serially, on the dogfood host:
+
+| unit | s | position in the list |
+|---|---:|---:|
+| `check_repo_test.py` | 56.96 | 24 |
+| `check_repo.py` | 40.44 | 1 |
+| `host_run_equivalence_test.py` | 29.56 | 50 |
+| `dogfood_board_test.py` | 23.51 | 57 |
+| `check_repo_restart_preflight_test.py` | 21.44 | 39 |
+| `check_repo_shell_out_to_self_test.py` | 13.17 | 32 |
+| `run_sh_test_affected_test.py` | 11.42 | 52 |
+| `doctor_test.py` | 8.77 | 61 |
+| remaining 56 units | 55.0 combined | — |
+| **serial sum** | **260.3** | |
+
+Top five = 171.9 s = **66.0%**, independently reproducing the 66% figure recorded earlier from CI.
+The costliest units sit at positions 24, 1, 50, 57 and 39 — scattered, three of them in the last
+third. That looks exactly like the package pool's defect.
+
+### It is not, and a schedule simulation shows why
+
+`run_units_parallel` is list scheduling: dispatch strictly in order, wait for a free slot. Simulating
+that algorithm on the measured durations — deterministic, and immune to the host noise that defeated
+the A/B below:
+
+| slots | baseline makespan | longest-first | longest unit starts at (baseline) | predicted change |
+|---:|---:|---:|---:|---:|
+| 8 (this host) | 57.6 s | 57.0 s | **0.6 s** | −0.6 s (**−1.1%**) |
+| 4 (CI) | 71.6 s | 65.1 s | 3.2 s | −6.6 s (−9.2%) |
+
+**The premise was wrong.** Position 24 is not a late start when the 23 units ahead of it are mostly
+milliseconds and there are 8 slots — the 57 s unit already begins at 0.6 s. The package pool's defect
+required a *coarse* unit distribution (22 units, one of them 91% of the work); this pool has a long
+tail of trivial units that drain instantly, so list order barely matters.
+
+### The A/B could not have settled it, and said so
+
+Three interleaved rounds on this host, first discarded as cold per the rule established above:
+
+| round | baseline | longest-first |
+|---:|---:|---:|
+| 1 (cold, discarded) | 91.8 s | 81.8 s |
+| 2 | 99.8 s | **101.3 s** |
+| 3 | 87.6 s | 78.8 s |
+
+Round 2 inverts. The noise is the same size as the effect the simulation predicts is barely there.
+Taking the medians would have reported −10.9% — a number the mechanism cannot produce at 8 slots.
+**That is the third time in this document a single-digit-round wall-clock comparison would have
+shipped a fictional figure**, and the second time the tell was available before shipping.
+
+### Why it was discarded even at 4 slots
+
+The 4-slot prediction is a real −6.6 s. It was still discarded, on worth rather than on effect: the
+ordering key would be **frozen measured data embedded as list order**. Unlike the package pool's key,
+which is recomputed from the tree on every run and therefore self-maintaining, a hand-ordered literal
+decays — every unit added afterwards lands at the end regardless of cost, and nothing detects the
+drift. Paying permanent maintenance and permanently noisier diffs on that list for ~6.6 s is the
+trade the WORTH gate exists to refuse.
+
+### What this opens instead
+
+The simulation predicts 57.6 s at 8 slots; the observed check phase on the same host is **79–101 s**,
+and CI's is 204.6 s against a 71.6 s prediction at 4 slots. **A gap of 1.4–2.9x that ordering does not
+explain.** The likeliest cause is that per-unit durations were measured *serially*, so each unit is
+slower under N-way parallelism than the table says — but that is `ASSUMED-UNVERIFIED`, and the earlier
+"mean concurrency 1.40, contention or packing defect UNKNOWN" observation is the same gap seen from
+the other side. That is where the check phase's remaining time actually is, and it is now the open
+question rather than list order.
+
+⟦AI:FKST⟧
+
+## Post-merge measurement of the ordering change: −5.0%, half the projection, and why
+
+The longest-first change was merged on a projection: the span sat 58.4 s above its makespan floor,
+that gap looked like the critical-path unit's start delay, so starting it first should recover it.
+CI's timing artifact makes the outcome measurable rather than projected. It did **not** recover the
+gap, it recovered **half** of it, and the missing half is a second-order effect the projection did not
+model.
+
+### Method
+
+Five dedicated-runner CI runs whose code state is known exactly — three before the change
+(`60527a57`, and the docs branches at `3289b124` / `c534002d`), two after (`f9fb6985` on dev and
+`83d3f1b7` on the change's own branch). Per-unit records come from the `fkst.test.unit_timing.v1`
+artifact.
+
+Raw spans are **uninterpretable**: the serial sum across the three "before" runs alone ranges
+906–1184 s, a 30% spread that swamps the effect. Every figure below is therefore normalised
+**within its own run** by that run's total over the 20 light units, which measures the runner's speed
+independently of how the two heavy units were scheduled.
+
+### The mechanism did exactly what it was designed to do
+
+| | before (alphabetical) | after (longest-first) |
+|---|---|---|
+| `github-devloop` dispatch position | 16 of 22 | **1** |
+| its start offset | 48.1 / 50.5 / 57.8 s | **0.0 / 0.0 s** |
+| span ÷ makespan floor | **1.11x** | **1.00x** |
+
+The pool now sits exactly at its floor: the span *is* the critical-path unit's duration, which is the
+optimum for this shape.
+
+### But the critical path itself got slower, consistently
+
+Normalised per run, so runner speed cannot explain it:
+
+| | `github-devloop` ÷ light | `github-devloop-pr` ÷ light |
+|---|---|---|
+| before (n=3) | 2.12, 2.04, 2.12 | 1.14, 1.08, 1.15 |
+| after (n=2) | **2.23, 2.20** | **1.23, 1.22** |
+
+**Every after-value exceeds every before-value, for both heavy units, with no overlap.** Ordering
+longest-first puts the two costliest units on the runner **simultaneously from t=0**, where before
+they overlapped only partially (`-pr` started at ~20 s, `github-devloop` at ~50 s). On a 4-core
+runner, two CPU-bound units started together slow each other by ~4% and ~8% respectively.
+
+**LPT assumes unit durations are independent of co-scheduling. Here they are not.** That assumption
+is invisible in the makespan formula and is why the projection was optimistic.
+
+### Net
+
+| | span ÷ light-unit work |
+|---|---:|
+| before | 2.329, 2.269, 2.348 → median **2.329** |
+| after | 2.227, 2.197 → median **2.212** |
+
+Again non-overlapping. **Net −5.0%**, decomposing as −9.9% of scheduling gain against +4.9% of
+co-scheduling penalty.
+
+**Stated limits:** n = 3 and 2. Non-overlapping ranges across independent runs on a shared CI fleet
+are a consistent signal, not a significance test. The co-scheduling penalty is *inferred* from the
+normalised ratios — the mechanism was not instrumented, and an alternative explanation in which
+longer units are simply more sensitive to runner variance is not excluded by this data.
+
+### What it opens
+
+If the penalty is real, the optimum is not pure LPT but a schedule that starts the critical-path unit
+at t=0 **without** placing the second-heaviest beside it — interleaving heavy units with light ones
+would keep the 1.00x floor while spreading contention. That is a further ~4%, it needs its own
+measurement rather than another projection, and it is worth recording that the first projection in
+this section was wrong by a factor of two in exactly the direction that flattered it.
+
+⟦AI:FKST⟧
