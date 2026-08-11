@@ -23,31 +23,32 @@ local function issue_comment_create_argv(repo, issue_number, body_file)
   }
 end
 
-local function comment_update_argv(repo, comment_id, body_file)
+local function require_comment_id(comment_id)
   if comment_id == nil or tostring(comment_id) == "" then
     error("forge.github.comments: comment-id-missing: invalid comment id")
   end
+  return tostring(comment_id)
+end
+
+local function comment_update_argv(repo, comment_id, body_file)
   return {
     "gh",
     "api",
     "--method",
     "PATCH",
-    "repos/" .. tostring(repo) .. "/issues/comments/" .. tostring(comment_id),
+    "repos/" .. tostring(repo) .. "/issues/comments/" .. require_comment_id(comment_id),
     "--field",
     "body=@" .. tostring(body_file),
   }
 end
 
 local function comment_get_argv(repo, comment_id)
-  if comment_id == nil or tostring(comment_id) == "" then
-    error("forge.github.comments: comment-id-missing: invalid comment id")
-  end
   return {
     "gh",
     "api",
     "--method",
     "GET",
-    "repos/" .. tostring(repo) .. "/issues/comments/" .. tostring(comment_id),
+    "repos/" .. tostring(repo) .. "/issues/comments/" .. require_comment_id(comment_id),
   }
 end
 
