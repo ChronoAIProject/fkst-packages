@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local forge_validators = require("devloop.forge_validators")
+local marker_attr = require("devloop.markers.shared").bounded_xml_marker_attr
 local operator_commands = require("devloop.operator_commands")
 local parsers_misc = require("devloop.parsers.misc")
 
@@ -15,19 +16,6 @@ local command_names = {
 }
 local function attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
-end
-
-local function marker_attr(value, limit)
-  local text = tostring(value or "")
-  if limit ~= nil and #text > limit then
-    text = base_ids.truncate_utf8(text, limit)
-  end
-  return text:gsub("\r", " ")
-    :gsub("\n", " ")
-    :gsub("&", "&amp;")
-    :gsub('"', "&quot;")
-    :gsub("<", "&lt;")
-    :gsub(">", "&gt;")
 end
 
 local function source_lineage_fact(fact, source_issue)
