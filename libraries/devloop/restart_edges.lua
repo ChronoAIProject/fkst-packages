@@ -4,6 +4,18 @@ local function is_nonempty_string(value)
   return type(value) == "string" and value ~= ""
 end
 
+local function validate_owner(owner)
+  if not is_nonempty_string(owner) then
+    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
+  end
+end
+
+local function validate_rows(rows)
+  if type(rows) ~= "table" then
+    error("devloop.restart_edges: rows-not-table: rows must be a table")
+  end
+end
+
 local function reserve_unique_edge_id(seen_ids, id)
   if seen_ids[id] then
     error("devloop.restart_edges: duplicate-edge-id: duplicate edge id " .. id)
@@ -22,6 +34,42 @@ end
 
 local function build_inventory_edge_id(owner, row_id, kind, semantic_variant)
   return owner .. "/" .. row_id .. "/" .. kind .. "/" .. semantic_variant
+end
+
+local function validate_authored_edge(authored, owner, expected_kind, context)
+  if type(authored) ~= "table" then
+    error("devloop.restart_edges: edge-declaration-not-table: " .. context .. " must be a table")
+  end
+  if authored.owner ~= owner then
+    error("devloop.restart_edges: edge-owner-mismatch: " .. context .. " owner must match extractor owner")
+  end
+  if not is_nonempty_string(authored.row_id) then
+    error("devloop.restart_edges: edge-row-id-invalid: " .. context .. " row_id must be a non-empty string")
+  end
+  if authored.kind ~= expected_kind then
+    error("devloop.restart_edges: edge-kind-mismatch: " .. context .. " kind must be " .. expected_kind)
+  end
+  if not is_nonempty_string(authored.semantic_variant) then
+    error("devloop.restart_edges: edge-semantic-variant-invalid: " .. context .. " semantic_variant must be a non-empty string")
+  end
+  if authored.semantic_variant:find("/", 1, true) ~= nil then
+    error("devloop.restart_edges: edge-semantic-variant-separator-forbidden: " .. context .. " semantic_variant must not contain /")
+  end
+end
+
+local function validate_authored_provenance(provenance, owner, context)
+  if type(provenance) ~= "table" then
+    error("devloop.restart_edges: edge-provenance-not-table: " .. context .. " provenance must be a table")
+  end
+  if provenance.owner ~= owner then
+    error("devloop.restart_edges: edge-provenance-owner-mismatch: " .. context .. " provenance.owner must match extractor owner")
+  end
+  if not is_nonempty_string(provenance.row) then
+    error("devloop.restart_edges: edge-provenance-row-invalid: " .. context .. " provenance.row must be a non-empty string")
+  end
+  if not is_nonempty_string(provenance.field) then
+    error("devloop.restart_edges: edge-provenance-field-invalid: " .. context .. " provenance.field must be a non-empty string")
+  end
 end
 
 local successor_kinds = {
@@ -58,15 +106,48 @@ local function responsibility_successors(row, required)
   return successors
 end
 
-local function validate_responsibility_successor(successor)
+local function validate_successor_identity(successor)
   if type(successor) ~= "table" or not is_nonempty_string(successor.state) then
     error("devloop.restart_edges: successor-state-invalid: successor.state must be a non-empty string")
   end
   if not is_nonempty_string(successor.output_variant) then
     error("devloop.restart_edges: successor-output-variant-invalid: successor.output_variant must be a non-empty string")
   end
+end
+
+local function validate_responsibility_successor(successor)
+  validate_successor_identity(successor)
   if successor_kinds[successor.kind] ~= true then
     error("devloop.restart_edges: responsibility-successor-kind-invalid: successor.kind must be autonomous, guard_boundary, or timeout")
+  end
+end
+
+local function guard_boundary_successors(guard_boundary)
+  if type(guard_boundary) ~= "table" or not is_nonempty_string(guard_boundary.name) then
+    error("devloop.restart_edges: guard-boundary-name-invalid: guard_boundary.name must be a non-empty string")
+  end
+  local successors = guard_boundary.successors
+  if type(successors) ~= "table" then
+    error("devloop.restart_edges: successor-list-not-table: guard_boundary.successors must be a table")
+  end
+  return successors
+end
+
+local function row_guard_boundaries(row)
+  local guard_boundaries = row.guard_boundaries
+  if guard_boundaries == nil then
+    return {}
+  end
+  if type(guard_boundaries) ~= "table" then
+    error("devloop.restart_edges: guard-boundaries-not-table: guard_boundaries must be a table")
+  end
+  return guard_boundaries
+end
+
+local function validate_guard_boundary_successor(successor)
+  validate_successor_identity(successor)
+  if successor.kind ~= nil and successor.kind ~= "guard_boundary" and successor.kind ~= "timeout" then
+    error("devloop.restart_edges: guard-boundary-successor-kind-invalid: guard boundary successor.kind must be guard_boundary, timeout, or nil")
   end
 end
 
@@ -147,6 +228,12 @@ local function attach_pending_order(edge, declaration, context)
   edge.pending_order = pending_order
 end
 
+local function attach_edge_metadata(edge, declaration, context)
+  attach_cas_metadata(edge, declaration, context)
+  attach_effect_entitlements(edge, declaration, context)
+  attach_pending_order(edge, declaration, context)
+end
+
 local function receiver_activations(row)
   local activations = type(row) == "table" and row.receiver_activations or nil
   if activations == nil then
@@ -187,37 +274,16 @@ local function timeout_policy_id(row)
 end
 
 function M.extract_entry_edges(owner, inventory, rows)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
+  validate_owner(owner)
   if type(inventory) ~= "table" then
     error("devloop.restart_edges: edge-inventory-not-table: entry inventory must be a table")
   end
-  if type(rows) ~= "table" then
-    error("devloop.restart_edges: rows-not-table: rows must be a table")
-  end
+  validate_rows(rows)
 
   local edges = {}
   local seen_ids = {}
   for _, authored in ipairs(inventory) do
-    if type(authored) ~= "table" then
-      error("devloop.restart_edges: edge-declaration-not-table: entry edge must be a table")
-    end
-    if authored.owner ~= owner then
-      error("devloop.restart_edges: edge-owner-mismatch: entry edge owner must match extractor owner")
-    end
-    if not is_nonempty_string(authored.row_id) then
-      error("devloop.restart_edges: edge-row-id-invalid: entry edge row_id must be a non-empty string")
-    end
-    if authored.kind ~= "entry" then
-      error("devloop.restart_edges: edge-kind-mismatch: entry edge kind must be entry")
-    end
-    if not is_nonempty_string(authored.semantic_variant) then
-      error("devloop.restart_edges: edge-semantic-variant-invalid: entry edge semantic_variant must be a non-empty string")
-    end
-    if authored.semantic_variant:find("/", 1, true) ~= nil then
-      error("devloop.restart_edges: edge-semantic-variant-separator-forbidden: entry edge semantic_variant must not contain /")
-    end
+    validate_authored_edge(authored, owner, "entry", "entry edge")
 
     local source = authored.source
     if type(source) ~= "table" then
@@ -234,18 +300,7 @@ function M.extract_entry_edges(owner, inventory, rows)
     end
 
     local provenance = authored.provenance
-    if type(provenance) ~= "table" then
-      error("devloop.restart_edges: edge-provenance-not-table: entry edge provenance must be a table")
-    end
-    if provenance.owner ~= owner then
-      error("devloop.restart_edges: edge-provenance-owner-mismatch: entry edge provenance.owner must match extractor owner")
-    end
-    if not is_nonempty_string(provenance.row) then
-      error("devloop.restart_edges: edge-provenance-row-invalid: entry edge provenance.row must be a non-empty string")
-    end
-    if not is_nonempty_string(provenance.field) then
-      error("devloop.restart_edges: edge-provenance-field-invalid: entry edge provenance.field must be a non-empty string")
-    end
+    validate_authored_provenance(provenance, owner, "entry edge")
     local id = build_inventory_edge_id(
       authored.owner,
       authored.row_id,
@@ -271,9 +326,7 @@ function M.extract_entry_edges(owner, inventory, rows)
         field = provenance.field,
       },
     }
-    attach_cas_metadata(edge, authored, "entry edge")
-    attach_effect_entitlements(edge, authored, "entry edge")
-    attach_pending_order(edge, authored, "entry edge")
+    attach_edge_metadata(edge, authored, "entry edge")
     table.insert(edges, edge)
   end
 
@@ -292,9 +345,7 @@ function M.extract_entry_edges(owner, inventory, rows)
         row = current_row_id,
         field = "receiver_activations",
       }
-      attach_cas_metadata(edge, activation, "entry receiver activation")
-      attach_effect_entitlements(edge, activation, "entry receiver activation")
-      attach_pending_order(edge, activation, "entry receiver activation")
+      attach_edge_metadata(edge, activation, "entry receiver activation")
       table.insert(edges, edge)
     end
   end
@@ -302,9 +353,7 @@ function M.extract_entry_edges(owner, inventory, rows)
 end
 
 function M.extract_operator_reentry_edges(owner, inventory)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
+  validate_owner(owner)
   if type(inventory) ~= "table" then
     error("devloop.restart_edges: edge-inventory-not-table: operator reentry inventory must be a table")
   end
@@ -312,24 +361,7 @@ function M.extract_operator_reentry_edges(owner, inventory)
   local edges = {}
   local seen_ids = {}
   for _, authored in ipairs(inventory) do
-    if type(authored) ~= "table" then
-      error("devloop.restart_edges: edge-declaration-not-table: operator reentry edge must be a table")
-    end
-    if authored.owner ~= owner then
-      error("devloop.restart_edges: edge-owner-mismatch: operator reentry edge owner must match extractor owner")
-    end
-    if not is_nonempty_string(authored.row_id) then
-      error("devloop.restart_edges: edge-row-id-invalid: operator reentry edge row_id must be a non-empty string")
-    end
-    if authored.kind ~= "operator_reentry" then
-      error("devloop.restart_edges: edge-kind-mismatch: operator reentry edge kind must be operator_reentry")
-    end
-    if not is_nonempty_string(authored.semantic_variant) then
-      error("devloop.restart_edges: edge-semantic-variant-invalid: operator reentry edge semantic_variant must be a non-empty string")
-    end
-    if authored.semantic_variant:find("/", 1, true) ~= nil then
-      error("devloop.restart_edges: edge-semantic-variant-separator-forbidden: operator reentry edge semantic_variant must not contain /")
-    end
+    validate_authored_edge(authored, owner, "operator_reentry", "operator reentry edge")
     local source = authored.source
     if type(source) ~= "table" then
       error("devloop.restart_edges: edge-source-not-table: operator reentry edge source must be a table")
@@ -359,18 +391,7 @@ function M.extract_operator_reentry_edges(owner, inventory)
     end
 
     local provenance = authored.provenance
-    if type(provenance) ~= "table" then
-      error("devloop.restart_edges: edge-provenance-not-table: operator reentry edge provenance must be a table")
-    end
-    if provenance.owner ~= owner then
-      error("devloop.restart_edges: edge-provenance-owner-mismatch: operator reentry edge provenance.owner must match extractor owner")
-    end
-    if not is_nonempty_string(provenance.row) then
-      error("devloop.restart_edges: edge-provenance-row-invalid: operator reentry edge provenance.row must be a non-empty string")
-    end
-    if not is_nonempty_string(provenance.field) then
-      error("devloop.restart_edges: edge-provenance-field-invalid: operator reentry edge provenance.field must be a non-empty string")
-    end
+    validate_authored_provenance(provenance, owner, "operator reentry edge")
     local id = build_inventory_edge_id(
       authored.owner,
       authored.row_id,
@@ -401,18 +422,14 @@ function M.extract_operator_reentry_edges(owner, inventory)
         field = provenance.field,
       },
     }
-    attach_cas_metadata(edge, authored, "operator_reentry edge")
-    attach_effect_entitlements(edge, authored, "operator_reentry edge")
-    attach_pending_order(edge, authored, "operator_reentry edge")
+    attach_edge_metadata(edge, authored, "operator_reentry edge")
     table.insert(edges, edge)
   end
   return edges
 end
 
 function M.extract_canonicalization_edges(owner, inventory)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
+  validate_owner(owner)
   if type(inventory) ~= "table" then
     error("devloop.restart_edges: edge-inventory-not-table: canonicalization inventory must be a table")
   end
@@ -420,24 +437,7 @@ function M.extract_canonicalization_edges(owner, inventory)
   local edges = {}
   local seen_ids = {}
   for _, authored in ipairs(inventory) do
-    if type(authored) ~= "table" then
-      error("devloop.restart_edges: edge-declaration-not-table: canonicalization edge must be a table")
-    end
-    if authored.owner ~= owner then
-      error("devloop.restart_edges: edge-owner-mismatch: canonicalization edge owner must match extractor owner")
-    end
-    if not is_nonempty_string(authored.row_id) then
-      error("devloop.restart_edges: edge-row-id-invalid: canonicalization edge row_id must be a non-empty string")
-    end
-    if authored.kind ~= "canonicalization" then
-      error("devloop.restart_edges: edge-kind-mismatch: canonicalization edge kind must be canonicalization")
-    end
-    if not is_nonempty_string(authored.semantic_variant) then
-      error("devloop.restart_edges: edge-semantic-variant-invalid: canonicalization edge semantic_variant must be a non-empty string")
-    end
-    if authored.semantic_variant:find("/", 1, true) ~= nil then
-      error("devloop.restart_edges: edge-semantic-variant-separator-forbidden: canonicalization edge semantic_variant must not contain /")
-    end
+    validate_authored_edge(authored, owner, "canonicalization", "canonicalization edge")
 
     local source = authored.source
     if type(source) ~= "table" then
@@ -465,18 +465,7 @@ function M.extract_canonicalization_edges(owner, inventory)
     end
 
     local provenance = authored.provenance
-    if type(provenance) ~= "table" then
-      error("devloop.restart_edges: edge-provenance-not-table: canonicalization edge provenance must be a table")
-    end
-    if provenance.owner ~= owner then
-      error("devloop.restart_edges: edge-provenance-owner-mismatch: canonicalization edge provenance.owner must match extractor owner")
-    end
-    if not is_nonempty_string(provenance.row) then
-      error("devloop.restart_edges: edge-provenance-row-invalid: canonicalization edge provenance.row must be a non-empty string")
-    end
-    if not is_nonempty_string(provenance.field) then
-      error("devloop.restart_edges: edge-provenance-field-invalid: canonicalization edge provenance.field must be a non-empty string")
-    end
+    validate_authored_provenance(provenance, owner, "canonicalization edge")
     local id = build_inventory_edge_id(
       authored.owner,
       authored.row_id,
@@ -506,21 +495,15 @@ function M.extract_canonicalization_edges(owner, inventory)
         field = provenance.field,
       },
     }
-    attach_cas_metadata(edge, authored, "canonicalization edge")
-    attach_effect_entitlements(edge, authored, "canonicalization edge")
-    attach_pending_order(edge, authored, "canonicalization edge")
+    attach_edge_metadata(edge, authored, "canonicalization edge")
     table.insert(edges, edge)
   end
   return edges
 end
 
 function M.extract_autonomous_edges(owner, rows)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
-  if type(rows) ~= "table" then
-    error("devloop.restart_edges: rows-not-table: rows must be a table")
-  end
+  validate_owner(owner)
+  validate_rows(rows)
 
   local edges = {}
   local seen_ids = {}
@@ -542,9 +525,7 @@ function M.extract_autonomous_edges(owner, rows)
           row = current_row_id,
           field = "responsibility_signature.successors",
         }
-        attach_cas_metadata(edge, successor, "autonomous successor")
-        attach_effect_entitlements(edge, successor, "autonomous successor")
-        attach_pending_order(edge, successor, "autonomous successor")
+        attach_edge_metadata(edge, successor, "autonomous successor")
         table.insert(edges, edge)
       end
     end
@@ -553,12 +534,8 @@ function M.extract_autonomous_edges(owner, rows)
 end
 
 function M.extract_guard_boundary_edges(owner, rows)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
-  if type(rows) ~= "table" then
-    error("devloop.restart_edges: rows-not-table: rows must be a table")
-  end
+  validate_owner(owner)
+  validate_rows(rows)
 
   local edges = {}
   local seen_ids = {}
@@ -578,56 +555,28 @@ function M.extract_guard_boundary_edges(owner, rows)
           row = current_row_id,
           field = "responsibility_signature.successors",
         }
-        attach_cas_metadata(edge, successor, "guard_boundary edge")
-        attach_effect_entitlements(edge, successor, "guard_boundary edge")
-        attach_pending_order(edge, successor, "guard_boundary edge")
+        attach_edge_metadata(edge, successor, "guard_boundary edge")
         table.insert(edges, edge)
       end
     end
 
-    local guard_boundaries = row.guard_boundaries
-    if guard_boundaries ~= nil then
-      if type(guard_boundaries) ~= "table" then
-        error("devloop.restart_edges: guard-boundaries-not-table: guard_boundaries must be a table")
-      end
-
-      for _, guard_boundary in ipairs(guard_boundaries) do
-        if type(guard_boundary) ~= "table" or not is_nonempty_string(guard_boundary.name) then
-          error("devloop.restart_edges: guard-boundary-name-invalid: guard_boundary.name must be a non-empty string")
-        end
-
-        local successors = guard_boundary.successors
-        if type(successors) ~= "table" then
-          error("devloop.restart_edges: successor-list-not-table: guard_boundary.successors must be a table")
-        end
-
-        for _, successor in ipairs(successors) do
-          if type(successor) ~= "table" or not is_nonempty_string(successor.state) then
-            error("devloop.restart_edges: successor-state-invalid: successor.state must be a non-empty string")
-          end
-          if not is_nonempty_string(successor.output_variant) then
-            error("devloop.restart_edges: successor-output-variant-invalid: successor.output_variant must be a non-empty string")
-          end
-          if successor.kind ~= nil and successor.kind ~= "guard_boundary" and successor.kind ~= "timeout" then
-            error("devloop.restart_edges: guard-boundary-successor-kind-invalid: guard boundary successor.kind must be guard_boundary, timeout, or nil")
-          end
-          if successor.kind ~= "timeout" then
-            local id = owner .. "/" .. current_row_id .. "/guard_boundary/" .. guard_boundary.name .. "/" .. successor.output_variant
-            local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
-            edge.kind = "guard_boundary"
-            edge.source = { state = current_row_id, boundary = guard_boundary.name }
-            edge.target = successor.state
-            edge.semantic_variant = successor.output_variant
-            edge.provenance = {
-              owner = owner,
-              row = current_row_id,
-              field = "guard_boundaries",
-            }
-            attach_cas_metadata(edge, successor, "guard_boundary edge")
-            attach_effect_entitlements(edge, successor, "guard_boundary edge")
-            attach_pending_order(edge, successor, "guard_boundary edge")
-            table.insert(edges, edge)
-          end
+    for _, guard_boundary in ipairs(row_guard_boundaries(row)) do
+      for _, successor in ipairs(guard_boundary_successors(guard_boundary)) do
+        validate_guard_boundary_successor(successor)
+        if successor.kind ~= "timeout" then
+          local id = owner .. "/" .. current_row_id .. "/guard_boundary/" .. guard_boundary.name .. "/" .. successor.output_variant
+          local edge = new_unique_edge(seen_ids, id, owner, current_row_id)
+          edge.kind = "guard_boundary"
+          edge.source = { state = current_row_id, boundary = guard_boundary.name }
+          edge.target = successor.state
+          edge.semantic_variant = successor.output_variant
+          edge.provenance = {
+            owner = owner,
+            row = current_row_id,
+            field = "guard_boundaries",
+          }
+          attach_edge_metadata(edge, successor, "guard_boundary edge")
+          table.insert(edges, edge)
         end
       end
     end
@@ -636,12 +585,8 @@ function M.extract_guard_boundary_edges(owner, rows)
 end
 
 function M.extract_timeout_edges(owner, rows)
-  if not is_nonempty_string(owner) then
-    error("devloop.restart_edges: owner-invalid: owner must be a non-empty string")
-  end
-  if type(rows) ~= "table" then
-    error("devloop.restart_edges: rows-not-table: rows must be a table")
-  end
+  validate_owner(owner)
+  validate_rows(rows)
 
   local edges = {}
   local seen_ids = {}
@@ -666,9 +611,7 @@ function M.extract_timeout_edges(owner, rows)
         row = current_row_id,
         field = provenance_field,
       }
-      attach_cas_metadata(edge, successor, "timeout edge")
-      attach_effect_entitlements(edge, successor, "timeout edge")
-      attach_pending_order(edge, successor, "timeout edge")
+      attach_edge_metadata(edge, successor, "timeout edge")
       table.insert(edges, edge)
     end
 
@@ -679,31 +622,11 @@ function M.extract_timeout_edges(owner, rows)
       end
     end
 
-    local guard_boundaries = row.guard_boundaries
-    if guard_boundaries ~= nil then
-      if type(guard_boundaries) ~= "table" then
-        error("devloop.restart_edges: guard-boundaries-not-table: guard_boundaries must be a table")
-      end
-      for _, guard_boundary in ipairs(guard_boundaries) do
-        if type(guard_boundary) ~= "table" or not is_nonempty_string(guard_boundary.name) then
-          error("devloop.restart_edges: guard-boundary-name-invalid: guard_boundary.name must be a non-empty string")
-        end
-        if type(guard_boundary.successors) ~= "table" then
-          error("devloop.restart_edges: successor-list-not-table: guard_boundary.successors must be a table")
-        end
-        for _, successor in ipairs(guard_boundary.successors) do
-          if type(successor) ~= "table" or not is_nonempty_string(successor.state) then
-            error("devloop.restart_edges: successor-state-invalid: successor.state must be a non-empty string")
-          end
-          if not is_nonempty_string(successor.output_variant) then
-            error("devloop.restart_edges: successor-output-variant-invalid: successor.output_variant must be a non-empty string")
-          end
-          if successor.kind ~= nil and successor.kind ~= "guard_boundary" and successor.kind ~= "timeout" then
-            error("devloop.restart_edges: guard-boundary-successor-kind-invalid: guard boundary successor.kind must be guard_boundary, timeout, or nil")
-          end
-          if successor.kind == "timeout" then
-            insert_timeout_edge(successor, guard_boundary.name, "guard_boundaries")
-          end
+    for _, guard_boundary in ipairs(row_guard_boundaries(row)) do
+      for _, successor in ipairs(guard_boundary_successors(guard_boundary)) do
+        validate_guard_boundary_successor(successor)
+        if successor.kind == "timeout" then
+          insert_timeout_edge(successor, guard_boundary.name, "guard_boundaries")
         end
       end
     end

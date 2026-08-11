@@ -167,4 +167,37 @@ return {
     assert(command_count(commands, { "gh", "api", "--paginate", "--slurp", comments_path }) == 1)
     assert(#commands == 3)
   end,
+
+  test_read_issue_force_fresh_can_skip_cache_writes = function()
+    local ref = { kind = "external", ref = "owner/read-only-adapter#issue/44" }
+    local comments_query = table.concat({ "per", "page=100" }, "_")
+    local comments_path = "repos/owner/read-only-adapter/issues/44/comments?" .. comments_query
+    local cache_writes = 0
+    local previous_cache_set = cache_set
+    cache_set = function()
+      cache_writes = cache_writes + 1
+    end
+    local handle = gh.new(function(opts)
+      if argv_equal(opts.argv, { "gh", "api", "repos/owner/read-only-adapter/issues/44" }) then
+        return {
+          stdout = '{"number":44,"state":"open","title":"read only","updated_at":"2026-06-15T00:00:02Z","labels":[],"assignees":[],"user":{"login":"author"}}',
+          stderr = "",
+          exit_code = 0,
+        }
+      end
+      assert(argv_equal(opts.argv, { "gh", "api", "--paginate", "--slurp", comments_path }))
+      return { stdout = "[]", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_author_policy })
+
+    local ok, issue_or_error = pcall(handle.read_issue, ref, {
+      force_fresh = true,
+      cache_write = false,
+      consumer = "read-only-contract",
+    })
+    cache_set = previous_cache_set
+
+    assert(ok, tostring(issue_or_error))
+    assert(issue_or_error.number == 44)
+    assert(cache_writes == 0)
+  end,
 }
