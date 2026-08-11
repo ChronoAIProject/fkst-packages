@@ -793,6 +793,14 @@ two costs, and the larger one was one `for` loop away.
 against historical paths, so a commit touching a since-deleted package resolves imprecisely. The
 distribution's shape — concentrated at 16 and 22 — does not depend on those edges.*
 
+*Second method note, and it cuts against the number above: multiplying 204.6 s by the repeat count
+assumes every repeated check phase costs what the first one costs. It will not — repeated invocations
+in one session hit the OS page cache and `__pycache__` is disabled (`python3 -B`) but the interpreter
+and imported module bytecode still warm. So `9.4 × 204.6 s` is an **upper bound** on the removed
+work, not a measurement of it. What **is** measured without that assumption is the repeat count
+itself: mean 10.4 invocations where one suffices, and 22 in the worst class. The direction and the
+shape are solid; treat the minutes as the ceiling.*
+
 ### What a proposal must start from
 
 - The residual opportunity is bounded by the 26 provably-free commits plus the checker-only
