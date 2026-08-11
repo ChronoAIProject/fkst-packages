@@ -283,6 +283,9 @@ function M.observer(core, deps, repo)
       status = function(child_ref)
         return selected.child_status(core, child_ref)
       end,
+      resolved_ref = selected.child_resolved_ref or function(child_ref)
+        return child_ref
+      end,
       current_implementation_refusal = selected.child_current_implementation_refusal
         or function() return nil end,
       merged_pr = selected.child_merged_pr or function() return nil end,
@@ -292,6 +295,7 @@ function M.observer(core, deps, repo)
   inspection.status = function(child_ref)
     return child_result.child_result_status(child_deps, resolved_tip(child_ref))
   end
+  inspection.resolved_ref = resolved_tip
   return inspection
 end
 

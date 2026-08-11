@@ -426,6 +426,15 @@ local function read_materialized_child_status(state, receipt_store)
   return reader(materialized_child_ref())
 end
 
+local function resolved_materialized_child_ref(state)
+  local child_status = require("core.materialize.child_status")
+  local observer = child_status.observer(core, {
+    github = state.github,
+    git = state.git,
+  }, REPO)
+  return observer.resolved_ref(materialized_child_ref())
+end
+
 local function add_merged_evidence(state, issue_number)
   local successor_issue = issue_number or SUCCESSOR_ISSUE
   local successor = state.github_model.issues[source_ref(successor_issue).ref]
@@ -505,6 +514,10 @@ local tests = {
     t.eq(state.github_model.issues[source_ref(PREDECESSOR_ISSUE).ref].state, "CLOSED")
     t.eq(state.github_model.issues[source_ref(SUCCESSOR_ISSUE).ref].state, "CLOSED")
     t.eq(state.github_model.issues[source_ref(FINAL_SUCCESSOR_ISSUE).ref].state, "OPEN")
+
+    local resolved = resolved_materialized_child_ref(state)
+    t.eq(resolved.issue_number, tostring(FINAL_SUCCESSOR_ISSUE))
+    t.eq(resolved.source_ref.ref, source_ref(FINAL_SUCCESSOR_ISSUE).ref)
 
     local waiting = run_materialization_poll(state)
     t.is_nil(terminal_request(waiting.raises))

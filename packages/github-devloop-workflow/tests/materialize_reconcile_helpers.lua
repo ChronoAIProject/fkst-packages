@@ -203,6 +203,7 @@ local function run_with(fakes)
       end,
       child_current_implementation_refusal = fake.child_current_implementation_refusal,
       child_merged_pr = fake.child_merged_pr,
+      child_resolved_ref = fake.child_resolved_ref,
       current_checkout = fake.current_checkout,
       is_ancestor = fake.is_ancestor,
       run_local_iteration = fake.run_local_iteration,

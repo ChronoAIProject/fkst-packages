@@ -114,6 +114,17 @@ local function merge_tables(left, right)
   return merged
 end
 
+local function resolved_production_ref(child_ref, issue_number)
+  if tostring(child_ref.slot or "") ~= "production-slice" then
+    return child_ref
+  end
+  return merge_tables(child_ref, {
+    issue_number = tostring(issue_number),
+    proposal_id = base_ids.proposal_id(repo, issue_number),
+    source_ref = base_ids.issue_source_ref(repo, issue_number),
+  })
+end
+
 local function capture_logs(fn)
   local captured = {}
   local old_log = log
@@ -248,6 +259,69 @@ return {
       1,
       true
     ) ~= nil)
+  end,
+
+  test_verified_satisfaction_binds_the_resolved_production_child = function()
+    local plan, initial_comments = feature_history()
+    local ports = already_satisfied_ports()
+    ports.child_resolved_ref = function(child_ref)
+      return resolved_production_ref(child_ref, 110)
+    end
+    ports.child_current_implementation_refusal = function(child_ref)
+      if tostring(child_ref.issue_number) == "110" then
+        return { reason = "already-satisfied", implementation_version = "ready/production-slice", attempt = 1 }
+      end
+      return nil
+    end
+
+    local first = run_with(merge_tables(ports, {
+      blueprint = plan,
+      current = issue(initial_comments),
+    }))
+    local verification_comments = only_queue(first, "github-proxy.github_issue_comment_request")
+    t.eq(#verification_comments, 1)
+    t.is_true(verification_comments[1].payload.body:find('child_issue="110"', 1, true) ~= nil)
+
+    local _, verified_comments = feature_history({ comment(verification_comments[1].payload.body) })
+    local second = run_with(merge_tables(ports, {
+      blueprint = plan,
+      current = issue(verified_comments),
+    }))
+    local terminal_comments = only_queue(second, "github-proxy.github_issue_comment_request")
+    t.eq(#terminal_comments, 1)
+    t.is_true(terminal_comments[1].payload.body:find('state="done"', 1, true) ~= nil)
+  end,
+
+  test_verified_satisfaction_rejects_a_transfer_tip_change_before_done_publication = function()
+    local plan = feature_blueprint()
+    local verified = assert(marker.build_verified_satisfaction_marker({
+      origin = origin,
+      workflow = plan.id,
+      blueprint_digest = digest.blueprint_digest(plan),
+      slot = "production-slice",
+      child_issue = "110",
+      predecessor_commit = predecessor_commit,
+      tree = verified_tree,
+      verification = "PASS",
+    }))
+    local _, comments = feature_history({ comment(verified) })
+    local resolved_reads = 0
+    local ports = already_satisfied_ports()
+    ports.child_resolved_ref = function(child_ref)
+      if tostring(child_ref.slot or "") ~= "production-slice" then
+        return child_ref
+      end
+      resolved_reads = resolved_reads + 1
+      return resolved_production_ref(child_ref, resolved_reads < 3 and 110 or 111)
+    end
+
+    local raised = run_with(merge_tables(ports, {
+      blueprint = plan,
+      current = issue(comments),
+    }))
+
+    t.eq(resolved_reads, 3)
+    t.eq(#raised, 0)
   end,
 
   test_raw_already_satisfied_remains_fatal_when_verification_does_not_pass = function()

@@ -52,7 +52,7 @@ function M.new(opts)
     }
   end
 
-  local function fact_is_current(fact, child_ref)
+  local function fact_is_current(fact, ledger_child_ref)
     local fresh_checkout = verified_satisfaction.current_checkout(deps)
     if fresh_checkout == nil then
       return false
@@ -62,13 +62,16 @@ function M.new(opts)
         .. "commit validation requires a fresh child observer")
     end
     local fresh_observer = selected.refresh_child_observer()
-    if type(fresh_observer) ~= "table" or type(fresh_observer.merged_pr) ~= "function" then
+    if type(fresh_observer) ~= "table"
+      or type(fresh_observer.merged_pr) ~= "function"
+      or type(fresh_observer.resolved_ref) ~= "function" then
       error("github-devloop-workflow: verified-satisfaction-observer-invalid: "
-        .. "commit validation requires a child observer with merged_pr")
+        .. "commit validation requires a child observer with merged_pr and resolved_ref")
     end
+    local fresh_child_ref = fresh_observer.resolved_ref(ledger_child_ref)
     return verified_satisfaction.matching_fact(
       { fact },
-      matching_context(child_ref, read_predecessor_pr(fresh_observer)),
+      matching_context(fresh_child_ref, read_predecessor_pr(fresh_observer)),
       fresh_checkout,
       deps
     ) ~= nil
@@ -78,9 +81,10 @@ function M.new(opts)
     and type(production_child_ref) == "table"
     and tostring(production_child_ref.slot or "") == verified_satisfaction.SLOT
     and #satisfaction_facts > 0 then
+    local resolved_production_child_ref = child_observer.resolved_ref(production_child_ref)
     matched_fact = verified_satisfaction.matching_fact(
       satisfaction_facts,
-      matching_context(production_child_ref, current_predecessor_pr()),
+      matching_context(resolved_production_child_ref, current_predecessor_pr()),
       current_checkout(),
       deps
     )
@@ -95,13 +99,15 @@ function M.new(opts)
   local coordinator = {}
 
   function coordinator.child_status(child_ref)
-    if matched_fact ~= nil
-      and tostring(child_ref and child_ref.slot or "") == verified_satisfaction.SLOT
-      and tostring(child_ref and child_ref.issue_number or "") == matched_fact.child_issue then
-      return "result_ready", {
-        verified_satisfaction = true,
-        predecessor_commit = matched_fact.predecessor_commit,
-      }
+    if matched_fact ~= nil then
+      local resolved_child_ref = child_observer.resolved_ref(child_ref)
+      if tostring(resolved_child_ref and resolved_child_ref.slot or "") == verified_satisfaction.SLOT
+        and tostring(resolved_child_ref and resolved_child_ref.issue_number or "") == matched_fact.child_issue then
+        return "result_ready", {
+          verified_satisfaction = true,
+          predecessor_commit = matched_fact.predecessor_commit,
+        }
+      end
     end
     return child_observer.status(child_ref)
   end
@@ -120,13 +126,14 @@ function M.new(opts)
       or type(decision.child_ref) ~= "table" then
       return false
     end
+    local resolved_child_ref = child_observer.resolved_ref(decision.child_ref)
     local verified = verified_satisfaction.verify({
       origin = selected.origin,
       workflow = selected.workflow,
       blueprint_digest = selected.blueprint_digest,
       slot = decision.slot,
-      child_issue = tostring(decision.child_ref.issue_number or ""),
-      refusal = child_observer.current_implementation_refusal(decision.child_ref),
+      child_issue = tostring(resolved_child_ref.issue_number or ""),
+      refusal = child_observer.current_implementation_refusal(resolved_child_ref),
       predecessor_pr = current_predecessor_pr(),
     }, deps)
     if verified == nil then
