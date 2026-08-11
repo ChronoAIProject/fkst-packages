@@ -26,6 +26,11 @@ local function validate_derivation_inputs(owner_edges, witness_index)
   validate_owner_edges(owner_edges)
 end
 
+local function begin_derivation(owner_edges, witness_index)
+  validate_derivation_inputs(owner_edges, witness_index)
+  return {}, {}, {}
+end
+
 function M.new(primitives)
   local K = {}
   local define = primitives.define
@@ -91,11 +96,7 @@ function M.new(primitives)
   end
 
   function K.derive_edge(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -141,11 +142,7 @@ function M.new(primitives)
   end
 
   function K.derive(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       if edge.cas_policy_id ~= nil then
@@ -181,11 +178,7 @@ function M.new(primitives)
   end
 
   function K.derive_pending(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local pending_order = edge.pending_order
@@ -306,9 +299,7 @@ function M.new(primitives)
   end
 
   function K.derive_edge_pair(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       require_nonempty_string(edge.id, "owner_edges edge.id")
@@ -320,8 +311,6 @@ function M.new(primitives)
       reserve_edge_id(seen_edge_ids, edge.id, "duplicate edge id ")
     end
 
-    local obligations = {}
-    local unmapped = {}
     for _, edge_a in ipairs(owner_edges) do
       for _, edge_b in ipairs(owner_edges) do
         if edge_a.id ~= edge_b.id
@@ -446,11 +435,7 @@ function M.new(primitives)
   end
 
   function K.derive_entitlement(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local entitlements = edge.transition_effect_entitlements
@@ -521,12 +506,8 @@ function M.new(primitives)
   end
 
   function K.derive_family_variant(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
     local groups = family_variant_groups(owner_edges)
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
     for _, edge in ipairs(owner_edges) do
       if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil
           and has_multiple_variants(groups[edge.cas_policy_id]) then
@@ -570,11 +551,7 @@ function M.new(primitives)
   end
 
   function K.derive_timeout(owner_edges, witness_index)
-    validate_derivation_inputs(owner_edges, witness_index)
-
-    local obligations = {}
-    local unmapped = {}
-    local seen_edge_ids = {}
+    local obligations, unmapped, seen_edge_ids = begin_derivation(owner_edges, witness_index)
 
     for _, edge in ipairs(owner_edges) do
       local resolver = edge.timeout_evidence_policy_id
