@@ -134,6 +134,27 @@ intake-class outcome `"carrier"` is accepted by a validator and **emitted by not
 from the single production caller which passes the literal `"folded"`. No scan run here could have
 found it; it is a string, kept legal by the code that lists it.
 
+### The two populations are nearly disjoint — measured
+
+This is not only an argument from category. Measured between git refs, across the three deletion PRs:
+
+```
+duplicated regions before deletions: 2144
+                       after:        2138
+                       delta:          -6   (6 removed, 0 created)
+```
+
+**Deleting 46 unreachable functions removed 6 duplicated regions.** It should: dead code is selected by
+*frequency-1 identifiers*, duplicated code by *repeated blocks*, and almost nothing satisfies both. The
+6 are where a dead function happened to contain a repeated block.
+
+So the duplication instrument was not merely slow to find the dead code — it was looking at a nearly
+disjoint population. No amount of refining it would have converged on the other set.
+
+(An earlier statement here attributed a larger drop, 2247 to 2138, to the deletions. That was wrong;
+most of it came from the duplication-consolidation PRs, which remove duplicated regions by design, and
+from concurrent merges by the autonomous loop. The ref-to-ref measurement above isolates the deletions.)
+
 ### What transfers
 
 **Each instrument's shape determines the *category* of finding, not just the hit rate — and a blind
