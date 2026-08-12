@@ -25,14 +25,8 @@ function K.liveness_state_age_minutes(state, now_seconds)
   if type(state) ~= "table" then
     return nil
   end
-  if state.marker_created_at ~= nil and state.marker_created_at ~= "" then
-    local created_seconds = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at)
-    local current_seconds = tonumber(now_seconds)
-    if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
-      return math.floor((current_seconds - created_seconds) / 60)
-    end
-  end
-  return policy.stall_suspect_age_minutes(state.version, now_seconds)
+  return contract_time.iso_timestamp_age_minutes(state.marker_created_at, now_seconds)
+    or policy.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
 function K.liveness_timeout_attempt(row, state, facts)
