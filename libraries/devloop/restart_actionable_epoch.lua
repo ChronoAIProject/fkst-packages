@@ -376,13 +376,6 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   return eval
 end
 
-function C.actionable_epoch_generation_key(M, row, state, eval)
-  if type(eval) ~= "table" or eval.status ~= "actionable" then
-    return nil
-  end
-  return generation_key(M, row, state, eval)
-end
-
 function C.actionable_epoch_resolve(M, row, state, facts, now_seconds)
   if type(row) ~= "table" or type(row.actionable_epoch) ~= "table" then
     return invalid("row does not declare actionable_epoch")

@@ -319,8 +319,4 @@ function C.is_ci_wait_reason(reason)
     or text == "rollup-pending"
 end
 
-function C._upper_text(value)
-  return upper_text(value)
-end
-
 return C

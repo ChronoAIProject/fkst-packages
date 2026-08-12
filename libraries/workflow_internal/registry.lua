@@ -106,26 +106,4 @@ function S.build_indexed_map(index_module, index, entries, key_field, M, helpers
   return map
 end
 
-function S.install_indexed_installers(index_module, index, installers, M, owner)
-  owner = owner or "registry"
-  assert_sorted_unique(index_module, index, owner)
-  if type(installers) ~= "table" then
-    error(tostring(owner) .. ": registry installers must be a table: " .. tostring(index_module))
-  end
-  for position, index_entry in ipairs(index) do
-    local name = index_name(index_entry)
-    if type(name) ~= "string" or name == "" then
-      error(tostring(owner) .. ": registry index entry must declare a module: " .. tostring(index_module))
-    end
-    local installer = installers[position]
-    if type(installer) ~= "function" then
-      error(tostring(owner) .. ": registry installer must be a function: " .. tostring(name))
-    end
-    installer(M)
-  end
-  if installers[#index + 1] ~= nil then
-    error(tostring(owner) .. ": registry installers exceed index length: " .. tostring(index_module))
-  end
-end
-
 return S
