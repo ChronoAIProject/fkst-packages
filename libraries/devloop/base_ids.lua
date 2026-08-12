@@ -66,12 +66,7 @@ function I.parse_proposal_id(id)
     return nil
   end
 
-  local issue_number = rest:match("/([^/]+)$")
-  local repo = issue_number and rest:sub(1, #rest - #issue_number - 1) or nil
-  if repo == nil or repo == "" or issue_number == nil or issue_number == "" then
-    return nil
-  end
-  return repo, issue_number
+  return strings.split_final_path_segment(rest)
 end
 
 function I.issue_ref_round_trips(repo, issue_number)
