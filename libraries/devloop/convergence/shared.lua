@@ -87,12 +87,8 @@ local function decode_angle_replay(value)
 end
 
 local function normalize_findings_line(value)
-  if value == nil then
-    return nil
-  end
-  local text = tostring(value):gsub("%c", " "):gsub("%s+", " ")
-  text = text:gsub("^%s+", ""):gsub("%s+$", "")
-  if text == "" then
+  local text = strings.normalize_control_line(value)
+  if text == nil then
     return nil
   end
   if #text > findings_component_len then

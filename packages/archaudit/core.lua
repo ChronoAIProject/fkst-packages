@@ -412,13 +412,7 @@ local function decode_json(text)
 end
 
 function M.validate_repo(repo)
-  if not strings.is_bounded_string(repo, github_proxy_limits.repo) then
-    return false
-  end
-  if forge_strings.split_repo(repo) == nil then
-    return false
-  end
-  return tostring(repo):find("^[%w._-]+/[%w._-]+$") ~= nil
+  return forge_strings.is_bounded_repo(repo, github_proxy_limits.repo)
 end
 
 function M.validate_observe_facts(facts) return observe_port.validate_observe_facts(facts) end
