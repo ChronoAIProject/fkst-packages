@@ -1233,11 +1233,18 @@ department-driving primitives, not in the thousands of cheap assertions around t
 
 ### What this does NOT establish, and why
 
-**36.72 s of captured CPU is about 6% of this package's 637 s CI wall time.** `os.clock()` measures
+**36.72 s of captured CPU is about 20% of that same run's 185.4 s wall time.** `os.clock()` measures
 CPU consumed by the Lua process, so anything these helpers trigger across a process boundary is
 invisible to it, as is any wall-clock spent waiting rather than computing. So this identifies which
 helpers dominate **Lua-side CPU**; it is `ASSUMED-UNVERIFIED` whether they dominate the package's
-**wall time**, and the 6% figure means most of the package's cost is somewhere this probe cannot see.
+**wall time**, and the 20% figure means roughly four fifths of the run is somewhere this probe cannot
+see.
+
+*That ratio is stated against the probe run's own wall clock deliberately. An earlier draft of this
+section divided the same 36.72 s by the **637 s CI** figure and reported "about 6%" — captured on one
+machine, divided by a wall time from another, which is not a ratio of anything. The probe run's own
+wall was 185.4 s, on a contended host and with 66 tests cut short by the probe, so 20% is itself
+approximate — but it is at least a comparison between two measurements of the same run.*
 
 Settling that needs a sub-second wall clock inside the sandbox, and there is not one: `now()` and
 `os.time()` are both second-resolution, which cannot time a 100 ms call. That is a second, smaller
