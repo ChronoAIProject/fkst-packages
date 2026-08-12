@@ -101,6 +101,16 @@ return {
     end
   end,
 
+  test_merge_ready_binds_merge_gate_progress_signal_metadata = function()
+    local signal = rows_by_state(core.restart_transition_table())["merge-ready"].liveness_contract.progress_signal
+    t.eq(signal.max_age_minutes, 360)
+  end,
+
+  test_merging_binds_merge_gate_progress_signal_metadata = function()
+    local signal = rows_by_state(core.restart_transition_table()).merging.liveness_contract.progress_signal
+    t.eq(signal.max_age_minutes, 360)
+  end,
+
   test_liveness_contract_rejects_live_defer_surface_or_version_form_drift = function()
     local rows = copy_rows(core.restart_transition_table())
     local row = rows_by_state(rows).reviewing

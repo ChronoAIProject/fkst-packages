@@ -9,6 +9,15 @@ function S.trim_end(value)
   return tostring(value or ""):gsub("%s+$", "")
 end
 
+function S.split_final_path_segment(value)
+  local segment = value:match("/([^/]+)$")
+  local prefix = segment and value:sub(1, #value - #segment - 1) or nil
+  if prefix == nil or prefix == "" or segment == nil or segment == "" then
+    return nil
+  end
+  return prefix, segment
+end
+
 function S.normalize_control_line(value)
   if value == nil then
     return nil
