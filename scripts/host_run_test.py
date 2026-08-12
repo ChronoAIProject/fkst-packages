@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import textwrap
 import unittest
 from pathlib import Path
@@ -18,6 +19,89 @@ from host_run_fixture import (
 
 
 class HostRunTest(unittest.TestCase):
+    def test_platform_resolver_warns_when_carried_python_is_absent(self) -> None:
+        h = HostRunHarness()
+        try:
+            h.write_workspace_manifest(root=h.packages_host, workspace_units=["packages/*"])
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    unset FKST_PYTHON
+                    source scripts/host_run.sh
+                    host_run_parse_supervise_args --project-root {shell_quote(h.packages_host)} --platform-root {shell_quote(h.packages_host)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)}
+                    host_run_validate_shape
+                    host_run_build_package_roots
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "FKST_PYTHON is not set; falling back to python3 from PATH",
+                result.stderr,
+            )
+        finally:
+            h.close()
+
+    def test_platform_resolver_uses_carried_python_with_reduced_path(self) -> None:
+        h = HostRunHarness()
+        try:
+            platform_repo, platform_rev = create_git_source(
+                h.root,
+                "carried-python-platform",
+                {
+                    "packages/github-proxy/fkst.toml": (
+                        'kind = "package"\nname = "github-proxy"\n'
+                    ),
+                },
+            )
+            h.write_workspace_manifest(
+                external_sources=[
+                    ("fkst-packages-platform", platform_repo, ["github-proxy"]),
+                ],
+            )
+            h.write_external_sources_lock(
+                [("fkst-packages-platform", platform_repo, platform_rev)],
+            )
+
+            tool_dir = h.root / "tools"
+            tool_dir.mkdir()
+            ambient_python = tool_dir / "python3"
+            ambient_python.write_text("#!/bin/sh\nexit 91\n", encoding="utf-8")
+            ambient_python.chmod(0o755)
+            carried_marker = h.root / "carried-python-ran"
+            carried_python = tool_dir / "carried-python"
+            carried_python.write_text(
+                "#!/bin/sh\n"
+                f"touch {shell_quote(carried_marker)}\n"
+                f"exec {shell_quote(os.sys.executable)} \"$@\"\n",
+                encoding="utf-8",
+            )
+            carried_python.chmod(0o755)
+
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    export PATH={shell_quote(tool_dir)}:/usr/bin:/bin
+                    export FKST_PYTHON={shell_quote(carried_python)}
+                    source scripts/host_run.sh
+                    host_run_parse_supervise_args --project-root {shell_quote(h.website_host)} --platform-root {shell_quote(platform_repo)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)} --restart
+                    host_run_validate_shape
+                    host_run_build_package_roots
+                    host_run_print_package_roots
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(carried_marker.exists())
+            self.assertEqual(
+                result.stdout.splitlines(),
+                [str((platform_repo / "packages" / "github-proxy").resolve())],
+            )
+        finally:
+            h.close()
+
     def test_packages_host_uses_project_packages_for_host_packages(self) -> None:
         h = HostRunHarness()
         try:
