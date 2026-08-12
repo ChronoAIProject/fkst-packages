@@ -206,45 +206,6 @@ function C.build_impl_failed_label_request(repo, issue_number, ready, reason)
   )
 end
 
-function C.build_reviewing_label_request(repo, issue_number, origin, pr_number, source_ref)
-  return C.build_state_label_request(
-    repo,
-    issue_number,
-    "reviewing",
-    origin.proposal_id,
-    origin.impl_version,
-    base_ids.dedup_key({
-      "observe-pr",
-      "label",
-      tostring(origin.proposal_id),
-      tostring(origin.impl_version),
-      tostring(pr_number),
-    }),
-    source_ref
-  )
-end
-
-function C.build_pr_base_unmanaged_label_request(repo, issue_number, origin, pr_number, integration_branch, source_ref)
-  return C.build_state_label_request(
-    repo,
-    issue_number,
-    "blocked",
-    origin.proposal_id,
-    tostring(origin.impl_version or "") .. "/blocked/pr-base-unmanaged",
-    base_ids.dedup_key({
-      "observe-pr",
-      "label",
-      "pr-base-unmanaged",
-      tostring(origin.proposal_id),
-      tostring(origin.impl_version),
-      tostring(pr_number),
-      tostring(origin.base_branch),
-      tostring(integration_branch),
-    }),
-    source_ref
-  )
-end
-
 function C.build_review_result_label_request(repo, issue_number, issue_proposal_id, issue_version, reached, source_ref, marker_target)
   local to_state = reached.reflection_checkpoint and "review-meta"
     or reached.decision == "approve" and "merge-ready"
