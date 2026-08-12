@@ -39,4 +39,13 @@ function T.iso_timestamp_epoch_seconds(timestamp)
   return days_since_epoch * 86400 + hour * 3600 + minute * 60 + second
 end
 
+function T.iso_timestamp_age_minutes(timestamp, now_seconds)
+  local created_seconds = T.iso_timestamp_epoch_seconds(timestamp)
+  local current_seconds = tonumber(now_seconds)
+  if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
+    return math.floor((current_seconds - created_seconds) / 60)
+  end
+  return nil
+end
+
 return T
