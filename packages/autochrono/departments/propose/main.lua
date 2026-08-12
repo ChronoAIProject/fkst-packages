@@ -6,7 +6,6 @@ local spec = {
   consumes = { "issue" },
   published_seam = { "issue" },
   produces = { "judge_issue" },
-  published_seam = { "issue" },
   stall_window = "30s",
 }
 

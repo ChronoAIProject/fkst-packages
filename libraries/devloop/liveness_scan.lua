@@ -225,19 +225,23 @@ local function rate_limit_deferred_outcome(result)
   return nil
 end
 
+local function parse_entity_list_result(result, parser, failure_prefix)
+  if result.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(result)
+    if deferred ~= nil then
+      return nil, deferred
+    end
+    error(failure_prefix .. tostring(result.stderr))
+  end
+  return parser(result.stdout)
+end
+
 function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
   local list = entity_list_cache.fetch_shared_issue_observe_list(M.gh_issue_list_observe_opts, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })
-  if list.exit_code ~= 0 then
-    local deferred = rate_limit_deferred_outcome(list)
-    if deferred ~= nil then
-      return nil, deferred
-    end
-    error("github-devloop: liveness-scan-issue-list-failed: " .. tostring(list.stderr))
-  end
-  return parsers_issue.parse_issue_list_observe(list.stdout)
+  return parse_entity_list_result(list, parsers_issue.parse_issue_list_observe, "github-devloop: liveness-scan-issue-list-failed: ")
 end
 
 function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
@@ -245,14 +249,7 @@ function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
     timeout = timeout or 60,
     poll_key = poll_key,
   })
-  if list.exit_code ~= 0 then
-    local deferred = rate_limit_deferred_outcome(list)
-    if deferred ~= nil then
-      return nil, deferred
-    end
-    error("github-devloop: liveness-scan-pr-list-failed: " .. tostring(list.stderr))
-  end
-  return parsers_pr.parse_pr_list_observe(list.stdout)
+  return parse_entity_list_result(list, parsers_pr.parse_pr_list_observe, "github-devloop: liveness-scan-pr-list-failed: ")
 end
 
 local function sort_by_number(items)
