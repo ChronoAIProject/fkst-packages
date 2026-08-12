@@ -72,6 +72,7 @@ require("core.github_graphql").install(M)
 require("devloop.commands").install(M)
 require("forge.merge_commands").install(M)
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
+local implementation_refusal = require("devloop.implementation_refusal")
 M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
@@ -95,7 +96,19 @@ require("devloop.state").install(M)
 require("devloop.gate").install({ sources = wiring.gate_sources() })
 require("core.pr_delegation").install(M)
 require("core.impl_failure").install(M)
-require("core.implementation_refusal").install(M)
+M.implementation_refusal_reasons = implementation_refusal.reasons
+M.implementation_refusal_reasons_text = implementation_refusal.reasons_text
+M.is_supported_implementation_refusal_reason = implementation_refusal.is_supported_reason
+M.require_supported_implementation_refusal_reason = implementation_refusal.require_supported_reason
+M.implementation_refusal_marker = implementation_refusal.marker
+M.implementation_refusal_fact = function(comments, proposal_id, implementation_version)
+  return implementation_refusal.fact(
+    comments,
+    proposal_id,
+    implementation_version,
+    M.latest_implement_attempt_fact(comments, proposal_id, implementation_version)
+  )
+end
 M.restart_lifecycle_states = {
   "thinking",
   "dependency_wait",
@@ -164,7 +177,7 @@ package_replayer = require("devloop.replayer").new(restart_policy, {
   },
   issue_retry_policy = {
     impl_failure_retry_allowed = M.impl_failure_retry_allowed,
-    next_impl_retry_attempt = M.next_impl_retry_attempt,
+    next_implementation_retry_attempt = M.next_implementation_retry_attempt,
     implementation_retry_attempt = M.implementation_retry_attempt,
     ready_payload_inner_version = M.ready_payload_inner_version,
   },

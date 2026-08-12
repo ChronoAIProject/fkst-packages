@@ -243,7 +243,28 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     return true
   end
   if admission == "other" then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, state.state, state.state, "skip-claim-lost", "CLAIM lost before managed issue handling")
+    local pending_commands = operator_commands.pending_issue_operator_command_facts(current.comments)
+    local pending_command_names = {}
+    local pending_command_keys = {}
+    for _, command in ipairs(pending_commands) do
+      table.insert(pending_command_names, command.command)
+      table.insert(pending_command_keys, command.key)
+    end
+    devloop_logging.log_cas_decision(
+      "observe_issue",
+      proposal_id,
+      state,
+      state.state,
+      state.state,
+      "skip-claim-lost",
+      "CLAIM lost before managed issue handling",
+      {
+        { name = "assignee_logins", values = detail.assignee_logins or {} },
+        { name = "claim_labels", values = detail.claim_labels or {} },
+        { name = "pending_operator_commands", values = pending_command_names },
+        { name = "pending_operator_command_keys", values = pending_command_keys },
+      }
+    )
     return false
   end
   if admission == "denied" then
@@ -427,26 +448,12 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     return true
   end
 
-  local attempt = 1
-  local failure = core.impl_failure_fact(current.comments, proposal_id, state.version)
-  if failure ~= nil then
-    attempt = tonumber(failure.attempt or 1) + 1
-  elseif refusal_reentry ~= nil then
-    attempt = tonumber(refusal_reentry.attempt or 1) + 1
-  elseif blocked_open_pr_reentry or timeout_reentry ~= nil then
-    -- Both reentry paths derive the retry attempt from a prior implementation
-    -- version; select that version once so the retry-attempt read stays single.
-    local prior_impl_version
-    if blocked_open_pr_reentry then
-      prior_impl_version = link.impl_version
-    else
-      prior_impl_version = timeout_reentry.from_version
-    end
-    attempt = (core.implementation_retry_attempt(prior_impl_version) or 1) + 1
-  end
   local retry_version = blocked_open_pr_reentry and link.impl_version
     or (timeout_reentry ~= nil and timeout_reentry.from_version
       or (refusal_reentry ~= nil and refusal_reentry.implementation_version or state.version))
+  local attempt = refusal_reentry ~= nil
+      and tonumber(refusal_reentry.attempt or 1) + 1
+    or core.next_implementation_retry_attempt(retry_version)
   local payload_source = {
     proposal_id = proposal_id,
     dedup_key = core.ready_payload_inner_version(retry_version),
@@ -552,6 +559,7 @@ local function reconcile_issue_event(event, opts)
           claim_verified = true
           if awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, issue_state, {
             proposal_id = proposal_id,
+            parent_comments = current.comments,
             current_pr = issue.child_pr,
             ["pr-delegation"] = current_delegation,
           }) then
@@ -667,6 +675,7 @@ local function reconcile_issue_event(event, opts)
         local closed
         closed, close_current_pr = awaiting_pr_replay.close_canonically_merged_delegated_issue("observe_issue", issue, state, {
           proposal_id = proposal_id,
+          parent_comments = current.comments,
           ["pr-delegation"] = close_delegation,
         })
         if closed then

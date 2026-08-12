@@ -20,6 +20,7 @@ local first_difference = observation_support.first_difference
 local json_array = observation_support.json_array
 local nullable = observation_support.nullable
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+local LINEAGE_INTENT_OBSERVATION_ID = "ctor:github-devloop:observe-issue-ready/impl-failed"
 local SITE = {
   path = "packages/github-devloop/departments/observe_issue/main.lua",
   symbol = "process_issue_event",
@@ -355,6 +356,32 @@ local function committed_records()
   return selected
 end
 
+local function record_by_id(records, observation_id)
+  for _, record in ipairs(records) do
+    if record.observation_id == observation_id then
+      return record
+    end
+  end
+  return nil
+end
+
+local function without_lineage_intent(records)
+  local selected = json_array()
+  for _, record in ipairs(records) do
+    if record.observation_id ~= LINEAGE_INTENT_OBSERVATION_ID then
+      table.insert(selected, record)
+    end
+  end
+  return selected
+end
+
+local function apply_lineage_intent(record)
+  local changed = copy_value(record)
+  changed.typed_intent.generation_epoch.impl_retry_attempt = 2
+  changed.old_outcome.observable_writes[1].payload.impl_retry_attempt = 2
+  return changed
+end
+
 return {
   test_build_devloop_ready_payload_old_observations_are_real_dispatch_runtime_bound_and_bidirectional = function()
     local first = capture_records()
@@ -370,16 +397,39 @@ return {
 
     t.eq(#first, #FIXTURES, "every production branch at the constructor site produces one payload variant")
     local expected = committed_records()
+    local unchanged = without_lineage_intent(first)
+    local unchanged_expected = without_lineage_intent(expected)
     local inventory_difference = first_difference(
-      first,
-      expected,
+      unchanged,
+      unchanged_expected,
       "old_behavior_observations[observe-issue-ready-constructor]"
     )
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
+    if inventory_difference ~= nil or canonical_json(unchanged) ~= canonical_json(unchanged_expected) then
       error(
         "runtime-bound OLD direct-constructor observation differs at "
           .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
+          .. "; runtime_records=" .. canonical_json(unchanged),
+        0
+      )
+    end
+
+    local old_lineage = record_by_id(expected, LINEAGE_INTENT_OBSERVATION_ID)
+    local new_lineage = record_by_id(first, LINEAGE_INTENT_OBSERVATION_ID)
+    t.is_true(old_lineage ~= nil, "frozen OLD lineage observation exists")
+    t.is_true(new_lineage ~= nil, "runtime lineage observation exists")
+    t.eq(old_lineage.typed_intent.generation_epoch.impl_retry_attempt, 3)
+    t.eq(new_lineage.typed_intent.generation_epoch.impl_retry_attempt, 2)
+    local intended = apply_lineage_intent(old_lineage)
+    local intent_difference = first_difference(
+      new_lineage,
+      intended,
+      "old_behavior_observations[observe-issue-ready-constructor][lineage-intent]"
+    )
+    if intent_difference ~= nil or canonical_json(new_lineage) ~= canonical_json(intended) then
+      error(
+        "runtime lineage behavior exceeds the bounded intent at "
+          .. tostring(intent_difference or "canonical-json")
+          .. "; runtime_record=" .. canonical_json(new_lineage),
         0
       )
     end

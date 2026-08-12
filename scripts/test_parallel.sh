@@ -106,6 +106,107 @@ raise SystemExit(0 if semantic_failures > 0 and semantic_failures == expected_fa
 PY
 }
 
+test_timing_clock() {
+  # Python is already a test-path dependency. These clocks are portable across the
+  # supported macOS/Linux hosts and avoid incompatible `date` flags.
+  python3 -B - <<'PY'
+import time
+
+print(f"{time.time_ns()} {time.clock_gettime_ns(time.CLOCK_MONOTONIC)}")
+PY
+}
+
+capture_test_timing_clock() {
+  local realtime_target="$1" monotonic_target="$2" value=""
+  if ! value="$(test_timing_clock 2>/dev/null)" \
+      || ! [[ "$value" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+    printf -v "$realtime_target" '%s' ""
+    printf -v "$monotonic_target" '%s' ""
+    return 1
+  fi
+  printf -v "$realtime_target" '%s' "${BASH_REMATCH[1]}"
+  printf -v "$monotonic_target" '%s' "${BASH_REMATCH[2]}"
+}
+
+write_unit_timing() {
+  local timing_file="$1" name="$2" is_pkg_composed="$3" scratch_dir="$4"
+  local timing_tmp=""
+  shift 4
+  if ! timing_tmp="$(mktemp "$scratch_dir/unit-timing.tmp.XXXXXX" 2>/dev/null)"; then
+    echo "warning: could not write timing record $timing_file" >&2
+    return 0
+  fi
+  if python3 -B - "$timing_tmp" "$name" "$is_pkg_composed" "$@" 2>/dev/null <<'PY'
+import json
+import sys
+from pathlib import Path
+
+
+def integer(index):
+    return int(sys.argv[index])
+
+
+def elapsed_ms(start, end):
+    elapsed_ns = end - start
+    if elapsed_ns < 0:
+        raise ValueError("monotonic clock moved backwards")
+    return elapsed_ns / 1_000_000
+
+
+timing_file = Path(sys.argv[1])
+started_at_unix_ns = integer(4)
+ended_at_unix_ns = integer(5)
+started_at_monotonic_ns = integer(6)
+ended_at_monotonic_ns = integer(7)
+
+record = {
+    "schema": "fkst.test.unit_timing.v1",
+    "unit": sys.argv[2],
+    "composed": sys.argv[3] == "1",
+    "started_at_unix_ns": started_at_unix_ns,
+    "ended_at_unix_ns": ended_at_unix_ns,
+    "elapsed_ms": elapsed_ms(started_at_monotonic_ns, ended_at_monotonic_ns),
+    "exit_status": integer(8),
+}
+with timing_file.open("w", encoding="utf-8") as handle:
+    json.dump(record, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+  then
+    if mv -f "$timing_tmp" "$timing_file" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  rm -f "$timing_tmp"
+  echo "warning: could not write timing record $timing_file" >&2
+  return 0
+}
+
+finish_one_package_timing() {
+  local report_dir="$1" name="$2" is_pkg_composed="$3"
+  local started_at_unix_ns="$4" started_at_monotonic_ns="$5" result="$6"
+  local timing_capture_failed="$7" roots_parent="$8"
+  local timing_dir="$report_dir/timing"
+  local ended_at_unix_ns="" ended_at_monotonic_ns=""
+  capture_test_timing_clock ended_at_unix_ns ended_at_monotonic_ns \
+    || timing_capture_failed=1
+  # Timing is an observation channel, never a gate: a capture/write failure warns
+  # but the caller always returns the package's already-established result.
+  if [ "$timing_capture_failed" -ne 0 ]; then
+    echo "warning: could not capture timing clock for package $name" >&2
+    return 0
+  fi
+  if ! mkdir -p "$timing_dir"; then
+    echo "warning: could not create timing report directory $timing_dir" >&2
+    return 0
+  fi
+  write_unit_timing "$timing_dir/$name.timing.json" "$name" "$is_pkg_composed" \
+    "$roots_parent" \
+    "$started_at_unix_ns" "$ended_at_unix_ns" \
+    "$started_at_monotonic_ns" "$ended_at_monotonic_ns" "$result" || true
+  return 0
+}
+
 # Run one package's conformance + test(s) with its OWN ephemeral runtime/durable roots,
 # so packages running in parallel never share engine runtime/durable state (the tests'
 # real filesystem IO is FKST_RUNTIME_ROOT-relative). The collection dirs (report_dir,
@@ -121,21 +222,67 @@ PY
 # `exit` — an `exit` terminates the pool's capturing subshell before it records the exit
 # code, which run_units_parallel then fail-closes as a failure. run_one_package must be
 # invoked only via run_units_parallel (its FKST_RUNTIME_ROOT export relies on the subshell).
+# Emit package source directories ordered by DESCENDING test-file count, ties broken by
+# name so the order is deterministic across runs and machines.
+#
+# Why order at all: run_units_parallel launches strictly in list order as slots free, so the
+# list IS the dispatch order and whatever sits last starts last. A pool's makespan is bounded
+# below by max(longest unit, total work / slots); when one unit is most of the span, its start
+# delay is added to that floor and nothing downstream can recover it. Enumerating packages by
+# directory glob ordered them alphabetically, which is uncorrelated with cost.
+#
+# What this does NOT change: which units run, or their verdicts. Each unit is an independent
+# process with its own ephemeral roots and a $name-keyed report, so the pool result is a
+# commutative AND-fold -- reordering moves launch times only.
+#
+# The key is a heuristic for cost, not cost. The engine's test report carries no per-test
+# duration (fkst-substrate#371), so real per-unit cost is unknown before the run. Test-file
+# count is used only to RANK, and it ranks the part that matters: the two costliest units are
+# also the two largest by file count with a wide margin to the third. A wrong ranking further
+# down costs at most what an unordered list already costs.
+test_units_longest_first() {
+  local root="$1" dir name count
+  for dir in "$root"/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    # Test the directory explicitly rather than letting find fail into 2>/dev/null: run.sh
+    # runs under `set -euo pipefail`, so a find that exits nonzero on a package without a
+    # tests/ directory aborts this function and the pool is handed an EMPTY unit list --
+    # every package silently skipped, reported only as "no packages matched".
+    if [ -d "$dir/tests" ]; then
+      count="$(find "$dir/tests" -name '*_test.lua' -type f | wc -l | tr -d ' ')"
+    else
+      count=0
+    fi
+    printf '%s\t%s\t%s\n' "$count" "$name" "$dir"
+  done | LC_ALL=C sort -k1,1nr -k2,2 | cut -f3-
+}
+
 run_one_package() {
   local name="$1" pkg="$2" is_pkg_composed="$3"
   local report_dir="$4" coverage_report_dir="$5" roots_parent="$6" test_failure_filter="$7"
   local rt dur report_file coverage_dir test_project_root result=0
+  local started_at_unix_ns="" started_at_monotonic_ns=""
+  local timing_capture_failed=0
   local -a test_pkg_args
+  capture_test_timing_clock started_at_unix_ns started_at_monotonic_ns \
+    || timing_capture_failed=1
   # Fail CLOSED on root-setup failure: an unchecked mktemp under `set +e` would export
   # an EMPTY FKST_RUNTIME_ROOT/FKST_DURABLE_ROOT, silently defeating per-package isolation
   # (the engine may then fall back to a shared/default root). A failed setup must fail the unit.
   if ! rt="$(mktemp -d "$roots_parent/rt.XXXXXX")"; then
     echo "error: could not create runtime root for package $name" >&2
+    finish_one_package_timing "$report_dir" "$name" "$is_pkg_composed" \
+      "$started_at_unix_ns" "$started_at_monotonic_ns" 1 \
+      "$timing_capture_failed" "$roots_parent" || true
     return 1
   fi
   if ! dur="$(mktemp -d "$roots_parent/durable.XXXXXX")"; then
     echo "error: could not create durable root for package $name" >&2
     rm -rf "$rt"
+    finish_one_package_timing "$report_dir" "$name" "$is_pkg_composed" \
+      "$started_at_unix_ns" "$started_at_monotonic_ns" 1 \
+      "$timing_capture_failed" "$roots_parent" || true
     return 1
   fi
   export FKST_RUNTIME_ROOT="$rt" FKST_DURABLE_ROOT="$dur"
@@ -153,6 +300,9 @@ run_one_package() {
     if ! rm -rf "$coverage_dir" || ! mkdir -p "$coverage_dir"; then
       echo "error: could not prepare coverage directory for package $name" >&2
       rm -rf "$rt" "$dur"
+      finish_one_package_timing "$report_dir" "$name" "$is_pkg_composed" \
+        "$started_at_unix_ns" "$started_at_monotonic_ns" 1 \
+        "$timing_capture_failed" "$roots_parent" || true
       return 1
     fi
     test_project_root="$pkg"; test_pkg_args=(--package-root "$pkg")
@@ -175,5 +325,8 @@ run_one_package() {
     fi
   fi
   rm -rf "$rt" "$dur"
+  finish_one_package_timing "$report_dir" "$name" "$is_pkg_composed" \
+    "$started_at_unix_ns" "$started_at_monotonic_ns" "$result" \
+    "$timing_capture_failed" "$roots_parent" || true
   return "$result"
 }

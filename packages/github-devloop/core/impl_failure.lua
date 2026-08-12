@@ -48,10 +48,6 @@ function M.impl_failure_retry_allowed(fact)
   return impl_failure.retry_allowed(fact)
 end
 
-function M.next_impl_retry_attempt(fact)
-  return impl_failure.next_retry_attempt(fact)
-end
-
 function M.implementation_base_version(version)
   return impl_failure.implementation_base_version(version)
 end
@@ -70,6 +66,10 @@ end
 
 function M.implementation_retry_attempt(version)
   return valid_attempt(transition_version.trailing_reimplement_round(version))
+end
+
+function M.next_implementation_retry_attempt(version)
+  return (M.implementation_retry_attempt(version) or 1) + 1
 end
 
 -- The `implementing` marker version is the ALREADY-wrapped ready dedup_key

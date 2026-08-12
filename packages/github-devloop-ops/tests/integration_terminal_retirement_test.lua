@@ -2,6 +2,7 @@ local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
+local author_policy = require("testkit_internal.github_author_policy")
 local github_fake = require("forge.github_fake")
 local queue_starvation = require("devloop.queue_starvation")
 local output_obligation_resolution = require("departments.observability.output_obligation_resolution")
@@ -180,6 +181,7 @@ end
 local function fake_department(comments, state, state_name)
   local terminal_state = state_name or "declined"
   local model = github_fake.model({
+    author_policy = author_policy.policy(),
     issues = {
       [source_ref.ref] = {
         repo = repo,

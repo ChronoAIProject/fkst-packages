@@ -34,6 +34,36 @@ function M.valid_attempt(value)
   return n
 end
 
+function M.latest_implement_attempt_fact(comments, proposal_id, dedup_key)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-attempt:v1.-%-%->"
+  local latest = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_dedup = marker:match('dedup="([^"]*)"')
+      local attempt = M.valid_attempt(marker:match('attempt="(%d+)"'))
+      local started_at = marker:match('started_at="([^"]*)"')
+      local exec_ref = marker:match('exec_ref="([^"]*)"')
+      if marker_proposal == proposal_id
+        and marker_dedup == tostring(dedup_key)
+        and attempt ~= nil
+        and (latest == nil or attempt > latest.attempt) then
+        latest = {
+          proposal_id = marker_proposal,
+          dedup_key = marker_dedup,
+          attempt = attempt,
+          started_at = started_at,
+          exec_ref = exec_ref,
+        }
+      end
+    end
+  end
+  return latest
+end
+
 local function valid_fault_class(value)
   if type(value) ~= "string" or valid_fault_classes[value] ~= true then
     return nil
@@ -122,13 +152,6 @@ function M.retry_allowed(fact)
     and attempt < M.MAX_AUTO_RETRY_ATTEMPTS
 end
 
-function M.next_retry_attempt(fact)
-  if not M.retry_allowed(fact) then
-    return nil
-  end
-  return M.valid_attempt(fact.attempt or 1) + 1
-end
-
 function M.implementation_base_version(version)
   return transition_version.strip_trailing_reimplement(version)
 end
@@ -173,11 +196,11 @@ return {
   MAX_AUTO_RETRY_ATTEMPTS = M.MAX_AUTO_RETRY_ATTEMPTS,
   MAX_RETRY_ATTEMPTS = M.MAX_RETRY_ATTEMPTS,
   valid_attempt = M.valid_attempt,
+  latest_implement_attempt_fact = M.latest_implement_attempt_fact,
   valid_fault_class = valid_fault_class,
   fact = M.fact,
   current_fact = M.current_fact,
   retry_allowed = M.retry_allowed,
-  next_retry_attempt = M.next_retry_attempt,
   implementation_base_version = M.implementation_base_version,
   implementation_branch_version = M.implementation_branch_version,
   implementation_attempt_version = M.implementation_attempt_version,

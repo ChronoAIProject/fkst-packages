@@ -127,7 +127,7 @@ resolve_bin_contract() {
     return 1
   fi
 
-  echo "fkst-framework binary not found in \$BIN, .fkst/env, PATH, or ../fkst-substrate; bootstrapping pinned source" >&2
+  echo "fkst-framework binary not found in \$BIN, .fkst/env, PATH, or ../fkst-substrate; checking pinned source cache" >&2
   RESOLVED_BIN="$(bootstrap_bin_on_total_miss "$repo_root")" || return $?
   return 0
 }
@@ -214,6 +214,7 @@ bootstrap_bin_on_total_miss() {
     return 0
   fi
 
+  echo "fkst-framework pinned source cache miss for $pin; bootstrapping pinned source (build starting)" >&2
   if (
     repo_url="https://github.com/$owner/$repo.git"
     if [ -d "$checkout_dir/.git" ]; then

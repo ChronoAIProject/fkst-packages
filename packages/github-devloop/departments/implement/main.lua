@@ -713,8 +713,9 @@ local function process_ready_event(event)
     local blocked_reentry = false
     if state.state == "impl-failed" and ready.impl_retry_attempt ~= nil and state.version == ready.dedup_key then
       retry_failure = core.impl_failure_fact(current.comments, ready.proposal_id, ready.dedup_key)
-      if retry_failure ~= nil and tonumber(ready.impl_retry_attempt) <= tonumber(retry_failure.attempt or 1) then
-        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the failure attempt")
+      if retry_failure ~= nil
+        and tonumber(ready.impl_retry_attempt) ~= core.next_implementation_retry_attempt(state.version) then
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the lifecycle lineage")
         return
       end
     elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil

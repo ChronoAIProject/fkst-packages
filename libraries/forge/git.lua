@@ -16,6 +16,17 @@ function M.run_path_is_directory(path, timeout)
   return exec_sync({ cmd = M.path_is_directory_cmd(path), timeout = timeout or 30 })
 end
 
+function M.git_worktree_remove_if_present(worktree, timeout, worktree_remove)
+  local dir_result = M.run_path_is_directory(worktree, 30)
+  if dir_result.exit_code == 1 then
+    return { stdout = "", stderr = "", exit_code = 0 }
+  end
+  if dir_result.exit_code ~= 0 then
+    return dir_result
+  end
+  return worktree_remove(worktree, timeout)
+end
+
 function M.new(exec)
   assert(type(exec) == "function", "forge.git.new requires an exec function")
   local handle = {}
@@ -24,14 +35,7 @@ function M.new(exec)
   end
   require("forge.git.refs").install(handle)
   function handle.git_worktree_remove_if_present(worktree, timeout)
-    local dir_result = M.run_path_is_directory(worktree, 30)
-    if dir_result.exit_code == 1 then
-      return { stdout = "", stderr = "", exit_code = 0 }
-    end
-    if dir_result.exit_code ~= 0 then
-      return dir_result
-    end
-    return handle.worktree_remove(worktree, timeout)
+    return M.git_worktree_remove_if_present(worktree, timeout, handle.worktree_remove)
   end
   return handle
 end

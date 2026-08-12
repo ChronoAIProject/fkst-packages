@@ -61,7 +61,7 @@ local function operator_ready_source(event, key)
     proposal_id = event.proposal_id,
     dedup_key = event.dedup_key,
     source_ref = event.source_ref,
-    impl_retry_attempt = 3,
+    impl_retry_attempt = 2,
     operator_reimplement_delivery = {
       command_key = key,
     },
@@ -98,7 +98,7 @@ local function admit_reimplementation(event, ready, name)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
   end
   mock_existing_empty_implement_worktree({
-    impl_version = logical_version .. "/reimplement/3",
+    impl_version = logical_version .. "/reimplement/2",
   })
   mock_implement_codex(0, "implemented")
   mock_git_status(" M packages/github-devloop/core.lua\n")
@@ -392,8 +392,8 @@ return {
       first_command,
     }, "observe-reimplement-second-command")
 
-    t.eq(first.impl_retry_attempt, 3)
-    t.eq(second.impl_retry_attempt, 3)
+    t.eq(first.impl_retry_attempt, 2)
+    t.eq(second.impl_retry_attempt, 2)
     t.eq(first.implementation_version, ready_version)
     t.eq(second.implementation_version, ready_version)
     t.eq(first.operator_reimplement_delivery.command_key, command_key(first_command))

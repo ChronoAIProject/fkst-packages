@@ -1,5 +1,6 @@
 local error_facts = require("contract.error_facts")
 local devloop_base = require("devloop.base")
+local github_author_policy = require("devloop.github_author_policy")
 local core, saga = require("core"), require("workflow.saga")
 local common = require("departments.observability.common")
 local avm_scoreboard = require("departments.observability.avm_scoreboard")
@@ -100,7 +101,13 @@ function core.observe_devloop_entities(event, github)
   local deadline = core.observability_deadline(now(), limits)
   local publication_reserve = core.observability_dashboard_publication_reserve(limits, deadline)
   local collection_deadline = deadline - publication_reserve
-  local observed = core.collect_observability_entities(event, repo, limits, collection_deadline)
+  local observed = core.collect_observability_entities(
+    event,
+    repo,
+    limits,
+    collection_deadline,
+    github.is_authorized_author
+  )
   local recent_merged_prs = core.collect_recent_merged_prs(repo, limits, collection_deadline)
   local recent_merged_issues = core.collect_recent_merged_issues(repo, limits, collection_deadline)
 
@@ -195,8 +202,4 @@ local function make_department(handles)
   return department
 end
 
-return ports.install(make_department, ports.github_author_options(
-  devloop_base.read_env,
-  "github-devloop-ops.observability",
-  { bot_login_env = "FKST_GITHUB_BOT_LOGIN" }
-))
+return ports.install(make_department, github_author_policy.github_options(exec_sync))

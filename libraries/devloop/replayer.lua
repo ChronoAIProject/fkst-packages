@@ -185,7 +185,7 @@ local function replay_impl_failed(R, dept, issue, state, row, facts)
     proposal_id = fields.proposal_id,
     dedup_key = R.replay_sources.issue_retry_policy.ready_payload_inner_version(fields.dedup_key),
     source_ref = fields.source_ref,
-    impl_retry_attempt = R.replay_sources.issue_retry_policy.next_impl_retry_attempt(failure),
+    impl_retry_attempt = R.replay_sources.issue_retry_policy.next_implementation_retry_attempt(state.version),
   })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "impl-failed", "implementing", "applied(replay)", "retryable implementation failure is below the retry ceiling")
   return raise_effects(dept, proposal_id, nil, nil, { add = {}, remove = {} }, {

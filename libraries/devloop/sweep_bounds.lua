@@ -34,6 +34,16 @@ function sweep_bounds.sweep_has_budget(deadline)
   return sweep_bounds.sweep_remaining_seconds(deadline) > 0
 end
 
+function sweep_bounds.exec_result_timed_out(result)
+  if type(result) ~= "table" then
+    return false
+  end
+  if result.timed_out ~= nil then
+    return result.timed_out == true
+  end
+  return tonumber(result.exit_code) == 124
+end
+
 function sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class, exec)
   local timeout = sweep_bounds.sweep_call_timeout(limits, deadline)
   if timeout <= 0 then

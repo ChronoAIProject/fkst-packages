@@ -1,22 +1,12 @@
 local M = {}
+local testing = require("testkit_internal.testing")
 
 M.JSON_NULL = json.decode("null")
 M.JSON_ARRAY_TAG = getmetatable(json.decode("[]"))
 M.JSON_OBJECT_TAG = getmetatable(json.decode("{}"))
 
 local function json_string(value)
-  return '"' .. tostring(value)
-    :gsub("\\", "\\\\")
-    :gsub('"', '\\"')
-    :gsub("\b", "\\b")
-    :gsub("\f", "\\f")
-    :gsub("\n", "\\n")
-    :gsub("\r", "\\r")
-    :gsub("\t", "\\t")
-    :gsub("[%z\1-\31]", function(char)
-      return string.format("\\u%04x", string.byte(char))
-    end)
-    .. '"'
+  return '"' .. testing.escape_json_string(value, "\\u%04x") .. '"'
 end
 
 local function array_length(value)

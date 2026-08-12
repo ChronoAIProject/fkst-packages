@@ -109,12 +109,7 @@ function C.parse_pr_list_promotions(stdout)
   return prs
 end
 
-local function decode_pr_view(value)
-  if type(value) == "table" then
-    return value
-  end
-  return json.decode(value or "{}")
-end
+local decode_pr_view = shared.github_view.decode_pr_view
 
 function C.parse_pr_view_origin(value)
   local decoded = decode_pr_view(value)

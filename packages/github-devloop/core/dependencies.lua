@@ -3,6 +3,7 @@ local dependency_gate = require("devloop.dependency_gate")
 local forge_validators = require("devloop.forge_validators")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_state = require("devloop.state")
+local marker_facts = require("devloop.markers.facts")
 local M = {}
 local transition_version = require("contract.transition_version")
 
@@ -181,13 +182,11 @@ function M.dependency_release_fact(comments, proposal_id, version)
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       local marker_version = marker:match('version="([^"]*)"')
-      if marker_proposal == tostring(proposal_id)
-        and marker_version == tostring(version) then
-        return {
-          proposal_id = marker_proposal,
-          version = marker_version,
-          comment_created_at = parsers_misc._comment_created_at(comment),
-        }
+      local fact = marker_facts.matching_dependency_marker_fact(
+        marker_proposal, marker_version, proposal_id, version,
+        parsers_misc._comment_created_at(comment))
+      if fact ~= nil then
+        return fact
       end
     end
   end
