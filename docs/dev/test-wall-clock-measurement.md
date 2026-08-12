@@ -1252,3 +1252,34 @@ engine-side gap alongside the per-test duration this document keeps arriving at 
 here rather than papered over with a CPU number relabelled as wall time.
 
 ⟦AI:FKST⟧
+
+### Following that lead to its end: there is no fixture waste to remove
+
+The obvious next move from "three helpers are 90%" is to optimise those three helpers. It does not
+survive reading them.
+
+`run_implement` — the largest single item at 13.62 s over 131 calls — is a thin wrapper
+(`libraries/testkit_internal/devloop_fixtures.lua:561`): call `mock_branch_config_env()`, build an
+event table, call `run_department`. And `mock_branch_config_env` (`:381`) only registers two
+in-memory command mocks, which the same probe measures at well under its cheapest tier (the 56
+tail helpers average **0.4 ms**). So essentially **all** of the ~104 ms is the `run_department`
+primitive itself.
+
+**The cost is what the test does, not overhead around it.** Making it cheaper means either fewer
+department drives — a coverage decision, not an optimisation — or a cheaper `run_department`, which
+is engine-side. There is no third option hiding in the fixtures, and anyone arriving at the 90%
+figure should not spend a day looking for one.
+
+### And the lexical heavy-primitive count undercounts by 70%
+
+The retracted `r = 0.90` section counts heavy primitives by scanning test sources and reports **193**
+call sites for `github-devloop`. The runtime count is **328** department drives — `run_implement` 131,
+`run_observe` 119, `run_department` 78.
+
+The gap is the expected direction and larger than expected: a lexical scan counts *call sites*, while
+helpers invoked from loops, shared setup, and other helpers each multiply into several runtime calls.
+That is a further reason the lexical correlation was worthless, independent of the power-law argument
+that retracted it — the predictor was not merely confounded, it was measuring a different quantity
+from the one it was being correlated against.
+
+⟦AI:FKST⟧
