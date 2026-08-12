@@ -149,10 +149,6 @@ function M.state_gap_wait_evidence(entity, previous, marker)
   return { wait_class = "unattributed" }
 end
 
-function M.state_gap_wait_class(entity, previous, marker)
-  return M.state_gap_wait_evidence(entity, previous, marker).wait_class
-end
-
 local function marker_sort_key(marker)
   return tostring(marker.created_at or "")
     .. "/"

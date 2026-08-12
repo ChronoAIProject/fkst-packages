@@ -442,18 +442,6 @@ local function observe_runtime_snapshot()
   return snapshot
 end
 
-function S.observe_runtime_health()
-  local snapshot = observe_runtime_snapshot()
-  if snapshot == nil then
-    return { clean = false, reason = "observe-unavailable" }
-  end
-  local verdict = S.verdict(snapshot)
-  if verdict.clean ~= true and verdict.reason == "observe-malformed" then
-    verdict.reason = "observe-unavailable"
-  end
-  return verdict
-end
-
 function S.observe_promotion_health(window_start_ms, opts)
   local snapshot = observe_runtime_snapshot()
   if snapshot == nil then

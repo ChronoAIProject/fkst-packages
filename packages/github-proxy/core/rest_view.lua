@@ -77,12 +77,6 @@ function M.github_issue_comments_api(repo, issue_number, timeout)
   return M.github().issue_comments(repo, issue_number, timeout or 30)
 end
 
-function M.gh_issue_comments_api_cmd(repo, issue_number)
-  return function(timeout)
-    return M.github_issue_comments_api(repo, issue_number, timeout)
-  end
-end
-
 function M.rest_comments_to_view_json(comments_stdout)
   local decoded = decode_comments_json(comments_stdout)
   local comments = {}
