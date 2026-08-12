@@ -1089,3 +1089,70 @@ from inside the machinery; do not decompose it from outside* — the rule was al
 this file, by the same author who then ignored it.
 
 ⟦AI:FKST⟧
+
+## Correction at n=8: the gain is larger (−6.3%) and the co-scheduling penalty is not supported
+
+The post-merge section above measured the ordering change from **two** runs after the change and
+three before, and drew two conclusions: a net −5.0%, and a co-scheduling penalty in which starting
+the two heaviest units together inflates both. Six more post-change CI runs are now available. With
+n = 3 before and **n = 8** after, one conclusion strengthens and the other does not survive.
+
+| metric | before (n=3) | after (n=8) |
+|---|---|---|
+| `github-devloop` start offset | 50.5 s [48.1–57.8] | **0.0 s [0.0–0.0]** |
+| **span ÷ light-unit work** | 2.329 [2.269–2.348] | **2.182 [1.902–2.246]** |
+| `github-devloop` ÷ light | 2.121 [2.039–2.124] | 2.182 **[1.902–2.246]** |
+| `github-devloop-pr` ÷ light | 1.139 [1.085–1.148] | 1.218 [1.137–1.254] |
+
+**Strengthened — the net gain is larger than reported.** Median span ÷ light goes 2.329 → 2.182,
+**−6.3%** rather than −5.0%, and the ranges still do not overlap (before-min 2.269 > after-max 2.246)
+with more than twice the samples. The start offset is 0.0 s in **all eight** runs, so the mechanism is
+not in doubt.
+
+**Withdrawn — the co-scheduling penalty.** At n=2 both after-values for `github-devloop` sat above
+every before-value, and I concluded that co-scheduling the two heaviest units inflates the critical
+path by ~4%, generalising it into "LPT assumes durations are independent of co-scheduling; here they
+are not". At n=8 the after-range is **1.902–2.246**, which spans the before-range rather than sitting
+above it. **The separation was a two-sample artifact.** `github-devloop-pr` still shows a shift
+(1.139 → 1.218) but its ranges now touch (before-max 1.148, after-min 1.137), which is not a finding
+either.
+
+So the earlier decomposition — "−9.9% scheduling gain against +4.9% co-scheduling penalty" — is
+withdrawn. What is measured is the net, and the net is −6.3%.
+
+**A limit that applies to every normalised figure here, stated rather than assumed.** Dividing by the
+run's light-unit total removes runner *speed* only if the heavy and light units scale with it
+proportionally. If `github-devloop` is sensitive to something the light units are not — memory
+pressure, disk, a noisy neighbour on the same host — the ratio still moves with the runner and the
+normalisation is incomplete. `ASSUMED-UNVERIFIED`.
+
+**And the direction of the error is worth noting.** Every earlier correction in this document moved a
+number *against* the author's preferred conclusion. This one moves both ways at once: the change is
+better than claimed, and the mechanism I invented to explain its shortfall does not exist. Small-n
+narratives fail in whichever direction the noise points; they are not biased, they are just empty.
+
+### Robustness check: two of the eleven runs had different package code
+
+Comparing runs across branches assumes the *packages* are identical, and that assumption was not
+checked before publishing the table above. Diffing every sampled run's `packages/` and `libraries/`
+trees against a common reference found **two contaminated samples** — one in each arm:
+
+| run | arm | differing files |
+|---|---|---|
+| `8cb5c078` | after | 21 (`libraries/devloop/impl_failure.lua`, `replayer.lua`, …) |
+| `c534002d` | before | 9 (`libraries/devloop/base_ids.lua`, `convergence/reconcile.lua`, …) |
+
+Both are branches that carried unrelated package changes, which can move unit costs for reasons that
+have nothing to do with dispatch order. Recomputing on the nine clean runs only:
+
+| | n | span ÷ light | net |
+|---|---:|---|---:|
+| as published | 3 / 8 | 2.329 → 2.182 | −6.3% |
+| **clean only** | **2 / 7** | **2.308 → 2.167** | **−6.1%** |
+
+Ranges remain non-overlapping and the start offset is still 0.0 s in every after-run. **The
+contamination was immaterial**, but it was found by checking rather than assumed away, and the
+before-arm is thin either way — **n=2** clean, from a single 20-minute window of the CI fleet. The
+honest reading of −6.1% is "consistently negative, magnitude approximate".
+
+⟦AI:FKST⟧
