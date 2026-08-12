@@ -134,20 +134,6 @@ function M.has_trusted_marker(comments, dedup_key, bot_login)
   return false
 end
 
-function M.has_trusted_comment_fragment(comments, fragment, bot_login)
-  if type(comments) ~= "table" or type(fragment) ~= "string" or fragment == "" then
-    return false
-  end
-  for _, comment in ipairs(comments) do
-    if forge_strings.canonical_login(comment_author_login(comment))
-      == forge_strings.canonical_login(bot_login)
-      and forge_strings.comment_body(comment):find(fragment, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
 function M.trusted_comment_with_fragment(comments, fragment, bot_login)
   if type(comments) ~= "table" or type(fragment) ~= "string" or fragment == "" then
     return nil
@@ -300,28 +286,8 @@ function M.gh_issue_comment_cmd(repo, issue_number, body_file)
   end
 end
 
-function M.gh_issue_comment_create(repo, issue_number, body_file, timeout)
-  return M.github().issue_comment_create(repo, issue_number, body_file, timeout or 30)
-end
-
-function M.gh_issue_comment_create_cmd(repo, issue_number, body_file)
-  return function(timeout)
-    return M.gh_issue_comment_create(repo, issue_number, body_file, timeout)
-  end
-end
-
-function M.gh_pr_comment_create(repo, pr_number, body_file, timeout)
-  return M.github().pr_comment_create(repo, pr_number, body_file, timeout or 30)
-end
-
 function M.gh_comment_edit(repo, comment_id_value, body_file, timeout)
   return M.github().comment_update(repo, comment_id_value, body_file, timeout or 30)
-end
-
-function M.gh_comment_edit_cmd(repo, comment_id_value, body_file)
-  return function(timeout)
-    return M.gh_comment_edit(repo, comment_id_value, body_file, timeout)
-  end
 end
 
 local function edit_existing_comment(M, repo, target, path, existing, replace_marker, bot_login)
