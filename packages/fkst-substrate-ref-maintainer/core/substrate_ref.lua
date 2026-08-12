@@ -100,10 +100,6 @@ local function read_runtime_root()
   return root:gsub("/+$", "")
 end
 
-function M.git_show_substrate_ref_pin_cmd()
-  return "substrate-ref pin read"
-end
-
 local function read_pin()
   local result = run_adapter(function()
     return git().show_file("HEAD", substrate_ref_path, 30)
@@ -631,16 +627,6 @@ local function hold_unpublishable_target(repo, current_pin, target_sha, reason, 
     target = target_sha,
     branch = bump_branch,
     merge = merge_result,
-  }
-end
-
-function M.substrate_ref_constants()
-  return {
-    path = substrate_ref_path,
-    remote = substrate_remote,
-    branch = substrate_branch,
-    bump_branch = bump_branch,
-    title = bump_title,
   }
 end
 
