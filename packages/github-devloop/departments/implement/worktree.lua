@@ -1,6 +1,5 @@
 local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
-local forge_git = require("forge.git").new(function(...) return exec_argv(...) end)
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
@@ -73,24 +72,6 @@ function M.merge_integration(git, worktree, integration_branch, base_head)
     "reason=integration merge requires codex conflict resolution",
   })
   return false
-end
-
-function M.remove_stale_worktree(path)
-  local dir_result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(path), timeout = 30 })
-  if dir_result.exit_code ~= 0 and dir_result.exit_code ~= 1 then
-    error("github-devloop: worktree-path-check-failed: git worktree path check failed: " .. tostring(dir_result.stderr))
-  end
-  if dir_result.exit_code == 1 then
-    local prune_result = devloop_commands.git_worktree_prune(60)
-    if prune_result.exit_code ~= 0 then
-      error("github-devloop: worktree-prune-failed: git worktree prune failed: " .. tostring(prune_result.stderr))
-    end
-    return
-  end
-  local remove_result = forge_git.worktree_remove(path, 60)
-  if remove_result.exit_code ~= 0 then
-    error("github-devloop: worktree-remove-failed: git worktree remove failed: " .. tostring(remove_result.stderr))
-  end
 end
 
 local function checkpoint_head_for_branch(checkpoint, branch)
