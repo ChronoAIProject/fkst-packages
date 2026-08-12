@@ -1131,4 +1131,28 @@ number *against* the author's preferred conclusion. This one moves both ways at 
 better than claimed, and the mechanism I invented to explain its shortfall does not exist. Small-n
 narratives fail in whichever direction the noise points; they are not biased, they are just empty.
 
+### Robustness check: two of the eleven runs had different package code
+
+Comparing runs across branches assumes the *packages* are identical, and that assumption was not
+checked before publishing the table above. Diffing every sampled run's `packages/` and `libraries/`
+trees against a common reference found **two contaminated samples** — one in each arm:
+
+| run | arm | differing files |
+|---|---|---|
+| `8cb5c078` | after | 21 (`libraries/devloop/impl_failure.lua`, `replayer.lua`, …) |
+| `c534002d` | before | 9 (`libraries/devloop/base_ids.lua`, `convergence/reconcile.lua`, …) |
+
+Both are branches that carried unrelated package changes, which can move unit costs for reasons that
+have nothing to do with dispatch order. Recomputing on the nine clean runs only:
+
+| | n | span ÷ light | net |
+|---|---:|---|---:|
+| as published | 3 / 8 | 2.329 → 2.182 | −6.3% |
+| **clean only** | **2 / 7** | **2.308 → 2.167** | **−6.1%** |
+
+Ranges remain non-overlapping and the start offset is still 0.0 s in every after-run. **The
+contamination was immaterial**, but it was found by checking rather than assumed away, and the
+before-arm is thin either way — **n=2** clean, from a single 20-minute window of the CI fleet. The
+honest reading of −6.1% is "consistently negative, magnitude approximate".
+
 ⟦AI:FKST⟧
