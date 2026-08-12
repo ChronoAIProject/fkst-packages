@@ -623,10 +623,6 @@ function M.redaction_marker(field, author_login_value, bytes_removed)
     .. ' why="' .. REDACTION_REASON .. '"]'
 end
 
-local function is_blocked_marker(value)
-  return type(value) == "string" and value:find(M.MARKER_PREFIX, 1, true) == 1
-end
-
 function M.filter_cell(body, author_login_value, field, whitelist)
   if M.is_authorized(author_login_value, whitelist) then
     return body, nil
