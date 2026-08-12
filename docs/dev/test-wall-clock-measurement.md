@@ -1156,3 +1156,34 @@ before-arm is thin either way — **n=2** clean, from a single 20-minute window 
 honest reading of −6.1% is "consistently negative, magnitude approximate".
 
 ⟦AI:FKST⟧
+
+## End-to-end verification of the delivered gate
+
+The changes above were each verified in isolation. This is the check nobody had run: does the local
+gate, as it now stands on `dev`, actually select what a change touches?
+
+Two probes against the real repository, each a single appended line to a tracked file, resolved
+through `scripts/test_affected.py`:
+
+| change | resolved package set |
+|---|---|
+| `packages/consensus/departments/test_reach/main.lua` | **`consensus`** — one package |
+| `libraries/contract/strings.lua` | **all 22 packages** |
+
+Both are correct. The second is not a failure of selection: `contract` is a foundational library that
+every package declares in `lib_deps`, so its reverse-dependency closure genuinely is the whole
+repository. A selector that returned less would be wrong.
+
+**And the second row is where the batching fix earns its keep.** Before `test` accepted multiple
+package arguments, a 22-package resolution invoked `scripts/run.sh test <pkg>` twenty-two times, and
+each invocation runs a full `cmd_check` before `cmd_test` (`scripts/run.sh`, `main`). At the 57.6 s
+check phase measured on this host that is **≈21 minutes of check phase for one library edit**, against
+57.6 s now — and it is the *common* case, not a corner: any change under `libraries/contract`,
+`libraries/devloop`, or any other widely-declared library resolves this way.
+
+That is the concrete form of the whole exercise. The scheduling work moved the package phase to its
+makespan floor and is worth single-digit percent; **the batching fix removed a twenty-two-fold
+repetition of the other phase**, and it was found by asking what the current path costs rather than
+by optimising the path that looked interesting.
+
+⟦AI:FKST⟧
