@@ -218,10 +218,6 @@ local forge_validators = require("devloop.forge_validators")
     )
   end
 
-  function C.git_push_branch_update(git, branch, timeout)
-    return git.push_branch_update(require_safe_branch("push branch", branch), timeout)
-  end
-
   function C.git_push_worktree_branch_update(git, worktree, branch, timeout)
     return git.push_worktree_branch_update(worktree, require_safe_branch("push branch", branch), nil, timeout)
   end
