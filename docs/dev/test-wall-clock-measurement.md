@@ -1089,3 +1089,197 @@ from inside the machinery; do not decompose it from outside* — the rule was al
 this file, by the same author who then ignored it.
 
 ⟦AI:FKST⟧
+
+## Correction at n=8: the gain is larger (−6.3%) and the co-scheduling penalty is not supported
+
+The post-merge section above measured the ordering change from **two** runs after the change and
+three before, and drew two conclusions: a net −5.0%, and a co-scheduling penalty in which starting
+the two heaviest units together inflates both. Six more post-change CI runs are now available. With
+n = 3 before and **n = 8** after, one conclusion strengthens and the other does not survive.
+
+| metric | before (n=3) | after (n=8) |
+|---|---|---|
+| `github-devloop` start offset | 50.5 s [48.1–57.8] | **0.0 s [0.0–0.0]** |
+| **span ÷ light-unit work** | 2.329 [2.269–2.348] | **2.182 [1.902–2.246]** |
+| `github-devloop` ÷ light | 2.121 [2.039–2.124] | 2.182 **[1.902–2.246]** |
+| `github-devloop-pr` ÷ light | 1.139 [1.085–1.148] | 1.218 [1.137–1.254] |
+
+**Strengthened — the net gain is larger than reported.** Median span ÷ light goes 2.329 → 2.182,
+**−6.3%** rather than −5.0%, and the ranges still do not overlap (before-min 2.269 > after-max 2.246)
+with more than twice the samples. The start offset is 0.0 s in **all eight** runs, so the mechanism is
+not in doubt.
+
+**Withdrawn — the co-scheduling penalty.** At n=2 both after-values for `github-devloop` sat above
+every before-value, and I concluded that co-scheduling the two heaviest units inflates the critical
+path by ~4%, generalising it into "LPT assumes durations are independent of co-scheduling; here they
+are not". At n=8 the after-range is **1.902–2.246**, which spans the before-range rather than sitting
+above it. **The separation was a two-sample artifact.** `github-devloop-pr` still shows a shift
+(1.139 → 1.218) but its ranges now touch (before-max 1.148, after-min 1.137), which is not a finding
+either.
+
+So the earlier decomposition — "−9.9% scheduling gain against +4.9% co-scheduling penalty" — is
+withdrawn. What is measured is the net, and the net is −6.3%.
+
+**A limit that applies to every normalised figure here, stated rather than assumed.** Dividing by the
+run's light-unit total removes runner *speed* only if the heavy and light units scale with it
+proportionally. If `github-devloop` is sensitive to something the light units are not — memory
+pressure, disk, a noisy neighbour on the same host — the ratio still moves with the runner and the
+normalisation is incomplete. `ASSUMED-UNVERIFIED`.
+
+**And the direction of the error is worth noting.** Every earlier correction in this document moved a
+number *against* the author's preferred conclusion. This one moves both ways at once: the change is
+better than claimed, and the mechanism I invented to explain its shortfall does not exist. Small-n
+narratives fail in whichever direction the noise points; they are not biased, they are just empty.
+
+### Robustness check: two of the eleven runs had different package code
+
+Comparing runs across branches assumes the *packages* are identical, and that assumption was not
+checked before publishing the table above. Diffing every sampled run's `packages/` and `libraries/`
+trees against a common reference found **two contaminated samples** — one in each arm:
+
+| run | arm | differing files |
+|---|---|---|
+| `8cb5c078` | after | 21 (`libraries/devloop/impl_failure.lua`, `replayer.lua`, …) |
+| `c534002d` | before | 9 (`libraries/devloop/base_ids.lua`, `convergence/reconcile.lua`, …) |
+
+Both are branches that carried unrelated package changes, which can move unit costs for reasons that
+have nothing to do with dispatch order. Recomputing on the nine clean runs only:
+
+| | n | span ÷ light | net |
+|---|---:|---|---:|
+| as published | 3 / 8 | 2.329 → 2.182 | −6.3% |
+| **clean only** | **2 / 7** | **2.308 → 2.167** | **−6.1%** |
+
+Ranges remain non-overlapping and the start offset is still 0.0 s in every after-run. **The
+contamination was immaterial**, but it was found by checking rather than assumed away, and the
+before-arm is thin either way — **n=2** clean, from a single 20-minute window of the CI fleet. The
+honest reading of −6.1% is "consistently negative, magnitude approximate".
+
+⟦AI:FKST⟧
+
+## End-to-end verification of the delivered gate
+
+The changes above were each verified in isolation. This is the check nobody had run: does the local
+gate, as it now stands on `dev`, actually select what a change touches?
+
+Two probes against the real repository, each a single appended line to a tracked file, resolved
+through `scripts/test_affected.py`:
+
+| change | resolved package set |
+|---|---|
+| `packages/consensus/departments/test_reach/main.lua` | **`consensus`** — one package |
+| `libraries/contract/strings.lua` | **all 22 packages** |
+
+Both are correct. The second is not a failure of selection: `contract` is a foundational library that
+every package declares in `lib_deps`, so its reverse-dependency closure genuinely is the whole
+repository. A selector that returned less would be wrong.
+
+**And the second row is where the batching fix earns its keep.** Before `test` accepted multiple
+package arguments, a 22-package resolution invoked `scripts/run.sh test <pkg>` twenty-two times, and
+each invocation runs a full `cmd_check` before `cmd_test` (`scripts/run.sh`, `main`). At the 57.6 s
+check phase measured on this host that is **≈21 minutes of check phase for one library edit**, against
+57.6 s now — and it is the *common* case, not a corner: any change under `libraries/contract`,
+`libraries/devloop`, or any other widely-declared library resolves this way.
+
+That is the concrete form of the whole exercise. The scheduling work moved the package phase to its
+makespan floor and is worth single-digit percent; **the batching fix removed a twenty-two-fold
+repetition of the other phase**, and it was found by asking what the current path costs rather than
+by optimising the path that looked interesting.
+
+⟦AI:FKST⟧
+
+## The runtime heavy-primitive count this document asked for, and what it does and does not settle
+
+An earlier section counts heavy test primitives **lexically**, finds `r = 0.90` against unit cost,
+then retracts it as a power-law artifact — closing with the note that the count "should be checked
+against a runtime count before anything is built on it". That runtime count now exists.
+
+### Method: instrument the fixture, not the engine
+
+`packages/github-devloop/tests/devloop_helpers.lua` is required by **118** of the package's test files
+and is a seven-line delegation to `libraries/testkit_internal/devloop_helpers_fixtures.lua`, whose
+`M.new(deps)` merges the base/pr/worktree helper modules into one table and returns it. That table is
+a single choke point through which most of the package's fixture work passes, and it is **repo-owned
+Lua** — so it can be instrumented from inside, without the engine capability the rest of this document
+keeps arriving at.
+
+A temporary probe wrapped every function in that table, emitting `os.clock()` deltas per call. The
+probe is not merged; the tree was restored and verified clean.
+
+It had to be run by invoking the engine directly on a constructed root rather than through
+`scripts/run.sh test github-devloop`: the probe edits `libraries/`, and
+`host_run_equivalence_test.py` compares a **committed golden** for the delegated launch, so any
+library edit reddens the check phase before the package phase starts. Worth knowing before anyone
+tries the same thing.
+
+### Result: 90% of fixture-attributable Lua CPU is 328 department drives
+
+1354 of 1420 tests completed under the probe (the 66 failures are the probe's own return-arity
+truncation), across 6904 helper calls and 60 distinct helpers:
+
+| helper | CPU s | share | calls | ms/call |
+|---|---:|---:|---:|---:|
+| `run_implement` | 13.62 | **37.1%** | 131 | 104.0 |
+| `run_observe` | 11.14 | **30.3%** | 119 | 93.6 |
+| `run_department` | 8.12 | **22.1%** | 78 | 104.1 |
+| `mock_issue_state` | 1.00 | 2.7% | 128 | 7.8 |
+| the other 56 | 2.84 | 7.8% | 6448 | 0.4 |
+| **total** | **36.72** | | **6904** | |
+
+**Three helpers, all of which drive a whole department, are 90% of it** — 328 invocations at roughly
+100 ms each. The distribution is the same power-law this document finds at every other granularity,
+and the runtime count confirms what the lexical count only suggested: cost concentrates in
+department-driving primitives, not in the thousands of cheap assertions around them.
+
+### What this does NOT establish, and why
+
+**36.72 s of captured CPU is about 20% of that same run's 185.4 s wall time.** `os.clock()` measures
+CPU consumed by the Lua process, so anything these helpers trigger across a process boundary is
+invisible to it, as is any wall-clock spent waiting rather than computing. So this identifies which
+helpers dominate **Lua-side CPU**; it is `ASSUMED-UNVERIFIED` whether they dominate the package's
+**wall time**, and the 20% figure means roughly four fifths of the run is somewhere this probe cannot
+see.
+
+*That ratio is stated against the probe run's own wall clock deliberately. An earlier draft of this
+section divided the same 36.72 s by the **637 s CI** figure and reported "about 6%" — captured on one
+machine, divided by a wall time from another, which is not a ratio of anything. The probe run's own
+wall was 185.4 s, on a contended host and with 66 tests cut short by the probe, so 20% is itself
+approximate — but it is at least a comparison between two measurements of the same run.*
+
+Settling that needs a sub-second wall clock inside the sandbox, and there is not one: `now()` and
+`os.time()` are both second-resolution, which cannot time a 100 ms call. That is a second, smaller
+engine-side gap alongside the per-test duration this document keeps arriving at — and it is stated
+here rather than papered over with a CPU number relabelled as wall time.
+
+⟦AI:FKST⟧
+
+### Following that lead to its end: there is no fixture waste to remove
+
+The obvious next move from "three helpers are 90%" is to optimise those three helpers. It does not
+survive reading them.
+
+`run_implement` — the largest single item at 13.62 s over 131 calls — is a thin wrapper
+(`libraries/testkit_internal/devloop_fixtures.lua:561`): call `mock_branch_config_env()`, build an
+event table, call `run_department`. And `mock_branch_config_env` (`:381`) only registers two
+in-memory command mocks, which the same probe measures at well under its cheapest tier (the 56
+tail helpers average **0.4 ms**). So essentially **all** of the ~104 ms is the `run_department`
+primitive itself.
+
+**The cost is what the test does, not overhead around it.** Making it cheaper means either fewer
+department drives — a coverage decision, not an optimisation — or a cheaper `run_department`, which
+is engine-side. There is no third option hiding in the fixtures, and anyone arriving at the 90%
+figure should not spend a day looking for one.
+
+### And the lexical heavy-primitive count undercounts by 70%
+
+The retracted `r = 0.90` section counts heavy primitives by scanning test sources and reports **193**
+call sites for `github-devloop`. The runtime count is **328** department drives — `run_implement` 131,
+`run_observe` 119, `run_department` 78.
+
+The gap is the expected direction and larger than expected: a lexical scan counts *call sites*, while
+helpers invoked from loops, shared setup, and other helpers each multiply into several runtime calls.
+That is a further reason the lexical correlation was worthless, independent of the power-law argument
+that retracted it — the predictor was not merely confounded, it was measuring a different quantity
+from the one it was being correlated against.
+
+⟦AI:FKST⟧
