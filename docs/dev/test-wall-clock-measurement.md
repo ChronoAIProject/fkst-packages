@@ -1187,3 +1187,68 @@ repetition of the other phase**, and it was found by asking what the current pat
 by optimising the path that looked interesting.
 
 ⟦AI:FKST⟧
+
+## The runtime heavy-primitive count this document asked for, and what it does and does not settle
+
+An earlier section counts heavy test primitives **lexically**, finds `r = 0.90` against unit cost,
+then retracts it as a power-law artifact — closing with the note that the count "should be checked
+against a runtime count before anything is built on it". That runtime count now exists.
+
+### Method: instrument the fixture, not the engine
+
+`packages/github-devloop/tests/devloop_helpers.lua` is required by **118** of the package's test files
+and is a seven-line delegation to `libraries/testkit_internal/devloop_helpers_fixtures.lua`, whose
+`M.new(deps)` merges the base/pr/worktree helper modules into one table and returns it. That table is
+a single choke point through which most of the package's fixture work passes, and it is **repo-owned
+Lua** — so it can be instrumented from inside, without the engine capability the rest of this document
+keeps arriving at.
+
+A temporary probe wrapped every function in that table, emitting `os.clock()` deltas per call. The
+probe is not merged; the tree was restored and verified clean.
+
+It had to be run by invoking the engine directly on a constructed root rather than through
+`scripts/run.sh test github-devloop`: the probe edits `libraries/`, and
+`host_run_equivalence_test.py` compares a **committed golden** for the delegated launch, so any
+library edit reddens the check phase before the package phase starts. Worth knowing before anyone
+tries the same thing.
+
+### Result: 90% of fixture-attributable Lua CPU is 328 department drives
+
+1354 of 1420 tests completed under the probe (the 66 failures are the probe's own return-arity
+truncation), across 6904 helper calls and 60 distinct helpers:
+
+| helper | CPU s | share | calls | ms/call |
+|---|---:|---:|---:|---:|
+| `run_implement` | 13.62 | **37.1%** | 131 | 104.0 |
+| `run_observe` | 11.14 | **30.3%** | 119 | 93.6 |
+| `run_department` | 8.12 | **22.1%** | 78 | 104.1 |
+| `mock_issue_state` | 1.00 | 2.7% | 128 | 7.8 |
+| the other 56 | 2.84 | 7.8% | 6448 | 0.4 |
+| **total** | **36.72** | | **6904** | |
+
+**Three helpers, all of which drive a whole department, are 90% of it** — 328 invocations at roughly
+100 ms each. The distribution is the same power-law this document finds at every other granularity,
+and the runtime count confirms what the lexical count only suggested: cost concentrates in
+department-driving primitives, not in the thousands of cheap assertions around them.
+
+### What this does NOT establish, and why
+
+**36.72 s of captured CPU is about 20% of that same run's 185.4 s wall time.** `os.clock()` measures
+CPU consumed by the Lua process, so anything these helpers trigger across a process boundary is
+invisible to it, as is any wall-clock spent waiting rather than computing. So this identifies which
+helpers dominate **Lua-side CPU**; it is `ASSUMED-UNVERIFIED` whether they dominate the package's
+**wall time**, and the 20% figure means roughly four fifths of the run is somewhere this probe cannot
+see.
+
+*That ratio is stated against the probe run's own wall clock deliberately. An earlier draft of this
+section divided the same 36.72 s by the **637 s CI** figure and reported "about 6%" — captured on one
+machine, divided by a wall time from another, which is not a ratio of anything. The probe run's own
+wall was 185.4 s, on a contended host and with 66 tests cut short by the probe, so 20% is itself
+approximate — but it is at least a comparison between two measurements of the same run.*
+
+Settling that needs a sub-second wall clock inside the sandbox, and there is not one: `now()` and
+`os.time()` are both second-resolution, which cannot time a 100 ms call. That is a second, smaller
+engine-side gap alongside the per-test duration this document keeps arriving at — and it is stated
+here rather than papered over with a CPU number relabelled as wall time.
+
+⟦AI:FKST⟧
