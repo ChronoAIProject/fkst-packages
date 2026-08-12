@@ -491,17 +491,4 @@ function C.timeout_reconcile_fact_for_terminal_version_from_states(comments, pro
   return nil
 end
 
-function C.timeout_reconcile_fact_for_terminal_version(restart_policy, comments, proposal_id, terminal_version)
-  if type(restart_policy) ~= "table" or type(restart_policy.restart_transition_table) ~= "function" then
-    return nil
-  end
-  local allowed = {}
-  for _, row in ipairs(restart_policy.restart_transition_table()) do
-    if row.terminal == false then
-      allowed[row.from_state] = true
-    end
-  end
-  return C.timeout_reconcile_fact_for_terminal_version_from_states(comments, proposal_id, terminal_version, allowed)
-end
-
 return C

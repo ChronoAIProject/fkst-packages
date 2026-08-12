@@ -147,18 +147,6 @@ local function local_context_block(manifest, fallback)
   }, "\n")
 end
 
-local function issue_ref_from_proposal_id(P, proposal_id)
-  local repo, issue_number = base_ids.parse_proposal_id(proposal_id)
-  if repo ~= nil and issue_number ~= nil then
-    return repo, issue_number
-  end
-  local entity = entity_lib.parse_entity_proposal_id(proposal_id)
-  if entity ~= nil and entity.issue_number ~= nil then
-    return entity.repo, entity.issue_number
-  end
-  return nil, nil
-end
-
 local function proof_phase_block(context)
   if context.phase == "construction" then
     return table.concat({
