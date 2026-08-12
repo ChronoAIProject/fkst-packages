@@ -105,3 +105,47 @@ decided but not implemented; the remaining intra-file duplication surface is mos
 should not be extracted.
 
 ⟦AI:FKST⟧
+
+## Addendum, 2026-08-12: the instrument, not the surface, was the limit
+
+The section above ends by noting the remaining duplication surface is "mostly *arrangement* and should
+not be extracted." That was measured further and **confirmed**: nine independent random draws
+(seeds 20260811–20260819, 345 regions) classify at **~77% ARRANGEMENT, ~15% CANDIDATE, ~4% SYNTAX,
+~3% MANDATED**, stable across every seed. Parallel lifecycles have parallel shapes; consolidating them
+would produce a module serving two lifecycles, which this repo treats as a defect.
+
+**But that conclusion functioned as an ending, and it was the wrong one.** It said little was left,
+when what was actually left was invisible to the instrument being used.
+
+| instrument | found | could NOT find |
+|---|---|---|
+| duplication sampling | 28 implementations single-sourced, −124 lines | **dead code — it is not duplicated, it is absent from everything** |
+| direct mutation sampling | unwitnessed behaviour, unreachable code | behaviour that is tested but tested *wrong* |
+| token-frequency scan | 46 unreachable functions, −418 lines | dead *values* — a string a validator accepts and nothing emits |
+
+Switching from extraction to direct mutation — **for cost reasons, not insight** — surfaced a function
+whose mutation killed nothing because nothing called it. Generalising that produced 17 unreachable
+library exports, 3 unreachable locals, and 26 unreachable package exports. Sixteen of the last group
+were pre-ports `gh` command builders orphaned when the G-ADAPTER migration moved argv construction into
+`libraries/forge/` — migration residue with a history, not an artefact of the scan.
+
+A third shape appeared only when the autonomous devloop corrected an issue filed from this work: the
+intake-class outcome `"carrier"` is accepted by a validator and **emitted by nothing**, traced forward
+from the single production caller which passes the literal `"folded"`. No scan run here could have
+found it; it is a string, kept legal by the code that lists it.
+
+### What transfers
+
+**Each instrument's shape determines the *category* of finding, not just the hit rate — and a blind
+spot is invisible from inside the instrument that has it.** Eight rounds of refining the duplication
+method (three gates, distinct-candidate counting, per-owner witnesses) made it measurably better and
+could never have revealed what it structurally could not see. The switch came from a cost comparison,
+not from noticing.
+
+Corollary: **evidence for a method in one population is not evidence for it in another.** The dead-code
+scan went 17-for-17 in `libraries/`, and `packages/` has a calling convention `libraries/` does not —
+the engine invokes `M.spec`, `pipeline`, raisers and handler tables from Rust, so zero Lua references
+is the *normal* state there. The 17-for-17 record carried authority into a population where its central
+assumption did not hold.
+
+⟦AI:FKST⟧
