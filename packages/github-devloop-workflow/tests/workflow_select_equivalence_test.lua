@@ -276,6 +276,11 @@ local function exercise_default_policy(case)
   local decision = workflow_result.raises[1]
   t.eq(decision.queue, "github-proxy.github_issue_comment_request")
   t.is_true(decision.payload.body:find('decision="' .. case.action .. '"', 1, true) ~= nil)
+  if case.followup_outcome ~= nil then
+    local followup = workflow_result.raises[2]
+    t.eq(followup.queue, "github-proxy.github_issue_comment_request")
+    t.is_true(followup.payload.body:find('outcome="' .. case.followup_outcome .. '"', 1, true) ~= nil)
+  end
 end
 
 local class_siblings = {
@@ -329,15 +334,19 @@ local tests = {
   test_non_workflow_escalate_to_class_uses_default_policy = function()
     exercise_default_policy({
       name = "escalate",
-      action = "enable",
+      action = "escalate-to-class",
+      followup_outcome = "folded",
       expected_queues = {
         "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_comment_request",
         "github-proxy.github_issue_label_request",
-        "github-devloop.devloop_execute_request",
+        "github-proxy.github_issue_create_request",
+        "github-proxy.github_issue_label_request",
       },
       current = {
         title = "Fix widget sync retry overflow again",
         body = "Third recurrence after #80 and #81; decide whether this needs a class-level retry policy.",
+        labels = { "fingerprint:widget-sync" },
       },
       class_siblings = class_siblings,
       codex = "⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.",
