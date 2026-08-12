@@ -366,11 +366,6 @@ function BranchTrain.install(M, shared, bounded_lock_key)
     return true, "ok"
   end
 
-  function M.is_supported_rollup_ready(payload)
-    local ok = M.validate_rollup_ready(payload)
-    return ok == true
-  end
-
   function M.branch_sync_source_ref(repo, upstream, integration)
     return {
       kind = "external",

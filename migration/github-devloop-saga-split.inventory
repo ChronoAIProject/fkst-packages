@@ -98,7 +98,6 @@
 {"path":"packages/github-devloop-integration/core/branches.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/core/branches/branch_train.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/core/branches/pr_freshness.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
-{"path":"packages/github-devloop-integration/core/branches/shared.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/core/devloop_wiring.lua","owner":"integration","reason":"core module resolves integration package-private prompt modules."}
 {"path":"packages/github-devloop-integration/core/release_notes.lua","owner":"integration","reason":"core module belongs to the parent issue saga authority."}
 {"path":"packages/github-devloop-integration/core/rollup_health.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}

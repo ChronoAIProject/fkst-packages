@@ -21,23 +21,12 @@ local max_timeout_attempts = shared.max_timeout_attempts
 local numeric_minutes = shared.numeric_minutes
 local row_liveness_signal = shared.row_liveness_signal
 
-function K.liveness_budget_minutes(state_name)
-  local row = replay_fields.restart_transition_row(policy.restart_transition_table(), state_name)
-  return row and row.budget and tonumber(row.budget.minutes) or nil
-end
-
 function K.liveness_state_age_minutes(state, now_seconds)
   if type(state) ~= "table" then
     return nil
   end
-  if state.marker_created_at ~= nil and state.marker_created_at ~= "" then
-    local created_seconds = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at)
-    local current_seconds = tonumber(now_seconds)
-    if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
-      return math.floor((current_seconds - created_seconds) / 60)
-    end
-  end
-  return policy.stall_suspect_age_minutes(state.version, now_seconds)
+  return contract_time.iso_timestamp_age_minutes(state.marker_created_at, now_seconds)
+    or policy.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
 function K.liveness_timeout_attempt(row, state, facts)
@@ -136,10 +125,6 @@ local function build_timeout_reconcile(row, entity, state, facts, decision)
     return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, decision.attempt)
   end
   return nil, nil
-end
-
-function K.build_liveness_timeout_reconcile_payload(row, entity, state, facts, decision)
-  return build_timeout_reconcile(row, entity, state, facts, decision)
 end
 
 function K.liveness_timeout_decision(row, state, now_seconds)

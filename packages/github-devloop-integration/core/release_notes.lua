@@ -204,10 +204,6 @@ function M.release_notes_publish_policy(cfg)
   }
 end
 
-function M.gh_pr_create_body_cmd(repo, head, base, title, body)
-  error("github-devloop: adapter-only: release notes PR create uses forge.github adapter")
-end
-
 function M.gh_pr_create_body(repo, head, base, title, body, timeout)
   if not forge_validators.is_git_ref_safe(head) then
     error("github-devloop: git-ref-invalid: invalid PR head branch")

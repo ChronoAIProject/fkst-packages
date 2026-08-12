@@ -212,21 +212,6 @@ function C.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_bra
     .. '" -->'
 end
 
-function C.pr_link_marker_template(proposal_id, branch, impl_version, base_branch)
-  if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: git-ref-invalid: invalid branch")
-  end
-  if not forge_validators.is_git_ref_safe(base_branch) then
-    error("github-devloop: git-ref-invalid: invalid base branch")
-  end
-  return '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. tostring(proposal_id)
-    .. '" pr="{{pr_number}}"'
-    .. ' branch="' .. tostring(branch)
-    .. '" impl_version="' .. tostring(impl_version)
-    .. '" base_branch="' .. tostring(base_branch)
-    .. '" -->'
-end
-
 function C.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, version, delegation)
   if not forge_validators.is_positive_pr_number(pr_number) then
     error("github-devloop: invalid-pr-number: invalid pr-delegation pr number")

@@ -43,16 +43,6 @@ local function validate_required_fact(required)
   end
 end
 
-local function has_required_fact(row, family)
-  for _, required in ipairs(row.required_facts or {}) do
-    validate_required_fact(required)
-    if required.family == family then
-      return true
-    end
-  end
-  return false
-end
-
 local function current_pr_fact(facts)
   local link = facts.link
   if link == nil then

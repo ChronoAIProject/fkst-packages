@@ -50,10 +50,6 @@ local function fetch_ref_argv(remote, ref)
   return { "git", "fetch", tostring(remote), tostring(ref) }
 end
 
-local function fetch_pr_merge_ref_argv(remote, pr_number)
-  return fetch_ref_argv(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
-end
-
 local function pr_head_local_ref(pr_number)
   return "refs/fkst/pr/" .. tostring(pr_number)
 end
@@ -426,10 +422,6 @@ function M.install(handle)
     return "git fetch " .. argv_render.shell_single_quote(remote) .. " " .. argv_render.shell_single_quote(ref)
   end
 
-  function handle.fetch_pr_merge_ref(remote, pr_number, timeout)
-    return exec_result(handle, fetch_pr_merge_ref_argv(remote, pr_number), timeout, "git fetch PR merge ref")
-  end
-
   function handle.fetch_pr_merge_ref_cmd(remote, pr_number)
     return handle.fetch_ref_cmd(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
   end
@@ -555,10 +547,6 @@ function M.install(handle)
 
   function handle.push_branch_force_with_lease(branch, new_sha, expected_old_sha, timeout)
     return exec_result(handle, push_branch_force_with_lease_argv(branch, new_sha, expected_old_sha), timeout, "git push --force-with-lease")
-  end
-
-  function handle.push_branch_update(branch, timeout)
-    return exec_result(handle, push_branch_update_argv(branch), timeout, "git push branch update")
   end
 
   function handle.push_worktree_branch_update(worktree, branch, expected_old_sha, timeout)

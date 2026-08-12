@@ -1,4 +1,5 @@
 local bridge = require("contract.external_pr_bridge")
+local contract_strings = require("contract.strings")
 local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local devloop_commands = require("devloop.commands")
@@ -19,10 +20,6 @@ local function git()
     git_handle = git_adapter.new(exec_argv)
   end
   return git_handle
-end
-
-local function trim(value)
-  return tostring(value or ""):gsub("%s+$", "")
 end
 
 local function trusted_issue_author(current, managed)
@@ -66,7 +63,7 @@ function M.provision(worktree, marker, proposal_id)
   if head.exit_code ~= 0 then
     error("github-devloop: external-pr-bridge-head-resolve-failed: git FETCH_HEAD resolve failed: " .. tostring(head.stderr))
   end
-  local head_sha = trim(head.stdout)
+  local head_sha = contract_strings.trim_end(head.stdout)
   if not pr_safety.is_safe_head_sha(head_sha) then
     error("github-devloop: external-pr-bridge-head-unsafe: unsafe external PR head sha")
   end
