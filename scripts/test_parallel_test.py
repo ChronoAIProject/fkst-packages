@@ -678,6 +678,20 @@ class FailCodeSurfaceTest(unittest.TestCase):
         self.assertIn("rc=2", result.stdout, result.stdout + result.stderr)
         self.assertIn("codes=10", result.stdout, result.stdout + result.stderr)
 
+    def test_typed_failure_emits_the_exact_submitted_command_identity(self) -> None:
+        command = 'python3 -B -c "import sys; sys.exit(10)"'
+        result = _run_run_sh(f"run_units_parallel 1 {shlex.quote(command)} || true")
+        identities = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("FKST_LOCAL_ITERATION_FAILURE_IDENTITY:")
+        ]
+        self.assertEqual(len(identities), 1, result.stdout + result.stderr)
+        self.assertEqual(
+            json.loads(identities[0].split(":v1:", 1)[1]),
+            {"kind": "check", "command": command},
+        )
+
     def test_mixed_codes_are_all_reported(self) -> None:
         result = _run(
             "run_units_parallel 3 '( exit 10 )' '( exit 1 )'; "

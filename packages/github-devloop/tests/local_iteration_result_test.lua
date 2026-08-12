@@ -10,6 +10,10 @@ local function marker(verdict, fault_class)
   return "FKST_LOCAL_ITERATION_RESULT:v2:" .. verdict .. ":" .. fault_class .. "\n"
 end
 
+local function identity(value)
+  return "FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:" .. value .. "\n"
+end
+
 return {
   test_markerless_zero_is_unknown = function()
     local classified = classify({ exit_code = 0, stdout = "tests passed\n", stderr = "" })
@@ -34,6 +38,75 @@ return {
     t.eq(classified.kind, "SEMANTIC_FAIL")
     t.eq(classified.fault_class, "SEMANTIC")
     t.eq(classified.reason, "producer-declared")
+  end,
+
+  test_semantic_failure_identities_are_validated_sorted_and_deduplicated = function()
+    local check = '{"kind":"check","command":"python3 -B scripts/check_repo.py"}'
+    local test = '{"kind":"test","owner_namespace":"github-devloop","file":"tests/a_test.lua","name":"test_a","failure_kind":"assertion_failure"}'
+    local classified = classify({
+      exit_code = 1,
+      stdout = identity(test) .. identity(check),
+      stderr = marker("FAIL", "SEMANTIC") .. identity(test),
+    })
+
+    t.eq(classified.kind, "SEMANTIC_FAIL")
+    t.eq(#classified.failure_identities, 2)
+    t.eq(classified.failure_identities[1],
+      'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"python3 -B scripts/check_repo.py","kind":"check"}')
+    t.eq(classified.failure_identities[2],
+      'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"failure_kind":"assertion_failure","file":"tests/a_test.lua","kind":"test","name":"test_a","owner_namespace":"github-devloop"}')
+  end,
+
+  test_invalid_failure_identity_makes_the_observation_unknown = function()
+    local classified = classify({
+      exit_code = 1,
+      stdout = identity('{"kind":"test","owner_namespace":"github-devloop"}'),
+      stderr = marker("FAIL", "SEMANTIC"),
+    })
+
+    t.eq(classified.kind, "UNKNOWN")
+    t.eq(classified.reason, "invalid-failure-identity")
+  end,
+
+  test_complete_control_line_is_the_identity_size_contract = function()
+    local long_file = "tests/" .. string.rep("nested/", 30) .. "example_test.lua"
+    local classified = classify({
+      exit_code = 1,
+      stdout = identity('{"kind":"test","owner_namespace":"github-devloop","file":"'
+        .. long_file .. '","name":"test_example","failure_kind":"assertion_failure"}'),
+      stderr = marker("FAIL", "SEMANTIC"),
+    })
+
+    t.eq(classified.kind, "SEMANTIC_FAIL")
+    t.eq(#classified.failure_identities, 1)
+  end,
+
+  test_identity_that_cannot_be_published_makes_the_observation_unknown = function()
+    local classified = classify({
+      exit_code = 1,
+      stdout = identity('{"kind":"check","command":"' .. string.rep("x", 2000) .. '"}'),
+      stderr = marker("FAIL", "SEMANTIC"),
+    })
+
+    t.eq(classified.kind, "UNKNOWN")
+    t.eq(classified.reason, "invalid-failure-identity")
+  end,
+
+  test_identity_set_beyond_the_comment_contract_makes_the_observation_unknown = function()
+    local lines = {}
+    for index = 1, 60 do
+      lines[#lines + 1] = identity('{"kind":"test","owner_namespace":"github-devloop","file":"tests/example_test.lua",'
+        .. '"name":"test_' .. tostring(index) .. string.rep("x", 150)
+        .. '","failure_kind":"assertion_failure"}')
+    end
+    local classified = classify({
+      exit_code = 1,
+      stdout = table.concat(lines),
+      stderr = marker("FAIL", "SEMANTIC"),
+    })
+
+    t.eq(classified.kind, "UNKNOWN")
+    t.eq(classified.reason, "failure-identity-set-too-large")
   end,
 
   test_typed_nonsemantic_failures_preserve_the_producer_fault_class = function()

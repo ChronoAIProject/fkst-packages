@@ -4,8 +4,8 @@ local verdict = require("departments.implement.local_iteration_verdict")
 
 local base_sha = "1111111111111111111111111111111111111111"
 
-local function result(kind)
-  return { kind = kind }
+local function result(kind, identities)
+  return { kind = kind, failure_identities = identities or {} }
 end
 
 local function probe(fields)
@@ -31,11 +31,30 @@ return {
     t.eq(verdict.classify(result("SEMANTIC_FAIL"), probe()), "OWN_LOCAL_RED")
   end,
 
-  test_candidate_red_typed_base_red_is_base_red = function()
-    t.eq(verdict.classify(result("SEMANTIC_FAIL"), probe({
-      exit = 2,
-      result = result("SEMANTIC_FAIL"),
-    })), "BASE_RED")
+  test_one_base_semantic_observation_is_indeterminate = function()
+    local identity = { 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"python3 -B scripts/check_repo.py","kind":"check"}' }
+    local first = probe({ exit = 2, result = result("SEMANTIC_FAIL", identity) })
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), first), "INDETERMINATE")
+  end,
+
+  test_two_matching_same_sha_base_semantic_observations_are_base_red = function()
+    local identity = { 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"python3 -B scripts/check_repo.py","kind":"check"}' }
+    local first = probe({ exit = 2, result = result("SEMANTIC_FAIL", identity) })
+    local second = probe({ exit = 2, result = result("SEMANTIC_FAIL", identity) })
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), second, first), "BASE_RED")
+  end,
+
+  test_conflicting_same_sha_observations_are_indeterminate = function()
+    local identity_a = { 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"check-a","kind":"check"}' }
+    local identity_b = { 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"check-b","kind":"check"}' }
+    local semantic_a = probe({ exit = 2, result = result("SEMANTIC_FAIL", identity_a) })
+    local semantic_b = probe({ exit = 2, result = result("SEMANTIC_FAIL", identity_b) })
+    local passing = probe()
+    local setup_failure = probe({ exit = 1, result = result("CONFIGURATION_FAIL") })
+
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), semantic_b, semantic_a), "INDETERMINATE")
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), passing, semantic_a), "INDETERMINATE")
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), setup_failure, semantic_a), "INDETERMINATE")
   end,
 
   test_untrusted_or_incomplete_base_probe_is_indeterminate = function()

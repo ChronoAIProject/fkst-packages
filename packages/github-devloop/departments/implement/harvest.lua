@@ -12,6 +12,7 @@ local workflow_codex = require("workflow_internal.codex")
 local sweep_bounds = require("devloop.sweep_bounds")
 
 local exec_sync = exec_sync
+local with_lock = with_lock
 
 local M = {}
 
@@ -49,7 +50,8 @@ local function implementation_outcome(ready, worktree, branch, head_sha, base_br
   }
 end
 
-local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt,
+    started_at, exec_ref, detail, reason, failure_identities)
   local checkpoint_reason = reason or "codex-failed"
   return {
     kind = "implement-checkpoint",
@@ -64,13 +66,14 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
     exec_ref = exec_ref,
     finished_at = now(),
     detail = detail,
+    failure_identities = failure_identities or {},
     reason = checkpoint_reason,
     outcome = "checkpointed: " .. tostring(checkpoint_reason),
   }
 end
 
 local function impl_failed_outcome(
-    ready, reason, fault_class, retryable, detail, attempt, started_at, exec_ref, base_sha)
+    ready, reason, fault_class, retryable, detail, attempt, started_at, exec_ref, base_sha, failure_identities)
   if durable_impl_failure.valid_fault_class(fault_class) == nil then
     error("github-devloop: invalid-fault-class: invalid implementation failure outcome fault class")
   end
@@ -89,6 +92,7 @@ local function impl_failed_outcome(
     exec_ref = exec_ref,
     finished_at = now(),
     base_sha = base_sha,
+    failure_identities = failure_identities or {},
     outcome = "failed: " .. tostring(reason),
   }
 end
@@ -232,6 +236,23 @@ local function clean_probe_worktree(worktree)
   return true, ""
 end
 
+local function prepare_probe_parent(probe_worktree, execute)
+  local parent_dir = probe_worktree:gsub("/+$", ""):match("^(.*)/[^/]+$") or "."
+  local result = (execute or exec_sync)({ cmd = devloop_commands.mkdir_p_cmd(parent_dir), timeout = 30 })
+  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
+    return false, command_detail(result)
+  end
+  return true, ""
+end
+
+local function base_probe_lock_key(proposal_id)
+  local transition_key = devloop_base.implement_lock_key(proposal_id)
+  if transition_key == nil then
+    error("github-devloop: base-probe-lock-key-invalid: invalid proposal_id")
+  end
+  return transition_key .. "/base-probe"
+end
+
 -- Counts non-empty lines; `git ls-files` / `ls-tree` emit one path per line.
 local function line_count(stdout)
   local n = 0
@@ -276,11 +297,6 @@ end
 local function run_base_probe(worktree, base_sha)
   local git = require("forge.git").production_handle("github-devloop")
   local plan = git.git_worktree_add_detached_plan(worktree, base_sha)
-  local mkdir_result = exec_sync({ cmd = devloop_commands.mkdir_p_cmd(plan.parent_dir), timeout = 30 })
-  if type(mkdir_result) ~= "table" or tonumber(mkdir_result.exit_code) ~= 0 then
-    return { status = "setup-failed", detail = command_detail(mkdir_result) }
-  end
-
   local add_result = git.git_worktree_add_detached(plan.worktree, plan.sha, 60)
   if type(add_result) ~= "table" or tonumber(add_result.exit_code) ~= 0 then
     return { status = "checkout-failed", detail = command_detail(add_result) }
@@ -343,47 +359,48 @@ local function run_base_probe(worktree, base_sha)
   }
 end
 
--- Probe worktree path: a deterministic sibling of the (already deterministic)
--- candidate worktree, tagged by attempt, pre-cleaned before use. The deterministic
--- path is intentional -- a later run's pre-clean reaps any probe worktree a crashed
--- prior run leaked, which a random/unique path would defeat -- and mirrors how the
--- candidate worktree itself is named and reclaimed. The attempt tag keeps distinct
--- attempts from ever sharing a probe path. (If the same attempt were somehow probed
--- concurrently they would share this path; that degrades fail-closed to
--- INDETERMINATE -- a safe re-drive, never a misattribution.)
+-- The deterministic sibling path lets a later lease holder reclaim a worktree leaked
+-- by a crash. The issue-scoped lease is the ownership boundary: no overlapping probe
+-- can pre-clean or clean the path while its current owner is testing it.
 -- Exported so the materialization gate can be exercised with an injected git handle: it is the
 -- whole point of the fix and must be provable without a real half-written checkout.
 M.probe_tree_is_materialized = probe_tree_is_materialized
 
-function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
-  local suffix = probe_tag ~= nil and ("-" .. tostring(probe_tag)) or ""
-  local probe_worktree = tostring(candidate_worktree) .. "-base-probe" .. suffix
-  local observation = { status = "cleanup-failed", base_sha = base_sha, worktree = probe_worktree }
-  local preclean_ok, preclean_detail = clean_probe_worktree(probe_worktree)
-  if preclean_ok then
-    local ok, result = pcall(run_base_probe, probe_worktree, base_sha)
+function M.base_local_iteration_probe(proposal_id, candidate_worktree, base_sha, runtime)
+  local owner = runtime or {}
+  local acquire = owner.with_lock or with_lock
+  local run = owner.run or run_base_probe
+  local clean = owner.clean or clean_probe_worktree
+  local probe_worktree = tostring(candidate_worktree) .. "-base-probe"
+
+  return acquire(base_probe_lock_key(proposal_id), function()
+    local parent_ok, parent_detail = prepare_probe_parent(probe_worktree, owner.exec)
+    if not parent_ok then
+      return { status = "setup-failed", base_sha = base_sha, worktree = probe_worktree, detail = parent_detail }
+    end
+    local preclean_ok, preclean_detail = clean(probe_worktree)
+    if not preclean_ok then
+      return { status = "setup-failed", base_sha = base_sha, worktree = probe_worktree, detail = preclean_detail }
+    end
+
+    local observation
+    local ok, result = pcall(run, probe_worktree, base_sha)
     if ok and type(result) == "table" then
       observation = result
       observation.base_sha = base_sha
       observation.worktree = probe_worktree
     else
-      observation = {
-        status = "probe-failed",
-        base_sha = base_sha,
-        worktree = probe_worktree,
-        detail = tostring(result),
-      }
+      observation = { status = "probe-failed", base_sha = base_sha, worktree = probe_worktree,
+        detail = tostring(result) }
     end
-  else
-    observation.detail = preclean_detail
-  end
 
-  local cleanup_ok, cleanup_detail = clean_probe_worktree(probe_worktree)
-  if not cleanup_ok then
-    observation.status = "cleanup-failed"
-    observation.detail = cleanup_detail
-  end
-  return observation
+    local cleanup_ok, cleanup_detail = clean(probe_worktree)
+    if not cleanup_ok then
+      observation.status = "cleanup-failed"
+      observation.detail = cleanup_detail
+    end
+    return observation
+  end)
 end
 
 local function run_local_iteration_check(ready, worktree, base_head)
@@ -410,7 +427,7 @@ local function run_candidate_local_iteration_check(ready, worktree, base_head)
   return green, detail, result, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS, unavailable_reason
 end
 
-local function base_probe_detail(probe)
+local function base_probe_detail(probe, include_output)
   local fields = {
     "base_sha=" .. tostring(probe and probe.base_sha or ""),
     "probe_status=" .. tostring(probe and probe.status or "missing"),
@@ -429,10 +446,32 @@ local function base_probe_detail(probe)
   if probe and probe.head_readback ~= nil then
     table.insert(fields, "head_readback=" .. tostring(probe.head_readback))
   end
-  if probe and tostring(probe.detail or "") ~= "" then
+  if include_output ~= false and probe and tostring(probe.detail or "") ~= "" then
     table.insert(fields, tostring(probe.detail))
   end
   return table.concat(fields, "\n")
+end
+
+local function base_probe_history(probes)
+  local detail = {}
+  local outputs = {}
+  local identities = {}
+  for index, probe in ipairs(probes or {}) do
+    table.insert(detail, "base_observation=" .. tostring(index) .. "\n" .. base_probe_detail(probe, false))
+    if tostring(probe.detail or "") ~= "" then
+      table.insert(outputs, "base_observation_output=" .. tostring(index) .. "\n" .. tostring(probe.detail))
+    end
+    for _, identity in ipairs(probe.result and probe.result.failure_identities or {}) do
+      identities[identity] = true
+    end
+  end
+  local canonical_identities = {}
+  for identity in pairs(identities) do
+    table.insert(canonical_identities, identity)
+  end
+  table.sort(canonical_identities)
+  return table.concat(detail, "\n")
+    .. (#outputs > 0 and ("\n" .. table.concat(outputs, "\n")) or ""), canonical_identities
 end
 
 function M.clean_branch_head(base_head, branch)
@@ -481,10 +520,10 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 local function verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
-    base_head, worktree, attempt, started_at, exec_ref, head_sha, detail)
+    base_head, worktree, attempt, started_at, exec_ref, head_sha, detail, failure_identities)
   local checkpoint_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
   return checkpoint_outcome(ready, worktree, branch, checkpoint_head, integration_branch, base_head,
-    attempt, started_at, exec_ref, detail, "verification-indeterminate")
+    attempt, started_at, exec_ref, detail, "verification-indeterminate", failure_identities)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
@@ -517,12 +556,13 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     end
 
     local base_probe = nil
+    local base_probes = {}
     local verdict = "INDETERMINATE"
     for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
-      local probe_tag = tostring(attempt) .. "-verification-" .. tostring(verification_attempt)
-      base_probe = M.base_local_iteration_probe(worktree, base_head, probe_tag)
+      base_probe = M.base_local_iteration_probe(ready.proposal_id, worktree, base_head)
       base_probe.verification_attempt = verification_attempt
-      verdict = local_iteration_verdict.classify(candidate_result, base_probe)
+      table.insert(base_probes, base_probe)
+      verdict = local_iteration_verdict.classify(candidate_result, base_probe, base_probes[#base_probes - 1])
       devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT_VERIFY_BASE", {
         "base_sha=" .. tostring(base_head),
         "base_exit=" .. tostring(base_probe.exit),
@@ -539,11 +579,12 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     end
     if verdict == "OWN_LOCAL_RED" then
       return impl_failed_outcome(ready, "local-iteration-failed", candidate_result.fault_class, false,
-        verify_detail, attempt, started_at, exec_ref, base_head)
+        verify_detail, attempt, started_at, exec_ref, base_head, candidate_result.failure_identities)
     end
     if verdict == "BASE_RED" then
       return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe.result.fault_class, false,
-        base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+        base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head,
+        base_probe.result.failure_identities)
     end
     local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
     if typed_base_failure_reason ~= nil then
@@ -553,8 +594,9 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
         attempt, started_at, exec_ref, base_head)
     end
     if verdict == "INDETERMINATE" then
+      local history_detail, history_identities = base_probe_history(base_probes)
       return verification_checkpoint_outcome(repo, issue_number, ready, integration_branch, branch,
-        base_head, worktree, attempt, started_at, exec_ref, head_sha, base_probe_detail(base_probe))
+        base_head, worktree, attempt, started_at, exec_ref, head_sha, history_detail, history_identities)
     end
     return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", "UNKNOWN", false,
       base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)

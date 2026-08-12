@@ -75,14 +75,24 @@ return {
   end,
 
   -- Acceptance 3: the gate must not degrade into "everything is retryable" -- a completed probe
-  -- whose base genuinely fails on assertions still yields its existing verdict.
+  -- whose base repeatedly fails with the same identity still yields its existing verdict.
   test_genuine_base_failure_is_unaffected = function()
-    t.eq(verdict.classify({ kind = "SEMANTIC_FAIL" }, {
+    local identity = {
+      'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"python3 -B scripts/check_repo.py","kind":"check"}',
+    }
+    local first = {
       status = "completed",
       base_sha = base_sha,
       head_readback = base_sha,
-      result = { kind = "SEMANTIC_FAIL" },
-    }), "BASE_RED")
+      result = { kind = "SEMANTIC_FAIL", failure_identities = identity },
+    }
+    local second = {
+      status = "completed",
+      base_sha = base_sha,
+      head_readback = base_sha,
+      result = { kind = "SEMANTIC_FAIL", failure_identities = identity },
+    }
+    t.eq(verdict.classify({ kind = "SEMANTIC_FAIL" }, second, first), "BASE_RED")
     t.eq(verdict.classify({ kind = "SEMANTIC_FAIL" }, {
       status = "completed",
       base_sha = base_sha,

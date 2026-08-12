@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from run_sh_test_affected_harness import (
+    IDENTITY_PREFIX,
     REPO_ROOT,
     RESULT_PREFIX,
     TestAffectedHarness,
@@ -105,6 +106,34 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertEqual(
                 result_markers(result),
                 [result_marker("FAIL", "SEMANTIC")],
+            )
+            self.assertIn(
+                IDENTITY_PREFIX
+                + '{"failure_kind":"assertion_failure","file":"tests/example_test.lua",'
+                '"kind":"test","name":"test_example","owner_namespace":"github-devloop"}',
+                result.stdout + result.stderr,
+            )
+        finally:
+            h.close()
+
+    def test_repository_check_semantic_failure_emits_exact_command_identity(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "run_units_parallel() {\n"
+                "  RUN_UNITS_FAIL_CODES=10\n"
+                "  local_iteration_failure_identity_check 'python3 -B \"$ROOT/scripts/check_repo.py\"'\n"
+                "  return 1\n"
+                "}\n"
+                "competence_gate_base_ref() { printf '%s\\n' dev; }\n"
+                "cmd_check"
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn(
+                IDENTITY_PREFIX
+                + '{"command":"python3 -B \\\"$ROOT/scripts/check_repo.py\\\"","kind":"check"}',
+                result.stdout + result.stderr,
             )
         finally:
             h.close()

@@ -115,6 +115,7 @@ PY
 
   comm -23 "$expected" "$actual" > "$missing"
   if [ -s "$missing" ]; then
+    local_iteration_failure_identity_check "check_test_file_coverage"
     local_iteration_result_fail "SEMANTIC"
     echo "error: G5 engine test coverage failed; these *_test.lua files produced zero report-json pass results:" >&2
     sed 's/^/  /' "$missing" >&2

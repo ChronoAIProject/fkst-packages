@@ -6,6 +6,20 @@ LOCAL_ITERATION_RESULT_VERDICT=""
 LOCAL_ITERATION_RESULT_FAULT_CLASS=""
 LOCAL_ITERATION_RESULT_OUTPUT_FILE=""
 LOCAL_ITERATION_RESULT_STATE_FILE=""
+LOCAL_ITERATION_FAILURE_IDENTITY_PREFIX="FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:"
+
+local_iteration_failure_identity_check() {
+  python3 -B - "$LOCAL_ITERATION_FAILURE_IDENTITY_PREFIX" "$1" <<'PY'
+import json
+import sys
+
+print(sys.argv[1] + json.dumps(
+    {"kind": "check", "command": sys.argv[2]},
+    sort_keys=True,
+    separators=(",", ":"),
+))
+PY
+}
 
 local_iteration_result_is_valid() {
   case "$1:$2" in

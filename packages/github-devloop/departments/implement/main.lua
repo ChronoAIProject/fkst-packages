@@ -89,9 +89,10 @@ local function decide_implementation_transition(repo, issue_number, lock_key, st
   return snapshot, decision
 end
 
-local function raise_impl_failed(repo, issue_number, ready, reason, fault_class, retryable, detail, attempt)
+local function raise_impl_failed(repo, issue_number, ready, reason, fault_class, retryable, detail, attempt, failure_identities)
   local comment_request = requests_lifecycle.build_impl_failure_comment_request(
-    implement_caps.impl_failure_marker, implement_caps.output_language, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
+    implement_caps.impl_failure_marker, implement_caps.output_language, repo, issue_number, ready, reason,
+    detail, attempt, fault_class, retryable, failure_identities)
   local label_request = requests_labels.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("impl-failed")
   devloop_logging.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -360,14 +361,15 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.started_at,
       outcome.exec_ref,
       outcome.detail,
-      outcome.reason
+      outcome.reason,
+      outcome.failure_identities
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
   end
   if outcome.kind == "impl-failed" then
     raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.fault_class,
-      outcome.retryable, outcome.detail, outcome.attempt)
+      outcome.retryable, outcome.detail, outcome.attempt, outcome.failure_identities)
     return
   end
   if outcome.kind == "implementation-refusal" then

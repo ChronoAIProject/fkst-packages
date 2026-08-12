@@ -69,6 +69,9 @@ run_units_parallel() {
     rc="$(cat "$dir/$j.rc" 2>/dev/null || printf '1')"
     if [ "$rc" != 0 ]; then
       fails=$(( fails + 1 ))
+      if [ "$rc" = 10 ] && declare -F local_iteration_failure_identity_check >/dev/null; then
+        local_iteration_failure_identity_check "${cmds[$j]}"
+      fi
       case " $RUN_UNITS_FAIL_CODES " in
         *" $rc "*) ;;
         *) RUN_UNITS_FAIL_CODES="${RUN_UNITS_FAIL_CODES:+$RUN_UNITS_FAIL_CODES }$rc" ;;
@@ -81,7 +84,7 @@ run_units_parallel() {
 
 test_reports_establish_semantic_failure() {
   local report_dir="$1" expected_failures="$2"
-  python3 -B - "$report_dir" "$expected_failures" <<'PY'
+  python3 -B - "$report_dir" "$expected_failures" "$LOCAL_ITERATION_FAILURE_IDENTITY_PREFIX" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -89,6 +92,7 @@ from pathlib import Path
 report_dir = Path(sys.argv[1])
 expected_failures = int(sys.argv[2])
 semantic_failures = 0
+identities = set()
 try:
     for report_path in sorted(report_dir.glob("*.json")):
         with report_path.open(encoding="utf-8") as handle:
@@ -100,9 +104,26 @@ try:
             raise ValueError("missing test report summary")
         if int(summary.get("failed", 0)) > 0:
             semantic_failures += 1
+        for test in report.get("tests", []):
+            if not isinstance(test, dict) or test.get("status") != "fail":
+                continue
+            identity = {
+                "kind": "test",
+                "owner_namespace": test.get("owner_namespace"),
+                "file": test.get("file"),
+                "name": test.get("name"),
+                "failure_kind": test.get("failure_kind"),
+            }
+            if not all(isinstance(value, str) and value for value in identity.values()):
+                raise ValueError("failed test has no exact identity")
+            identities.add(json.dumps(identity, sort_keys=True, separators=(",", ":")))
 except (OSError, TypeError, ValueError):
     raise SystemExit(1)
-raise SystemExit(0 if semantic_failures > 0 and semantic_failures == expected_failures else 1)
+established = semantic_failures > 0 and semantic_failures == expected_failures and bool(identities)
+if established:
+    for identity in sorted(identities):
+        print(sys.argv[3] + identity)
+raise SystemExit(0 if established else 1)
 PY
 }
 

@@ -1,6 +1,28 @@
 local M = {}
 
-function M.classify(candidate_result, base_probe)
+local function completed_at_sha(probe, base_sha)
+  return type(probe) == "table"
+    and probe.status == "completed"
+    and tostring(probe.base_sha or "") == base_sha
+    and tostring(probe.head_readback or "") == base_sha
+    and type(probe.result) == "table"
+end
+
+local function same_nonempty_identities(left, right)
+  local a = type(left) == "table" and left.failure_identities or nil
+  local b = type(right) == "table" and right.failure_identities or nil
+  if type(a) ~= "table" or type(b) ~= "table" or #a == 0 or #a ~= #b then
+    return false
+  end
+  for index = 1, #a do
+    if a[index] ~= b[index] then
+      return false
+    end
+  end
+  return true
+end
+
+function M.classify(candidate_result, base_probe, prior_base_probe)
   local candidate_kind = type(candidate_result) == "table" and candidate_result.kind or nil
   if candidate_kind == "PASS" then
     return "GREEN"
@@ -10,10 +32,12 @@ function M.classify(candidate_result, base_probe)
   end
 
   local base_sha = tostring(base_probe.base_sha or "")
-  if base_probe.status ~= "completed"
-    or base_sha == ""
-    or tostring(base_probe.head_readback or "") ~= base_sha
-    or type(base_probe.result) ~= "table" then
+  if base_sha == "" or not completed_at_sha(base_probe, base_sha) then
+    return "INDETERMINATE"
+  end
+  if completed_at_sha(prior_base_probe, base_sha)
+    and prior_base_probe.result.kind == "SEMANTIC_FAIL"
+    and base_probe.result.kind ~= "SEMANTIC_FAIL" then
     return "INDETERMINATE"
   end
   -- KNOWN v1 LIMITATION (three-point control deferred to a follow-up): OWN_LOCAL_RED
@@ -29,7 +53,12 @@ function M.classify(candidate_result, base_probe)
     return "OWN_LOCAL_RED"
   end
   if base_probe.result.kind == "SEMANTIC_FAIL" then
-    return "BASE_RED"
+    if completed_at_sha(prior_base_probe, base_sha)
+      and prior_base_probe.result.kind == "SEMANTIC_FAIL"
+      and same_nonempty_identities(prior_base_probe.result, base_probe.result) then
+      return "BASE_RED"
+    end
+    return "INDETERMINATE"
   end
   if base_probe.result.kind == "CONFIGURATION_FAIL" then
     return "BASE_CONFIGURATION_FAIL"

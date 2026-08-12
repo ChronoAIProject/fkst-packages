@@ -21,6 +21,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "FKST_LOCAL_ITERATION_RESULT:v2:"
+IDENTITY_PREFIX = "FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:"
 
 
 def result_marker(verdict: str, fault_class: str) -> str:
@@ -137,9 +138,13 @@ class TestAffectedHarness:
                     set -eu
 
                     write_report() {
-                      local path="$1" failed="$2"
+                      local path="$1" failed="$2" package="${3:-github-devloop}"
                       mkdir -p "$(dirname "$path")"
-                      printf '{"schema":"fkst.test.report.v1","summary":{"failed":%s},"tests":[]}\n' "$failed" > "$path"
+                      if [ "$failed" -eq 0 ]; then
+                        printf '{"schema":"fkst.test.report.v1","summary":{"passed":1,"failed":0},"tests":[{"owner_namespace":"%s","file":"tests/example_test.lua","name":"test_example","status":"pass"}]}\n' "$package" > "$path"
+                      else
+                        printf '{"schema":"fkst.test.report.v1","summary":{"passed":0,"failed":1},"tests":[{"owner_namespace":"%s","file":"tests/example_test.lua","name":"test_example","status":"fail","failure_kind":"assertion_failure","error":"expected true"}]}\n' "$package" > "$path"
+                      fi
                     }
 
                     command="${1:-}"
@@ -179,12 +184,12 @@ class TestAffectedHarness:
                           printf '%s\n' "$package" >> "$FKST_TEST_ENGINE_LOG"
                         fi
                         if [ "$package" = "${FKST_TEST_ENGINE_FAIL_PACKAGE:-}" ]; then
-                          write_report "$report" 1
+                          write_report "$report" 1 "$package"
                           exit 1
                         fi
                         case "${FKST_TEST_ENGINE_RESULT:-pass}" in
                           semantic-fail)
-                            write_report "$report" 1
+                            write_report "$report" 1 "$package"
                             exit 1
                             ;;
                           infrastructure-fail)
@@ -192,7 +197,7 @@ class TestAffectedHarness:
                             exit 2
                             ;;
                           pass)
-                            write_report "$report" 0
+                            write_report "$report" 0 "$package"
                             mkdir -p "$coverage"
                             printf '{}\n' > "$coverage/coverage.json"
                             exit 0

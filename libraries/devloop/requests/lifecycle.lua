@@ -285,7 +285,21 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
   }, ready.source_ref)
 end
 
-function C.build_implement_checkpoint_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+local function failure_identity_text(failure_identities)
+  local lines = failure_identities or {}
+  local valid, reason = require("devloop.local_iteration_failure_identity").validate_set(lines)
+  if not valid then
+    if reason == "set-too-large" then
+      error("devloop: invalid-local-iteration-failure-identity-set: failure identities exceed the bounded comment contract")
+    end
+    error("devloop: invalid-local-iteration-failure-identity: failure identity must be one bounded control line")
+  end
+  return #lines > 0 and ("\n\n" .. table.concat(lines, "\n")) or ""
+end
+
+function C.build_implement_checkpoint_comment_request(implement_attempt_marker, output_language, repo,
+    issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at,
+    exec_ref, detail, reason, failure_identities)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid checkpoint branch")
   end
@@ -306,6 +320,7 @@ function C.build_implement_checkpoint_comment_request(implement_attempt_marker, 
     text = "Checkpoint pushed after implementation timeout."
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
+  local identity_text = failure_identity_text(failure_identities)
   local checkpoint_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
   local checkpoint_marker = m_builders.implement_checkpoint_marker(
     ready.proposal_id,
@@ -324,6 +339,7 @@ function C.build_implement_checkpoint_comment_request(implement_attempt_marker, 
     issue_number = issue_number,
     body = "github-devloop implementation checkpoint pushed"
       .. "\n\n" .. text
+      .. identity_text
       .. "\n\n" .. comment_strings.comment_string(output_language, "worktree_label") .. tostring(worktree)
       .. "\n" .. comment_strings.comment_string(output_language, "branch_label") .. tostring(branch)
       .. "\n" .. comment_strings.comment_string(output_language, "head_label") .. tostring(head_sha)
@@ -381,7 +397,8 @@ function C.build_implement_version_mismatch_comment_request(implement_version_mi
   }
 end
 
-function C.build_impl_failure_comment_request(impl_failure_marker, output_language, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
+function C.build_impl_failure_comment_request(impl_failure_marker, output_language, repo, issue_number, ready,
+    reason, detail, attempt, fault_class, retryable, failure_identities)
   local safe_reason = strings.sanitize_key(reason or "failed", devloop_base._max_key_len):gsub("/", "-")
   local retry_attempt = tonumber(attempt) or 1
   local text = tostring(detail or "")
@@ -393,6 +410,8 @@ function C.build_impl_failure_comment_request(impl_failure_marker, output_langua
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
 
+  local identity_text = failure_identity_text(failure_identities)
+
   local marker = impl_failure_marker(
     ready.proposal_id, ready.dedup_key, safe_reason, attempt, fault_class, retryable)
   local state_marker = devloop_state.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
@@ -402,6 +421,7 @@ function C.build_impl_failure_comment_request(impl_failure_marker, output_langua
     issue_number = issue_number,
     body = comment_strings.comment_string(output_language, "implementation_failed_prefix") .. safe_reason
       .. "\n\n" .. text
+      .. identity_text
       .. "\n\n" .. state_marker
       .. "\n" .. marker,
     dedup_key = base_ids.dedup_key({

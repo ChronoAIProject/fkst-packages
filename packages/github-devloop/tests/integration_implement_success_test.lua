@@ -34,6 +34,10 @@ local function local_iteration_marker(outcome)
   return "FKST_LOCAL_ITERATION_RESULT:v2:" .. pair .. "\n"
 end
 
+local function check_failure_identity(command)
+  return 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"' .. command .. '","kind":"check"}\n'
+end
+
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
@@ -332,7 +336,7 @@ return {
     t.eq(#verification_calls, 2)
     t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.eq(verification_calls[2].rendered:find("export BASE=", 1, true), nil)
-    t.is_true(verification_calls[2].rendered:find("-base-probe-", 1, true) ~= nil)
+    t.is_true(verification_calls[2].rendered:find("-base-probe", 1, true) ~= nil)
     t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("commit -m"), 2)
     local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
@@ -342,6 +346,66 @@ return {
     end)
     t.is_true(failed_label ~= nil)
     t.eq(branch, deterministic_branch_for(event))
+  end,
+
+  test_matching_same_sha_base_failures_are_permanent_and_keep_the_identity = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local identity = check_failure_identity("python3 -B scripts/check_repo.py")
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
+    mock_candidate_local_red(worktree)
+    for _ = 1, 2 do
+      mock_base_probe(worktree, {
+        check = {
+          stdout = "",
+          stderr = local_iteration_marker("SEMANTIC_FAIL") .. identity .. "repository check failed\n",
+          exit_code = 1,
+        },
+      })
+    end
+
+    local result = run_implement(event, opts("implement-confirmed-base-semantic-failure"))
+
+    local failure = assert_impl_failure_without_publication(result, "base-local-iteration-failed")
+    t.is_true(failure.payload.body:find(identity:gsub("\n$", ""), 1, true) ~= nil)
+    t.eq(count_calls("scripts/run.sh test-affected"), 3)
+    t.eq(count_calls("git worktree add --detach"), 2)
+  end,
+
+  test_conflicting_same_sha_base_failure_then_pass_checkpoints = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
+    mock_candidate_local_red(worktree)
+    local identity = check_failure_identity("python3 -B scripts/check_repo.py")
+    mock_base_probe(worktree, {
+      check = {
+        stdout = "",
+        stderr = local_iteration_marker("SEMANTIC_FAIL")
+          .. identity
+          .. string.rep("repository check failed ", 150) .. "\n",
+        exit_code = 1,
+      },
+    })
+    mock_base_probe(worktree)
+
+    local result = run_implement(event, opts("implement-conflicting-base-observations"))
+
+    local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
+    t.is_true(checkpoint.payload.body:find("base_observation=1", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("base_observation=2", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("base_result=PASS", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find(identity:gsub("\n$", ""), 1, true) ~= nil)
+    t.eq(count_calls("scripts/run.sh test-affected"), 3)
+    t.eq(count_calls("git worktree add --detach"), 2)
   end,
 
   test_implement_local_gate_markerless_zero_checkpoints_dirty_progress = function()
@@ -459,11 +523,9 @@ return {
     local pinned_add = false
     for _, call in ipairs(t.command_calls()) do
       local rendered = tostring(call.rendered or "")
-      -- The trailing dash pins the attempt-tagged probe path (regression guard:
-      -- distinct attempts never share a probe worktree path -> no concurrent
-      -- preclean/cleanup collision). The prior untagged path would fail this.
+      -- The issue-scoped lease owns this deterministic crash-recoverable probe path.
       if rendered:find("git worktree add --detach", 1, true) ~= nil
-        and rendered:find(worktree .. "-base-probe-", 1, true) ~= nil
+        and rendered:find(worktree .. "-base-probe", 1, true) ~= nil
         and rendered:find("abc123", 1, true) ~= nil then
         pinned_add = true
       end
