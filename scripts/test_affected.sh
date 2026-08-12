@@ -77,7 +77,8 @@ test_affected_run_test() {
 }
 
 cmd_test_affected() {
-  local changed_file scoped_file resolved_file full=0 packages="" path package status=0
+  local changed_file scoped_file resolved_file full=0 path package status=0
+  local -a packages=()
   changed_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected.XXXXXX")"
   scoped_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-scoped.XXXXXX")"
   resolved_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-resolved.XXXXXX")"
@@ -98,24 +99,24 @@ cmd_test_affected() {
     else
       while IFS= read -r package || [ -n "$package" ]; do
         [ -n "$package" ] || continue
-        packages="$packages $package"
+        packages+=("$package")
       done < "$resolved_file"
     fi
   fi
   rm -f "$changed_file" "$scoped_file" "$resolved_file"
 
-  if [ "$full" -eq 1 ] || [ -z "${packages# }" ]; then
+  if [ "$full" -eq 1 ] || [ "${#packages[@]}" -eq 0 ]; then
     if test_affected_run_test test; then
       status=0
     else
       status=$?
     fi
   else
-    for package in $packages; do
-      if ! test_affected_run_test test "$package"; then
-        status=1
-      fi
-    done
+    if test_affected_run_test test "${packages[@]}"; then
+      status=0
+    else
+      status=1
+    fi
   fi
   return "$status"
 }

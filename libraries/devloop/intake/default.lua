@@ -65,6 +65,17 @@ END UNTRUSTED ISSUE DATA
 ]],
 }
 
+local function prompt_surface()
+  return devloop_prompts.new({
+    prompts = {
+      intake = prompt,
+    },
+  }, {
+    intake = true,
+    intake_parser = true,
+  })
+end
+
 local function malformed_decision(reason)
   return {
     action = "decline",
@@ -401,5 +412,6 @@ end
 return {
   act = act,
   prompt = prompt,
+  prompt_surface = prompt_surface,
   read_current_for_candidate = read_current_for_candidate,
 }

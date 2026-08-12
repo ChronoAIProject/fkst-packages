@@ -156,6 +156,7 @@ class RunShComposedConformanceHarness:
             "composed_manifest.sh",
             "test_affected.sh",
             "test_parallel.sh",
+            "test_coverage.sh",
             "test_deadline.sh",
             "run_department.sh",
         ):

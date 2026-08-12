@@ -3,13 +3,21 @@ local devloop_base = require("devloop.base")
 local common = require("departments.observability.common")
 local devloop_liveness = require("devloop.liveness")
 local m_facts = require("devloop.markers.facts")
+local parsers_misc = require("devloop.parsers.misc")
 local devloop_state = require("devloop.state")
+local strings = require("contract.strings")
+local transition_version = require("contract.transition_version")
 
 local M = {}
 
 function M.install_census(core)
 local dept = common.dept
 local stall_suspect_threshold_minutes = common.stall_suspect_threshold_minutes
+local audit_states = {
+  blocked = true,
+  declined = true,
+  dependency_wait = true,
+}
 
 local function state_or_nil(state)
   if type(state) ~= "table" or state.state == nil then
@@ -18,9 +26,24 @@ local function state_or_nil(state)
   return state
 end
 
-local function put_issue_entity(entities, repo, issue_number, issue)
+local function authorized_marker_trust_set(comments, is_authorized_author)
+  local trust_set = {}
+  for _, comment in ipairs(comments or {}) do
+    local login = parsers_misc.canonical_login(parsers_misc._comment_author_login(comment))
+    if login ~= nil and is_authorized_author(login) then
+      trust_set[login] = true
+    end
+  end
+  return trust_set
+end
+
+local function put_issue_entity(entities, repo, issue_number, issue, is_authorized_author)
   local proposal_id = base_ids.proposal_id(repo, issue_number)
-  local issue_state = devloop_state.current_state(issue.comments, proposal_id)
+  local issue_state = devloop_state.current_state_fact(
+    issue.comments,
+    proposal_id,
+    authorized_marker_trust_set(issue.comments, is_authorized_author)
+  )
   local link = m_facts.pr_link_fact(issue.comments, proposal_id)
   local dependency_wait = core.dependency_wait_fact(issue.comments, proposal_id)
   local entity = entities[proposal_id] or {
@@ -36,6 +59,7 @@ local function put_issue_entity(entities, repo, issue_number, issue)
   entity.parent_issue = issue
   if state_or_nil(issue_state) ~= nil then
     entity.state = issue_state
+    entity.issue_state = issue_state
     entity.marker_source = "issue"
   end
   if link ~= nil then
@@ -81,7 +105,7 @@ local function display_fetch_pr(repo, pr_number, limits, deadline)
   return common.fetch_pr(core, repo, pr_number, limits, deadline, core.observability_display_read_cmd)
 end
 
-local function observe_issue_candidate(repo, issue_number, entities, seen_prs, limits, deadline, budget)
+local function observe_issue_candidate(repo, issue_number, entities, seen_prs, limits, deadline, budget, is_authorized_author)
   local issue_views = 0
   local pr_views = 0
   if (budget.remaining or 0) <= 0 or not core.observability_has_budget(deadline) then
@@ -95,7 +119,7 @@ local function observe_issue_candidate(repo, issue_number, entities, seen_prs, l
   end
   budget.remaining = budget.remaining - 1
   issue_views = issue_views + 1
-  local entity, link = put_issue_entity(entities, repo, issue_number, issue)
+  local entity, link = put_issue_entity(entities, repo, issue_number, issue, is_authorized_author)
   if link ~= nil and seen_prs[link.pr_number] == nil then
     if (budget.remaining or 0) <= 0 or not core.observability_has_budget(deadline) then
       return issue_views, pr_views
@@ -136,7 +160,7 @@ local function observe_pr_candidate(repo, pr_number, entities, seen_prs, limits,
   return pr_views
 end
 
-local function observe_candidates(repo, candidates, entities, seen_prs, limits, deadline)
+local function observe_candidates(repo, candidates, entities, seen_prs, limits, deadline, is_authorized_author)
   local budget = { remaining = limits.entity_cap }
   local processed_issues = 0
   local processed_prs = 0
@@ -145,7 +169,16 @@ local function observe_candidates(repo, candidates, entities, seen_prs, limits, 
       break
     end
     if candidate.kind == "issue" then
-      local issue_views, pr_views = observe_issue_candidate(repo, candidate.number, entities, seen_prs, limits, deadline, budget)
+      local issue_views, pr_views = observe_issue_candidate(
+        repo,
+        candidate.number,
+        entities,
+        seen_prs,
+        limits,
+        deadline,
+        budget,
+        is_authorized_author
+      )
       processed_issues = processed_issues + issue_views
       processed_prs = processed_prs + pr_views
     elseif candidate.kind == "pr" then
@@ -170,6 +203,57 @@ local function log_entity(entity)
     marker_source = entity.marker_source,
     pr_number = entity.pr_number,
     marker_created_at = state.marker_created_at,
+  }))
+end
+
+local function audit_verdict(state, version)
+  if not audit_states[state] then
+    return nil
+  end
+  if state == "blocked" then
+    local suffixes = transition_version.parse(version).suffixes or {}
+    local final_suffix = suffixes[#suffixes]
+    if final_suffix ~= nil
+      and final_suffix.kind == "blocked"
+      and final_suffix.reason == "child-pr-blocked" then
+      return "derived"
+    end
+  end
+  return "abstain"
+end
+
+function core.audit_verdict_log_line(fields)
+  if type(fields) ~= "table"
+    or not strings.is_bounded_string(fields.version, base_ids.max_dedup_len)
+    or not strings.is_bounded_string(fields.marker_author, base_ids.max_key_len) then
+    error("github-devloop-ops: audit-verdict-fields-invalid: audit verdict fields are incomplete")
+  end
+  return table.concat({
+    "github-devloop",
+    "dept=" .. dept,
+    "tag=AUDIT_VERDICT",
+    "proposal=" .. tostring(fields.proposal_id),
+    "issue=" .. tostring(fields.issue_number),
+    "state=" .. tostring(fields.state),
+    "version=" .. fields.version,
+    "marker_author=" .. fields.marker_author,
+    "verdict=" .. tostring(fields.verdict),
+  }, " ")
+end
+
+local function log_audit_verdict(entity)
+  local issue_state = entity.issue_state or {}
+  local verdict = audit_verdict(issue_state.state, issue_state.version)
+  if verdict == nil then
+    return
+  end
+  log.info(core.audit_verdict_log_line({
+    proposal_id = entity.proposal_id,
+    issue_number = entity.issue_number,
+    state = issue_state.state,
+    version = issue_state.version,
+    marker_author = issue_state.author_login,
+    verdict = verdict,
   }))
 end
 
@@ -243,7 +327,7 @@ function core.observe_entity_log_line(proposal_id, fields)
   }, " ")
 end
 
-function core.collect_observability_entities(event, repo, limits, deadline)
+function core.collect_observability_entities(event, repo, limits, deadline, is_authorized_author)
   -- One paginated `gh issue list` runs per entry of this list, so a repeated label
   -- costs a full redundant sweep every cycle. Several states share one label
   -- (dependency_wait and ready both map to fkst-dev:ready; closed-unmerged and
@@ -273,7 +357,15 @@ function core.collect_observability_entities(event, repo, limits, deadline)
   local entities = {}
   local seen_prs = {}
 
-  local processed_issues, processed_prs, remaining_budget, view_deferred_reason = observe_candidates(repo, candidates, entities, seen_prs, limits, deadline)
+  local processed_issues, processed_prs, remaining_budget, view_deferred_reason = observe_candidates(
+    repo,
+    candidates,
+    entities,
+    seen_prs,
+    limits,
+    deadline,
+    is_authorized_author
+  )
   local observability_deferred = nil
   if deferred_issue_pages > 0 or deferred_pr_pages > 0 or deferred_candidates > 0
     or view_deferred_reason ~= nil or remaining_budget == 0 or not core.observability_has_budget(deadline) then
@@ -312,6 +404,7 @@ function core.collect_observability_entities(event, repo, limits, deadline)
     local state = entity.state and entity.state.state or "unmanaged"
     counts[state] = (counts[state] or 0) + 1
     log_entity(entity)
+    log_audit_verdict(entity)
     local stall = log_stall_suspect(entity, now_seconds)
     if stall ~= nil then
       table.insert(stalls, stall)

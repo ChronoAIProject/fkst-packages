@@ -1,4 +1,5 @@
 local devloop_state = require("devloop.state")
+local review_meta_entitlements = require("core.restart.transitions.index").pr_comment_and_issue_label
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -9,20 +10,7 @@ return function(M, h)
   local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
   local advancing_fact = h.advancing_fact
   local function effect_entitlements(semantic_variant)
-    local edge_id = "github-devloop-pr/review-meta/autonomous/" .. semantic_variant
-    return {
-      apply = {
-        id = edge_id .. "/apply",
-        effect_ids = {
-          "github-proxy.github_pr_comment_request",
-          "github-proxy.github_issue_label_request",
-        },
-      },
-      idempotent = {
-        id = edge_id .. "/idempotent",
-        effect_ids = {},
-      },
-    }
+    return review_meta_entitlements("github-devloop-pr/review-meta/autonomous/" .. semantic_variant)
   end
   return {
     from_state = "review-meta",

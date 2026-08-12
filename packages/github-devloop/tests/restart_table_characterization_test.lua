@@ -2,7 +2,7 @@ local core = require("core")
 local observation = require("testkit_internal.old_behavior_observation_support")
 local sha256 = require("contract.sha256")
 local t = fkst.test
-local EXPECTED_DIGEST = "59e30fff3e994b8657a00ba57a1750ba1d1a6776856a2b075e8d9ae2c11f2a80"
+local EXPECTED_DIGEST = "cc59dcf98928c5ed1ec6090e619fd0a595568ecf863b6f16d3bdd953168c4fc9"
 
 local function copy_value(value)
   if type(value) ~= "table" then
