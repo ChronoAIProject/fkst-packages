@@ -68,17 +68,6 @@ function sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class, exe
   error("github-devloop: sweep-executor-unavailable: sweep_exec requires an injected exec function or a typed run(timeout) command")
 end
 
-function sweep_bounds.sweep_run_cmd(cmd, limits, deadline, error_class, exec)
-  local result = sweep_bounds.sweep_exec(cmd, limits, deadline, error_class, exec)
-  if sweep_bounds.sweep_result_deferred(result) then
-    return result
-  end
-  if result.exit_code ~= 0 then
-    error("github-devloop: sweep-command-failed: " .. tostring(error_class or "sweep command") .. " failed: " .. tostring(result.stderr))
-  end
-  return result
-end
-
 function sweep_bounds.sweep_rotation_seed(event)
   if event and event.ts ~= nil then
     return tostring(event.ts)

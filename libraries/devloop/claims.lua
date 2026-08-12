@@ -141,11 +141,6 @@ function C.is_self_owned_issue(ownership, owner)
   return issue_ownership_decision(ownership, owner).owned
 end
 
-function C.read_current_issue_assignees(repo, issue_number)
-  local ownership = C.read_current_issue_ownership(repo, issue_number)
-  return C.assignee_logins(ownership and ownership.assignees)
-end
-
 local function issue_labels(decoded)
   return parsers_shared.label_names(decoded and decoded.labels)
 end
