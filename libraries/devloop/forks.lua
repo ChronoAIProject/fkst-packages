@@ -189,11 +189,6 @@ function F.rederive_issue_state(repo, issue_number)
   return parsers_issue.parse_issue_view_state(view.stdout)
 end
 
-function F.rederive_issue_is_open(repo, issue_number)
-  local current = F.rederive_issue_state(repo, issue_number)
-  return tostring(current.state or ""):upper() == "OPEN", current
-end
-
 function F.fork_issue_body(repo, issue_number, author_login, source_ref)
   local normalized = base_ids.normalize_source_ref(source_ref or base_ids.issue_source_ref(repo, issue_number))
   return table.concat({

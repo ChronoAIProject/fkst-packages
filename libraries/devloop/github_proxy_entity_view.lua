@@ -505,12 +505,6 @@ function C.fetch_issue_view_state(repo, issue_number, updated_at, opts)
   return C.fetch_marker_issue_view(repo, issue_number, updated_at, options)
 end
 
-function C.fetch_issue_view_open_pr(repo, issue_number, updated_at, opts)
-  local options = opts or {}
-  options.consumer = options.consumer or "open_pr"
-  return C.fetch_marker_issue_view(repo, issue_number, updated_at, options)
-end
-
 function C.commit_issue_subject_snapshot(repo, issue_number)
   if issue_number == nil then
     return {}
