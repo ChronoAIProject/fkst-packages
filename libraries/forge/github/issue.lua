@@ -356,15 +356,6 @@ function M.issue_view_cache_key(repo, issue_number)
 end
 
 function M.install(handle)
-  function handle.issue_view(repo, issue_number, fields, timeout)
-    return handle._exec(
-      gh_issue_view_argv(repo, issue_number, fields),
-      timeout,
-      "gh issue view",
-      stdout_policy.content_json("issue_view")
-    )
-  end
-
   function handle.issue_view_cmd(repo, issue_number, fields)
     return render_issue_view_argv(gh_issue_view_argv(repo, issue_number, fields))
   end
