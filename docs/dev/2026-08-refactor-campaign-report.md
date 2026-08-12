@@ -170,3 +170,34 @@ is the *normal* state there. The 17-for-17 record carried authority into a popul
 assumption did not hold.
 
 ⟦AI:FKST⟧
+
+### The scan that found the dead code had its own blind spot
+
+Stated plainly because this document earlier implied the sweep was complete: **it was not.** The
+candidate scan anchored every pattern at column 0 (`^function`, `^local function`), so any callable
+defined inside another block was invisible to it. An independent survey found **seven** further
+definition shapes it could not see:
+
+| shape | approx sites | scanned |
+|---|---|---|
+| `name = function(` | ~4674 | no |
+| indented `function T.method(` | ~538 | no |
+| indented `name = function(` | ~500 | no |
+| `return function(` | ~70 | no |
+| `local f = function(` | ~24 | no |
+| colon `function T:method(` | ~15 | no |
+| computed key `name[expr] = function(` | ~10 | no |
+
+Those counts include tests, fixtures and inline anonymous callbacks, so the dead-code-relevant subset
+is far smaller than the raw total — but the completeness claim was still false.
+
+Checking three of the missed shapes yielded **3 further candidates**, which cascaded to 5 deletions
+(−21 lines) once their orphaned helpers were followed. So the gap was real and nearly empty: indented
+definitions are overwhelmingly live, because they sit inside `install(M)` functions that are actively
+used.
+
+**That the gap happened to be nearly empty is not a defence.** Had it held 200 dead functions, the same
+reasoning that produced "four shapes, sweep complete" would have missed every one, and nothing in the
+method would have signalled it. **How much a blind spot contains is independent of whether you knew it
+was there** — which is this section's own thesis, arriving as evidence about the person who wrote it.
+
