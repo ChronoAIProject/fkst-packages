@@ -99,7 +99,7 @@ end
 local function run_refusal_reimplementation_case(reason, evidence, initial_attempt, stop_after_refusal)
   initial_attempt = initial_attempt or 1
   local event = reached()
-  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  local ready = payloads_builders.build_devloop_ready_payload(event)
   local ready_comments = {
     initial_attempt == 1
       and h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key)
@@ -237,7 +237,7 @@ end
 
 local function run_precursor_refusal(blocker)
   local event = reached()
-  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  local ready = payloads_builders.build_devloop_ready_payload(event)
   mock_issue_implement_view_only({ "fkst-dev:ready" }, {
     h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }, 3)
@@ -279,7 +279,7 @@ end
 
 local function run_first_clean_implementation_attempt(name, build_stdout)
   local event = reached()
-  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  local ready = payloads_builders.build_devloop_ready_payload(event)
   local ready_comments = {
     h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }

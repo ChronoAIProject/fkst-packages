@@ -121,8 +121,17 @@ local function created_materialization_marker(blueprint, slot, predecessor_diges
   return built
 end
 
-local function workflow_history(include_revived_child, terminal_body)
-  local blueprint = core.default_catalog.records()[2].blueprint
+local function builtin_blueprint(workflow_id)
+  for _, record in ipairs(core.default_catalog.records()) do
+    if record.blueprint ~= nil and record.blueprint.id == workflow_id then
+      return record.blueprint
+    end
+  end
+  error("missing built-in workflow fixture: " .. tostring(workflow_id), 0)
+end
+
+local function workflow_history(include_revived_child, terminal_body, workflow_id)
+  local blueprint = builtin_blueprint(workflow_id or "software-refactor-flow")
   local blueprint_digest = core.digest.blueprint_digest(blueprint)
   local blueprint_marker, blueprint_err = core.marker.build_blueprint_marker(origin, blueprint.id, blueprint_digest)
   t.is_nil(blueprint_err)
@@ -155,7 +164,7 @@ local function child_history(proposal_id, issue_number, pr_number, merged)
       pr_number,
       child_version,
       "g1"
-    ) .. "\n" .. m_builders.merged_marker(core, proposal_id, pr_number, child_version, head_sha)
+    ) .. "\n" .. m_builders.merged_marker(proposal_id, pr_number, child_version, head_sha)
   end
   return issue_json(
     issue_number,
@@ -195,6 +204,25 @@ local function stale_label_impl_failed_child_history()
     revived_child_issue,
     "Workflow child",
     { "fkst-dev:enabled", "fkst-dev:thinking" },
+    { { body = body } },
+    "OPEN"
+  )
+end
+
+local function already_satisfied_child_history()
+  local body = core.state_marker(revived_child, "blocked", child_version)
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implement-attempt:v1 proposal="' .. revived_child
+    .. '" dedup="' .. child_version
+    .. '" attempt="1" started_at="100" exec_ref="exec-1" -->'
+    .. "\n"
+    .. '<!-- fkst:github-devloop:implementation-refusal:v1 proposal="' .. revived_child
+    .. '" reason="already-satisfied" attempt="1" dedup="' .. child_version
+    .. '" evidence="repository-ground-truth" -->'
+  return issue_json(
+    revived_child_issue,
+    "Workflow child",
+    { "fkst-dev:enabled", "fkst-dev:blocked" },
     { { body = body } },
     "OPEN"
   )
@@ -274,9 +302,15 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
     exit_code = 0,
   })
   local full_fields = "title,body,updatedAt,labels,comments,state,assignees,author"
-  t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
-    stdout = issue_json(origin_issue, "Workflow origin", {}, origin_comments), stderr = "", exit_code = 0,
-  })
+  -- The origin is read twice per materializing tick: once to plan (outside the
+  -- transition lock) and once inside the commit lock to re-check that the facts which
+  -- authorized the plan are still current. Ticks that buffer no durable effect never
+  -- reach the second read, so the spare registration is simply left unconsumed.
+  for _ = 1, 2 do
+    t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
+      stdout = issue_json(origin_issue, "Workflow origin", {}, origin_comments), stderr = "", exit_code = 0,
+    })
+  end
   t.mock_command(core.gh_issue_view_claim_cmd(repo, origin_issue), {
     stdout = ownership_json(), stderr = "", exit_code = 0,
   })
@@ -357,6 +391,7 @@ return {
   pr_origin_body = pr_origin_body,
   pr_view_json = pr_view_json,
   stale_label_impl_failed_child_history = stale_label_impl_failed_child_history,
+  already_satisfied_child_history = already_satisfied_child_history,
   mock_materialization_cycle = mock_materialization_cycle,
   mock_env = mock_env,
   mock_write_mode = mock_write_mode,

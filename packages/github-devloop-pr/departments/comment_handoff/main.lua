@@ -145,7 +145,7 @@ local function verified_pr_state(repo, handoff, comment_id, state)
     stage_rank = devloop_state.stage_rank(state),
     comment_id = comment_id,
   }
-  return payloads_predicates.verified_hand_off_state(core, repo, marker_hand_off, expected)
+  return payloads_predicates.verified_hand_off_state(repo, marker_hand_off, expected)
 end
 
 local function retryable_visibility_reason(reason)

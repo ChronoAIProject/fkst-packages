@@ -2,6 +2,7 @@ local h = require("tests.devloop_helpers")
 local m_shared = require("devloop.markers.shared")
 local t = h.t
 local core = h.core
+local intake_service_class = require("core.intake_service_class")
 
 return {
   test_invalid_or_missing_intake_service_class_fails_closed = function()
@@ -13,15 +14,15 @@ return {
   end,
 
   test_intake_service_class_labels_are_display_only_projection = function()
-    local add, remove = core.intake_service_class_label_changes("expedite")
+    local add, remove = intake_service_class.intake_service_class_label_changes("expedite")
     t.eq(add[1], "fkst-class:expedite")
     t.eq(remove[1], "fkst-class:standard")
     t.eq(remove[2], "fkst-class:background")
-    t.eq(core.intake_service_class_label("unknown"), "fkst-class:standard")
+    t.eq(intake_service_class.intake_service_class_label("unknown"), "fkst-class:standard")
   end,
 
   test_intake_service_class_label_request_binds_intake_fact_identity = function()
-    local request = core.build_intake_service_class_label_request("owner/repo", 42, {
+    local request = intake_service_class.build_intake_service_class_label_request("owner/repo", 42, {
       proposal_id = "github-devloop/issue/owner/repo/42",
       dedup_key = "intake/github-devloop/issue/owner/repo/42/v1",
       service_class = "background",

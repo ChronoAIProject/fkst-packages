@@ -16,6 +16,13 @@ local max_attr_len = shared.max_attr_len
 local safe_attr = shared.safe_attr
 local attr = shared.attr
 
+local function copy_source_ref(kind, ref)
+  return {
+    kind = kind,
+    ref = ref,
+  }
+end
+
 function C.build_devloop_reconcile_payload(unresolved, round, base_version, terminal_cause)
   if not conv_rounds.is_terminal_cause(terminal_cause) then
     error("github-devloop: convergence-terminal-cause-invalid: invalid convergence terminal cause")
@@ -27,10 +34,7 @@ function C.build_devloop_reconcile_payload(unresolved, round, base_version, term
     round = round,
     base_version = base_version,
     terminal_cause = terminal_cause,
-    source_ref = {
-      kind = unresolved.source_ref.kind,
-      ref = unresolved.source_ref.ref,
-    },
+    source_ref = copy_source_ref(unresolved.source_ref.kind, unresolved.source_ref.ref),
   }
 end
 
@@ -73,10 +77,7 @@ function C.build_devloop_review_reconcile_payload(unresolved, round, issue_propo
     terminal_cause = terminal_cause,
     round = round,
     dedup_key = "review-reconcile:" .. transition_version.review_loop_at(issue_version, round),
-    source_ref = {
-      kind = unresolved.source_ref.kind,
-      ref = unresolved.source_ref.ref,
-    },
+    source_ref = copy_source_ref(unresolved.source_ref.kind, unresolved.source_ref.ref),
   }
 end
 
@@ -91,10 +92,7 @@ function C.build_devloop_fix_reconcile_payload(reject_ctx, issue_version)
     round = devloop_state.version_fix_round(issue_version),
     pr_number = reject_ctx.pr_number,
     dedup_key = "fix-reconcile:" .. tostring(issue_version),
-    source_ref = {
-      kind = reject_ctx.source_ref.kind,
-      ref = reject_ctx.source_ref.ref,
-    },
+    source_ref = copy_source_ref(reject_ctx.source_ref.kind, reject_ctx.source_ref.ref),
   }
 end
 
@@ -106,10 +104,7 @@ function C.build_devloop_timeout_reconcile_payload(row, state, proposal_id, sour
     issue_version = state.version,
     round = attempt,
     dedup_key = "timeout-reconcile:" .. tostring(state.version) .. "/timeout-reconcile/" .. tostring(row.from_state) .. "/" .. tostring(attempt),
-    source_ref = {
-      kind = source_ref.kind,
-      ref = source_ref.ref,
-    },
+    source_ref = copy_source_ref(source_ref.kind, source_ref.ref),
   }
 end
 
@@ -224,12 +219,12 @@ function C.is_supported_fix_reconcile(payload)
     and source_refs.has_bounded_source_ref(payload.source_ref, devloop_base._max_key_len)
 end
 
-function C.is_supported_timeout_reconcile(M, payload)
+function C.is_supported_timeout_reconcile(restart_policy, payload)
   if type(payload) ~= "table" then
     return false
   end
   local repo, issue_number = base_ids.parse_proposal_id(payload.proposal_id)
-  local row = replay_fields.restart_transition_row(M.restart_transition_table(), payload.state)
+  local row = replay_fields.restart_transition_row(restart_policy.restart_transition_table(), payload.state)
   return payload.schema == "github-devloop.timeout-reconcile.v1"
     and repo ~= nil
     and issue_number ~= nil
@@ -332,7 +327,7 @@ function C.timeout_reconcile_marker(proposal_id, issue_version, state_name, roun
     .. '" source_ref="' .. safe_attr(source_ref.ref or "", devloop_base._max_key_len)
     .. '" -->'
 end
-function C.has_reconcile_marker(M, comments, proposal_id, base_version, round)
+function C.has_reconcile_marker(comments, proposal_id, base_version, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -351,7 +346,44 @@ function C.has_reconcile_marker(M, comments, proposal_id, base_version, round)
   return false
 end
 
-function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_version, round)
+function C.reconcile_fact_for_terminal_version(comments, proposal_id, terminal_version)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:reconcile:v1.-%-%->"
+  for comment_index, comment in ipairs(comments) do
+    if parsers_misc._is_trusted_comment(comment) then
+      for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+        local marker_proposal = attr(marker, "proposal")
+        local version = attr(marker, "version")
+        local round = valid_round(attr(marker, "round"))
+        local action = attr(marker, "action")
+        local terminal_cause = attr(marker, "terminal_cause")
+        local dedup = attr(marker, "dedup")
+        if marker_proposal == tostring(proposal_id)
+          and version == tostring(terminal_version)
+          and round ~= nil
+          and (action == "drop" or action == "re-design" or action == "re-cluster")
+          and conv_rounds.is_terminal_cause(terminal_cause)
+          and dedup == "reconcile:" .. tostring(terminal_version) then
+          return {
+            proposal_id = marker_proposal,
+            version = version,
+            round = round,
+            action = action,
+            terminal_cause = terminal_cause,
+            dedup_key = dedup,
+            comment_index = comment_index,
+            comment_created_at = parsers_misc._comment_created_at(comment),
+          }
+        end
+      end
+    end
+  end
+  return nil
+end
+
+function C.has_review_reconcile_marker(comments, issue_proposal_id, issue_version, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -370,7 +402,7 @@ function C.has_review_reconcile_marker(M, comments, issue_proposal_id, issue_ver
   return false
 end
 
-function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
+function C.has_fix_reconcile_marker(comments, proposal_id, issue_version)
   local n = valid_round(devloop_state.version_fix_round(issue_version))
   if n == nil or type(comments) ~= "table" then
     return false
@@ -388,7 +420,7 @@ function C.has_fix_reconcile_marker(M, comments, proposal_id, issue_version)
   return false
 end
 
-function C.has_timeout_reconcile_marker(M, comments, proposal_id, issue_version, state_name, round)
+function C.has_timeout_reconcile_marker(comments, proposal_id, issue_version, state_name, round)
   local n = valid_round(round)
   if n == nil or type(comments) ~= "table" then
     return false
@@ -459,12 +491,12 @@ function C.timeout_reconcile_fact_for_terminal_version_from_states(comments, pro
   return nil
 end
 
-function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id, terminal_version)
-  if type(M) ~= "table" or type(M.restart_transition_table) ~= "function" then
+function C.timeout_reconcile_fact_for_terminal_version(restart_policy, comments, proposal_id, terminal_version)
+  if type(restart_policy) ~= "table" or type(restart_policy.restart_transition_table) ~= "function" then
     return nil
   end
   local allowed = {}
-  for _, row in ipairs(M.restart_transition_table()) do
+  for _, row in ipairs(restart_policy.restart_transition_table()) do
     if row.terminal == false then
       allowed[row.from_state] = true
     end

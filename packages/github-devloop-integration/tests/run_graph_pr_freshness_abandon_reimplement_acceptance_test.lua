@@ -519,7 +519,7 @@ return {
     t.eq(child_state.version, ROOT_VERSION)
 
     local ready_marker = h.projected_state_comment(PROPOSAL_ID, "ready", REPLACEMENT_VERSION)
-    local expected_ready = payloads_builders.build_devloop_ready_payload(core, {
+    local expected_ready = payloads_builders.build_devloop_ready_payload({
       proposal_id = PROPOSAL_ID,
       dedup_key = REPLACEMENT_VERSION,
       source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),

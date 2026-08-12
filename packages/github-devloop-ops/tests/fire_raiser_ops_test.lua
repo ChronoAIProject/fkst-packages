@@ -336,6 +336,7 @@ return {
     t.eq(trace.consumer_result.status, "accepted")
     t.eq(#trace.raised, 0)
   end,
+
 ]]))
     local output = run_child(root)
     t.is_true(output:find("3 passed, 0 failed", 1, true) ~= nil, output)

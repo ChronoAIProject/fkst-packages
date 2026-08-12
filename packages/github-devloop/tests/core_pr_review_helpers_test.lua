@@ -26,8 +26,7 @@ return {
     t.eq(devloop_base.parse_pr_review_proposal_id("github-devloop/pr-review/owner/repo/7/v1"), nil)
 
     local issue_proposal_id = "github-devloop/issue/" .. repo .. "/42"
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      repo,
+    local proposal = payloads_builders.build_pr_review_proposal(      repo,
       "42",
       7,
       version,
@@ -114,8 +113,7 @@ return {
     t.eq(parsed_version, transition_version.safe_version_segment(version))
     t.eq(parsed_head_sha, head_sha)
 
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      repo,
+    local proposal = payloads_builders.build_pr_review_proposal(      repo,
       "42",
       7,
       version,
@@ -132,8 +130,7 @@ return {
   test_pr_review_proposal_rejects_oversized_loop_dedup = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       version,
@@ -156,8 +153,7 @@ return {
   test_pr_review_proposal_uses_fetch_instruction_when_issue_body_is_long = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
-    local proposal = payloads_builders.build_pr_review_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_proposal(      "owner/repo",
       "42",
       7,
       version,

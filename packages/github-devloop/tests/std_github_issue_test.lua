@@ -68,7 +68,7 @@ return {
     local stdout = '{"state":"OPEN","title":"t","updatedAt":"2026-06-15T00:00:00Z","labels":[{"name":"fkst-dev:enabled"},{"name":"bug"}],"comments":[{"id":1,"body":"b","author":{"login":"bot"},"createdAt":"2026-06-14T00:00:00Z"}],"assignees":[{"login":"dev"}],"author":{"login":"author"}}'
     local ref = { kind = "external", ref = "owner/repo#issue/42" }
     local normalized = issue_adapter.normalize_issue(stdout, ref)
-    local old = parsers_issue.parse_issue_view_loop(core, stdout)
+    local old = parsers_issue.parse_issue_view_loop(stdout)
 
     assert(normalized.title == old.title)
     assert(normalized.updated_at == old.updated_at)
@@ -166,5 +166,38 @@ return {
     assert(command_count(commands, { "gh", "api", "repos/owner/force-adapter/issues/43" }) == 1)
     assert(command_count(commands, { "gh", "api", "--paginate", "--slurp", comments_path }) == 1)
     assert(#commands == 3)
+  end,
+
+  test_read_issue_force_fresh_can_skip_cache_writes = function()
+    local ref = { kind = "external", ref = "owner/read-only-adapter#issue/44" }
+    local comments_query = table.concat({ "per", "page=100" }, "_")
+    local comments_path = "repos/owner/read-only-adapter/issues/44/comments?" .. comments_query
+    local cache_writes = 0
+    local previous_cache_set = cache_set
+    cache_set = function()
+      cache_writes = cache_writes + 1
+    end
+    local handle = gh.new(function(opts)
+      if argv_equal(opts.argv, { "gh", "api", "repos/owner/read-only-adapter/issues/44" }) then
+        return {
+          stdout = '{"number":44,"state":"open","title":"read only","updated_at":"2026-06-15T00:00:02Z","labels":[],"assignees":[],"user":{"login":"author"}}',
+          stderr = "",
+          exit_code = 0,
+        }
+      end
+      assert(argv_equal(opts.argv, { "gh", "api", "--paginate", "--slurp", comments_path }))
+      return { stdout = "[]", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_author_policy })
+
+    local ok, issue_or_error = pcall(handle.read_issue, ref, {
+      force_fresh = true,
+      cache_write = false,
+      consumer = "read-only-contract",
+    })
+    cache_set = previous_cache_set
+
+    assert(ok, tostring(issue_or_error))
+    assert(issue_or_error.number == 44)
+    assert(cache_writes == 0)
   end,
 }

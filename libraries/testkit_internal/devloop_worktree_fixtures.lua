@@ -64,21 +64,22 @@ function M.new(deps)
     )
   end
 
+  local function command_result(exit_code, stderr, stdout)
+    return {
+      stdout = stdout or "",
+      stderr = stderr or "",
+      exit_code = exit_code,
+    }
+  end
+
   local function mock_durable_root(root)
-    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = root, stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', command_result(0, "", root))
   end
 
   local function mock_dev_base_head(head_sha)
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = tostring(head_sha or "abc123") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git fetch 'origin' 'dev'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'dev'^{commit}",
+      command_result(0, "", tostring(head_sha or "abc123") .. "\n"))
   end
 
   local function worktree_registration(path, branch)
@@ -92,31 +93,17 @@ function M.new(deps)
       registrations = registrations .. worktree_registration(registered.path, registered.branch)
     end
     for _ = 1, checks or 2 do
-      t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
-      t.mock_command("git worktree list --porcelain", {
-        stdout = registrations .. worktree_registration(worktree, branch),
-        stderr = "",
-        exit_code = 0,
-      })
+      t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", command_result(0))
+      t.mock_command("git worktree list --porcelain",
+        command_result(0, "", registrations .. worktree_registration(worktree, branch)))
     end
   end
 
   local function mock_setup_worktree(path)
-    t.mock_command("git -C", {
-      stdout = "dev\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git -C", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse --abbrev-ref HEAD", {
-      stdout = "devloop-owner-repo-42-01HY\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git -C", command_result(0, "", "dev\n"))
+    t.mock_command("git -C", command_result(0))
+    t.mock_command("rev-parse --abbrev-ref HEAD",
+      command_result(0, "", "devloop-owner-repo-42-01HY\n"))
     return path
   end
 
@@ -126,32 +113,13 @@ function M.new(deps)
   end
 
   local function mock_implement_worktree_reconcile()
-    t.mock_command("reset --hard", {
-      stdout = "HEAD is now at abc123 implementation branch\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("clean -fd", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("reset --hard",
+      command_result(0, "", "HEAD is now at abc123 implementation branch\n"))
+    t.mock_command("clean -fd", command_result(0))
   end
 
   local function mock_worktree_parent_mkdir()
-    t.mock_command("mkdir -p", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-
-  local function command_result(exit_code, stderr, stdout)
-    return {
-      stdout = stdout or "",
-      stderr = stderr or "",
-      exit_code = exit_code,
-    }
+    t.mock_command("mkdir -p", command_result(0))
   end
 
   local function mock_force_clean(worktree, options)
@@ -193,11 +161,7 @@ function M.new(deps)
     if type(value) == "table" then
       return value
     end
-    return {
-      stdout = tostring(value or fallback) .. "\n",
-      stderr = "",
-      exit_code = 0,
-    }
+    return command_result(0, "", tostring(value or fallback) .. "\n")
   end
 
   local function mock_substrate_pin_refresh(worktree, base_pin, branch_pin, base_head)
@@ -212,16 +176,9 @@ function M.new(deps)
     if worktree ~= nil then
       ensure_dir(tostring(worktree):gsub("/+$", "") .. "/.fkst")
     end
-    t.mock_command("add -A", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("commit -m 'chore: refresh fkst-substrate pin'", {
-      stdout = "[devloop-owner-repo-42-01HY 9999999] chore: refresh fkst-substrate pin\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("add -A", command_result(0))
+    t.mock_command("commit -m 'chore: refresh fkst-substrate pin'",
+      command_result(0, "", "[devloop-owner-repo-42-01HY 9999999] chore: refresh fkst-substrate pin\n"))
   end
 
   local function mock_fresh_implement_worktree(path, base_pin, branch_pin)
@@ -230,30 +187,14 @@ function M.new(deps)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
     mock_dev_base_head()
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 1,
-    })
+    t.mock_command("show-ref --verify --quiet", command_result(1))
     mock_durable_root(durable)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add -b", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree add -b", command_result(0))
     mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
     if opts.harvest ~= false then
       mock_harvest_worktree(
@@ -274,45 +215,25 @@ function M.new(deps)
     local head_sha = external.head_sha or "1234567890abcdef1234567890abcdef12345678"
     mock_dev_base_head()
     mock_durable_root(durable)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree)
     mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add -B", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git fetch 'origin' 'refs/pull/" .. tostring(pr_number) .. "/head'", {
-      stdout = "",
-      stderr = "",
-      exit_code = external.fetch_exit_code or 0,
-    })
+    t.mock_command("git worktree add -B", command_result(0))
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
+    t.mock_command("git fetch 'origin' 'refs/pull/" .. tostring(pr_number) .. "/head'",
+      command_result(external.fetch_exit_code or 0))
     if external.fetch_exit_code == nil or external.fetch_exit_code == 0 then
-      t.mock_command("git rev-parse --verify FETCH_HEAD^{commit}", {
-        stdout = head_sha .. "\n",
-        stderr = "",
-        exit_code = 0,
-      })
-      t.mock_command("merge --no-edit '" .. head_sha .. "'", {
-        stdout = external.merge_stdout or "Merge made by the 'ort' strategy.\n",
-        stderr = external.merge_stderr or "",
-        exit_code = external.merge_exit_code or 0,
-      })
+      t.mock_command("git rev-parse --verify FETCH_HEAD^{commit}",
+        command_result(0, "", head_sha .. "\n"))
+      t.mock_command("merge --no-edit '" .. head_sha .. "'", command_result(
+        external.merge_exit_code or 0,
+        external.merge_stderr,
+        external.merge_stdout or "Merge made by the 'ort' strategy.\n"
+      ))
       if external.merge_exit_code ~= nil and external.merge_exit_code ~= 0 then
-        t.mock_command("ls-files -u", {
-          stdout = external.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
-          stderr = "",
-          exit_code = 0,
-        })
+        t.mock_command("ls-files -u", command_result(
+          0, "", external.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n"
+        ))
       end
     end
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin)
@@ -333,35 +254,15 @@ function M.new(deps)
     base_pin = opts.base_pin or base_pin
     branch_pin = opts.branch_pin or branch_pin
     mock_dev_base_head()
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-list --count", {
-      stdout = "0\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("show-ref --verify --quiet", command_result(0))
+    t.mock_command("rev-list --count", command_result(0, "", "0\n"))
     mock_durable_root(durable)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree add", command_result(0))
     mock_implement_worktree_reconcile()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
     if opts.harvest ~= false then
       mock_harvest_worktree(
@@ -382,35 +283,23 @@ function M.new(deps)
     local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, opts)
       or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY")
     mock_dev_base_head(base_head)
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-list --count", {
-      stdout = tostring(ahead_count or "0") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("show-ref --verify --quiet", command_result(0))
+    t.mock_command("rev-list --count",
+      command_result(0, "", tostring(ahead_count or "0") .. "\n"))
     mock_durable_root(durable)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(
+      0, "", "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+    ))
     mock_implement_worktree_reconcile()
     local merge = opts.merge or {}
-    t.mock_command("merge --no-edit '" .. tostring(base_head) .. "'", {
-      stdout = merge.stdout or "Already up to date.\n",
-      stderr = merge.stderr or "",
-      exit_code = merge.exit_code or 0,
-    })
+    t.mock_command("merge --no-edit '" .. tostring(base_head) .. "'",
+      command_result(merge.exit_code or 0, merge.stderr, merge.stdout or "Already up to date.\n"))
     if merge.exit_code ~= nil and merge.exit_code ~= 0 then
-      t.mock_command("ls-files -u", {
-        stdout = merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
-        stderr = merge.unmerged_stderr or "",
-        exit_code = merge.unmerged_exit_code or 0,
-      })
+      t.mock_command("ls-files -u", command_result(
+        merge.unmerged_exit_code or 0,
+        merge.unmerged_stderr,
+        merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n"
+      ))
     end
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin, base_head)
     mock_harvest_worktree(worktree, branch)
@@ -425,106 +314,68 @@ function M.new(deps)
     local durable = durable_root or default_durable_root
     local stale = "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/devloop-owner-repo-42-01HY"
     mock_dev_base_head()
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("show-ref --verify --quiet", command_result(0))
+    t.mock_command("rev-list --count", command_result(0, "", "1\n"))
     mock_durable_root(durable)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. stale .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(
+      0, "", "worktree " .. stale .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+    ))
     return stale
   end
 
   local function mock_existing_implement_branch(head)
     mock_dev_base_head()
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("show-ref --verify --quiet", command_result(0))
   end
 
   local function mock_cached_diff_check(result)
-    t.mock_command("diff --cached --check", {
-      stdout = result and result.stdout or "",
-      stderr = result and result.stderr or "",
-      exit_code = result and result.exit_code or 0,
-    })
+    t.mock_command("diff --cached --check", command_result(
+      result and result.exit_code or 0,
+      result and result.stderr,
+      result and result.stdout
+    ))
   end
 
   local function mock_result_checkpoint(head_sha, branch)
-    t.mock_command("commit --allow-empty -m", {
-      stdout = "[" .. tostring(branch or "devloop-owner-repo-42-01HY")
-        .. " 7654321] implementation result receipt\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse HEAD", {
-      stdout = (head_sha or "def456") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("commit --allow-empty -m", command_result(
+      0,
+      "",
+      "[" .. tostring(branch or "devloop-owner-repo-42-01HY")
+        .. " 7654321] implementation result receipt\n"
+    ))
+    t.mock_command("rev-parse HEAD", command_result(0, "", (head_sha or "def456") .. "\n"))
   end
 
   local function mock_git_commit(new_head, branch, cached_diff_result, receipt_head)
-    t.mock_command("git -C", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git -C", command_result(0))
     mock_cached_diff_check(cached_diff_result)
-    t.mock_command("commit -m", {
-      stdout = "[" .. tostring(branch or "devloop-owner-repo-42-01HY") .. " 1234567] Implement github-devloop ready state\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("commit -m", command_result(
+      0, "", "[" .. tostring(branch or "devloop-owner-repo-42-01HY")
+        .. " 1234567] Implement github-devloop ready state\n"
+    ))
     if branch ~= nil then
-      t.mock_command("rev-parse --abbrev-ref HEAD", {
-        stdout = tostring(branch) .. "\n",
-        stderr = "",
-        exit_code = 0,
-      })
+      t.mock_command("rev-parse --abbrev-ref HEAD", command_result(0, "", tostring(branch) .. "\n"))
     end
-    t.mock_command("rev-parse HEAD", {
-      stdout = (new_head or "def456") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("rev-parse HEAD", command_result(0, "", (new_head or "def456") .. "\n"))
     mock_result_checkpoint(receipt_head or new_head, branch)
   end
 
   local function mock_git_push(branch)
-    t.mock_command("git push origin", {
-      stdout = "pushed " .. tostring(branch or "branch") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git push origin",
+      command_result(0, "", "pushed " .. tostring(branch or "branch") .. "\n"))
     if include_head_ref_push then
-      t.mock_command("push origin HEAD:refs/heads/" .. tostring(branch or "branch"), {
-        stdout = "pushed " .. tostring(branch or "branch") .. "\n",
-        stderr = "",
-        exit_code = 0,
-      })
+      t.mock_command("push origin HEAD:refs/heads/" .. tostring(branch or "branch"),
+        command_result(0, "", "pushed " .. tostring(branch or "branch") .. "\n"))
     end
   end
 
   local function mock_existing_devloop_worktree(issue_slug)
     local slug = tostring(issue_slug or "owner-repo-42")
-    t.mock_command("git worktree list", {
-      stdout = "/tmp/devloop-" .. slug .. "-01HY"
-        .. " abcdef1 [devloop-" .. slug .. "-01HY]\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list", command_result(
+      0,
+      "",
+      "/tmp/devloop-" .. slug .. "-01HY" .. " abcdef1 [devloop-" .. slug .. "-01HY]\n"
+    ))
   end
 
   local function mock_implement_codex(exit_code, stdout, stderr, ...)
@@ -532,79 +383,58 @@ function M.new(deps)
       error("testkit_internal: mock-implement-codex-result-fields-unsupported: typed result fields are not supported by fkst.test.mock_command")
     end
     local resolved_exit_code = exit_code or 0
+<<<<<<< HEAD
     local result = {
       stdout = stdout or "implemented",
       stderr = stderr or "",
       exit_code = resolved_exit_code,
     }
     t.mock_command("codex exec", result)
+=======
+    t.mock_command("codex exec", command_result(resolved_exit_code, stderr, stdout or "implemented"))
+>>>>>>> 66bfddc61b9ae82aa7e0e67cea7a7fe67014204a
     if resolved_exit_code == 0 then
-      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
-        stdout = "",
-        stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
-        exit_code = 0,
-      })
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED",
+        command_result(0, "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n"))
     end
   end
 
   local function mock_git_status(stdout, exit_code, stderr)
-    t.mock_command("status --porcelain", {
-      stdout = stdout or "",
-      stderr = stderr or "",
-      exit_code = exit_code or 0,
-    })
+    t.mock_command("status --porcelain", command_result(exit_code or 0, stderr, stdout))
   end
 
   local function mock_branch_diff_paths(stdout, receipt_subject)
-    t.mock_command("diff --name-only", {
-      stdout = stdout or "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("cat-file -p", {
-      stdout = "tree aaaaaaa\nparent bbbbbbb\n\n"
-        .. tostring(receipt_subject or "ordinary implementation progress") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("diff --name-only", command_result(0, "", stdout))
+    t.mock_command("cat-file -p", command_result(
+      0,
+      "",
+      "tree aaaaaaa\nparent bbbbbbb\n\n"
+        .. tostring(receipt_subject or "ordinary implementation progress") .. "\n"
+    ))
   end
 
   local function mock_no_unmerged_paths()
-    t.mock_command("ls-files -u", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("ls-files -u", command_result(0))
   end
 
   local function mock_candidate_diff_check(merge)
-    t.mock_command("diff --check", {
-      stdout = merge and merge.candidate_diff_stdout or "",
-      stderr = merge and merge.candidate_diff_stderr or "",
-      exit_code = merge and merge.candidate_diff_exit_code or 0,
-    })
+    t.mock_command("diff --check", command_result(
+      merge and merge.candidate_diff_exit_code or 0,
+      merge and merge.candidate_diff_stderr,
+      merge and merge.candidate_diff_stdout
+    ))
   end
 
   local function mock_fix_worktree_precondition(branch, reviewed_head_sha, local_contains_reviewed)
-    t.mock_command("merge-base --is-ancestor", {
-      stdout = "",
-      stderr = "",
-      exit_code = local_contains_reviewed == false and 1 or 0,
-    })
+    t.mock_command("merge-base --is-ancestor",
+      command_result(local_contains_reviewed == false and 1 or 0))
     local reset_target = "refs/heads/" .. tostring(branch)
     if local_contains_reviewed == false then
       reset_target = tostring(reviewed_head_sha)
     end
-    t.mock_command("reset --hard " .. reset_target, {
-      stdout = "HEAD is now at " .. tostring(reviewed_head_sha) .. " reviewed head\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("clean -fd", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("reset --hard " .. reset_target,
+      command_result(0, "", "HEAD is now at " .. tostring(reviewed_head_sha) .. " reviewed head\n"))
+    t.mock_command("clean -fd", command_result(0))
   end
 
   local function mock_existing_fix_worktree(branch, head, path, merge)
@@ -617,57 +447,39 @@ function M.new(deps)
       default_ready_version
     )
     mock_durable_root(default_durable_root)
-    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
-      stdout = tostring(reviewed_head_sha) .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
-        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("[ -d '" .. worktree .. "' ]", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}",
+      command_result(0, "", tostring(reviewed_head_sha) .. "\n"))
+    t.mock_command("git worktree list --porcelain", command_result(
+      0,
+      "",
+      "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+    ))
+    t.mock_command("[ -d '" .. worktree .. "' ]", command_result(0))
     mock_fix_worktree_precondition(
       branch, reviewed_head_sha, merge and merge.local_contains_reviewed)
-    t.mock_command("git fetch 'origin' 'dev'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
-      stdout = tostring(merge and merge.sha or "abc123") .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("merge --no-edit '" .. tostring(merge and merge.sha or "abc123") .. "'", {
-      stdout = merge and merge.stdout or "Already up to date.\n",
-      stderr = merge and merge.stderr or "",
-      exit_code = merge and merge.exit_code or 0,
-    })
+    t.mock_command("git fetch 'origin' 'dev'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'dev'^{commit}",
+      command_result(0, "", tostring(merge and merge.sha or "abc123") .. "\n"))
+    t.mock_command("merge --no-edit '" .. tostring(merge and merge.sha or "abc123") .. "'", command_result(
+      merge and merge.exit_code or 0,
+      merge and merge.stderr,
+      merge and merge.stdout or "Already up to date.\n"
+    ))
     if merge ~= nil and merge.exit_code ~= nil and merge.exit_code ~= 0 then
-      t.mock_command("ls-files -u", {
-        stdout = merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
-        stderr = merge.unmerged_stderr or "",
-        exit_code = merge.unmerged_exit_code or 0,
-      })
+      t.mock_command("ls-files -u", command_result(
+        merge.unmerged_exit_code or 0,
+        merge.unmerged_stderr,
+        merge.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n"
+      ))
     end
     if merge ~= nil and merge.post_codex_unmerged_stdout ~= nil then
-      t.mock_command("ls-files -u", {
-        stdout = merge.post_codex_unmerged_stdout,
-        stderr = merge.post_codex_unmerged_stderr or "",
-        exit_code = merge.post_codex_unmerged_exit_code or 0,
-      })
+      t.mock_command("ls-files -u", command_result(
+        merge.post_codex_unmerged_exit_code or 0,
+        merge.post_codex_unmerged_stderr,
+        merge.post_codex_unmerged_stdout
+      ))
     else
       mock_no_unmerged_paths()
     end
@@ -679,45 +491,22 @@ function M.new(deps)
     local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/missing/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
-        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("[ -d '" .. worktree .. "' ]", {
-      stdout = "",
-      stderr = "",
-      exit_code = 1,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
-      stdout = tostring(reviewed_head_sha) .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(
+      0,
+      "",
+      "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+    ))
+    t.mock_command("[ -d '" .. worktree .. "' ]", command_result(1))
+    t.mock_command("git worktree prune", command_result(0))
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}",
+      command_result(0, "", tostring(reviewed_head_sha) .. "\n"))
     mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add --force -B", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree add --force -B", command_result(0))
     mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_no_unmerged_paths()
     mock_candidate_diff_check()
     return worktree
@@ -727,94 +516,44 @@ function M.new(deps)
     local reviewed_head_sha = head or "def456"
     local worktree = path or "/tmp/fkst-packages-test/github-devloop/noncanonical/worktrees/fix-worktree"
     mock_durable_root(default_durable_root)
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
-        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("[ -d '" .. worktree .. "' ]", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}", {
-      stdout = tostring(reviewed_head_sha) .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree list --porcelain", command_result(
+      0,
+      "",
+      "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+        .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
+    ))
+    t.mock_command("[ -d '" .. worktree .. "' ]", command_result(0))
+    t.mock_command("git worktree remove --force", command_result(0))
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", command_result(0))
+    t.mock_command("refs/remotes/'origin'/'" .. tostring(branch) .. "'^{commit}",
+      command_result(0, "", tostring(reviewed_head_sha) .. "\n"))
     mock_worktree_parent_mkdir()
-    t.mock_command("git worktree add --force -B", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("git worktree add --force -B", command_result(0))
     mock_fix_worktree_precondition(branch, reviewed_head_sha)
     mock_dev_base_head()
-    t.mock_command("merge --no-edit 'abc123'", {
-      stdout = "Already up to date.\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_no_unmerged_paths()
     mock_candidate_diff_check()
     return worktree
   end
 
   local function mock_write_env(value)
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
-      stdout = value or "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
-      stdout = value or "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", value))
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", value))
   end
 
   local function mock_bot_env(value)
     for _ = 1, 8 do
-      t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-        stdout = value or "fkst-test-bot",
-        stderr = "",
-        exit_code = 0,
-      })
+      t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"',
+        command_result(0, "", value or "fkst-test-bot"))
     end
-    t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-      stdout = "dev",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', command_result(0, "", "dev"))
+    t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', command_result(0))
+    t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_MERGE"', command_result(0))
   end
 
   local function mock_issue_view_failure(json_selector, stderr)
-    t.mock_command(json_selector, {
-      stdout = "",
-      stderr = stderr or "forced issue view failure",
-      exit_code = 1,
-    })
+    t.mock_command(json_selector, command_result(1, stderr or "forced issue view failure"))
   end
 
   local function count_calls(needle)

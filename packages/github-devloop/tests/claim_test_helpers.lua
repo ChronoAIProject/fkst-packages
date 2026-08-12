@@ -48,7 +48,6 @@ function M.claim_with_poll_epoch(core, dept, repo, issue_number, current, propos
     m_claims.claim_admission_inputs(current, repo, poll_epoch)
   )
   return m_claims.claim_issue_for_management(
-    core,
     dept,
     repo,
     issue_number,

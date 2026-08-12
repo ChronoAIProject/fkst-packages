@@ -15,7 +15,6 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from host_run_process_group_test import ProcessGroupCleanupTest
 from host_run_test_support import run_bounded
 
 
@@ -214,6 +213,7 @@ class DogfoodLayout:
             shutil.copy2(REPO_ROOT / "scripts" / "run_bin.sh", platform / "scripts" / "run_bin.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_affected.sh", platform / "scripts" / "test_affected.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_parallel.sh", platform / "scripts" / "test_parallel.sh")
+            shutil.copy2(REPO_ROOT / "scripts" / "test_coverage.sh", platform / "scripts" / "test_coverage.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_deadline.sh", platform / "scripts" / "test_deadline.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "run_department.sh", platform / "scripts" / "run_department.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "host_entry.sh", platform / "scripts" / "host_entry.sh")

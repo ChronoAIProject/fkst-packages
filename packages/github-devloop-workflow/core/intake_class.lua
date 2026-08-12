@@ -5,6 +5,8 @@ local entity_lib = require("devloop.entity")
 local parsers_issue = require("devloop.parsers.issue")
 local requests_labels = require("devloop.requests.labels")
 local comment_strings = require("devloop.strings")
+local devloop_prompts = require("devloop.prompts")
+local marker_builders = require("devloop.markers.builders")
 
 local M = {}
 
@@ -110,7 +112,7 @@ local function sibling_class_key(reason, issue_number, sibling_issues)
   return candidates[1]
 end
 
-function M.intake_class_identity(_package_core, reason, current, issue_number, sibling_issues)
+function M.intake_class_identity(reason, current, issue_number, sibling_issues)
   local shared_key = sibling_class_key(reason, issue_number, sibling_issues)
   if shared_key ~= nil then
     return shared_key
@@ -133,39 +135,34 @@ local function display_label(class_key)
   return title or tostring(class_key or "unknown")
 end
 
-function M.fetch_recent_closed_intake_class_issues(package_core, repo)
+function M.fetch_recent_closed_intake_class_issues(repo)
   local listed = devloop_commands.gh_issue_list_recent_closed(repo, 30, 30)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
   end
-  return parsers_issue.parse_issue_list_intake(package_core, listed.stdout)
+  return parsers_issue.parse_issue_list_intake(listed.stdout)
 end
 
-function M.intake_class_carrier_marker(_package_core, class_key)
-  if class_key == nil or tostring(class_key) == "" then
-    error("github-devloop: intake-class-key-invalid: invalid intake class key")
-  end
-  return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
-end
+M.intake_class_carrier_marker = marker_builders.intake_class_carrier_marker
 
-function M.intake_class_issue_title(package_core, current, issue_number, class_key)
+function M.intake_class_issue_title(current, issue_number, class_key)
   local source_title = tostring(current and current.title or ("Issue #" .. tostring(issue_number or "unknown")))
   local title = "Class fix needed: " .. display_label(class_key or ("title:" .. source_title))
-  if #title > package_core._max_title_len then
-    title = base_ids.truncate_utf8(title, package_core._max_title_len)
+  if #title > devloop_base._max_title_len then
+    title = base_ids.truncate_utf8(title, devloop_base._max_title_len)
   end
   return title
 end
 
-function M.find_open_intake_class_carrier(package_core, repo, issue_number, current, class_key)
-  local wanted_marker = M.intake_class_carrier_marker(package_core, class_key)
-  local wanted_title = M.intake_class_issue_title(package_core, current, issue_number, class_key)
-  local fallback_title = M.intake_class_issue_title(package_core, current, issue_number)
+function M.find_open_intake_class_carrier(repo, issue_number, current, class_key)
+  local wanted_marker = M.intake_class_carrier_marker(class_key)
+  local wanted_title = M.intake_class_issue_title(current, issue_number, class_key)
+  local fallback_title = M.intake_class_issue_title(current, issue_number)
   local listed = devloop_commands.gh_issue_list_intake(repo, 100, 30)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh-issue-list-failed: gh issue intake class lookup failed: " .. tostring(listed.stderr))
   end
-  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(package_core, listed.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
     if tostring(issue.number) ~= tostring(issue_number)
       and (tostring(issue.body or ""):find(wanted_marker, 1, true) ~= nil
         or tostring(issue.title or "") == wanted_title
@@ -176,7 +173,7 @@ function M.find_open_intake_class_carrier(package_core, repo, issue_number, curr
   return nil
 end
 
-function M.intake_class_followup_marker(_package_core, proposal_id, carrier_number, outcome, dedup_key)
+function M.intake_class_followup_marker(proposal_id, carrier_number, outcome, dedup_key)
   if outcome ~= "folded" and outcome ~= "carrier" then
     error("github-devloop: intake-class-followup-invalid: invalid intake class follow-up outcome")
   end
@@ -190,15 +187,15 @@ function M.intake_class_followup_marker(_package_core, proposal_id, carrier_numb
     .. '" -->'
 end
 
-function M.build_intake_class_followup_comment_request(package_core, repo, issue_number, candidate, carrier, outcome, reason)
+function M.build_intake_class_followup_comment_request(repo, issue_number, candidate, carrier, outcome, reason)
   local carrier_number = carrier and carrier.number or "pending-create"
-  local marker = M.intake_class_followup_marker(package_core, candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
+  local marker = M.intake_class_followup_marker(candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(package_core, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(devloop_prompts.output_language, "no_reason_provided")
   end
-  if #safe_reason > package_core._max_meta_reason_len then
-    safe_reason = base_ids.truncate_utf8(safe_reason, package_core._max_meta_reason_len)
+  if #safe_reason > devloop_base._max_meta_reason_len then
+    safe_reason = base_ids.truncate_utf8(safe_reason, devloop_base._max_meta_reason_len)
   end
   local carrier_line = "Class carrier: "
   if carrier and carrier.number ~= nil then
@@ -224,7 +221,7 @@ function M.build_intake_class_followup_comment_request(package_core, repo, issue
   }), candidate.source_ref)
 end
 
-function M.build_intake_class_folded_label_request(_package_core, repo, issue_number, candidate)
+function M.build_intake_class_folded_label_request(repo, issue_number, candidate)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
@@ -241,8 +238,8 @@ function M.build_intake_class_folded_label_request(_package_core, repo, issue_nu
   )
 end
 
-function M.build_intake_class_issue_create_request(package_core, repo, issue_number, candidate, current, reason, class_key)
-  local title = M.intake_class_issue_title(package_core, current, issue_number, class_key)
+function M.build_intake_class_issue_create_request(repo, issue_number, candidate, current, reason, class_key)
+  local title = M.intake_class_issue_title(current, issue_number, class_key)
   local body = "Class escalation follow-through for instance issue #" .. tostring(issue_number or "unknown")
     .. "\n\nReason:\n" .. devloop_base.neutralize_untrusted_comment_text(reason or "")
     .. "\n\nClass identity: " .. tostring(class_key or "")
@@ -251,9 +248,9 @@ function M.build_intake_class_issue_create_request(package_core, repo, issue_num
     .. "- Link this instance to the class issue through the parent ledger marker.\n"
     .. "- Close the instance as folded only after the class carrier exists, or keep it enabled as the class carrier if it already states the class solution.\n"
     .. "\nSource proposal: " .. tostring(candidate and candidate.proposal_id or "")
-    .. "\n\n" .. M.intake_class_carrier_marker(package_core, class_key)
-  if #body > package_core._max_body_len then
-    body = base_ids.truncate_utf8(body, package_core._max_body_len)
+    .. "\n\n" .. M.intake_class_carrier_marker(class_key)
+  if #body > devloop_base._max_body_len then
+    body = base_ids.truncate_utf8(body, devloop_base._max_body_len)
   end
   return {
     schema = "github-proxy.issue-create.v1",

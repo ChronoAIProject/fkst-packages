@@ -4,8 +4,10 @@ local core = h.core
 require("departments.observability.main")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local author_policy = require("testkit_internal.github_author_policy")
 local decompose_lib = require("devloop.decompose")
 local m_builders = require("devloop.markers.builders")
+local parsers_misc = require("devloop.parsers.misc")
 local function opts(name, extra)
   local env = {
     FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
@@ -27,13 +29,16 @@ local function run_observability(run_opts)
   }, run_opts or opts("observability"))
 end
 local function mock_env(bot_login, write_mode)
-  for _ = 1, 16 do
-    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-      stdout = bot_login == nil and "fkst-test-bot" or bot_login,
-      stderr = "",
-      exit_code = 0,
-    })
-  end
+  author_policy.mock_env(t, {
+    env = {
+      FKST_GITHUB_BOT_LOGIN = bot_login == nil and "fkst-test-bot" or bot_login,
+      FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,ElonSG",
+      FKST_GITHUB_AUTHORIZED_LOGINS = "trusted-human",
+    },
+  }, {
+    configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
+    times = 16,
+  })
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', {
     stdout = "owner/repo",
     stderr = "",

@@ -2,6 +2,7 @@ local base_ids = require("devloop.base_ids")
 local actions = require("core.materialize.actions")
 local core = require("core")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local digest = require("core.digest")
 local marker = require("core.marker")
 local materialization = require("core.materialization")
@@ -178,7 +179,7 @@ local function run_tick(options, expecting_failure)
   local captured_logs = {}
   local old_log = log
   local old_with_lock = with_lock
-  local old_assert_trusted_bot_configured = devloop_base.assert_trusted_bot_configured
+  local old_assert_trusted_bot_configured = parsers_misc.assert_trusted_bot_configured
   local old_raise_request = actions.raise_request
   log = {
     info = function(message) captured_logs[#captured_logs + 1] = tostring(message) end,
@@ -189,7 +190,7 @@ local function run_tick(options, expecting_failure)
     return fn()
   end
   if config.shared_configuration_failure then
-    devloop_base.assert_trusted_bot_configured = function()
+    parsers_misc.assert_trusted_bot_configured = function()
       error("shared-configuration-failed")
     end
   end
@@ -207,7 +208,7 @@ local function run_tick(options, expecting_failure)
   end)
   log = old_log
   with_lock = old_with_lock
-  devloop_base.assert_trusted_bot_configured = old_assert_trusted_bot_configured
+  parsers_misc.assert_trusted_bot_configured = old_assert_trusted_bot_configured
   actions.raise_request = old_raise_request
   if not ok then
     error(result, 0)

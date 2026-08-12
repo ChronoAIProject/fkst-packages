@@ -72,6 +72,7 @@ require("core.github_graphql").install(M)
 require("devloop.commands").install(M)
 require("forge.merge_commands").install(M)
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
+local implementation_refusal = require("devloop.implementation_refusal")
 M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
@@ -95,7 +96,19 @@ require("devloop.state").install(M)
 require("devloop.gate").install({ sources = wiring.gate_sources() })
 require("core.pr_delegation").install(M)
 require("core.impl_failure").install(M)
-require("core.implementation_refusal").install(M)
+M.implementation_refusal_reasons = implementation_refusal.reasons
+M.implementation_refusal_reasons_text = implementation_refusal.reasons_text
+M.is_supported_implementation_refusal_reason = implementation_refusal.is_supported_reason
+M.require_supported_implementation_refusal_reason = implementation_refusal.require_supported_reason
+M.implementation_refusal_marker = implementation_refusal.marker
+M.implementation_refusal_fact = function(comments, proposal_id, implementation_version)
+  return implementation_refusal.fact(
+    comments,
+    proposal_id,
+    implementation_version,
+    M.latest_implement_attempt_fact(comments, proposal_id, implementation_version)
+  )
+end
 M.restart_lifecycle_states = {
   "thinking",
   "dependency_wait",
@@ -108,6 +121,7 @@ M.restart_lifecycle_states = {
   "blocked",
   "merged",
 }
+local package_replayer
 local restart_runtime = {
   dependency_hold_fact = function(...) return M.dependency_hold_fact(...) end,
   dependency_release_fact = function(...) return M.dependency_release_fact(...) end,
@@ -116,7 +130,7 @@ local restart_runtime = {
     return M.implementing_version_mismatch_budget_exhausted(...)
   end,
   replay_from_table_classified = function(...)
-    return require("devloop.replayer").replay_from_table_classified(M, ...)
+    return package_replayer.replay_from_table_classified(...)
   end,
   restart_lifecycle_states = M.restart_lifecycle_states,
   stall_suspect_age_minutes = function(...) return M.stall_suspect_age_minutes(...) end,
@@ -124,22 +138,25 @@ local restart_runtime = {
 local restart_policy = wiring.restart_policy(restart_runtime)
 require("devloop.restart.issue.pr_partition_contract").install(M)
 local ready_split_replayers = require("core.ready_split").install(M)
+<<<<<<< HEAD
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
 local implementation_escalation_replayers = require("core.implementation_escalation_replayer").install(M)
 M.replayer_registry = {
+=======
+local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M, function(...)
+  return package_replayer.replay_log_decline(...)
+end)
+local package_replayers = {
+>>>>>>> 66bfddc61b9ae82aa7e0e67cea7a7fe67014204a
   dependency_wait = ready_split_replayers.dependency_wait,
   ready = ready_split_replayers.ready,
   ["awaiting-pr"] = awaiting_pr_replayers["awaiting-pr"],
   ["implementation-escalating"] = implementation_escalation_replayers["implementation-escalating"],
 }
 require("core.liveness_bounds").install(M)
-require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
 rawset(M, "restart_policy", restart_policy)
-for key, value in pairs(restart_policy) do
-  if rawget(M, key) == nil then M[key] = value end
-end
 local prompt_surface = wiring.prompts()
-M.output_language = devloop_prompts.output_language
+M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
 M.judge_harness_clause = devloop_prompts.judge_harness_clause
 M.actor_harness_clause = devloop_prompts.actor_harness_clause
@@ -153,8 +170,37 @@ M.authorize_thinking_true_stall_drop = function(args)
   return require("core.restart_effects").authorize_thinking_true_stall_drop(M, args)
 end
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.implement_attempt").install(M)
+package_replayer = require("devloop.replayer").new(restart_policy, {
+  package_replayers = package_replayers,
+  linked_pr_surface_snapshot = M.linked_pr_surface_snapshot,
+  issue_lifecycle_facts = {
+    dependency_hold_fact = function(...) return M.dependency_hold_fact(...) end,
+    dependency_release_fact = function(...) return M.dependency_release_fact(...) end,
+    fetch_pr_view_origin = function(...) return M.fetch_pr_view_origin(...) end,
+    gh_issue_list_decompose_children = function(...) return M.gh_issue_list_decompose_children(...) end,
+    latest_implement_attempt_fact = M.latest_implement_attempt_fact,
+    impl_failure_fact = M.impl_failure_fact,
+  },
+  issue_retry_policy = {
+    impl_failure_retry_allowed = M.impl_failure_retry_allowed,
+    next_implementation_retry_attempt = M.next_implementation_retry_attempt,
+    implementation_retry_attempt = M.implementation_retry_attempt,
+    ready_payload_inner_version = M.ready_payload_inner_version,
+  },
+}, {
+  authorization = {
+    authorize_true_stall_drop = M.authorize_thinking_true_stall_drop,
+  },
+  git = M.git,
+  output_language = M.output_language,
+})
+rawset(M, "replayer", package_replayer)
+require("devloop.liveness").new(restart_policy, wiring.liveness(restart_policy, restart_runtime))
+for key, value in pairs(restart_policy) do
+  if rawget(M, key) == nil then M[key] = value end
+end
 require("core.ratchet_slice_ledger").install(M)
 require("core.dependencies").install(M)
 require("core.span_conformance").install(M)

@@ -372,11 +372,17 @@ return {
   end,
 
   test_audit_search_parses_and_trusts_bot_authored_marker_issues = function()
-    local issues = core.parse_audit_issue_search('[{"number":7,"title":"Archaudit: x","state":"OPEN","body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"idle\\" -->","createdAt":"2026-06-20T00:00:00Z","author":{"login":"fkst-test-bot"}},{"number":8,"body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"stale\\" -->","updatedAt":"2026-06-20T01:00:00Z","author":{"login":"human"}}]')
-    t.eq(#issues, 2)
+    local issues = core.parse_audit_issue_search('[{"number":7,"title":"Archaudit: x","state":"OPEN","body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"idle\\" -->","createdAt":"2026-06-20T00:00:00Z","author":{"login":"app/fkst-test-bot"}},{"number":8,"body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"stale\\" -->","updatedAt":"2026-06-20T01:00:00Z","author":{"login":"human"}},{"number":9,"body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"malformed\\" -->","updatedAt":"2026-06-20T02:00:00Z","author":{"login":"app/fkst-test-bot/extra"}}]')
+    t.eq(#issues, 3)
     t.eq(core.latest_audit_issue_seconds(issues, "fkst-test-bot"), core.iso_timestamp_epoch_seconds("2026-06-20T00:00:00Z"))
     t.eq(core.latest_audit_issue_seconds(issues, "human"), core.iso_timestamp_epoch_seconds("2026-06-20T01:00:00Z"))
+    t.eq(core.latest_audit_issue_seconds(issues, "other-bot"), nil)
     t.eq(core.latest_audit_issue_seconds(issues, ""), nil)
+  end,
+
+  test_audit_search_rejects_matching_malformed_bot_identities = function()
+    local issues = core.parse_audit_issue_search('[{"number":7,"body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"idle\\" -->","createdAt":"2026-06-20T00:00:00Z","author":{"login":"app/"}}]')
+    t.eq(core.latest_audit_issue_seconds(issues, "app/"), nil)
   end,
 
   test_audit_due_verdict_uses_durable_marker_window = function()

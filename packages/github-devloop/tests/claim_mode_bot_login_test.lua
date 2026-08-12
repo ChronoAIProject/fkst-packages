@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
 local claim_carriers = require("devloop.claim_carriers")
 local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
@@ -124,35 +125,30 @@ local function mock_claim_label_binding(description, times)
 end
 
 return {
-  -- (a) [bot] normalization on BOTH sides of the author-vs-bot comparison.
-  test_strip_bot_login_suffix_is_nil_safe_and_no_op_for_users = function()
-    t.eq(devloop_base.strip_bot_login_suffix("octocat"), "octocat")
-    t.eq(devloop_base.strip_bot_login_suffix("chronoai-bot[bot]"), "chronoai-bot")
-    -- Nil-safe: nil in → nil out (preserves existing nil semantics for an
-    -- unconfigured bot login / missing author).
-    t.eq(devloop_base.strip_bot_login_suffix(nil), nil)
-    -- Only a trailing [bot] is stripped.
-    t.eq(devloop_base.strip_bot_login_suffix("user[bot]name"), "user[bot]name")
+  test_devloop_uses_the_canonical_forge_login_helper = function()
+    t.eq(forge_strings.canonical_login("app/chronoai-bot"), "chronoai-bot")
+    t.eq(parsers_misc.canonical_login, forge_strings.canonical_login)
+    t.is_nil(devloop_base.strip_bot_login_suffix)
   end,
 
-  test_configure_trusted_bot_login_normalizes_bracket_bot_suffix = function()
-    t.eq(devloop_base.configure_trusted_bot_login("chronoai-bot[bot]"), "chronoai-bot")
-    t.eq(devloop_base.trusted_bot_login(), "chronoai-bot")
-    t.eq(devloop_base.configure_trusted_bot_login("plain-bot"), "plain-bot")
-    t.eq(devloop_base.trusted_bot_login(), "plain-bot")
-    devloop_base.configure_trusted_bot_login(nil)
+  test_configure_trusted_bot_login_preserves_raw_identity_spelling = function()
+    t.eq(parsers_misc.configure_trusted_bot_login("chronoai-bot[bot]"), "chronoai-bot[bot]")
+    t.eq(parsers_misc.trusted_bot_login(), "chronoai-bot[bot]")
+    t.eq(parsers_misc.configure_trusted_bot_login("plain-bot"), "plain-bot")
+    t.eq(parsers_misc.trusted_bot_login(), "plain-bot")
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
-  test_comment_author_login_normalizes_bracket_bot_suffix = function()
-    t.eq(parsers_misc.comment_author_login({ author_login = "chronoai-bot[bot]" }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login({ author = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login({ user = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
+  test_comment_author_login_preserves_raw_transport_spelling = function()
+    t.eq(parsers_misc.comment_author_login({ author_login = "chronoai-bot[bot]" }), "chronoai-bot[bot]")
+    t.eq(parsers_misc.comment_author_login({ author = { login = "app/chronoai-bot" } }), "app/chronoai-bot")
+    t.eq(parsers_misc.comment_author_login({ user = { login = "chronoai-bot[bot]" } }), "chronoai-bot[bot]")
     t.eq(parsers_misc.comment_author_login({ author_login = "octocat" }), "octocat")
   end,
 
   test_authorless_comment_is_not_trusted_by_default_test_bot_login = function()
-    devloop_base.configure_trusted_bot_login(nil)
-    t.eq(devloop_base.trusted_bot_login(), core._test_bot_login)
+    parsers_misc.configure_trusted_bot_login(nil)
+    t.eq(parsers_misc.trusted_bot_login(), core._test_bot_login)
     t.is_nil(parsers_misc.comment_author_login({ body = "authorless" }))
     t.eq(parsers_misc._is_trusted_comment({ body = "authorless" }), false)
     t.eq(parsers_misc._is_trusted_comment({ author = nil, user = nil, body = "authorless" }), false)
@@ -160,31 +156,46 @@ return {
 
   -- Bare-config vs [bot]-author: trusted.
   test_bare_config_trusts_bracket_bot_author = function()
-    devloop_base.configure_trusted_bot_login("chronoai-bot")
+    parsers_misc.configure_trusted_bot_login("chronoai-bot")
     t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot[bot]", body = "x" }), true)
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
   -- [bot]-config vs [bot]-author: trusted.
   test_bracket_bot_config_trusts_bracket_bot_author = function()
-    devloop_base.configure_trusted_bot_login("chronoai-bot[bot]")
+    parsers_misc.configure_trusted_bot_login("chronoai-bot[bot]")
     t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot[bot]", body = "x" }), true)
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
   -- bare-config vs bare-author: trusted (and unrelated logins untrusted).
   test_bare_config_trusts_bare_author_and_rejects_others = function()
-    devloop_base.configure_trusted_bot_login("chronoai-bot")
+    parsers_misc.configure_trusted_bot_login("chronoai-bot")
     t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot", body = "x" }), true)
     t.eq(parsers_misc._is_trusted_comment({ author_login = "someone-else", body = "x" }), false)
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
   -- [bot]-config vs bare-author: also trusted (both sides normalized).
   test_bracket_bot_config_trusts_bare_author = function()
-    devloop_base.configure_trusted_bot_login("chronoai-bot[bot]")
+    parsers_misc.configure_trusted_bot_login("chronoai-bot[bot]")
     t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot", body = "x" }), true)
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
+  end,
+
+  test_bare_config_trusts_app_author_and_rejects_malformed_or_unrelated_apps = function()
+    parsers_misc.configure_trusted_bot_login("chronoai-bot")
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "app/chronoai-bot", body = "x" }), true)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "app/", body = "x" }), false)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "app/someone-else", body = "x" }), false)
+    parsers_misc.configure_trusted_bot_login(nil)
+  end,
+
+  test_managed_login_set_accepts_app_actor_spelling = function()
+    local managed = { ["peer-bot"] = true }
+    t.eq(m_claims.is_managed_bot_login("app/peer-bot", managed), true)
+    t.eq(m_claims.is_managed_bot_login("app/other-bot", managed), false)
+    t.eq(m_claims.is_managed_bot_login("app/", managed), false)
   end,
 
   -- (b) label-mode claim state + ownership are isolated by active claim label.
@@ -237,7 +248,6 @@ return {
     t.eq(admission, "other")
     t.eq(detail.action, "skip-claimed-by-other")
     t.eq(m_claims.claim_issue_for_management(
-      core,
       "admission",
       "owner/repo",
       42,
@@ -247,6 +257,29 @@ return {
       detail
     ), false)
     t.eq(count_gh_calls() - gh_calls_before, 0)
+  end,
+
+  test_foreign_claim_admission_preserves_carrier_facts = function()
+    mock_env("fkst-test-bot", "", "", 5)
+    local inputs = m_claims.claim_admission_inputs({
+      assignees = { { login = "fkst-test-bot" } },
+      labels = { "fkst-dev:enabled", bare_claimed_label },
+      author_login = "fkst-test-bot",
+      comments = {},
+    }, "owner/repo")
+    local admission, detail = m_claims.claim_admission_precheck({
+      assignees = { { login = "fkst-test-bot" } },
+      labels = { "fkst-dev:enabled", bare_claimed_label },
+      author_login = "fkst-test-bot",
+      comments = {},
+    }, inputs)
+
+    t.eq(admission, "other")
+    t.eq(detail.action, "skip-claimed-by-other")
+    t.eq(#detail.assignee_logins, 1)
+    t.eq(detail.assignee_logins[1], "fkst-test-bot")
+    t.eq(#detail.claim_labels, 1)
+    t.eq(detail.claim_labels[1], bare_claimed_label)
   end,
 
   test_label_mode_exclusive_posture_treats_suffix_as_foreign = function()
@@ -286,7 +319,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -305,7 +338,7 @@ return {
     mock_env("fkst-test-bot", "label", "1")
     mock_claim_label_binding("fkst-dev-label-mode-ownership-claim owner=peer-bot")
 
-    local ok, err = pcall(m_claims.claim_issue_for_management, core,
+    local ok, err = pcall(m_claims.claim_issue_for_management,
       "claim_mode",
       "owner/repo",
       42,
@@ -338,7 +371,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -355,7 +388,7 @@ return {
   test_label_mode_self_owned_short_circuits_without_writes = function()
     mock_env("fkst-test-bot", "label", "1")
     mock_claim_label_binding()
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -504,7 +537,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -536,7 +569,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -568,7 +601,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = m_claims.claim_issue_for_management(
       "claim_mode",
       "owner/repo",
       42,
@@ -585,7 +618,13 @@ return {
   test_claim_owner_returns_bare_slug_for_bracket_bot_config = function()
     mock_env("chronoai-bot[bot]", "", "")
     t.eq(m_claims.claim_owner(), "chronoai-bot")
-    devloop_base.configure_trusted_bot_login(nil)
+    parsers_misc.configure_trusted_bot_login(nil)
+  end,
+
+  test_claim_owner_returns_bare_slug_for_app_config = function()
+    mock_env("app/chronoai-bot", "", "")
+    t.eq(m_claims.claim_owner(), "chronoai-bot")
+    parsers_misc.configure_trusted_bot_login(nil)
   end,
 
   test_label_mode_release_with_peer_only_label_does_nothing = function()

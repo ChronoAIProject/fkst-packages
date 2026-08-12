@@ -43,6 +43,7 @@ public = [
   "devloop.convergence.reconcile",
   "devloop.convergence.rounds",
   "devloop.convergence.shared",
+  "devloop.dashboard",
   "devloop.decompose",
   "devloop.dependency_gate",
   "devloop.dependency_graphql",
@@ -63,7 +64,11 @@ public = [
   "devloop.hidden_state_conformance.declarations",
   "devloop.hidden_state_conformance.poll_fakes",
   "devloop.impl_failure",
+<<<<<<< HEAD
   "devloop.implementation_escalation",
+=======
+  "devloop.implementation_refusal",
+>>>>>>> 66bfddc61b9ae82aa7e0e67cea7a7fe67014204a
   "devloop.intake.default",
   "devloop.liveness",
   "devloop.liveness.signal",

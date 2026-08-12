@@ -6,6 +6,7 @@ local core = require("core")
 local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local author_policy = require("testkit_internal.github_author_policy")
 local t = fkst.test
 
@@ -86,7 +87,7 @@ local function child_comments_with_delegated_merged_pr(child_proposal_id, pr_num
     comment(table.concat({
       core.state_marker(child_proposal_id, "merged", version),
       m_builders.pr_delegation_marker(child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
-      m_builders.merged_marker(core, child_proposal_id, pr_number, version, head_sha),
+      m_builders.merged_marker(child_proposal_id, pr_number, version, head_sha),
     }, "\n")),
   }
 end
@@ -236,6 +237,99 @@ local tests = {
     t.eq(action.child_ref, current)
   end,
 
+  test_already_satisfied_child_with_exact_ready_predecessor_holds_without_delivery = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current = {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    }
+    local current_entry = created("production-slice", current)
+    current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
+
+    local plan = blueprint()
+    plan.id = "software-feature-flow"
+    plan.steps[2].id = "production-slice"
+    plan.steps[2].on_already_satisfied = "hold"
+    local action = frontier.compute_frontier(plan, {
+      first = created("first", predecessor),
+      ["production-slice"] = current_entry,
+    }, function(child)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      return "satisfied_unverified", {
+        implementation_refusal_reason = "already-satisfied",
+      }
+    end)
+
+    t.eq(action.action, "wait")
+    t.eq(action.why, "origin-delivery-unverified")
+    t.eq(action.slot, "production-slice")
+    t.eq(action.child_ref, current)
+  end,
+
+  test_unconfigured_already_satisfied_child_with_exact_ready_predecessor_remains_fatal = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current = {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    }
+    local current_entry = created("second", current)
+    current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
+
+    local action = frontier.compute_frontier(blueprint(), {
+      first = created("first", predecessor),
+      second = current_entry,
+    }, function(child)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      return "satisfied_unverified", {
+        implementation_refusal_reason = "already-satisfied",
+      }
+    end)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal-second-already-satisfied")
+    t.eq(action.slot, "second")
+    t.eq(action.child_ref, current)
+  end,
+
+  test_already_satisfied_child_without_exact_ready_predecessor_remains_fatal = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current_entry = created("second", {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    })
+    current_entry.predecessor_ref_digest = "d-wrong"
+
+    local action = frontier.compute_frontier(blueprint(), {
+      first = created("first", predecessor),
+      second = current_entry,
+    }, function(child)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      return "satisfied_unverified", {
+        implementation_refusal_reason = "already-satisfied",
+      }
+    end)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal-second-already-satisfied")
+  end,
+
   test_fatal_child_without_predecessor_digest_match_blocks_workflow = function()
     local predecessor = {
       proposal_id = "child-first",
@@ -306,7 +400,7 @@ local tests = {
 
   test_delegated_merged_child_materializes_next_slot = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 90
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -348,7 +442,7 @@ local tests = {
   -- real supervise dogfood 2026-07-04 (origins #135, #93; children #149/#152/#94).
   test_delegated_open_pr_child_is_running_not_ready = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 149
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -378,7 +472,7 @@ local tests = {
 
   test_reader_marks_no_changes_child_with_stale_thinking_label_blocked_with_why = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local first_issue = 201
     local second_issue = 202
@@ -446,7 +540,7 @@ local tests = {
 
   test_reader_keeps_current_retryable_impl_failure_recoverable_with_stale_thinking_label = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 251
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -470,7 +564,7 @@ local tests = {
 
   test_reader_ignores_historical_blocked_marker_after_current_state_advances_to_thinking = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 252
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -493,7 +587,7 @@ local tests = {
 
   test_reader_uses_canonical_blocked_marker_when_label_is_stale = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 253
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -513,7 +607,7 @@ local tests = {
 
   test_reader_ignores_old_impl_failure_after_current_state_advances = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local child_issue = 261
     local child_proposal_id = base_ids.proposal_id(repo, child_issue)
@@ -535,7 +629,7 @@ local tests = {
 
   test_reader_uses_current_retryable_failure_instead_of_stale_no_changes = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
-      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+      configure_trusted_bot_login = parsers_misc.configure_trusted_bot_login,
     })
     local first_issue = 301
     local second_issue = 302

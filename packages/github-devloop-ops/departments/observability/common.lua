@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -6,13 +7,14 @@ local strings = require("contract.strings")
 local config = require("devloop.config")
 local issue_commands = require("devloop.commands.issue_reads")
 local pr_commands = require("devloop.commands.prs")
+local dashboard = require("devloop.dashboard")
 
 local M = {}
 
 M.dept = "observability"
-M.dashboard_title = "fkst-dev board"
-M.dashboard_label = "fkst-dashboard"
-M.dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
+M.dashboard_title = dashboard.title
+M.dashboard_label = dashboard.label
+M.dashboard_marker_prefix = dashboard.marker_prefix
 M.max_dashboard_body_len = 60000
 M.max_dashboard_section_items = 40
 M.max_dashboard_title_len = 80
@@ -26,10 +28,8 @@ M.stall_suspect_threshold_minutes = {
   fixing = 90,
   merging = 30,
 }
--- Declined issues remain reopenable for one full day before observability retires them.
-M.terminal_retirement_dwell_minutes = {
-  declined = 24 * 60,
-}
+-- Eligible terminal issues remain reopenable for one full day before observability retires them.
+M.terminal_retirement_dwell_minutes = 24 * 60
 
 function M.install_common(_core)
 end
@@ -79,7 +79,7 @@ function M.require_observe_repo(core)
 end
 
 function M.require_observe_bot(core)
-  local login = devloop_base.assert_trusted_bot_configured()
+  local login = parsers_misc.assert_trusted_bot_configured()
   if login == nil or tostring(login) == "" then
     error("github-devloop: config-missing: FKST_GITHUB_BOT_LOGIN is required for observability")
   end
@@ -95,7 +95,7 @@ function M.fetch_issue(core, repo, issue_number, limits, deadline, read_cmd)
   if core.observability_result_deferred(view) then
     return nil, view.reason
   end
-  return parsers_issue.parse_issue_view_observe(core, view.stdout)
+  return parsers_issue.parse_issue_view_observe(view.stdout)
 end
 
 function M.fetch_pr(core, repo, pr_number, limits, deadline, read_cmd)

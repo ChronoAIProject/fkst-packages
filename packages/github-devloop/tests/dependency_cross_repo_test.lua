@@ -143,7 +143,7 @@ return {
         author_login = "fkst-test-bot",
       },
       {
-        body = m_builders.merged_marker(core, link.proposal_id, 63, "merge-version-7", "def456"),
+        body = m_builders.merged_marker(link.proposal_id, 63, "merge-version-7", "def456"),
         author_login = "fkst-test-bot",
       },
     })

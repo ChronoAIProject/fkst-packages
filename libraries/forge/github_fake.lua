@@ -56,7 +56,7 @@ function M.new(model)
       assignee = tostring(assignee),
       timeout = timeout,
     })
-    local normalized_assignee = forge_strings.strip_bot_login_suffix(assignee)
+    local normalized_assignee = forge_strings.canonical_login(assignee)
     local rows = {}
     for ref, fixture in pairs(model.issues or {}) do
       local issue_repo = fixture.repo or tostring(ref):match("^([^#]+)#issue/%d+$")
@@ -64,7 +64,7 @@ function M.new(model)
       if issue_repo == tostring(repo) and state == "OPEN" then
         for _, login in ipairs(fixture.assignees or {}) do
           local candidate = type(login) == "table" and login.login or login
-          if forge_strings.strip_bot_login_suffix(candidate) == normalized_assignee then
+          if forge_strings.canonical_login(candidate) == normalized_assignee then
             table.insert(rows, fixture)
             break
           end

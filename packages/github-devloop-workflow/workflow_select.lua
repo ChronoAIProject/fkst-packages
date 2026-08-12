@@ -5,6 +5,7 @@ local default_catalog = require("core.default_catalog")
 local default_intake = require("devloop.intake.default")
 local fail = require("core.errors").fail
 local devloop_base = require("devloop.base")
+local forge_strings = require("forge.strings")
 local devloop_prompts = require("devloop.prompts")
 local base_ids = require("devloop.base_ids")
 local claims = require("devloop.claims")
@@ -20,6 +21,8 @@ local v_execution_request = require("devloop.validators.execution_request")
 local workflow_codex = require("workflow_internal.codex")
 local workflow_env = require("workflow_internal.env")
 local workflow_select_prompt = require("prompts.workflow_select")
+local intake_class = require("core.intake_class")
+local intake_service_class = require("core.intake_service_class")
 
 local M = {}
 
@@ -122,7 +125,8 @@ end
 
 local function issue_body_author_is_trusted(current)
   local author = claims.issue_author_login(current or {})
-  return devloop_base.strip_bot_login_suffix(author) == devloop_base.trusted_bot_login()
+  return forge_strings.canonical_login(author)
+    == forge_strings.canonical_login(parsers_misc.trusted_bot_login())
 end
 
 local function trusted_workflow_lineage_header(ctx)
@@ -435,7 +439,7 @@ local function workflow_child_execution_request(ctx, lineage)
 end
 
 local function workflow_child_label_request(ctx, lineage)
-  local class_add, class_remove = core.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
+  local class_add, class_remove = intake_service_class.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
   local add_labels = { core._enabled_label, class_add[1] }
   return requests_labels.build_label_request(
     ctx.repo,
@@ -469,7 +473,7 @@ local function raise_workflow_child_execution(ctx, lineage)
     return false
   end
   local label_request = workflow_child_label_request(ctx, lineage)
-  local class_add, class_remove = core.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
+  local class_add, class_remove = intake_service_class.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
   devloop_logging.log_cas_decision(
     "workflow_select",
     ctx.candidate and ctx.candidate.proposal_id or "unknown",
@@ -519,7 +523,7 @@ function M.handlers()
   return {
     done = function(_event) return false end,
     act = function(event)
-      return default_intake.act(core, event, {
+      return default_intake.act(intake_class, intake_service_class, event, {
         dept = "workflow_select",
         before_codex = workflow_prefilter,
         prompts = core.intake_prompt_surface,

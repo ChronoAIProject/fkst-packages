@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 import tempfile
 import sys
@@ -12,8 +14,6 @@ import unittest
 from unittest import mock
 from pathlib import Path
 import ratchet_base_test
-from check_repo_library_layering_test import LibraryLayeringGuardTest
-from run_script_contract_test import RunScriptContractTest
 
 
 def load_check_repo():
@@ -660,7 +660,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
         self.assertEqual(status, "present")
         self.assertEqual(allowlist, {"packages/example/departments/dept/main.lua"})
 
-    def test_missing_dev_base_is_violation_not_warning(self) -> None:
+    def test_missing_dev_base_is_configuration_failure_not_violation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dept = root / "packages" / "example" / "departments" / "dept"
@@ -682,6 +682,7 @@ class SagaHandlerRatchetTest(unittest.TestCase):
                 check_repo.check_saga_handler_ratchet(root, violations, warnings)
 
         self.assertEqual(warnings, [])
+        self.assertIsInstance(violations[0], check_repo.ratchet_base.ConfigurationFailure)
         self.assertIn("cannot resolve dev base allowlist", violations[0])
 
     def test_first_introduction_without_base_allowlist_passes(self) -> None:
@@ -754,9 +755,37 @@ class ViolationExitCodeTest(unittest.TestCase):
             else sys.modules.pop("check_repo_runner", None)
         )
 
-    def test_violations_return_the_typed_code(self):
-        self._with_runner(lambda _m, _c, violations, _w: violations.append("G-TEST: seeded"))
+    def test_violations_take_precedence_over_configuration_failures(self):
+        def run(_module, _config, violations, _warnings):
+            violations.append(check_repo.ratchet_base.configuration_failure("G-BASE: unavailable"))
+            violations.append("G-TEST: seeded")
+
+        self._with_runner(run)
         self.assertEqual(check_repo.main([]), check_repo.VIOLATIONS_EXIT)
+
+    def test_configuration_failures_return_the_typed_code(self):
+        self._with_runner(
+            lambda _m, _c, violations, _w: violations.append(
+                check_repo.ratchet_base.configuration_failure("G10: dev base unavailable")
+            )
+        )
+        self.assertEqual(check_repo.main([]), check_repo.CONFIGURATION_EXIT)
+
+    def test_real_runner_classifies_every_unresolved_baseline_as_configuration(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(check_repo.ratchet_base, "file_at_base", return_value=("unresolved", None)),
+            mock.patch.object(check_repo.ratchet_base, "resolve_dev_merge_base", return_value=None),
+            mock.patch.object(check_repo.ratchet_base, "resolve_target_ref", return_value=None),
+            mock.patch("check_repo_restart_preflight.selected_base_ref", return_value=None),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = check_repo.main([])
+
+        self.assertEqual(result, check_repo.CONFIGURATION_EXIT)
+        self.assertIn("cannot resolve", stderr.getvalue())
 
     def test_clean_run_returns_zero(self):
         self._with_runner(lambda _m, _c, _v, _w: None)
@@ -765,6 +794,9 @@ class ViolationExitCodeTest(unittest.TestCase):
     def test_the_typed_code_is_distinguishable_from_a_bare_failure(self):
         self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 0)
         self.assertNotEqual(check_repo.VIOLATIONS_EXIT, 1)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, 0)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, 1)
+        self.assertNotEqual(check_repo.CONFIGURATION_EXIT, check_repo.VIOLATIONS_EXIT)
 
     def test_a_checker_crash_propagates_instead_of_becoming_the_typed_code(self):
         def boom(*_a, **_k):

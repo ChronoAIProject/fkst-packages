@@ -1,4 +1,3 @@
-local decompose_lib = require("devloop.decompose")
 local devloop_state = require("devloop.state")
 
 return function(M, h)
@@ -74,9 +73,7 @@ return function(M, h)
         resets_budget = true,
       },
     }),
-    payload_builder = function(...)
-      return decompose_lib.build_decompose_replay_payload(M, ...)
-    end,
+    payload_builder_symbol = "devloop.decompose.build_decompose_replay_payload",
     dedup_shape = "forward:decompose/<proposal_id>/<version>; replay:decompose/replay/<proposal_id>/<version>/<pr>/<expected_child_count>/<completed_child_count>",
     required_facts = {
       fact("state", "marker-read"),

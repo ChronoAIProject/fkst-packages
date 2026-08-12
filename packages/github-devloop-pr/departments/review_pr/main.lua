@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
@@ -29,7 +30,7 @@ local spec = {
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   local reviewing = event.payload or {}
-  if not v_reviewing.is_supported_reviewing(core, reviewing) then
+  if not v_reviewing.is_supported_reviewing(reviewing) then
     devloop_logging.log_entry("review_pr", event, "unknown", devloop_logging.payload_field(reviewing, "dedup_key"))
     devloop_logging.log_cas_decision("review_pr", "unknown", { state = nil, version = nil }, "reviewing", "review-proposal", "skip-foreign(payload)", "unsupported event payload")
     return
@@ -51,7 +52,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local pr_view = devloop_commands.gh_pr_view_origin(repo, reviewing.pr_number, 30)
     if pr_view.exit_code ~= 0 then
@@ -99,7 +100,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       local hand_off_reason = "missing"
       local handoff = nil
       if reviewing.reviewing_hand_off ~= nil then
-        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(core, repo, reviewing.reviewing_hand_off, {
+        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(repo, reviewing.reviewing_hand_off, {
           proposal_id = reviewing.proposal_id,
           state = "reviewing",
           marker_version = reviewing.version,
@@ -160,14 +161,14 @@ return saga.department(spec, { done = function() return false end, act = functio
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-view-failed: gh issue review view failed: " .. tostring(issue_view.stderr))
       end
-      current_issue = parsers_issue.parse_issue_view_review(core, issue_view.stdout)
+      current_issue = parsers_issue.parse_issue_view_review(issue_view.stdout)
     end
     if not m_claims.verify_pr_review_issue_claim("review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
       return
     end
     local review_id = devloop_base.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
     local review_dedup_key = base_ids.dedup_key({ review_id, "review" })
-    local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
+    local context_fetch = { context_bundle.context_fetch_ref_from_bundle({
       dept = "review_pr",
       repo = repo,
       issue_number = issue_number,
@@ -183,7 +184,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       no_legitimate_diff.raise_closed_unmerged("review_pr", core, repo, reviewing.pr_number, reviewing.proposal_id, state, pr_source_ref)
       return
     end
-    local proposal = payloads_builders.build_board_pr_review_proposal(core, repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
+    local proposal = payloads_builders.build_board_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
     if reviewing.review_delivery_dedup_key ~= nil then
       if devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(
         reviewing.review_delivery_dedup_key

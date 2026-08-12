@@ -1,4 +1,4 @@
-local git_mechanics = require("devloop.git_mechanics")
+local git_mechanics, restart_metadata = require("devloop.git_mechanics"), require("devloop.restart_metadata")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
@@ -13,7 +13,7 @@ local C = {}
 local forge_validators = require("devloop.forge_validators")
 local contract_time = require("contract.time")
 local transition_version = require("contract.transition_version")
-local support = require("devloop.commands.support")
+local support, devloop_commands = require("devloop.commands.support"), require("devloop.commands")
 local config = require("devloop.config")
 
 local strings = require("contract.strings")
@@ -100,16 +100,16 @@ local function intersecting_path(left, right)
   return nil
 end
 
-local function current_any_entity_state(M, entity_comments)
+local function current_any_entity_state(entity_comments)
   local best = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity_comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       if marker_proposal ~= nil and entity_lib.parse_entity_proposal_id(marker_proposal) ~= nil then
-        local candidate = M.current_state(entity_comments, marker_proposal)
+        local candidate = devloop_state.current_state(entity_comments, marker_proposal)
         candidate.proposal_id = marker_proposal
-        if best == nil or M.compare_state_marker_order(best, candidate.state, candidate.version) < 0 then
+        if best == nil or devloop_state.compare_state_marker_order(best, candidate.state, candidate.version) < 0 then
           best = candidate
         end
       end
@@ -122,34 +122,34 @@ local function current_any_entity_state(M, entity_comments)
   }
 end
 
-local function merge_ready_version_for_lane_state(M, state)
+local function merge_ready_version_for_lane_state(state)
   local version = tostring((state or {}).version or "")
-  if state ~= nil and state.state == "fixing" and M._strip_latest_fix_version_suffix ~= nil then
-    return M._strip_latest_fix_version_suffix(version)
+  if state ~= nil and state.state == "fixing" then
+    return restart_metadata._strip_latest_fix_version_suffix(version)
   end
   return version
 end
 
-local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base, allow_current_fixing)
+local function merge_queue_entry_from_pr(repo, pr_number, pr, expected_base, allow_current_fixing)
   if type(pr) ~= "table" or tostring(pr.state or ""):upper() ~= "OPEN" then
     return nil
   end
   if tostring(pr.base_ref_name or "") ~= tostring(expected_base or "") then
     return nil
   end
-  local state = current_any_entity_state(M, pr.comments)
+  local state = current_any_entity_state(pr.comments)
   if not is_merge_queue_lane_state(state.state, allow_current_fixing) then
     return nil
   end
   local current_head_sha = tostring(pr.head_sha or "")
-  local fact = m_facts.merge_ready_fact(pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(M, state), pr_number, current_head_sha)
+  local fact = m_facts.merge_ready_fact(pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(state), pr_number, current_head_sha)
   if fact == nil then
     for _, comment in ipairs(parsers_misc._trusted_marker_comments(pr.comments)) do
       for marker in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:merge%-ready:v1.-%-%->") do
         local marker_issue = marker:match('proposal="([^"]+)"')
         if marker_issue ~= nil then
           local candidate_state = require("devloop.entity").current_entity_state(pr.comments, marker_issue)
-          local merge_ready_version = merge_ready_version_for_lane_state(M, candidate_state)
+          local merge_ready_version = merge_ready_version_for_lane_state(candidate_state)
           if is_merge_queue_lane_state(candidate_state.state, allow_current_fixing)
             and tostring(merge_ready_version or "") == tostring(marker:match('version="([^"]*)"') or "") then
             fact = m_facts.merge_ready_fact(pr.comments, marker_issue, merge_ready_version, pr_number, current_head_sha)
@@ -180,18 +180,18 @@ local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base, 
   }
 end
 
-function C.merge_queue_head(M, repo, base_branch, current)
+function C.merge_queue_head(repo, base_branch, current)
   local entries = {}
   local seen = {}
   if type(current) == "table" and current.pr_number ~= nil and type(current.pr) == "table" then
-    local entry = merge_queue_entry_from_pr(M, repo, current.pr_number, current.pr, base_branch, true)
+    local entry = merge_queue_entry_from_pr(repo, current.pr_number, current.pr, base_branch, true)
     if entry ~= nil then
       table.insert(entries, entry)
       seen[tostring(entry.pr_number)] = true
     end
   end
 
-  local list = M.gh_pr_list_merge_queue(repo, base_branch, 30)
+  local list = devloop_commands.gh_pr_list_merge_queue(repo, base_branch, 30)
   if list.exit_code ~= 0 then
     error("github-devloop: merge-queue-pr-list-failed: merge queue PR list failed: " .. tostring(list.stderr))
   end
@@ -204,7 +204,7 @@ function C.merge_queue_head(M, repo, base_branch, current)
           .. tostring(command_result and command_result.stderr or "missing result"))
       end
       local pr = parsers_pr.parse_pr_view_merge(view)
-      local entry = merge_queue_entry_from_pr(M, repo, pr_number, pr, base_branch)
+      local entry = merge_queue_entry_from_pr(repo, pr_number, pr, base_branch)
       if entry ~= nil then
         table.insert(entries, entry)
         seen[tostring(entry.pr_number)] = true
@@ -231,8 +231,8 @@ function C.merge_queue_starvation_candidate(entries, threshold_minutes, now_seco
   return nil
 end
 
-function C.merge_queue_predecessors(M, repo, base_branch, current)
-  local _, entries = C.merge_queue_head(M, repo, base_branch, current)
+function C.merge_queue_predecessors(repo, base_branch, current)
+  local _, entries = C.merge_queue_head(repo, base_branch, current)
   local predecessors = {}
   local found = false
   local current_pr_number = tostring((current or {}).pr_number or "")
@@ -249,8 +249,8 @@ function C.merge_queue_predecessors(M, repo, base_branch, current)
   return predecessors, "ok"
 end
 
-function C.merge_queue_position(M, repo, base_branch, current)
-  local predecessors, reason = C.merge_queue_predecessors(M, repo, base_branch, current)
+function C.merge_queue_position(repo, base_branch, current)
+  local predecessors, reason = C.merge_queue_predecessors(repo, base_branch, current)
   if predecessors == nil then
     return nil, reason
   end
@@ -291,7 +291,7 @@ local function predecessor_head_sha(predecessor)
   return head_sha
 end
 
-function C.merge_queue_predecessor_set_matches_current_base(M, recorded_set, current_set, base_branch)
+function C.merge_queue_predecessor_set_matches_current_base(git, recorded_set, current_set, base_branch)
   local recorded = predecessor_set_entries(recorded_set)
   local current = predecessor_set_entries(current_set)
   if #current > #recorded then
@@ -306,7 +306,7 @@ function C.merge_queue_predecessor_set_matches_current_base(M, recorded_set, cur
   if offset == 0 then
     return true, "predecessor-set-current"
   end
-  local base_head, base_reason = git_mechanics.current_base_head(M.git, base_branch)
+  local base_head, base_reason = git_mechanics.current_base_head(git, base_branch)
   if base_head == nil then
     return false, base_reason
   end
@@ -315,7 +315,7 @@ function C.merge_queue_predecessor_set_matches_current_base(M, recorded_set, cur
     if head_sha == nil then
       return false, "predecessor-set-mismatch"
     end
-    local result = git_mechanics.git_is_ancestor(M.git, head_sha, base_head, 30)
+    local result = git_mechanics.git_is_ancestor(git, head_sha, base_head, 30)
     if result.exit_code ~= 0 then
       return false, "predecessor-not-landed"
     end
@@ -323,8 +323,8 @@ function C.merge_queue_predecessor_set_matches_current_base(M, recorded_set, cur
   return true, "predecessor-set-landed-prefix"
 end
 
-function C.merge_queue_allows_event(M, repo, base_branch, merge_ready, current_pr)
-  local head = C.merge_queue_head(M, repo, base_branch, {
+function C.merge_queue_allows_event(repo, base_branch, merge_ready, current_pr)
+  local head = C.merge_queue_head(repo, base_branch, {
     pr_number = merge_ready.pr_number,
     pr = current_pr,
   })
@@ -439,8 +439,8 @@ function C.merge_ready_payload_from_queue_entry(entry, source_ref)
   )
 end
 
-function C.merge_queue_changed_files(M, repo, entry)
-  local result = M.gh_pr_diff_name_only(repo, entry.pr_number, 30)
+function C.merge_queue_changed_files(repo, entry)
+  local result = devloop_commands.gh_pr_diff_name_only(repo, entry.pr_number, 30)
   if result.exit_code ~= 0 then
     return nil, "diff-name-only-failed: " .. tostring(result.stderr)
   end
@@ -464,7 +464,7 @@ function C.merge_queue_files_disjoint(left, right)
   return true, "disjoint"
 end
 
-function C.wip_capacity_allows_start(M, repo, current_issue_number)
+function C.wip_capacity_allows_start(repo, current_issue_number)
   local max_inflight = config.max_inflight()
   if max_inflight == nil then
     return true, "wip-cap-disabled", 0, nil
@@ -472,7 +472,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
 
   local integration_branch = config.branch_config().integration
 
-  local list = M.gh_issue_list_wip(repo, 30)
+  local list = devloop_commands.gh_issue_list_wip(repo, 30)
   if list.exit_code ~= 0 then
     error("github-devloop: wip-issue-list-failed: WIP issue list failed: " .. tostring(list.stderr))
   end
@@ -481,14 +481,14 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
   for _, issue in ipairs(parsers_issue.parse_issue_number_list(list.stdout)) do
     local issue_number = tonumber(issue.number)
     if issue_number ~= nil and tostring(issue_number) ~= tostring(current_issue_number) then
-      local view = M.gh_issue_view_state(repo, issue_number, 30)
+      local view = devloop_commands.gh_issue_view_state(repo, issue_number, 30)
       if view.exit_code ~= 0 then
         error("github-devloop: wip-issue-state-view-failed: WIP issue state view failed: " .. tostring(view.stderr))
       end
-      local current = parsers_issue.parse_issue_view_state(M, view.stdout)
+      local current = parsers_issue.parse_issue_view_state(view.stdout)
       local proposal_id = base_ids.proposal_id(repo, issue_number)
-      local state = M.current_state(current.comments, proposal_id)
-      local classification = C.wip_admission_classification(M, repo, proposal_id, current.comments, state, integration_branch)
+      local state = devloop_state.current_state(current.comments, proposal_id)
+      local classification = C.wip_admission_classification(repo, proposal_id, current.comments, state, integration_branch)
       if classification.counts then
         count = count + 1
       elseif classification.reason ~= "state-not-active-wip" then
@@ -502,7 +502,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
   return true, "wip-cap-available", count, max_inflight
 end
 
-local function pr_merge_view_for_wip(M, repo, pr_number)
+local function pr_merge_view_for_wip(repo, pr_number)
   local view, command_result = support.github().gh_pr_view_merge(repo, pr_number, 30)
   if view == nil then
     error("github-devloop: wip-pr-state-view-failed: WIP PR state view failed: "
@@ -516,7 +516,7 @@ local merge_gate_wait_wip_states = {
   merging = true,
 }
 
-function C.wip_admission_classification(M, repo, proposal_id, issue_comments, state, integration_branch)
+function C.wip_admission_classification(repo, proposal_id, issue_comments, state, integration_branch)
   local state_name = tostring(state and state.state or "")
   if not active_wip_states[state_name] then
     return {
@@ -539,10 +539,10 @@ function C.wip_admission_classification(M, repo, proposal_id, issue_comments, st
   end
 
   if link ~= nil and merge_gate_wait_wip_states[state_name] then
-    local current_pr = pr_merge_view_for_wip(M, repo, link.pr_number)
+    local current_pr = pr_merge_view_for_wip(repo, link.pr_number)
     local wait = nil
     if type(current_pr) == "table" and forge_validators.is_git_sha(current_pr.head_sha) then
-      wait = m_mgw.merge_gate_wait_fact(M, current_pr.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
+      wait = m_mgw.merge_gate_wait_fact(current_pr.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
     end
     if wait ~= nil then
       return {

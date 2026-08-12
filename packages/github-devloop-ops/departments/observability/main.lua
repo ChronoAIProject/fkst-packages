@@ -1,5 +1,6 @@
 local error_facts = require("contract.error_facts")
 local devloop_base = require("devloop.base")
+local github_author_policy = require("devloop.github_author_policy")
 local core, saga = require("core"), require("workflow.saga")
 local common = require("departments.observability.common")
 local avm_scoreboard = require("departments.observability.avm_scoreboard")
@@ -14,7 +15,6 @@ local terminal_retirement = require("departments.observability.terminal_retireme
 local topology = require("departments.observability.topology")
 local devloop_logging = require("devloop.logging")
 local queue = require("devloop.queue")
-
 
 local spec = {
   consumes = {
@@ -99,9 +99,17 @@ function core.observe_devloop_entities(event, github)
   local repo = common.require_observe_repo(core)
   local limits = core.observability_limits()
   local deadline = core.observability_deadline(now(), limits)
-  local observed = core.collect_observability_entities(event, repo, limits, deadline)
-  local recent_merged_prs = core.collect_recent_merged_prs(repo, limits, deadline)
-  local recent_merged_issues = core.collect_recent_merged_issues(repo, limits, deadline)
+  local publication_reserve = core.observability_dashboard_publication_reserve(limits, deadline)
+  local collection_deadline = deadline - publication_reserve
+  local observed = core.collect_observability_entities(
+    event,
+    repo,
+    limits,
+    collection_deadline,
+    github.is_authorized_author
+  )
+  local recent_merged_prs = core.collect_recent_merged_prs(repo, limits, collection_deadline)
+  local recent_merged_issues = core.collect_recent_merged_issues(repo, limits, collection_deadline)
 
   local partial_reason = partial_observation_reason(observed)
   local queue_starvation_result = skipped_control_result("partial-observations")
@@ -112,7 +120,7 @@ function core.observe_devloop_entities(event, github)
       repo,
       entity,
       limits,
-      deadline
+      collection_deadline
     )
     if retirement ~= nil then
       devloop_logging.log_raise(
@@ -128,7 +136,7 @@ function core.observe_devloop_entities(event, github)
       repo,
       entity,
       limits,
-      deadline
+      collection_deadline
     )
     if resolution ~= nil then
       devloop_logging.log_raise(
@@ -141,7 +149,7 @@ function core.observe_devloop_entities(event, github)
   end
   if partial_reason == nil then
     core.reap_orphan_prs(repo, observed.list)
-    queue_starvation_result = queue_starvation.observe_queue_starvation(core, repo, observed.list, limits, deadline, observed.now_seconds)
+    queue_starvation_result = queue_starvation.observe_queue_starvation(nil, repo, observed.list, limits, collection_deadline, observed.now_seconds)
     if recent_merged_issues ~= nil then
       for _, entity in ipairs(observed.list or {}) do
         for _, raised in ipairs(failure_triage_cap.blocked_obligation_patrol_once(entity, observed.list, recent_merged_issues)) do
@@ -151,7 +159,7 @@ function core.observe_devloop_entities(event, github)
     else
       log_control_skipped("blocked-obligation-patrol", "recent-merged-issues-deferred")
     end
-    conflict_hotspot = core.observe_conflict_hotspots(repo, core.observability_call_timeout(limits, deadline))
+    conflict_hotspot = core.observe_conflict_hotspots(repo, core.observability_call_timeout(limits, collection_deadline))
   else
     log_control_skipped("snapshot-control", "partial-observations")
   end
@@ -194,8 +202,4 @@ local function make_department(handles)
   return department
 end
 
-return ports.install(make_department, ports.github_author_options(
-  devloop_base.read_env,
-  "github-devloop-ops.observability",
-  { bot_login_env = "FKST_GITHUB_BOT_LOGIN" }
-))
+return ports.install(make_department, github_author_policy.github_options(exec_sync))

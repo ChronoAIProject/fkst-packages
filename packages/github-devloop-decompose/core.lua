@@ -78,7 +78,7 @@ local prompts = require("devloop.prompts")
 prompts.install(M, wiring.prompts(), { decompose = true, implementation_decompose = true })
 =======
 local prompt_surface = wiring.prompts()
-M.output_language = devloop_prompts.output_language
+M.output_language = function(...) return devloop_prompts.output_language(...) end
 M.prompt_preamble = devloop_prompts.prompt_preamble
 M.judge_harness_clause = devloop_prompts.judge_harness_clause
 M.actor_harness_clause = devloop_prompts.actor_harness_clause
@@ -89,7 +89,7 @@ M.render_prompt_template = devloop_prompts.render_prompt_template
 M.build_decompose_prompt = prompt_surface.build_decompose_prompt
 >>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
 local entity = require("devloop.entity")
-M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
 require("core.saga").install(M)
 require("core.decompose").install(M)
 

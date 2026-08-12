@@ -1,5 +1,6 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local dependency_gate = require("devloop.dependency_gate")
 local context_bundle = require("devloop.context_bundle")
@@ -91,7 +92,7 @@ end
 
 local function raise_impl_failed(repo, issue_number, ready, reason, fault_class, retryable, detail, attempt)
   local comment_request = requests_lifecycle.build_impl_failure_comment_request(
-    core, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
+    implement_caps.impl_failure_marker, implement_caps.output_language, repo, issue_number, ready, reason, detail, attempt, fault_class, retryable)
   local label_request = requests_labels.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("impl-failed")
   devloop_logging.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -125,7 +126,7 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
     comment_request = payloads["github-proxy.github_issue_comment_request"]
     label_request = payloads["github-proxy.github_issue_label_request"]
   else
-    comment_request = requests_lifecycle.build_implementing_state_comment_request(core, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
+    comment_request = requests_lifecycle.build_implementing_state_comment_request(implement_caps.implement_attempt_marker, implement_caps.output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
     label_request = requests_labels.build_implementing_label_request(repo, issue_number, ready)
   end
   local add_labels, remove_labels = devloop_state.state_label_changes("implementing")
@@ -138,7 +139,7 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
 end
 
 local function raise_implementing(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
-  local comment_request = requests_lifecycle.build_implementing_comment_request(core, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
+  local comment_request = requests_lifecycle.build_implementing_comment_request(implement_caps.implement_attempt_marker, implement_caps.output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   devloop_logging.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = {}, remove = {} }, {
     "github-proxy.github_issue_comment_request",
   })
@@ -146,7 +147,7 @@ local function raise_implementing(repo, issue_number, ready, worktree, branch, h
 end
 
 local function raise_implement_attempt(repo, issue_number, ready, attempt, started_at, exec_ref)
-  local request = requests_lifecycle.build_implement_attempt_comment_request(core, repo, issue_number, ready, attempt, started_at, exec_ref)
+  local request = requests_lifecycle.build_implement_attempt_comment_request(implement_caps.implement_attempt_marker, repo, issue_number, ready, attempt, started_at, exec_ref)
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
 end
 
@@ -190,7 +191,7 @@ end
 
 
 local function raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-  local request = requests_lifecycle.build_implement_version_mismatch_comment_request(core,
+  local request = requests_lifecycle.build_implement_version_mismatch_comment_request(implement_caps.implement_version_mismatch_marker,
     repo,
     issue_number,
     ready,
@@ -287,7 +288,7 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
     checkpoint = checkpoint,
 =======
     context_fetch = function(args)
-      return context_bundle.context_fetch_from_bundle(core, args)
+      return context_bundle.context_fetch_from_bundle(args)
     end,
 >>>>>>> ada252196182d056e5f94a72f27b3f73cd2d286b
     codex_dispatch = function(identity, opts)
@@ -352,7 +353,7 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
   if outcome.kind == "implement-checkpoint" then
     publish_implementation_branch(repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
     local request = requests_lifecycle.build_implement_checkpoint_comment_request(
-      core,
+      implement_caps.implement_attempt_marker, implement_caps.output_language,
       repo,
       issue_number,
       outcome.ready,
@@ -394,7 +395,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_implement(view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   local receiver_state = { state = "implementing", version = marker_ready.dedup_key }
@@ -456,7 +457,7 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_implement(view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   if state.state == "implementing"
@@ -520,7 +521,7 @@ end
 
 local function process_ready_event(event)
   local ready = event.payload or {}
-  if not v_ready.is_supported_ready(core, ready) then
+  if not v_ready.is_supported_ready(ready) then
     devloop_logging.log_entry("implement", event, "unknown", devloop_logging.payload_field(ready, "dedup_key"))
     devloop_logging.log_cas_decision("implement", "unknown", { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -553,14 +554,14 @@ local function process_ready_event(event)
 
   local attempt_plan = nil
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: issue-read-failed: gh issue implement view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_implement(view.stdout)
     current.repo = repo
     current.number = issue_number
     local managed = m_claims.managed_bot_logins()
@@ -726,8 +727,9 @@ local function process_ready_event(event)
     local blocked_reentry = false
     if state.state == "impl-failed" and ready.impl_retry_attempt ~= nil and state.version == ready.dedup_key then
       retry_failure = core.impl_failure_fact(current.comments, ready.proposal_id, ready.dedup_key)
-      if retry_failure ~= nil and tonumber(ready.impl_retry_attempt) <= tonumber(retry_failure.attempt or 1) then
-        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the failure attempt")
+      if retry_failure ~= nil
+        and tonumber(ready.impl_retry_attempt) ~= core.next_implementation_retry_attempt(state.version) then
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the lifecycle lineage")
         return
       end
     elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil
@@ -753,7 +755,7 @@ local function process_ready_event(event)
       local verified_state = nil
       local hand_off_reason = "missing"
       if ready.ready_hand_off ~= nil then
-        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(core, repo, ready.ready_hand_off, {
+        verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(repo, ready.ready_hand_off, {
           proposal_id = ready.proposal_id,
           state = "ready",
           marker_version = ready.ready_hand_off.marker_version,
@@ -781,7 +783,7 @@ local function process_ready_event(event)
         decision.cas_outcome, "ready marker visible; attempting implementation")
     end
 
-    local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(core, repo, issue_number)
+    local wip_ok, wip_reason, wip_count, wip_max = m_mq.wip_capacity_allows_start(repo, issue_number)
     if not wip_ok then
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "hold-wip-cap", wip_reason .. ": " .. tostring(wip_count) .. "/" .. tostring(wip_max))
       return

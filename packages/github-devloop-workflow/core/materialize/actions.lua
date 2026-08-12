@@ -10,6 +10,7 @@ local marker = require("core.marker")
 local materialization = require("core.materialization")
 local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local github_factory = require("devloop.github_factory")
 
 local M = {}
@@ -26,7 +27,7 @@ end
 
 local function issue_author_login(issue)
   local login = devloop_claims.issue_author_login(issue)
-  return devloop_base.strip_bot_login_suffix(login)
+  return forge_strings.canonical_login(login)
 end
 
 local function issue_create_marker(child_dedup)
@@ -66,18 +67,11 @@ local function issue_number_or_nil(value)
 end
 
 function M.source_ref_digest(source_ref)
-  if type(source_ref) ~= "table" then
-    return materialization.EMPTY_PREDECESSOR_REF_DIGEST
-  end
-  return "d-" .. strings.decimal_checksum(tostring(source_ref.kind or "") .. "\n" .. tostring(source_ref.ref or ""))
+  return materialization.source_ref_digest(source_ref)
 end
 
 function M.predecessor_ref_digest(predecessor)
-  if predecessor == nil then
-    return materialization.EMPTY_PREDECESSOR_REF_DIGEST
-  end
-  -- The predecessor identity is the stable source_ref; result content is rehydrated by source_ref, not hashed into this CAS key component.
-  return M.source_ref_digest(predecessor.source_ref)
+  return materialization.predecessor_ref_digest(predecessor)
 end
 
 function M.child_ref_for_entry(repo, entry)
@@ -188,6 +182,42 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
     "terminal",
     tostring(state),
     tostring(reason_code),
+  })
+end
+
+function M.hold_request(repo, issue_number, origin, reason_code, generation)
+  local built, err = marker.build_hold_marker(origin, reason_code, generation)
+  if built == nil then
+    error("github-devloop-workflow: hold-marker-build-failed: hold marker build failed: "
+      .. tostring(err and err.code or "unknown"))
+  end
+  local body = "Workflow held: " .. tostring(reason_code) .. ".\n\n" .. built
+  return build_comment_request(repo, issue_number, origin, body, {
+    "hold",
+    tostring(generation),
+    tostring(reason_code),
+  })
+end
+
+function M.blueprint_migration_request(
+  repo,
+  issue_number,
+  origin,
+  workflow_id,
+  pinned_digest,
+  current_digest
+)
+  local built, err = marker.build_blueprint_marker(origin, workflow_id, current_digest)
+  if built == nil then
+    error("github-devloop-workflow: blueprint-migration-marker-build-failed: blueprint migration marker build failed: "
+      .. tostring(err and err.code or "unknown"))
+  end
+  local body = "Workflow blueprint migrated to `" .. tostring(workflow_id) .. "`.\n\n" .. built
+  return build_comment_request(repo, issue_number, origin, body, {
+    "blueprint-migration",
+    tostring(workflow_id),
+    tostring(pinned_digest),
+    tostring(current_digest),
   })
 end
 
@@ -426,11 +456,12 @@ function M.find_created_issue_by_dedup(repo, child_dedup, deps)
   if not ok or type(decoded) ~= "table" then
     error("github-devloop-workflow: materialization-child-search-malformed: child issue search returned malformed JSON")
   end
-  local trusted = devloop_base.trusted_bot_login()
+  local trusted = parsers_misc.trusted_bot_login()
   for _, issue in ipairs(decoded) do
     local number = searched_issue_number(issue)
     if number ~= nil
-      and issue_author_login(issue) == trusted
+      and forge_strings.canonical_login(issue_author_login(issue))
+        == forge_strings.canonical_login(trusted)
       and tostring(issue.body or ""):find(issue_create_marker(child_dedup), 1, true) ~= nil then
       return {
         number = number,

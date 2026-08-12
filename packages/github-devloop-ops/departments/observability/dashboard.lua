@@ -4,6 +4,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local common = require("departments.observability.common")
 local dashboard_commands = require("core.dashboard_commands")
 local strings = require("contract.strings")
+local forge_strings = require("forge.strings")
 local devloop_state = require("devloop.state")
 local decimal_checksum = strings.decimal_checksum
 
@@ -16,11 +17,33 @@ local dashboard_marker_prefix = common.dashboard_marker_prefix
 local max_dashboard_body_len = common.max_dashboard_body_len
 local max_dashboard_section_items = common.max_dashboard_section_items
 local max_dashboard_title_len = common.max_dashboard_title_len
+local publication_call_plans = {
+  common = { "label-get", "label-create-if-missing", "trusted-locator" },
+  create = { "issue-create" },
+  update = { "trusted-refresh", "issue-update" },
+}
+
+function core.observability_dashboard_publication_reserve(limits, deadline)
+  local sequential_calls = #publication_call_plans.common
+    + math.max(#publication_call_plans.create, #publication_call_plans.update)
+  return sequential_calls * core.observability_call_timeout(limits, deadline)
+end
+
+local function run_publication_call_plan(name, effects)
+  for _, effect_name in ipairs(publication_call_plans[name]) do
+    local outcome = effects[effect_name]()
+    if outcome ~= nil then
+      return outcome
+    end
+  end
+  return nil
+end
+
 local function dashboard_deferred_if_deadline(deadline)
   return common.dashboard_deferred_if_deadline(core, deadline)
 end
 
-local function ensure_dashboard_label(repo, limits, deadline)
+local function read_dashboard_label(repo, limits, deadline)
   local deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
   local existing = core.observability_exec({
     run = function(timeout)
@@ -36,7 +59,14 @@ local function ensure_dashboard_label(repo, limits, deadline)
     error("github-devloop: dashboard-label-get-failed: dashboard label get failed: " .. tostring(existing.stderr))
   end
 
-  deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
+  return "missing"
+end
+
+local function create_dashboard_label_if_missing(repo, label_status, limits, deadline)
+  if label_status ~= "missing" then
+    return nil
+  end
+  local deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
   local created = core.observability_exec({
     run = function(timeout)
       return dashboard_commands.gh_dashboard_label_create(repo, dashboard_label, timeout)
@@ -46,10 +76,10 @@ local function ensure_dashboard_label(repo, limits, deadline)
   if core.observability_result_timeout(created) then return "deferred" end
   if created.exit_code == 0 then
     log.info("github-devloop dept=observability tag=DASHBOARD_LABEL_CREATED label=" .. dashboard_label)
-    return "created"
+    return nil
   end
   if common.command_indicates_already_exists(created) then
-    return "exists"
+    return nil
   end
   error("github-devloop: dashboard-label-create-failed: dashboard label create failed: " .. tostring(created.stderr))
 end
@@ -487,8 +517,7 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
     error("github-devloop: dashboard-issue-list-empty: dashboard issue list failed: empty output")
   end
   for _, issue in ipairs(parsers_misc.parse_dashboard_issue_list(listed.stdout)) do
-    -- Normalize both sides so a "<slug>[bot]" author (REST) matches a bare bot login.
-    if devloop_base.strip_bot_login_suffix(issue.author_login) == devloop_base.strip_bot_login_suffix(bot_login)
+    if forge_strings.canonical_login(issue.author_login) == forge_strings.canonical_login(bot_login)
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       return issue
     end
@@ -507,7 +536,7 @@ local function trusted_dashboard_issue_by_number(repo, issue_number, bot_login, 
   end
   local issue = parse_dashboard_issue_get(view.stdout)
   if issue.number == tonumber(issue_number)
-    and devloop_base.strip_bot_login_suffix(issue.author_login) == devloop_base.strip_bot_login_suffix(bot_login)
+    and forge_strings.canonical_login(issue.author_login) == forge_strings.canonical_login(bot_login)
     and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
     return issue
   end
@@ -539,11 +568,28 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
   end
 
   local deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local bot_login = devloop_base.assert_trusted_bot_configured()
-  deferred = ensure_dashboard_label(repo, limits, deadline); if deferred == "deferred" then return deferred end
-  deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local current = trusted_dashboard_issue(repo, bot_login, limits, deadline)
-  if current == "deferred" then return "deferred" end
+  local bot_login = parsers_misc.assert_trusted_bot_configured()
+  local context = {}
+  local effects = {
+    ["label-get"] = function()
+      context.label_status = read_dashboard_label(repo, limits, deadline)
+      if context.label_status == "deferred" then return "deferred" end
+      return nil
+    end,
+    ["label-create-if-missing"] = function()
+      return create_dashboard_label_if_missing(repo, context.label_status, limits, deadline)
+    end,
+    ["trusted-locator"] = function()
+      local effect_deferred = dashboard_deferred_if_deadline(deadline)
+      if effect_deferred ~= nil then return effect_deferred end
+      context.current = trusted_dashboard_issue(repo, bot_login, limits, deadline)
+      if context.current == "deferred" then return "deferred" end
+      return nil
+    end,
+  }
+  local outcome = run_publication_call_plan("common", effects)
+  if outcome ~= nil then return outcome end
+  local current = context.current
   local current_version = current ~= nil and dashboard_version_from_body(current.body) or nil
   local current_hash = current ~= nil and dashboard_hash_from_body(current.body) or nil
   if current ~= nil and current_hash == dashboard.hash then
@@ -553,16 +599,20 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
   end
 
   if current == nil then
-    deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-    local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
-    local created = core.observability_run_cmd({
-      run = function(timeout)
-        return dashboard_commands.gh_dashboard_issue_create(repo, path, timeout)
-      end,
-    }, limits, deadline, "dashboard issue create")
-    if core.observability_result_deferred(created) then return "deferred" end
-    log.info("github-devloop dept=observability tag=DASHBOARD_CREATED hash=" .. tostring(dashboard.hash))
-    return "created"
+    effects["issue-create"] = function()
+      local effect_deferred = dashboard_deferred_if_deadline(deadline)
+      if effect_deferred ~= nil then return effect_deferred end
+      local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
+      local created = core.observability_run_cmd({
+        run = function(timeout)
+          return dashboard_commands.gh_dashboard_issue_create(repo, path, timeout)
+        end,
+      }, limits, deadline, "dashboard issue create")
+      if core.observability_result_deferred(created) then return "deferred" end
+      log.info("github-devloop dept=observability tag=DASHBOARD_CREATED hash=" .. tostring(dashboard.hash))
+      return "created"
+    end
+    return run_publication_call_plan("create", effects)
   end
 
   if dashboard_version_is_stale(dashboard.version, current_version) then
@@ -573,55 +623,64 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
     return "stale"
   end
 
-  deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local refreshed = trusted_dashboard_issue_by_number(repo, current.number, bot_login, limits, deadline)
-  if refreshed == "deferred" then return "deferred" end
-  local refreshed_version = refreshed ~= nil and dashboard_version_from_body(refreshed.body) or nil
-  local refreshed_hash = refreshed ~= nil and dashboard_hash_from_body(refreshed.body) or nil
-  if refreshed ~= nil and tonumber(refreshed.number) == tonumber(current.number)
-    and refreshed_hash == dashboard.hash then
-    log.info("github-devloop dept=observability tag=DASHBOARD_UNCHANGED issue=" .. tostring(current.number)
-      .. " hash=" .. tostring(dashboard.hash))
-    return "unchanged"
+  effects["trusted-refresh"] = function()
+    local effect_deferred = dashboard_deferred_if_deadline(deadline)
+    if effect_deferred ~= nil then return effect_deferred end
+    context.refreshed = trusted_dashboard_issue_by_number(repo, current.number, bot_login, limits, deadline)
+    if context.refreshed == "deferred" then return "deferred" end
+    return nil
   end
-  if refreshed == nil or tonumber(refreshed.number) ~= tonumber(current.number)
-    or refreshed_version ~= current_version then
-    log.info("github-devloop dept=observability tag=DASHBOARD_CAS_MISMATCH issue=" .. tostring(current.number)
-      .. " expected_version=" .. tostring(current_version or "")
-      .. " actual_version=" .. tostring(refreshed_version or "")
-      .. " hash=" .. tostring(dashboard.hash))
-    return "cas-mismatch"
-  end
-  if dashboard_version_is_stale(dashboard.version, refreshed_version) then
-    log.info("github-devloop dept=observability tag=DASHBOARD_STALE issue=" .. tostring(current.number)
-      .. " current_version=" .. tostring(refreshed_version or "")
-      .. " target_version=" .. tostring(dashboard.version or "")
-      .. " hash=" .. tostring(dashboard.hash))
-    return "stale"
-  end
-  local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
-  deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local updated = core.observability_exec({
-    run = function(timeout)
-      return dashboard_commands.gh_dashboard_issue_update(repo, current.number, path, timeout)
-    end,
-  }, limits, deadline, "dashboard issue update")
-  if core.observability_result_deferred(updated) then return "deferred" end
-  if updated.exit_code ~= 0 then
-    local stderr = tostring(updated.stderr or "")
-    if stderr:find("412", 1, true) ~= nil or stderr:find("Precondition Failed", 1, true) ~= nil then
+  effects["issue-update"] = function()
+    local refreshed = context.refreshed
+    local refreshed_version = refreshed ~= nil and dashboard_version_from_body(refreshed.body) or nil
+    local refreshed_hash = refreshed ~= nil and dashboard_hash_from_body(refreshed.body) or nil
+    if refreshed ~= nil and tonumber(refreshed.number) == tonumber(current.number)
+      and refreshed_hash == dashboard.hash then
+      log.info("github-devloop dept=observability tag=DASHBOARD_UNCHANGED issue=" .. tostring(current.number)
+        .. " hash=" .. tostring(dashboard.hash))
+      return "unchanged"
+    end
+    if refreshed == nil or tonumber(refreshed.number) ~= tonumber(current.number)
+      or refreshed_version ~= current_version then
       log.info("github-devloop dept=observability tag=DASHBOARD_CAS_MISMATCH issue=" .. tostring(current.number)
-        .. " expected_version=" .. tostring(refreshed_version or "")
-        .. " actual_version=unknown"
-        .. " reason=patch-precondition"
+        .. " expected_version=" .. tostring(current_version or "")
+        .. " actual_version=" .. tostring(refreshed_version or "")
         .. " hash=" .. tostring(dashboard.hash))
       return "cas-mismatch"
     end
-    error("github-devloop: dashboard-issue-update-failed: dashboard issue update failed: " .. stderr)
+    if dashboard_version_is_stale(dashboard.version, refreshed_version) then
+      log.info("github-devloop dept=observability tag=DASHBOARD_STALE issue=" .. tostring(current.number)
+        .. " current_version=" .. tostring(refreshed_version or "")
+        .. " target_version=" .. tostring(dashboard.version or "")
+        .. " hash=" .. tostring(dashboard.hash))
+      return "stale"
+    end
+    local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
+    local effect_deferred = dashboard_deferred_if_deadline(deadline)
+    if effect_deferred ~= nil then return effect_deferred end
+    local updated = core.observability_exec({
+      run = function(timeout)
+        return dashboard_commands.gh_dashboard_issue_update(repo, current.number, path, timeout)
+      end,
+    }, limits, deadline, "dashboard issue update")
+    if core.observability_result_deferred(updated) then return "deferred" end
+    if updated.exit_code ~= 0 then
+      local stderr = tostring(updated.stderr or "")
+      if stderr:find("412", 1, true) ~= nil or stderr:find("Precondition Failed", 1, true) ~= nil then
+        log.info("github-devloop dept=observability tag=DASHBOARD_CAS_MISMATCH issue=" .. tostring(current.number)
+          .. " expected_version=" .. tostring(refreshed_version or "")
+          .. " actual_version=unknown"
+          .. " reason=patch-precondition"
+          .. " hash=" .. tostring(dashboard.hash))
+        return "cas-mismatch"
+      end
+      error("github-devloop: dashboard-issue-update-failed: dashboard issue update failed: " .. stderr)
+    end
+    log.info("github-devloop dept=observability tag=DASHBOARD_UPDATED issue=" .. tostring(current.number)
+      .. " hash=" .. tostring(dashboard.hash))
+    return "updated"
   end
-  log.info("github-devloop dept=observability tag=DASHBOARD_UPDATED issue=" .. tostring(current.number)
-    .. " hash=" .. tostring(dashboard.hash))
-  return "updated"
+  return run_publication_call_plan("update", effects)
 end
 
 function core.publish_observability_dashboard(repo, dashboard, limits, deadline)

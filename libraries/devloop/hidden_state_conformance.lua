@@ -4,7 +4,6 @@ local declarations = require("devloop.hidden_state_conformance.declarations")
 local contract_time = require("contract.time")
 local transition_version = require("contract.transition_version")
 local decompose_lib = require("devloop.decompose")
-local replayer = require("devloop.replayer")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
 local devloop_state = require("devloop.state")
@@ -156,7 +155,7 @@ local function child_pr(core, state, child_state, branch)
     body = body .. "\n" .. devloop_state.state_marker(PR_PROPOSAL, child_state, state.version)
   end
   if child_state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(core, PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
+    body = body .. "\n" .. m_builders.merged_marker(PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
   end
   return {
     repo = REPO,
@@ -491,10 +490,10 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
     local digest = convergence_shared.source_ref_digest(PR_SOURCE_REF)
     if value.action == "block" then
       for round = 1, value.n do
-        table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, round, transition_version.review_loop_at(state.version, round), "behavioral fixture same review question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
+        table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(assert(rawget(core, "restart_policy")), value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, round, transition_version.review_loop_at(state.version, round), "behavioral fixture same review question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
       end
     else
-      table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, value.n, value.review_dedup_key, "behavioral fixture review question", {
+      table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(assert(rawget(core, "restart_policy")), value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, value.n, value.review_dedup_key, "behavioral fixture review question", {
         { perspective = "one", verdict = "comment", digest = "a" },
         { perspective = "two", verdict = "abstain", digest = "b" },
         { perspective = "three", verdict = "abstain", digest = "c" },
@@ -729,12 +728,12 @@ end
 local function replay(core, row, declared, include_fact)
   local entity, state, facts = build_fixture(core, row, declared, include_fact)
   -- Keep the historical G-HIDDEN-STATE token as text only: core.replay_from_table.
-  return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
+  return assert(rawget(core, "replayer")).replay_from_table(production_replay_dept(core), entity, state, row, facts)
 end
 
 local function replay_exemption(core, row, rows, focus)
   local entity, state, facts = build_exemption_fixture(core, row, rows, focus)
-  return replayer.replay_from_table(core, production_replay_dept(core), entity, state, row, facts)
+  return assert(rawget(core, "replayer")).replay_from_table(production_replay_dept(core), entity, state, row, facts)
 end
 
 local function with_poll_fakes(core, fn)

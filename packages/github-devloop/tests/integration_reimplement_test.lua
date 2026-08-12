@@ -85,7 +85,7 @@ local function forged_command()
 end
 
 local function impl_failed_comments(event, reason, attempt, fault_class, retryable, command)
-  local version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  local version = payloads_builders.build_devloop_ready_payload(event).dedup_key
   local comments = {
     core.state_marker(event.proposal_id, "impl-failed", version),
     core.impl_failure_marker(
@@ -152,6 +152,12 @@ local function mock_base_probe(worktree, outcome)
     stderr = "",
     exit_code = 0,
   })
+  -- The base probe now proves the tree materialized before any test verdict can form, so the
+  -- harness must model those reads; an unmocked command fails closed and would look like an
+  -- unmaterialized tree.
+  t.mock_command("status --porcelain", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("ls-files", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("ls-tree", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("rev-parse HEAD", { stdout = "abc123\n", stderr = "", exit_code = 0 })
   t.mock_command("scripts/run.sh test-affected", {
     stdout = local_iteration_marker(outcome),
@@ -161,7 +167,7 @@ local function mock_base_probe(worktree, outcome)
 end
 
 local function run_initial_typed_failure(event, outcome, name, base_outcome)
-  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  local ready = payloads_builders.build_devloop_ready_payload(event)
   mock_issue_implement_view_only({ "fkst-dev:ready", "fkst-dev:thinking" }, {
     h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }, 3)
@@ -279,7 +285,7 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(core, event).dedup_key)
+    t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(event).dedup_key)
     t.eq(ready.payload.impl_retry_attempt, 2)
   end,
 
@@ -292,7 +298,7 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(core, event).dedup_key)
+    t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(event).dedup_key)
     t.eq(ready.payload.impl_retry_attempt, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
@@ -327,11 +333,11 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     t.eq(ready.payload.implementation_version, ready_version)
     t.eq(ready.payload.operator_reimplement_delivery.command_key, "operator-command/IC_reimplement_1")
     t.is_true(ready.payload.dedup_key ~= ready_version)
-    t.eq(ready.payload.impl_retry_attempt, 3)
+    t.eq(ready.payload.impl_retry_attempt, 2)
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
     t.is_true(response.payload.body:find('command="reimplement"', 1, true) ~= nil)
@@ -349,7 +355,7 @@ return {
 
   test_reimplement_command_reenters_blocked_open_pr_from_issue = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local blocked_version = ready_version .. "/review-loop/3"
     local command = trusted_command("IC_reimplement_blocked")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
@@ -379,7 +385,7 @@ return {
 
   test_reimplement_command_refuses_blocked_without_open_linked_pr = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_command("IC_reimplement_blocked_unlinked")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       core.state_marker(event.proposal_id, "blocked", ready_version .. "/review-loop/3"),
@@ -397,7 +403,7 @@ return {
 
   test_retry_implementation_writes_attempt_version = function()
     local event = reached()
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.impl_retry_attempt = 2
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
       core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
@@ -431,7 +437,7 @@ return {
 
   test_completed_codex_with_vanished_worktree_returns_typed_retry = function()
     local event = reached()
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.impl_retry_attempt = 2
     local comments = {
       core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
@@ -473,12 +479,12 @@ return {
       title = "Complete Proofs/Target.lean",
       framing = framing,
     })
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.framing = nil
     ready.impl_retry_attempt = 2
-    local result_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event).body
+    local result_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", event).body
     local prior_receipt = lean_receipt(event, ready.dedup_key, "repair-needed", "construction", 1)
-    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready,
+    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready,
       "lean-proof-repair-needed", prior_receipt, 1, "UNKNOWN", true).body
     local comments = {
       result_comment,
@@ -522,7 +528,7 @@ return {
 
   test_blocked_reimplement_receiver_writes_fresh_attempt_version = function()
     local event = reached()
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     local blocked_version = ready.dedup_key .. "/review-loop/3"
     ready.impl_retry_attempt = 2
     ready.operator_reentry = {
@@ -561,7 +567,7 @@ return {
 
   test_blocked_timeout_reimplement_receiver_rejects_missing_timeout_source_ref = function()
     local event = reached()
-    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local ready = payloads_builders.build_devloop_ready_payload(event)
     local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready.dedup_key, "implementing", 3)
     ready.impl_retry_attempt = 2
     ready.operator_reentry = {

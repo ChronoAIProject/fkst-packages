@@ -3,11 +3,26 @@ local contract_strings = require("contract.strings")
 
 local S = {}
 
-function S.strip_bot_login_suffix(login)
+function S.canonical_login(login)
   if login == nil then
     return nil
   end
-  return (tostring(login):gsub("%[bot%]$", ""))
+  local value = contract_strings.trim(login):lower()
+  if value:sub(1, 4) == "app/" then
+    local slug = value:match("^app/([^/]+)$")
+    if slug == nil or slug:sub(-5) == "[bot]" then
+      return nil
+    end
+    value = slug
+  elseif value:find("/", 1, true) ~= nil then
+    return nil
+  else
+    value = value:gsub("%[bot%]$", "")
+  end
+  if value == "" then
+    return nil
+  end
+  return value
 end
 
 function S.split_repo(repo)

@@ -85,9 +85,7 @@ local function operator_dependency_waiver_contract(opts)
   local forbidden_ready_marker = projected_state_comment(proposal_id, "ready", version)
   local request = nil
   if options.operator_dependency_waiver_request_body == nil then
-    request = operator_commands.build_operator_issue_dependency_waiver_comment_request(
-      core,
-      options.repo or "owner/repo",
+    request = operator_commands.build_operator_issue_dependency_waiver_comment_request(core.dependency_waiver_marker, options.repo or "owner/repo",
       options.issue_number or 42,
       command,
       proposal_id,
@@ -136,8 +134,8 @@ local function static_obligation_errors(rows, opts)
   local impl_failed = by_state["impl-failed"]
   if impl_failed ~= nil
     and (impl_failed.payload_fields == nil
-      or impl_failed.payload_fields.dedup_key ~= "marker:impl-failure.dedup") then
-    table.insert(errors, "impl-failed: ready replay dedup_key must derive from marker:impl-failure.dedup")
+      or impl_failed.payload_fields.dedup_key ~= "marker:state.version") then
+    table.insert(errors, "impl-failed: ready replay dedup_key must derive from marker:state.version")
   end
 
   for _, family in ipairs({ "dependency-wait", "dependency-cycle", "dependency-unresolvable" }) do

@@ -2,7 +2,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local impl_failure = require("devloop.impl_failure")
 local strings = require("contract.strings")
-local implementation_refusal = require("core.implementation_refusal")
+local implementation_refusal = require("devloop.implementation_refusal")
 
 local json = json
 local M = {}

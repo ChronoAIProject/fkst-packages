@@ -11,6 +11,7 @@ local parsers_issue = require("devloop.parsers.issue")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local strings = require("contract.strings")
+local devloop_base = require("devloop.base")
 
 local M = {}
 
@@ -214,8 +215,8 @@ local function managed_sibling_repo(current_repo, blocker_repo, managed_repos)
   return type(managed_repos) == "table" and managed_repos[tostring(blocker_repo)] == true
 end
 
-function M.new(core)
-  if type(core) ~= "table" then
+function M.new(capabilities)
+  if type(capabilities) ~= "table" then
     error("github-devloop: dependency-gate-core-invalid: dependency gate requires a core table")
   end
 
@@ -224,7 +225,7 @@ function M.new(core)
     if owner == nil or not forge_validators.is_positive_pr_number(issue_number) then
       error("github-devloop: invalid-dependency-target: invalid dependency query target")
     end
-    local graphql = type(core.github_graphql) == "function" and core.github_graphql or M.github_graphql
+    local graphql = type(capabilities.github_graphql) == "function" and capabilities.github_graphql or M.github_graphql
     return graphql("dependency_blocked_by", {
       owner = owner,
       name = name,
@@ -258,7 +259,7 @@ function M.new(core)
     if cached ~= nil then
       return cached.blockers, cached.reason, cached.issue
     end
-    local read_blocked_by = type(core.gh_blocked_by) == "function" and core.gh_blocked_by or gh_blocked_by
+    local read_blocked_by = type(capabilities.gh_blocked_by) == "function" and capabilities.gh_blocked_by or gh_blocked_by
     local result = read_blocked_by(repo, issue_number, 30)
     if type(result) ~= "table" or result.exit_code ~= 0 then
       memo_blocked_by(resolver, repo, issue_number, nil, "gh-failed")
@@ -313,7 +314,7 @@ function M.new(core)
       .. base_ids.safe_repo(repo)
       .. "/issue/"
       .. base_ids.safe_issue(blocker_number)
-    if not strings.is_path_safe_key(key, core._max_key_len) then
+    if not strings.is_path_safe_key(key, devloop_base._max_key_len) then
       error("github-devloop: invalid-cache-key: invalid merged blocker cache key")
     end
     return key
@@ -440,7 +441,7 @@ function M.new(core)
       return nil, "gh-failed"
     end
     local ok, current = pcall(function()
-      return parsers_issue.parse_issue_view_observe(core, result.stdout)
+      return parsers_issue.parse_issue_view_observe(result.stdout)
     end)
     if not ok or type(current) ~= "table" then
       return nil, "malformed-json"
@@ -452,8 +453,8 @@ function M.new(core)
     local link = marker_facts.pr_link_fact(current.comments, blocker_proposal_id)
     if link == nil then
       local delegation = marker_facts.pr_delegation_fact(current.comments, blocker_proposal_id)
-      local resolve_delegation = type(core.delegated_blocker_merged) == "function"
-          and core.delegated_blocker_merged
+      local resolve_delegation = type(capabilities.delegated_blocker_merged) == "function"
+          and capabilities.delegated_blocker_merged
         or delegated_blocker_merged
       return resolve_delegation(repo, blocker_number, blocker_proposal_id, current, delegation)
     end

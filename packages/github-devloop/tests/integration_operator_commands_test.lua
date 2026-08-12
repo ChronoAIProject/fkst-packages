@@ -6,6 +6,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_builders = require("devloop.markers.builders")
 local operator_reentry_inventory = require("core.restart.operator_reentry_inventory")
+local observe_issue_department = require("departments.observe_issue.main")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -26,11 +27,11 @@ local find_causal_raise = h.find_causal_raise
 
 
 
-local function trusted_issue_command(command, id)
+local function trusted_issue_command(command, id, author_login)
   return {
     id = id or ("IC_" .. tostring(command) .. "_issue_1"),
     body = "fkst: " .. tostring(command),
-    author_login = "fkst-test-bot",
+    author_login = author_login or "fkst-test-bot",
     created_at = "2026-06-04T03:00:00Z",
   }
 end
@@ -97,6 +98,26 @@ local function find_issue_comment_raise(raises, needle)
   return nil
 end
 
+local function capture_info_logs_and_raises(fn)
+  local previous_info = log.info
+  local previous_raise = raise
+  local logs = {}
+  local raises = {}
+  log.info = function(message)
+    table.insert(logs, tostring(message))
+  end
+  raise = function(queue_name, payload)
+    table.insert(raises, { queue = queue_name, payload = payload })
+  end
+  local ok, result = pcall(fn)
+  log.info = previous_info
+  raise = previous_raise
+  if not ok then
+    error(result, 0)
+  end
+  return result, logs, raises
+end
+
 local function mock_blocked_by(issue_number, nodes)
   local rendered = {}
   for _, node in ipairs(nodes or {}) do
@@ -148,6 +169,50 @@ local function run_blocked_dependency_reready(event, comments, name)
 end
 
 return {
+  test_claim_lost_logs_carriers_and_pending_operator_command = function()
+    local foreign_claim_label = "fkst-dev:claimed:peer outcome=applied"
+    local event = issue({ labels = {
+      "fkst-dev:enabled",
+      "fkst-dev:impl-failed",
+      foreign_claim_label,
+    } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local version = payloads_builders.build_devloop_ready_payload(reached()).dedup_key
+    local command = trusted_issue_command("reimplement", "IC_claim_lost_reimplement")
+    mock_issue_state(event.labels, "OPEN", {
+      core.state_marker(proposal_id, "impl-failed", version),
+      command,
+    }, { "fkst-test-bot" }, "fkst-test-bot")
+    for _ = 1, 2 do
+      t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
+        stdout = "",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+
+    local _, logs, raises = capture_info_logs_and_raises(function()
+      return observe_issue_department.pipeline({
+        queue = "github-proxy.github_entity_changed",
+        payload = event,
+      })
+    end)
+    local joined = table.concat(logs, "\n")
+
+    t.eq(#raises, 0)
+    t.is_true(joined:find("outcome=skip-claim-lost", 1, true) ~= nil,
+      "claim-lost outcome missing from logs: " .. joined)
+    t.is_true(joined:find("assignee_logins=fkst-test-bot", 1, true) ~= nil,
+      "claim-lost assignees missing from logs: " .. joined)
+    t.eq(select(2, joined:gsub("outcome=", "")), 1)
+    t.is_true(joined:find("claim_labels=fkst-dev:claimed:peer%20outcome%3Dapplied", 1, true) ~= nil,
+      "claim-lost labels missing from logs: " .. joined)
+    t.is_true(joined:find("pending_operator_commands=reimplement", 1, true) ~= nil,
+      "claim-lost command missing from logs: " .. joined)
+    t.is_true(joined:find("pending_operator_command_keys=operator-command/IC_claim_lost_reimplement", 1, true) ~= nil,
+      "claim-lost command key missing from logs: " .. joined)
+  end,
+
   test_issue_rereview_command_reenters_thinking_converge = function()
     local event = issue()
     local command = trusted_issue_command("rereview", "IC_issue_rereview_stalled")
@@ -164,6 +229,21 @@ return {
     t.eq(proposal_raise.payload.round, 8)
     t.eq(proposal_raise.payload.convergence_question, "Same narrowed question")
     t.eq(proposal_raise.payload.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_issue_rereview_command_accepts_app_actor_author = function()
+    local event = issue()
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_app", "app/fkst-test-bot")
+    local comments, base_version = thinking_converge_comments(event, 7, command)
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", comments)
+
+    local result = run_observe(event, opts("operator-issue-rereview-app-author"))
+    local response = find_issue_comment_raise(result.raises, "operator command accepted: rereview")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
+
+    t.eq(result.exit_code, 0)
+    t.is_true(response ~= nil)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
   end,
 
   test_issue_rereview_command_replays_round_seven_converge_without_true_stall = function()
@@ -239,6 +319,36 @@ return {
     t.is_true(replay_comment.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(replay_comment.payload.body:find("stalled thinking state", 1, true) ~= nil)
     t.is_true(replay_comment.payload.body:find('outcome="refused"', 1, true) ~= nil)
+  end,
+
+  test_issue_blocked_rereview_is_refused_and_not_advertised_as_reentry = function()
+    local event = issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_blocked")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
+      core.state_marker(proposal_id, "blocked", "manual-blocked"),
+      command,
+    })
+
+    local result = run_observe(event, opts("operator-issue-rereview-blocked"))
+    t.eq(result.exit_code, 0)
+    local refusal = find_issue_comment_raise(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.payload.body:find("rereview requires thinking state", 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+
+    local blocked_row = nil
+    for _, row in ipairs(core.restart_transition_table()) do
+      if row.from_state == "blocked" then
+        blocked_row = row
+        break
+      end
+    end
+    t.is_true(blocked_row ~= nil)
+    t.eq(#blocked_row.reentry_commands, 1)
+    t.eq(blocked_row.reentry_commands[1], "reready")
+    t.eq(#blocked_row.operator_reentry.commands, 1)
+    t.eq(blocked_row.operator_reentry.commands[1], "reready")
   end,
 
   test_issue_reready_command_rechecks_dependency_gate = function()
@@ -471,7 +581,7 @@ return {
 
   test_issue_reimplement_command_reenters_impl_failed = function()
     local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
@@ -499,7 +609,7 @@ return {
     local event = issue()
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, {
+    local ready_version = payloads_builders.build_devloop_ready_payload({
       proposal_id = proposal_id,
       dedup_key = inner_version,
       source_ref = event.source_ref,

@@ -22,7 +22,7 @@ local function current_issue_from_source_ref(source_ref, updated_at, coalesce_sc
   if view.exit_code ~= 0 then
     error("github-devloop-intake: gh-issue-admission-view-failed: gh issue admission view failed: " .. tostring(view.stderr))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, view.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(view.stdout)
   current.updated_at = current.updated_at or updated_at
   current.number = issue_number
   return repo, issue_number, current, nil

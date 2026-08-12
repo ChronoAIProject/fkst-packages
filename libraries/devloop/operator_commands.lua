@@ -14,9 +14,18 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local marker_facts = require("devloop.markers.facts")
 local pr_partition = require("devloop.restart.issue.pr_partition_contract")
-local command_prs = require("devloop.commands.prs")
 
 local ai_sentinel = "⟦AI:FKST⟧"
+local issue_operator_command_names = {
+  "rereview",
+  "reready",
+  "reimplement",
+  "dependency-waiver",
+}
+local issue_operator_command_name_set = {}
+for _, command_name in ipairs(issue_operator_command_names) do
+  issue_operator_command_name_set[command_name] = true
+end
 local rereview_state_modes = {
   blocked = "direct",
   ["review-meta"] = "direct",
@@ -117,7 +126,10 @@ end
 local function parse_command(body)
   local line = first_command_line(body)
   local command = line:match("^fkst:%s*([%w_-]+)")
-  if command == "rereview" or command == "reready" or command == "reimplement" then
+  if issue_operator_command_name_set[command] ~= true then
+    return nil
+  end
+  if command ~= "dependency-waiver" then
     return {
       command = command,
       output_obligation = parse_output_obligation_command(body, command),
@@ -162,7 +174,7 @@ function C.operator_command_fact(comments, command_name, expected_key)
           "command=" .. tostring(parsed.command),
           "reason=untrusted-author",
           "ignored_author=" .. tostring(parsers_misc._comment_author_login(comment) or ""),
-          "trusted_bot=" .. tostring(devloop_base.trusted_bot_login()),
+          "trusted_bot=" .. tostring(parsers_misc.trusted_bot_login()),
         })
       end
     end
@@ -477,6 +489,17 @@ function C.has_operator_command_response(comments, command)
   return C.operator_command_response_fact(comments, command) ~= nil
 end
 
+function C.pending_issue_operator_command_facts(comments)
+  local pending = {}
+  for _, command_name in ipairs(issue_operator_command_names) do
+    local command = C.operator_command_fact(comments, command_name)
+    if command ~= nil and not C.has_operator_command_response(comments, command) then
+      table.insert(pending, command)
+    end
+  end
+  return pending
+end
+
 function C.operator_command_response_count(comments, command_name, outcome, reason)
   if type(comments) ~= "table" then
     return 0
@@ -503,10 +526,7 @@ end
 
 function C.operator_command_marker(command, outcome, reason)
   if type(command) ~= "table"
-    or (command.command ~= "rereview"
-      and command.command ~= "reready"
-      and command.command ~= "reimplement"
-      and command.command ~= "dependency-waiver") then
+    or issue_operator_command_name_set[command.command] ~= true then
     error("github-devloop: operator-command-marker-invalid: invalid operator command marker")
   end
   if outcome ~= "applied" and outcome ~= "refused" then
@@ -573,8 +593,8 @@ function C.build_operator_issue_reimplement_comment_request(repo, issue_number, 
   }), source_ref)
 end
 
-function C.build_operator_issue_dependency_waiver_comment_request(M, repo, issue_number, command, proposal_id, version, blocker_number, source_ref)
-  local waiver_marker = M.dependency_waiver_marker(proposal_id, version, blocker_number, "operator-waiver")
+function C.build_operator_issue_dependency_waiver_comment_request(dependency_waiver_marker, repo, issue_number, command, proposal_id, version, blocker_number, source_ref)
+  local waiver_marker = dependency_waiver_marker(proposal_id, version, blocker_number, "operator-waiver")
   local command_marker = C.operator_command_marker(command, "applied", "dependency-waiver")
   return entity_lib.build_entity_comment_request({
     kind = "issue",
@@ -651,8 +671,8 @@ end
 local function output_obligation_escalation_matches(issue, fact, bot_login)
   if type(issue) ~= "table"
     or tostring(issue.state or ""):upper() ~= "OPEN"
-    or devloop_base.strip_bot_login_suffix(parsers_misc._comment_author_login(issue))
-      ~= devloop_base.strip_bot_login_suffix(bot_login)
+    or parsers_misc.canonical_login(parsers_misc._comment_author_login(issue))
+      ~= parsers_misc.canonical_login(bot_login)
     or not devloop_base.is_intake_held(issue.labels) then
     return false
   end
@@ -704,7 +724,7 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
   if not output_obligation_command_effect_matches(guard, fact, effect) then
     return false, "command-effect-changed", false
   end
-  devloop_base.configure_trusted_bot_login(bot_login)
+  parsers_misc.configure_trusted_bot_login(bot_login)
   local source_issue = github.read_issue(fact.source_ref, {
     force_fresh = true,
     timeout = 30,
@@ -725,12 +745,8 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
   if source_fact == nil then
     return false, "source-lineage-changed", true
   end
-  local snapshot_reader = {
-    _max_dedup_len = devloop_base._max_dedup_len,
-    gh_pr_view_freshness = command_prs.gh_pr_view_freshness,
-  }
   local snapshot = entity_lib.linked_pr_delegation_surface_snapshot(
-    snapshot_reader,
+    devloop_base._max_dedup_len,
     fact.source_repo,
     fact.proposal_id,
     source_issue.comments,

@@ -1,8 +1,10 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local marker_attr = require("devloop.markers.shared").bounded_xml_marker_attr
 local error_facts = require("contract.error_facts")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
+local forge_strings = require("forge.strings")
 local S = {}
 
 function S.install(M)
@@ -206,19 +208,6 @@ local function output_obligation_dedup_key(repo, proposal_id, terminal_version, 
   })
 end
 
-local function marker_attr(value, limit)
-  local text = tostring(value or "")
-  if limit ~= nil and #text > limit then
-    text = base_ids.truncate_utf8(text, limit)
-  end
-  return text:gsub("\r", " ")
-    :gsub("\n", " ")
-    :gsub("&", "&amp;")
-    :gsub('"', "&quot;")
-    :gsub("<", "&lt;")
-    :gsub(">", "&gt;")
-end
-
 local function output_obligation_escalation_marker(fact)
   return '<!-- fkst:github-devloop-ops:output-obligation-escalation:v1 proposal="'
     .. marker_attr(fact.proposal_id, M._max_key_len)
@@ -249,7 +238,8 @@ local function classify_output_obligation_escalation_issue(issue, observed_repo,
   if type(issue) ~= "table" then
     return nil, "escalation-not-table"
   end
-  if parsers_misc._comment_author_login(issue) ~= devloop_base.trusted_bot_login() then
+  if forge_strings.canonical_login(parsers_misc._comment_author_login(issue))
+    ~= forge_strings.canonical_login(parsers_misc.trusted_bot_login()) then
     return nil, "untrusted-escalation-author"
   end
   if not devloop_base.is_intake_held(issue.labels) then
@@ -382,7 +372,8 @@ local function issue_body_drain_edge(issues, dedup_key, terminal_version)
     local observed_issue = type(issue) == "table" and (issue.parent_issue or issue.issue or issue) or nil
     if type(issue) == "table"
       and type(observed_issue) == "table"
-      and parsers_misc._comment_author_login(observed_issue) == devloop_base.trusted_bot_login()
+      and forge_strings.canonical_login(parsers_misc._comment_author_login(observed_issue))
+        == forge_strings.canonical_login(parsers_misc.trusted_bot_login())
       and tonumber(issue.issue_number or issue.number) ~= nil then
       local issue_number = tonumber(issue.issue_number or issue.number)
       local edge = issue_body_semantic_drain_edge(observed_issue, issue_number, dedup_key, terminal_version)

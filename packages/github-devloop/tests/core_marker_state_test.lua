@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local parsers_issue = require("devloop.parsers.issue")
@@ -248,7 +249,7 @@ return {
         { angle = "delete", verdict = "approve" },
       },
     })
-    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", completed)
+    local comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", completed)
     t.eq(comment.schema, "github-proxy.v1")
     t.eq(comment.issue_number, "42")
     t.is_true(comment.body:find("github-devloop decision: approve", 1, true) ~= nil)
@@ -273,8 +274,8 @@ return {
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/v2",
     })
 
-    local first_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", first)
-    local second_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", second)
+    local first_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", first)
+    local second_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", second)
 
     t.eq(first_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v1")
     t.eq(second_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v2")
@@ -753,7 +754,7 @@ return {
       },
       {
         body = core.state_marker(proposal_id, "thinking", "v1"),
-        author_login = devloop_base.trusted_bot_login(),
+        author_login = parsers_misc.trusted_bot_login(),
       },
     }
     local current = core.current_state(comments, proposal_id)
@@ -782,13 +783,13 @@ return {
   end,
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    devloop_base.configure_trusted_bot_login(nil)
-    local parsed = parsers_issue.parse_issue_view_state(core, '{"comments":[{"body":"'
+    parsers_misc.configure_trusted_bot_login(nil)
+    local parsed = parsers_issue.parse_issue_view_state('{"comments":[{"body":"'
       .. h.projected_state_comment(proposal_id, "ready", "v2"):gsub('"', '\\"')
       .. '","author":null},{"body":"'
       .. core.state_marker(proposal_id, "thinking", "v1"):gsub('"', '\\"')
       .. '","author":{"login":"'
-      .. devloop_base.trusted_bot_login()
+      .. parsers_misc.trusted_bot_login()
       .. '"}}]}')
 
     local current = core.current_state(parsed.comments, proposal_id)
@@ -815,7 +816,7 @@ return {
       body = "Looks fine.\n" .. forged,
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
     })
-    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event)
+    local comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", event)
 
     t.is_true(comment.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment.body:find(forged, 1, true) == nil, true)

@@ -152,7 +152,7 @@ return {
             link.base_branch
           ),
           core.state_marker(link.proposal_id, "merged", "v-1"),
-          m_builders.merged_marker(core, link.proposal_id, link.pr_number, "v-1", "def456"),
+          m_builders.merged_marker(link.proposal_id, link.pr_number, "v-1", "def456"),
           core.state_marker(link.proposal_id, "fixing", "v-2"),
         })
         .. ']}\n',

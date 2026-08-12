@@ -1,14 +1,16 @@
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local convergence_shared = require("devloop.convergence.shared")
 local contract_time = require("contract.time")
-local replayer = require("devloop.replayer")
+local replayer
 local m_rrc = require("devloop.restart_responsibility_contract")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_logging = require("devloop.logging")
 local core = h.core
+replayer = assert(rawget(core, "replayer"))
 local t = h.t
 local span = require("core.span_conformance")
 local hidden_state_conformance = require("devloop.hidden_state_conformance")
@@ -184,7 +186,7 @@ return {
     facts.now_seconds = contract_time.iso_timestamp_epoch_seconds(state.marker_created_at) + 60
 
     local raised = capture_raises(function()
-      local issued = replayer.replay_from_table(core, "observe_issue", entity, state, row, facts)
+      local issued = replayer.replay_from_table("observe_issue", entity, state, row, facts)
       t.eq(issued, false)
     end)
     t.eq(find_raise(raised, "devloop_ready"), nil)
@@ -195,10 +197,10 @@ return {
     local fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
       restart_consumer_sources = core.restart_consumer_sources,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept)
       seen[dept] = true
       return false
     end
@@ -231,6 +233,7 @@ return {
     local fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
       restart_consumer_sources = core.restart_consumer_sources,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
     replayer.replay_from_table = function()
@@ -264,16 +267,16 @@ return {
   end,
 
   test_hidden_state_conformance_isolates_host_identity_and_runtime_lock = function()
-    local previous_bot_login = devloop_base.configured_trusted_bot_login()
+    local previous_bot_login = parsers_misc.configured_trusted_bot_login()
     local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
-    devloop_base.configure_trusted_bot_login("host-configured-bot")
+    parsers_misc.configure_trusted_bot_login("host-configured-bot")
     git_mechanics.with_repo_ref_store_lock = function()
       error("host runtime lock leaked into hidden-state conformance")
     end
     local ok, errors = pcall(function()
       return hidden_state_conformance.hidden_state_conformance_errors(core)
     end)
-    devloop_base.configure_trusted_bot_login(previous_bot_login)
+    parsers_misc.configure_trusted_bot_login(previous_bot_login)
     git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
     if not ok then error(errors) end
     t.eq(#errors, 0, join_error_messages(errors))
@@ -346,10 +349,10 @@ return {
     local fake_core
     fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept, issue, state, row, facts)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept, issue, state, row, facts)
       if state.state ~= "impl-failed" or facts.impl_failure == nil then
         return false
       end
@@ -400,10 +403,10 @@ return {
     local fake_core
     fake_core = setmetatable({
       restart_package_name = core.restart_package_name,
+      replayer = replayer,
     }, { __index = core })
     local previous = replayer.replay_from_table
-    replayer.replay_from_table = function(replay_core, dept, issue, state, row, facts)
-      t.eq(replay_core, fake_core)
+    replayer.replay_from_table = function(dept, issue, state, row, facts)
       if state.state ~= "impl-failed" or facts["hidden-durable-trigger"] == nil then
         return false
       end
@@ -443,8 +446,8 @@ local strings = { en = { implementation_started = "github-devloop implementation
 ]],
       ["packages/github-devloop/core/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha)
-  return { body = comment_strings.comment_string(M, "implementation_started") .. "\nHead: " .. tostring(head_sha) }
+function C.build_implementing_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready, worktree, branch, head_sha)
+  return { body = comment_strings.comment_string(M.output_language, "implementation_started") .. "\nHead: " .. tostring(head_sha) }
 end
 ]],
     })
@@ -456,7 +459,7 @@ end
     local errors = span.errors_from_sources({
       ["packages/github-devloop/core/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha)
+function C.build_implementing_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready, worktree, branch, head_sha)
   return { body = "github-devloop implementation started" .. "\nHead: " .. tostring(head_sha) }
 end
 ]],
@@ -497,7 +500,7 @@ raise_implementing_state(repo, issue_number, ready)
 ]]),
       ["packages/github-devloop/departments/implement/main.lua"] = [[
 local function raise_implementing_state(repo, issue_number, ready)
-  local request = requests_lifecycle.build_implementing_state_comment_request(core, repo, issue_number, ready)
+  local request = requests_lifecycle.build_implementing_state_comment_request(core.implement_attempt_marker, core.output_language, repo, issue_number, ready)
   raise("github-proxy.github_issue_comment_request", request)
 end
 
@@ -506,7 +509,7 @@ local result = spawn_codex_sync({ prompt = prompt })
 ]],
       ["libraries/devloop/requests/lifecycle.lua"] = [[
 local C = {}
-function C.build_implementing_state_comment_request(M, repo, issue_number, ready)
+function C.build_implementing_state_comment_request(M.implement_attempt_marker, M.output_language, repo, issue_number, ready)
   local marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, 1, now())
   return { body = marker }
 end

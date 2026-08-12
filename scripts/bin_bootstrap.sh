@@ -24,7 +24,8 @@ bootstrap_cache_root() {
 }
 
 bootstrap_read_pin() {
-  local repo_root="$1" pin_file="$repo_root/.fkst/substrate-ref" pin
+  local repo_root="$1" pin_file pin
+  pin_file="$repo_root/.fkst/substrate-ref"
   [ -f "$pin_file" ] || bootstrap_die "missing fkst-substrate source pin: $pin_file"
   pin="$(sed -n '1p' "$pin_file")"
   pin="${pin%%#*}"
@@ -126,7 +127,7 @@ resolve_bin_contract() {
     return 1
   fi
 
-  echo "fkst-framework binary not found in \$BIN, .fkst/env, PATH, or ../fkst-substrate; bootstrapping pinned source" >&2
+  echo "fkst-framework binary not found in \$BIN, .fkst/env, PATH, or ../fkst-substrate; checking pinned source cache" >&2
   RESOLVED_BIN="$(bootstrap_bin_on_total_miss "$repo_root")" || return $?
   return 0
 }
@@ -160,8 +161,13 @@ bootstrap_checkout_ref() {
   git -C "$checkout_dir" checkout --detach "origin/$ref" 1>&2
 }
 
+bootstrap_set_result() {
+  local variable_name="${1:-}" result="$2"
+  [ -z "$variable_name" ] || printf -v "$variable_name" '%s' "$result"
+}
+
 bootstrap_bin_on_total_miss() {
-  local repo_root="$1" pin owner repo ref cache_root bin_path checkout_dir parent_dir lock_dir repo_url
+  local repo_root="$1" result_var="${2:-}" pin owner repo ref cache_root bin_path checkout_dir parent_dir lock_dir repo_url
 
   if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then
     echo "error: fkst-framework binary not found and FKST_NO_AUTOBUILD is set; refusing network clone or build" >&2
@@ -180,6 +186,12 @@ bootstrap_bin_on_total_miss() {
   } < <(bootstrap_parse_pin "$pin")
   cache_root="$(bootstrap_cache_root)"
   bin_path="$(bootstrap_cache_bin_path "$repo_root" "$cache_root" "$owner" "$repo" "$ref")"
+  if [ -x "$bin_path" ]; then
+    bootstrap_set_result "$result_var" hit
+    printf '%s\n' "$bin_path"
+    return 0
+  fi
+
   checkout_dir="${bin_path%/target/debug/fkst-framework}"
   parent_dir="$(dirname "$checkout_dir")"
   mkdir -p "$parent_dir"
@@ -188,13 +200,21 @@ bootstrap_bin_on_total_miss() {
   local lock_rc=0
   bootstrap_with_lock "$lock_dir" "$bin_path" || lock_rc=$?
   if [ "$lock_rc" -eq "$BOOTSTRAP_LOCK_ARTIFACT_READY" ]; then
+    bootstrap_set_result "$result_var" hit
     printf '%s\n' "$bin_path"
     return 0
   fi
   if [ "$lock_rc" -ne 0 ]; then
     return "$lock_rc"
   fi
+  if [ -x "$bin_path" ]; then
+    rm -rf "$lock_dir"
+    bootstrap_set_result "$result_var" hit
+    printf '%s\n' "$bin_path"
+    return 0
+  fi
 
+  echo "fkst-framework pinned source cache miss for $pin; bootstrapping pinned source (build starting)" >&2
   if (
     repo_url="https://github.com/$owner/$repo.git"
     if [ -d "$checkout_dir/.git" ]; then
@@ -211,6 +231,7 @@ bootstrap_bin_on_total_miss() {
     printf '%s\n' "$bin_path"
   ); then
     rm -rf "$lock_dir"
+    bootstrap_set_result "$result_var" build
   else
     local rc=$?
     rm -rf "$lock_dir"

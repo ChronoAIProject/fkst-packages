@@ -1,5 +1,6 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local error_facts = require("contract.error_facts")
 local core = require("core")
@@ -107,7 +108,7 @@ local function push_if_real(repo, upstream, integration, upstream_sha, integrati
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(core.git, repo, { integration }, "branch fetch")
   local rechecked_integration_sha = git_mechanics.remote_head(core.git, integration, "remote branch head", "unsafe remote branch head")
   if rechecked_integration_sha ~= integration_sha then
@@ -145,7 +146,7 @@ local function converge_integration_to_upstream(repo, upstream, integration, ups
     return
   end
 
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
   git_mechanics.fetch_branches(core.git, repo, { integration }, "branch fetch")
   local rechecked_integration_sha = git_mechanics.remote_head(core.git, integration, "remote branch head", "unsafe remote branch head")
   if rechecked_integration_sha ~= integration_sha then

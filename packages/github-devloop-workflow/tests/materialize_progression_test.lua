@@ -2,6 +2,7 @@ local fixtures = require("tests.materialize_reconcile_helpers")
 local base_ids = fixtures.base_ids
 local core = fixtures.core
 local decompose_lib = require("devloop.decompose")
+local default_catalog = require("core.default_catalog")
 local digest = fixtures.digest
 local materialization = fixtures.materialization
 local materialize_reconcile = fixtures.materialize_reconcile
@@ -41,6 +42,75 @@ local function first_generated_entry(spec)
 end
 
 return {
+  test_pre_policy_builtin_blueprint_migrates_before_delivery_hold_replay = function()
+    local current_blueprint = default_catalog.records()[1].blueprint
+    local prior_blueprint = default_catalog.records()[1].blueprint
+    prior_blueprint.steps[2].on_already_satisfied = nil
+    t.eq(current_blueprint.id, "software-feature-flow")
+    t.eq(prior_blueprint.id, "software-feature-flow")
+    t.eq(digest.blueprint_digest(prior_blueprint), "d-1784791911")
+    t.eq(digest.blueprint_digest(current_blueprint), "d-4147428082")
+
+    local first_spec = generated_spec("walking-skeleton")
+    local second_spec = generated_spec("production-slice")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local old_blueprint_marker = '<!-- fkst:github-devloop-workflow:blueprint:v1 origin="'
+      .. origin
+      .. '" workflow="software-feature-flow" digest="d-1784791911" -->'
+    local old_history = {
+      comment(old_blueprint_marker),
+      created_comment(
+        "walking-skeleton",
+        materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+        first_spec,
+        108,
+        prior_blueprint
+      ),
+      created_comment(
+        "production-slice",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109,
+        prior_blueprint
+      ),
+    }
+    local child_statuses = {
+      ["108"] = "result_ready",
+      ["109"] = "satisfied_unverified",
+    }
+
+    local migrated = run_with({
+      blueprint = current_blueprint,
+      blueprint_path = "builtin:software-feature-flow",
+      current = issue(old_history, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = child_statuses,
+    })
+    local migration_comments = only_queue(migrated, "github-proxy.github_issue_comment_request")
+    t.eq(#migration_comments, 1)
+    t.is_true(migration_comments[1].payload.body:find("blueprint:v1", 1, true) ~= nil)
+    t.is_true(migration_comments[1].payload.body:find("terminal:v1", 1, true) == nil)
+    local migrated_blueprint = marker.parse_blueprint_marker(migration_comments[1].payload.body, origin)
+    t.eq(migrated_blueprint.workflow, "software-feature-flow")
+    t.eq(migrated_blueprint.digest, "d-4147428082")
+    t.eq(#only_queue(migrated, "github-proxy.github_issue_create_request"), 0)
+
+    local migrated_history = comments_with(old_history, comment(migration_comments[1].payload.body))
+    local held = run_with({
+      blueprint = current_blueprint,
+      blueprint_path = "builtin:software-feature-flow",
+      current = issue(migrated_history, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = child_statuses,
+    })
+    local hold_comments = only_queue(held, "github-proxy.github_issue_comment_request")
+    t.eq(#hold_comments, 1)
+    local hold = marker.parse_hold_marker(hold_comments[1].payload.body, origin)
+    t.eq(hold.reason_code, "origin-delivery-unverified")
+    t.is_true(hold_comments[1].payload.body:find('state="done"', 1, true) == nil)
+    t.is_true(hold_comments[1].payload.body:find("result_ready", 1, true) == nil)
+    t.eq(#only_queue(held, "github-proxy.github_issue_create_request"), 0)
+    t.eq(#only_queue(held, "github-proxy.github_issue_close_request"), 0)
+  end,
+
   test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
     local changed_blueprint = blueprint()
     changed_blueprint.version = "2026-07-26"
@@ -347,6 +417,145 @@ return {
     t.eq(blocked_labels[1].payload.add_labels[1], "fkst-dev:blocked")
     t.eq(blocked_labels[1].payload.marker_guard.expected.generation, "3")
     t.is_true(active_labels[1].payload.dedup_key ~= blocked_labels[1].payload.dedup_key)
+  end,
+
+  test_delivery_hold_finishes_active_label_projection_on_later_poll = function()
+    local hold_blueprint = blueprint()
+    hold_blueprint.id = "software-feature-flow"
+    hold_blueprint.steps[2].id = "production-slice"
+    hold_blueprint.steps[2].on_already_satisfied = "hold"
+    local first_spec = generated_spec("first")
+    local second_spec = generated_spec("second")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local release_done_claim_calls = 0
+    local close_done_origin_calls = 0
+    local function release_done_claim()
+      release_done_claim_calls = release_done_claim_calls + 1
+      return true
+    end
+    local function close_done_origin()
+      close_done_origin_calls = close_done_origin_calls + 1
+      return true
+    end
+    local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-second-already-satisfied")
+    t.is_nil(terminal_err)
+    local base_comments = {
+      comment(blueprint_marker(hold_blueprint)),
+      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108, hold_blueprint),
+      created_comment(
+        "production-slice",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109,
+        hold_blueprint
+      ),
+      comment(blocked_terminal),
+      label_projection_comment("blocked", 1),
+    }
+    local child_statuses = {
+      ["108"] = "result_ready",
+      ["109"] = "satisfied_unverified",
+    }
+
+    local held = run_with({
+      blueprint = hold_blueprint,
+      current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = child_statuses,
+      release_done_claim = release_done_claim,
+      close_done_origin = close_done_origin,
+    })
+    local held_comments = only_queue(held, "github-proxy.github_issue_comment_request")
+    t.eq(#held_comments, 2)
+    t.eq(release_done_claim_calls, 0)
+    t.eq(close_done_origin_calls, 0)
+
+    local visible_comments = base_comments
+    for _, request in ipairs(held_comments) do
+      visible_comments = comments_with(visible_comments, comment(request.payload.body))
+    end
+    local replay = run_with({
+      blueprint = hold_blueprint,
+      current = issue(visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = child_statuses,
+      release_done_claim = release_done_claim,
+      close_done_origin = close_done_origin,
+    })
+    local label_requests = only_queue(replay, "github-proxy.github_issue_label_request")
+
+    t.eq(#only_queue(replay, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(#label_requests, 1)
+    t.eq(label_requests[1].payload.add_labels[1], "fkst-dev:thinking")
+    t.eq(label_requests[1].payload.marker_guard.expected.state, "thinking")
+    t.eq(label_requests[1].payload.marker_guard.expected.generation, "2")
+    t.eq(release_done_claim_calls, 0)
+    t.eq(close_done_origin_calls, 0)
+  end,
+
+  test_delivery_hold_reasserts_after_intervening_blocked_disposition = function()
+    local hold_blueprint = blueprint()
+    hold_blueprint.id = "software-feature-flow"
+    hold_blueprint.steps[2].id = "production-slice"
+    hold_blueprint.steps[2].on_already_satisfied = "hold"
+    local first_spec = generated_spec("first")
+    local second_spec = generated_spec("second")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local base_comments = {
+      comment(blueprint_marker(hold_blueprint)),
+      created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108, hold_blueprint),
+      created_comment(
+        "production-slice",
+        materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }),
+        second_spec,
+        109,
+        hold_blueprint
+      ),
+    }
+
+    local first = run_with({
+      blueprint = hold_blueprint,
+      current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "satisfied_unverified",
+      },
+    })
+    local first_hold = only_queue(first, "github-proxy.github_issue_comment_request")[1]
+    t.is_true(first_hold.payload.body:find("hold:v1", 1, true) ~= nil)
+    t.eq(marker.parse_hold_marker(first_hold.payload.body, origin).generation, 1)
+
+    local blocked = run_with({
+      blueprint = hold_blueprint,
+      current = issue(
+        comments_with(base_comments, comment(first_hold.payload.body)),
+        { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }
+      ),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "fatal",
+      },
+    })
+    local blocked_request = only_queue(blocked, "github-proxy.github_issue_comment_request")[1]
+    t.is_true(blocked_request.payload.body:find('state="blocked"', 1, true) ~= nil)
+
+    local after_blocked = comments_with(base_comments, comment(first_hold.payload.body))
+    after_blocked = comments_with(after_blocked, comment(blocked_request.payload.body))
+    local reheld = run_with({
+      blueprint = hold_blueprint,
+      current = issue(after_blocked, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = "satisfied_unverified",
+      },
+    })
+    local second_hold = nil
+    for _, request in ipairs(only_queue(reheld, "github-proxy.github_issue_comment_request")) do
+      if request.payload.body:find("hold:v1", 1, true) ~= nil then
+        second_hold = request
+      end
+    end
+    t.is_true(second_hold ~= nil)
+    t.eq(marker.parse_hold_marker(second_hold.payload.body, origin).generation, 2)
+    t.is_true(first_hold.payload.dedup_key ~= second_hold.payload.dedup_key)
   end,
 
   test_wait_when_predecessor_running_raises_nothing = function()

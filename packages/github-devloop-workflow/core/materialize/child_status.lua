@@ -5,6 +5,7 @@ local child_transfer_chain = require("core.child_transfer_chain")
 local commands = require("devloop.commands")
 local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
+local implementation_refusal = require("devloop.implementation_refusal")
 local devloop_marker_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local parsers_issue = require("devloop.parsers.issue")
@@ -25,7 +26,7 @@ local function child_issue_view(core, repo, issue_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: child-issue-result-view-failed: child issue result view failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, result.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(result.stdout)
   current.repo = repo
   current.number = issue_number
   current.proposal_id = base_ids.proposal_id(repo, issue_number)
@@ -65,6 +66,7 @@ local function production_child_status_deps(core, repo, opts)
   local issue_cache = {}
   local pr_cache = {}
   local impl_failure_cache = {}
+  local current_state_cache = {}
 
   local function issue(child_ref)
     local number = tostring(child_ref.issue_number or child_ref.number or "")
@@ -119,6 +121,19 @@ local function production_child_status_deps(core, repo, opts)
     return impl_failure_cache[number]
   end
 
+  local function current_blocked_state(child_ref)
+    local number = tostring(child_ref.issue_number or child_ref.number or "")
+    if current_state_cache[number] == nil then
+      local child = issue(child_ref)
+      current_state_cache[number] = devloop_state.route_current(
+        child.comments,
+        child.proposal_id or child_ref.proposal_id,
+        { blocked = true }
+      )
+    end
+    return current_state_cache[number]
+  end
+
   local child_deps = {
     has_merged_marker = function(child_ref)
       local link = linked_pr(child_ref)
@@ -155,11 +170,7 @@ local function production_child_status_deps(core, repo, opts)
     end,
     irreversible_terminal = function(child_ref)
       local child = issue(child_ref)
-      local current = devloop_state.route_current(
-        child.comments,
-        child.proposal_id or child_ref.proposal_id,
-        { blocked = true }
-      )
+      local current = current_blocked_state(child_ref)
       if current.route == true then
         return true
       end
@@ -189,6 +200,23 @@ local function production_child_status_deps(core, repo, opts)
     impl_failed_reason = function(child_ref)
       local current = current_impl_failure(child_ref)
       return current.fact and current.fact.reason or nil
+    end,
+    implementation_refusal = function(child_ref)
+      local child = issue(child_ref)
+      local current = current_blocked_state(child_ref)
+      if current.route ~= true or current.version == nil then
+        return nil
+      end
+      return implementation_refusal.fact(
+        child.comments,
+        child.proposal_id or child_ref.proposal_id,
+        current.version,
+        impl_failure.latest_implement_attempt_fact(
+          child.comments,
+          child.proposal_id or child_ref.proposal_id,
+          current.version
+        )
+      )
     end,
   }
 

@@ -426,7 +426,7 @@ function core.collect_recent_merged_issues(repo, limits, deadline)
       log.warn("github-devloop dept=observability tag=AVM_SCOREBOARD_DEFERRED reason=" .. tostring(view.reason or "deadline") .. " processed_issues=" .. tostring(#issues))
       return nil
     end
-    table.insert(issues, recent_merged_issue_view(parsers_issue.parse_issue_view_observe(core, view.stdout), item))
+    table.insert(issues, recent_merged_issue_view(parsers_issue.parse_issue_view_observe(view.stdout), item))
   end
   return issues
 end

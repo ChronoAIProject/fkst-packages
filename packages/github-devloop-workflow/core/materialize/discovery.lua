@@ -116,7 +116,7 @@ function M.read_issue(core, deps, repo, issue_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: materialization-issue-view-failed: materialization issue view failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, result.stdout)
+  local current = parsers_issue.parse_issue_view_intake_judge(result.stdout)
   current.repo = repo
   current.number = issue_number
   return current
@@ -134,12 +134,55 @@ function M.latest_blueprint(core, current, origin)
   return fact
 end
 
-function M.latest_terminal(core, current, origin)
-  local fact = nil
+local function latest_dispositions(core, current, origin)
+  local monotonic_terminal = nil
+  local reversible = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
-    fact = marker.parse_terminal_marker(parsers_misc.comment_body(comment), origin) or fact
+    local body = parsers_misc.comment_body(comment)
+    local terminal = marker.parse_terminal_marker(body, origin)
+    if terminal ~= nil then
+      if tostring(terminal.state or "") == "blocked" then
+        reversible = { kind = "terminal", fact = terminal }
+      else
+        monotonic_terminal = terminal
+      end
+    end
+    local hold = marker.parse_hold_marker(body, origin)
+    if hold ~= nil then
+      reversible = { kind = "hold", fact = hold }
+    end
   end
-  return fact
+  return monotonic_terminal, reversible
+end
+
+function M.latest_terminal(core, current, origin)
+  local monotonic_terminal, reversible = latest_dispositions(core, current, origin)
+  if monotonic_terminal ~= nil then
+    return monotonic_terminal
+  end
+  if reversible ~= nil and reversible.kind == "terminal" then
+    return reversible.fact
+  end
+  return nil
+end
+
+function M.latest_hold(core, current, origin)
+  local monotonic_terminal, reversible = latest_dispositions(core, current, origin)
+  if monotonic_terminal == nil and reversible ~= nil and reversible.kind == "hold" then
+    return reversible.fact
+  end
+  return nil
+end
+
+function M.next_hold_generation(core, current, origin)
+  local latest_generation = 0
+  for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
+    local fact = marker.parse_hold_marker(parsers_misc.comment_body(comment), origin)
+    if fact ~= nil and fact.generation > latest_generation then
+      latest_generation = fact.generation
+    end
+  end
+  return latest_generation + 1
 end
 
 function M.latest_label_projection(core, current, origin)

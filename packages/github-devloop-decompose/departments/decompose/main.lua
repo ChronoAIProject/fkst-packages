@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
@@ -81,7 +82,7 @@ local function read_decompose_issue(repo, issue_number)
   if issue_view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue decompose view failed: " .. tostring(issue_view.stderr))
   end
-  return parsers_issue.parse_issue_view_decompose(core, issue_view.stdout)
+  return parsers_issue.parse_issue_view_decompose(issue_view.stdout)
 end
 
 local function read_decompose_child_issues(repo, proposal_id)
@@ -99,7 +100,7 @@ local function plan_current_decompose(event, repo, issue_number, decompose)
     return current_issue, nil, "depth-cap"
   end
   decompose.current_issue_body = current_issue.body
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
+  local content_fetch = context_bundle.context_fetch_from_bundle({
     dept = "decompose",
     repo = repo,
     issue_number = issue_number,
@@ -317,20 +318,20 @@ local function decomposed_done(event)
   end
   local done = false
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
     local current_pr = read_current_pr(context.repo, context.decompose.pr_number)
     devloop_logging.log_forged_markers("decompose",
       context.decompose.proposal_id,
       current_pr.comments)
     local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
+    if not conv_reconcile.has_fix_reconcile_marker(current_pr.comments, context.decompose.proposal_id, context.decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(context.decompose.version) then
       return
     end
     local decomposed = decompose_lib.decomposed_fact(current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
     if decomposed == nil then
-      if conv_attempts.has_decompose_exhausted_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
+      if conv_attempts.has_decompose_exhausted_marker(current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
         devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed",
           "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
         done = true
@@ -362,13 +363,13 @@ local function act_decompose(event)
   local repo = context.repo
   local issue_number = context.issue_number
   with_lock(context.lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local current_pr = read_current_pr(repo, decompose.pr_number)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)
 
     local state = require("devloop.entity").current_entity_state(current_pr.comments, decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, decompose.proposal_id, decompose.version)
+    if not conv_reconcile.has_fix_reconcile_marker(current_pr.comments, decompose.proposal_id, decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(decompose.version) then
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "retry-pending(blocked-fix-reconcile-not-visible)", "blocked/fix-reconcile marker is not yet visible")

@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local base_ids = require("devloop.base_ids")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
@@ -66,14 +67,14 @@ return saga.department(spec, { done = function() return false end, act = functio
   end
 
   with_lock(lock_key, function()
-    devloop_base.assert_trusted_bot_configured()
+    parsers_misc.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: issue-read-failed: gh issue loop view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local current = parsers_issue.parse_issue_view_loop(view.stdout)
     devloop_logging.log_forged_markers("loop", unresolved.proposal_id, current.comments)
     local state = devloop_state.current_state(current.comments, unresolved.proposal_id)
     local trusted_author_policy = github_author_policy.from_handle_policy(github_factory.production_handle)
@@ -229,7 +230,7 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local next_n = round + 1
     local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)
-    local content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
+    local content_fetch = context_bundle.context_fetch_ref_from_bundle({
       dept = "loop",
       repo = repo,
       issue_number = issue_number,
@@ -237,7 +238,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       version = next_dedup,
       tick = event.ts,
     })
-    local proposal = payloads_builders.build_board_loop_proposal(core, repo, issue_number, current, unresolved.source_ref, next_n, {
+    local proposal = payloads_builders.build_board_loop_proposal(repo, issue_number, current, unresolved.source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
       findings_record = lineage_with_current[#lineage_with_current] and lineage_with_current[#lineage_with_current].findings_record,

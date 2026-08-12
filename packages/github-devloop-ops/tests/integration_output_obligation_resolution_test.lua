@@ -2,6 +2,7 @@ local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
+local author_policy = require("testkit_internal.github_author_policy")
 local github_fake = require("forge.github_fake")
 local queue_starvation = require("devloop.queue_starvation")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -9,6 +10,7 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_rounds = require("devloop.convergence.rounds")
 local convergence_shared = require("devloop.convergence.shared")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local marker_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
@@ -324,6 +326,7 @@ local function fake_department(opts)
     author_login = "fkst-test-bot",
   }
   local model = github_fake.model({
+    author_policy = author_policy.policy(),
     issues = {
       ["owner/repo#issue/42"] = source_fixture,
       ["owner/repo#issue/900"] = escalation_fixture,
@@ -692,7 +695,7 @@ return {
     local source = live_source_fixture(false)
     local department, model = fake_department({ source_issue = source })
 
-    devloop_base.configure_trusted_bot_login("fkst-test-bot")
+    parsers_misc.configure_trusted_bot_login("fkst-test-bot")
     local escalation = model.issues["owner/repo#issue/900"]
     local fact = core.classify_output_obligation_escalation_issue(
       escalation,

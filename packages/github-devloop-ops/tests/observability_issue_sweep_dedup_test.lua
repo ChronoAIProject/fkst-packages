@@ -2,6 +2,7 @@ local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
+local author_policy = require("testkit_internal.github_author_policy")
 local github_fake = require("forge.github_fake")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
@@ -105,7 +106,7 @@ return {
       expect_label(devloop_state.state_label(state))
     end
 
-    local model = github_fake.model()
+    local model = github_fake.model({ author_policy = author_policy.policy() })
     local github = github_fake.new(model)
     local swept_labels = {}
     github.issue_list_observe = function(repo, label, page, include_headers, timeout)

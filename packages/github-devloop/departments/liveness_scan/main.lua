@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local parsers_pr = require("devloop.parsers.pr")
@@ -52,7 +53,7 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     error("github-devloop: liveness-scan-issue-view-failed: " .. tostring(state_view.stderr))
   end
 
-  local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
+  local current = parsers_issue.parse_issue_view_state(state_view.stdout)
   local trusted_author_policy = github_author_policy.from_handle_policy(github_factory.production_handle)
   if not github_author_policy.is_authorized(trusted_author_policy, current.author_login) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-non-whitelisted-author", "issue author is not authorized for GitHub content")
@@ -124,7 +125,7 @@ end
 
 local function act_liveness_scan(event)
   devloop_logging.log_entry("liveness_scan", event, "github-devloop/liveness-scan", "tick")
-  devloop_base.assert_trusted_bot_configured()
+  parsers_misc.assert_trusted_bot_configured()
 
   local repo = liveness_scan.liveness_scan_read_repo()
   if repo == nil then

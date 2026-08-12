@@ -63,7 +63,7 @@ return {
     t.eq(ready.ready_hand_off.comment_id, "IC_ready_1")
     t.eq(ready.ready_hand_off.marker_version, version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)
-    t.eq(v_ready.is_supported_ready(core, ready), true)
+    t.eq(v_ready.is_supported_ready(ready), true)
   end,
 
   test_comment_written_ready_ack_preserves_effect_version_marker_identity = function()
@@ -86,12 +86,12 @@ return {
     t.eq(#result.raises, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.expected_state, "ready")
     local ready = find_raise(result.raises, "devloop_ready").payload
-    t.eq(ready.dedup_key, payloads_builders.build_devloop_ready_payload(core, {
+    t.eq(ready.dedup_key, payloads_builders.build_devloop_ready_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       dedup_key = marker_version,
       source_ref = source_ref,
     }).dedup_key)
-    t.is_true(ready.dedup_key ~= payloads_builders.build_devloop_ready_payload(core, {
+    t.is_true(ready.dedup_key ~= payloads_builders.build_devloop_ready_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       dedup_key = event_version,
       source_ref = source_ref,
@@ -99,7 +99,7 @@ return {
     t.eq(ready.ready_hand_off.comment_id, "IC_ready_effect_1")
     t.eq(ready.ready_hand_off.marker_version, marker_version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)
-    t.eq(v_ready.is_supported_ready(core, ready), true)
+    t.eq(v_ready.is_supported_ready(ready), true)
   end,
 
   test_comment_written_implementation_escalation_ack_raises_dedicated_pre_pr_supervisor_seam = function()

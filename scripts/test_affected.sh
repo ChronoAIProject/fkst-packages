@@ -32,73 +32,91 @@ test_affected_is_root_config() {
   esac
 }
 
-test_affected_is_broad_path() {
+test_affected_requires_full_suite() {
   local path="$1"
   case "$path" in
     .claude/skills/dogfood-github-devloop/*) return 0 ;;
-    libraries/*|scripts/*|.github/*) return 0 ;;
+    scripts/*|.github/*) return 0 ;;
+    libraries/*/*|packages/*/*) return 1 ;;
   esac
-  test_affected_is_root_config "$path"
+  test_affected_is_root_config "$path" && return 0
+  return 0
 }
 
 test_affected_run_test() {
-  local result_file exit_code merge_code=0
+  local result_file output_file exit_code merge_code=0
   result_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-result.XXXXXX")" || {
     local_iteration_result_fail "INFRASTRUCTURE"
     return 1
   }
+  output_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-output.XXXXXX")" || {
+    rm -f "$result_file"
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  }
   if [ -n "${FKST_TEST_AFFECTED_RUNNER:-}" ]; then
-    if FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$FKST_TEST_AFFECTED_RUNNER" "$@"; then
+    if FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$FKST_TEST_AFFECTED_RUNNER" "$@" > "$output_file"; then
       exit_code=0
     else
       exit_code=$?
     fi
-  elif FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$ROOT/scripts/run.sh" "$@"; then
+  elif FKST_LOCAL_ITERATION_RESULT_FILE="$result_file" "$ROOT/scripts/run.sh" "$@" > "$output_file"; then
     exit_code=0
   else
     exit_code=$?
   fi
+  if [ "$exit_code" -eq 0 ]; then
+    cat "$output_file"
+  else
+    cat "$output_file" >&2
+  fi
   local_iteration_result_merge_file "$result_file" "$exit_code" || merge_code=$?
-  rm -f "$result_file"
+  rm -f "$result_file" "$output_file"
   [ "$merge_code" -eq 0 ] || return 1
   return "$exit_code"
 }
 
 cmd_test_affected() {
-  local changed_file full=0 packages="" path package status=0
+  local changed_file scoped_file resolved_file full=0 path package status=0
+  local -a packages=()
   changed_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected.XXXXXX")"
+  scoped_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-scoped.XXXXXX")"
+  resolved_file="$(mktemp "${TMPDIR:-/tmp}/fkst-test-affected-resolved.XXXXXX")"
   test_affected_changed_paths > "$changed_file"
 
   while IFS= read -r path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
-    if test_affected_is_broad_path "$path"; then
+    if test_affected_requires_full_suite "$path"; then
       full=1
+    else
+      printf '%s\n' "$path" >> "$scoped_file"
     fi
-    case "$path" in
-      packages/*/*)
-        package="${path#packages/}"
-        package="${package%%/*}"
-        case " $packages " in
-          *" $package "*) ;;
-          *) packages="$packages $package" ;;
-        esac
-        ;;
-    esac
   done < "$changed_file"
-  rm -f "$changed_file"
 
-  if [ "$full" -eq 1 ] || [ -z "${packages# }" ]; then
+  if [ "$full" -eq 0 ] && [ -s "$scoped_file" ]; then
+    if ! python3 "$ROOT/scripts/test_affected.py" "$ROOT" "$scoped_file" > "$resolved_file"; then
+      full=1
+    else
+      while IFS= read -r package || [ -n "$package" ]; do
+        [ -n "$package" ] || continue
+        packages+=("$package")
+      done < "$resolved_file"
+    fi
+  fi
+  rm -f "$changed_file" "$scoped_file" "$resolved_file"
+
+  if [ "$full" -eq 1 ] || [ "${#packages[@]}" -eq 0 ]; then
     if test_affected_run_test test; then
       status=0
     else
       status=$?
     fi
   else
-    for package in $packages; do
-      if ! test_affected_run_test test "$package"; then
-        status=1
-      fi
-    done
+    if test_affected_run_test test "${packages[@]}"; then
+      status=0
+    else
+      status=1
+    fi
   fi
   return "$status"
 }

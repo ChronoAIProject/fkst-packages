@@ -12,6 +12,7 @@ local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local parsers_misc = require("devloop.parsers.misc")
 local parsers_shared = require("devloop.parsers.shared")
 local forks = require("devloop.forks")
 local restart_metadata = require("devloop.restart_metadata")
@@ -88,6 +89,16 @@ local function merge_managed_bot_logins(managed, observed)
   end
 end
 
+local function observed_claim_labels(labels)
+  local observed = {}
+  for _, label in ipairs(type(labels) == "table" and labels or {}) do
+    if claim_carriers.is_claim_family(label) then
+      table.insert(observed, label)
+    end
+  end
+  return observed
+end
+
 function C.claim_mode_active()
   return config.claim_mode()
 end
@@ -120,7 +131,10 @@ local function issue_ownership_decision(ownership, owner)
   if author == nil then
     return { owned = false, claim_state = claim_state }
   end
-  return { owned = devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state = claim_state }
+  return {
+    owned = parsers_misc.canonical_login(author) == parsers_misc.canonical_login(owner),
+    claim_state = claim_state,
+  }
 end
 
 function C.is_self_owned_issue(ownership, owner)
@@ -258,37 +272,38 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
 end
 
 function C.claim_admission_inputs(current, repo, poll_key)
-  local owner = C.claim_owner()
+  local owner = parsers_misc.canonical_login(C.claim_owner())
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   local claim_mode = config.claim_mode()
+  local assignee_logins = C.assignee_logins(current and current.assignees)
+  local claim_labels = observed_claim_labels(current and current.labels)
   if status == "other" then
     return {
       owner = owner,
       status = status,
       claim_mode = claim_mode,
       repo = repo,
+      assignee_logins = assignee_logins,
+      claim_labels = claim_labels,
     }
   end
 
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local managed = nil
   local trusted_author_policy = nil
   local peer_discovery_error = nil
   local peer_snapshot_provenance = nil
-  if author ~= nil and author ~= "" and author ~= owner then
+  if canonical_author ~= nil and canonical_author ~= owner then
     managed = C.managed_bot_logins()
-    if not C.is_managed_bot_login(author, managed) then
+    if not C.is_managed_bot_login(canonical_author, managed) then
       local github_handle = github()
       trusted_author_policy = github_author_policy.from_handle_policy(github_handle)
       merge_managed_bot_logins(
         managed,
         C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
       )
-      if not C.is_managed_bot_login(author, managed)
-        and github_author_policy.is_authorized(trusted_author_policy, author)
+      if not C.is_managed_bot_login(canonical_author, managed)
+        and github_author_policy.is_authorized(trusted_author_policy, canonical_author)
         and status ~= "self" then
         local peer_repo = repo or (current and current.repo)
         if poll_key == nil or tostring(poll_key) == "" then
@@ -321,6 +336,8 @@ function C.claim_admission_inputs(current, repo, poll_key)
     status = status,
     claim_mode = claim_mode,
     repo = repo,
+    assignee_logins = assignee_logins,
+    claim_labels = claim_labels,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -361,7 +378,7 @@ function C.claim_admission_epoch_is_current(detail)
   )
 end
 
-function C.with_current_claim_admission_epoch(detail, fn)
+function C.run_if_current_claim_admission_epoch(detail, fn)
   if type(fn) ~= "function" then
     error("github-devloop: claim-admission-guard-invalid: claim admission epoch guard requires a function")
   end
@@ -369,7 +386,7 @@ function C.with_current_claim_admission_epoch(detail, fn)
   if provenance == nil then
     return true, fn()
   end
-  return entity_list_cache.with_current_poll_epoch(
+  return entity_list_cache.run_if_current_poll_epoch(
     provenance.repo,
     provenance.poll_epoch,
     fn
@@ -377,16 +394,15 @@ function C.with_current_claim_admission_epoch(detail, fn)
 end
 
 function C.claim_admission_precheck(current, inputs)
-  local author = C.issue_author_login(current)
-  if author ~= nil and author ~= "" then
-    author = devloop_base.strip_bot_login_suffix(author)
-  end
+  local canonical_author = parsers_misc.canonical_login(C.issue_author_login(current))
   local detail = {
     owner = inputs.owner,
     status = inputs.status,
     claim_mode = inputs.claim_mode,
-    author = author,
+    author = canonical_author,
     managed = inputs.managed,
+    assignee_logins = inputs.assignee_logins,
+    claim_labels = inputs.claim_labels,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
   local function settle(decision, action, reason)
@@ -404,17 +420,17 @@ function C.claim_admission_precheck(current, inputs)
     return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
   end
 
-  if author == nil or author == "" then
+  if canonical_author == nil then
     return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
-  if author ~= inputs.owner then
+  if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
     if not C.claim_admission_epoch_is_current(inputs) then
       return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     end
     if inputs.peer_discovery_error ~= nil then
       return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
     end
-    if C.is_managed_bot_login(author, inputs.managed) then
+    if C.is_managed_bot_login(canonical_author, inputs.managed) then
       if inputs.status == "self" then
         return "held", detail
       end
@@ -424,7 +440,7 @@ function C.claim_admission_precheck(current, inputs)
         "other-authored unassigned issue belongs to a managed bot login"
       )
     end
-    if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
+    if not github_author_policy.is_authorized(inputs.trusted_author_policy, canonical_author) then
       return settle(
         "denied",
         "skip-non-whitelisted-author",
@@ -442,7 +458,7 @@ function C.log_claim_admission_skip(dept, proposal_id, detail)
   log_claim(dept, proposal_id, detail.action, detail.reason)
 end
 
-function C.claim_issue_for_management(M, dept, repo, issue_number, current, proposal_id, admission, detail)
+function C.claim_issue_for_management(dept, repo, issue_number, current, proposal_id, admission, detail)
   if admission == nil then
     admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
   end
@@ -470,9 +486,10 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   -- opts issues in via the fkst-dev:enabled label, so it claims directly
   -- (matching the label-claim fork). Assignee-mode isolates only authors admitted
   -- by the canonical GitHub content policy.
-  if claim_mode ~= "label" and author ~= owner then
+  if claim_mode ~= "label"
+    and parsers_misc.canonical_login(author) ~= parsers_misc.canonical_login(owner) then
     local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
-    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
+    if forks.has_trusted_issue_create_parent_marker(current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
@@ -486,13 +503,13 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
       log_claim(dept, proposal_id, "skip-fork-grace", reason)
       return false
     end
-    current = forks.rederive_issue_state(M, repo, issue_number)
-    local request, request_reason = forks.build_fork_issue_create_request(M, repo, issue_number, current, base_ids.issue_source_ref(repo, issue_number))
+    current = forks.rederive_issue_state(repo, issue_number)
+    local request, request_reason = forks.build_fork_issue_create_request(repo, issue_number, current, base_ids.issue_source_ref(repo, issue_number))
     if request == nil then
       log_claim(dept, proposal_id, "skip-fork-" .. tostring(request_reason or "invalid"), "fork request could not be built from current issue")
       return false
     end
-    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, request.dedup_key, owner, managed) then
+    if forks.has_trusted_issue_create_parent_marker(current and current.comments, request.dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
@@ -522,14 +539,14 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if config.claim_mode() == "label" then
     local active_label = C.claimed_label()
     github().issue_add_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     if C.verify_issue_claim(repo, issue_number, owner) then
       log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
       return true
     end
 
     github().issue_remove_label(repo, issue_number, active_label, 30)
-    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
     log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
     return false
   end
@@ -546,14 +563,14 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     end
     error(assign_error, 0)
   end
-  M.invalidate_entity_after_write(repo, "issue", issue_number)
+  github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   if C.verify_issue_claim(repo, issue_number, owner) then
     log_claim(dept, proposal_id, "claim-won", "assignee claim verified after assign")
     return true
   end
 
   github().issue_unassign(repo, issue_number, owner, 30)
-  M.invalidate_entity_after_write(repo, "issue", issue_number)
+  github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   log_claim(dept, proposal_id, "claim-lost", "assignee claim lost after assign verification")
   return false
 end

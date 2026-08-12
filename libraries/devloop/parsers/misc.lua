@@ -1,8 +1,51 @@
 local devloop_base = require("devloop.base")
 local error_facts = require("contract.error_facts")
 local check_runs = require("forge.github.check_runs")
+local forge_strings = require("forge.strings")
 local shared = require("devloop.parsers.shared")
-local C = {}
+local C = {
+  canonical_login = forge_strings.canonical_login,
+}
+local trusted_bot_login_current = nil
+
+function C.configure_trusted_bot_login(login)
+  local configured = login == nil and "" or tostring(login):gsub("^%s+", ""):gsub("%s+$", "")
+  if forge_strings.canonical_login(configured) == nil then
+    configured = ""
+  end
+  trusted_bot_login_current = configured ~= "" and configured or nil
+  return trusted_bot_login_current
+end
+
+function C.configured_trusted_bot_login()
+  return trusted_bot_login_current
+end
+
+function C.assert_trusted_bot_configured()
+  local login = devloop_base.read_env("FKST_GITHUB_BOT_LOGIN")
+  if login ~= nil then
+    C.configure_trusted_bot_login(login)
+  end
+
+  if devloop_base.read_env("FKST_GITHUB_WRITE") == "1" and trusted_bot_login_current == nil then
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1")
+  end
+  return trusted_bot_login_current
+end
+
+function C.trusted_bot_login()
+  if trusted_bot_login_current ~= nil then
+    return trusted_bot_login_current
+  end
+  local login = C.configure_trusted_bot_login(devloop_base.read_env("FKST_GITHUB_BOT_LOGIN"))
+  if login ~= nil then
+    return login
+  end
+  if devloop_base.read_env("FKST_GITHUB_WRITE") == "1" then
+    error("github-devloop: bot-login-missing: FKST_GITHUB_BOT_LOGIN is required when FKST_GITHUB_WRITE=1 (trusted_bot_login)")
+  end
+  return devloop_base._test_bot_login
+end
 
 function C.comments_from_json(comments_json)
   local comments = {}
@@ -77,17 +120,15 @@ function C.parse_repo_labels(stdout)
 end
 
 local function comment_author_login(comment)
-  -- Normalize the comment author login so an author read as "<slug>[bot]" (REST)
-  -- matches a bare-"<slug>" configured bot login (GraphQL). No-op for ordinary logins.
   if type(comment) == "table" then
     if comment.author_login ~= nil then
-      return devloop_base.strip_bot_login_suffix(comment.author_login)
+      return tostring(comment.author_login)
     end
     if type(comment.author) == "table" and comment.author.login ~= nil then
-      return devloop_base.strip_bot_login_suffix(comment.author.login)
+      return tostring(comment.author.login)
     end
     if type(comment.user) == "table" and comment.user.login ~= nil then
-      return devloop_base.strip_bot_login_suffix(comment.user.login)
+      return tostring(comment.user.login)
     end
     return nil
   end
@@ -103,11 +144,14 @@ end
 
 local function is_trusted_comment(comment, trust_set)
   -- Parser-only trust filtering keeps the test default; pre-assert ownership gates use claim_owner.
-  local author = comment_author_login(comment)
-  if type(trust_set) == "table" then
-    return trust_set[author] == true
+  local canonical_author = forge_strings.canonical_login(comment_author_login(comment))
+  if canonical_author == nil then
+    return false
   end
-  return author == devloop_base.trusted_bot_login()
+  if type(trust_set) == "table" then
+    return trust_set[canonical_author] == true
+  end
+  return canonical_author == forge_strings.canonical_login(C.trusted_bot_login())
 end
 
 local function trusted_marker_comments(comments, trust_set)

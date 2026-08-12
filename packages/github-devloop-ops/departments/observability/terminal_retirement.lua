@@ -3,10 +3,14 @@ local common = require("departments.observability.common")
 local config = require("devloop.config")
 local contract_time = require("contract.time")
 local devloop_base = require("devloop.base")
+local decompose = require("devloop.decompose")
 local devloop_state = require("devloop.state")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local entity_view = require("devloop.github_proxy_entity_view")
+local marker_facts = require("devloop.markers.facts")
 local marker_shared = require("devloop.markers.shared")
 local parsers_misc = require("devloop.parsers.misc")
+local forge_strings = require("forge.strings")
 local request_shared = require("devloop.requests.shared")
 local sweep_bounds = require("devloop.sweep_bounds")
 
@@ -51,7 +55,7 @@ local function recorded_decline_reason(comments, proposal_id, terminal_version)
   return nil
 end
 
-local function terminal_marker_position(comments, proposal_id, terminal_version)
+local function declined_terminal_marker_position(comments, proposal_id, terminal_version)
   for index, comment in ipairs(comments or {}) do
     if parsers_misc._is_trusted_comment(comment) then
       for marker in parsers_misc._comment_body(comment):gmatch(state_marker_pattern) do
@@ -67,11 +71,11 @@ local function terminal_marker_position(comments, proposal_id, terminal_version)
 end
 
 local function has_post_terminal_non_bot_comment(comments, terminal_marker_index)
-  local trusted_bot = devloop_base.strip_bot_login_suffix(devloop_base.trusted_bot_login())
+  local trusted_bot = forge_strings.canonical_login(parsers_misc.trusted_bot_login())
   for index, comment in ipairs(comments or {}) do
     if index > terminal_marker_index then
-      local author = devloop_base.strip_bot_login_suffix(parsers_misc._comment_author_login(comment))
-      if author ~= trusted_bot then
+      local author = forge_strings.canonical_login(parsers_misc._comment_author_login(comment))
+      if forge_strings.canonical_login(author) ~= forge_strings.canonical_login(trusted_bot) then
         return true
       end
     end
@@ -80,6 +84,15 @@ local function has_post_terminal_non_bot_comment(comments, terminal_marker_index
 end
 
 local function retirement_receipt_marker(fact)
+  if fact.terminal_authority == "reconcile:v1" then
+    return '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
+      .. fact.proposal_id
+      .. '" terminal_state="blocked" terminal_version="' .. fact.terminal_version
+      .. '" terminal_authority="reconcile:v1" action="drop"'
+      .. ' terminal_cause="no-semantic-progress" dwell_minutes="' .. tostring(fact.dwell_minutes)
+      .. '" decompose_check="no-proposal-pr-delegation-or-terminal-lineage-decomposed"'
+      .. ' operator_handling_check="no-post-terminal-human-comment" -->'
+  end
   return '<!-- fkst:github-devloop-ops:terminal-retirement-receipt:v1 proposal="'
     .. fact.proposal_id
     .. '" terminal_state="declined" terminal_version="' .. fact.terminal_version
@@ -90,9 +103,20 @@ local function retirement_receipt_visible(comments, fact)
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(retirement_receipt_pattern) do
       if marker_shared.marker_attr(marker, "proposal") == fact.proposal_id
-        and marker_shared.marker_attr(marker, "terminal_state") == "declined"
+        and marker_shared.marker_attr(marker, "terminal_state") == fact.terminal_state
         and marker_shared.marker_attr(marker, "terminal_version") == fact.terminal_version then
-        return true
+        if fact.terminal_authority ~= "reconcile:v1" then
+          return true
+        end
+        if marker_shared.marker_attr(marker, "terminal_authority") == "reconcile:v1"
+          and marker_shared.marker_attr(marker, "action") == "drop"
+          and marker_shared.marker_attr(marker, "terminal_cause") == "no-semantic-progress"
+          and marker_shared.marker_attr(marker, "dwell_minutes") == tostring(fact.dwell_minutes)
+          and marker_shared.marker_attr(marker, "decompose_check")
+            == "no-proposal-pr-delegation-or-terminal-lineage-decomposed"
+          and marker_shared.marker_attr(marker, "operator_handling_check") == "no-post-terminal-human-comment" then
+          return true
+        end
       end
     end
   end
@@ -101,10 +125,26 @@ end
 
 local function retirement_receipt_request(repo, issue_number, fact)
   local source_ref = base_ids.issue_source_ref(repo, issue_number)
-  return {
-    schema = "github-proxy.v1",
-    repo = repo,
-    issue_number = issue_number,
+  local body
+  if fact.terminal_authority == "reconcile:v1" then
+    body = table.concat({
+      "github-devloop terminal retirement: reconcile drop",
+      "",
+      "Terminal state: `blocked`",
+      "Terminal authority: `reconcile:v1`",
+      "Reconcile action: `drop`",
+      "Terminal cause: `no-semantic-progress`",
+      "Proposal: `" .. fact.proposal_id .. "`",
+      "Terminal marker version: `" .. fact.terminal_version .. "`",
+      "Required dwell: `" .. tostring(fact.dwell_minutes) .. " minutes`",
+      "Elapsed dwell: `" .. tostring(fact.elapsed_minutes) .. " minutes`",
+      "Decompose check: `no trusted pr-delegation for this proposal; no decomposed:v1 for this terminal version lineage`",
+      "Operator-handling check: `no non-bot comment after the reconcile terminal comment`",
+      "",
+      retirement_receipt_marker(fact),
+      request_shared.ai_sentinel,
+    }, "\n")
+  else
     body = table.concat({
       "github-devloop terminal retirement: declined",
       "",
@@ -117,16 +157,132 @@ local function retirement_receipt_request(repo, issue_number, fact)
       "",
       retirement_receipt_marker(fact),
       request_shared.ai_sentinel,
-    }, "\n"),
+    }, "\n")
+  end
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = body,
     dedup_key = base_ids.dedup_key({
       "terminal-retirement",
-      "declined",
+      fact.terminal_state,
       fact.proposal_id,
       fact.terminal_version,
     }),
     source_ref = source_ref,
   }
 end
+
+local function retirement_dwell(marker_index, marker_created_at, now_seconds)
+  local marker_seconds = contract_time.iso_timestamp_epoch_seconds(marker_created_at)
+  local current_seconds = tonumber(now_seconds)
+  if marker_seconds == nil or current_seconds == nil or current_seconds < marker_seconds then
+    return nil, ineligible("terminal-clock-invalid")
+  end
+  local elapsed_minutes = math.floor((current_seconds - marker_seconds) / 60)
+  if elapsed_minutes < common.terminal_retirement_dwell_minutes then
+    return nil, ineligible("retirement-dwell-active", elapsed_minutes)
+  end
+  return {
+    marker_index = marker_index,
+    elapsed_minutes = elapsed_minutes,
+  }
+end
+
+local function declined_retirement_fact(issue, proposal_id, terminal_version, now_seconds)
+  local marker_index, marker_created_at = declined_terminal_marker_position(
+    issue.comments,
+    proposal_id,
+    terminal_version
+  )
+  local dwell, failure = retirement_dwell(marker_index, marker_created_at, now_seconds)
+  if dwell == nil then
+    return nil, failure
+  end
+  local decline_reason = recorded_decline_reason(issue.comments, proposal_id, terminal_version)
+  if decline_reason == nil then
+    return nil, ineligible("decline-reason-missing", dwell.elapsed_minutes)
+  end
+  if has_post_terminal_non_bot_comment(issue.comments, dwell.marker_index) then
+    return nil, ineligible("post-terminal-non-bot-comment", dwell.elapsed_minutes)
+  end
+  return {
+    proposal_id = proposal_id,
+    terminal_state = "declined",
+    terminal_version = terminal_version,
+    decline_reason = decline_reason,
+    elapsed_minutes = dwell.elapsed_minutes,
+  }
+end
+
+local function reconcile_drop_retirement_fact(issue, proposal_id, terminal_version, now_seconds)
+  local reconcile_fact = conv_reconcile.reconcile_fact_for_terminal_version(
+    issue.comments,
+    proposal_id,
+    terminal_version
+  )
+  if reconcile_fact == nil then
+    return nil, ineligible("reconcile-terminal-fact-missing")
+  end
+  if reconcile_fact.action ~= "drop" then
+    return nil, ineligible("reconcile-terminal-action-unsupported")
+  end
+  if reconcile_fact.terminal_cause ~= "no-semantic-progress" then
+    return nil, ineligible("reconcile-terminal-cause-unsupported")
+  end
+  local dwell, failure = retirement_dwell(
+    reconcile_fact.comment_index,
+    reconcile_fact.comment_created_at,
+    now_seconds
+  )
+  if dwell == nil then
+    return nil, failure
+  end
+  if marker_facts.pr_delegation_fact(issue.comments, proposal_id) ~= nil then
+    return nil, ineligible("reconcile-terminal-pr-delegation-present", dwell.elapsed_minutes)
+  end
+  if decompose.decomposed_fact(issue.comments, proposal_id, terminal_version) ~= nil then
+    return nil, ineligible("reconcile-terminal-decomposed-present", dwell.elapsed_minutes)
+  end
+  if has_post_terminal_non_bot_comment(issue.comments, dwell.marker_index) then
+    return nil, ineligible("post-terminal-non-bot-comment", dwell.elapsed_minutes)
+  end
+  return {
+    proposal_id = proposal_id,
+    terminal_state = "blocked",
+    terminal_version = terminal_version,
+    terminal_authority = "reconcile:v1",
+    reconcile_action = reconcile_fact.action,
+    terminal_cause = reconcile_fact.terminal_cause,
+    dwell_minutes = common.terminal_retirement_dwell_minutes,
+    elapsed_minutes = dwell.elapsed_minutes,
+  }
+end
+
+local function observed_reconcile_drop_candidate(entity)
+  local observed_state = type(entity) == "table" and entity.state or nil
+  local observed_issue = type(entity) == "table" and entity.parent_issue or nil
+  local fact = conv_reconcile.reconcile_fact_for_terminal_version(
+    observed_issue and observed_issue.comments,
+    entity and entity.proposal_id,
+    observed_state and observed_state.version
+  )
+  return fact ~= nil
+    and fact.action == "drop"
+    and fact.terminal_cause == "no-semantic-progress"
+end
+
+local terminal_retirement_kinds = {
+  declined = {
+    derive_fact = declined_retirement_fact,
+    observed_candidate = function() return true end,
+  },
+  blocked = {
+    derive_fact = reconcile_drop_retirement_fact,
+    observed_candidate = observed_reconcile_drop_candidate,
+  },
+}
 
 function M.decide(issue, expected, now_seconds)
   if type(issue) ~= "table" then
@@ -135,7 +291,9 @@ function M.decide(issue, expected, now_seconds)
   if tostring(issue.state or ""):upper() ~= "OPEN" then
     return ineligible("issue-not-open")
   end
-  if type(expected) ~= "table" or expected.state ~= "declined" then
+  local expected_state = type(expected) == "table" and expected.state or nil
+  local retirement_kind = terminal_retirement_kinds[expected_state]
+  if retirement_kind == nil then
     return ineligible("not-declined")
   end
   local proposal_id = exact_marker_value(expected.proposal_id, base_ids.max_key_len)
@@ -143,39 +301,14 @@ function M.decide(issue, expected, now_seconds)
   if proposal_id == nil or terminal_version == nil then
     return ineligible("terminal-identity-invalid")
   end
-
-  if not devloop_state.is_current_state(issue.comments, proposal_id, "declined", terminal_version) then
+  if not devloop_state.is_current_state(issue.comments, proposal_id, expected_state, terminal_version) then
     return ineligible("terminal-changed")
   end
-  local marker_index, marker_created_at = terminal_marker_position(
-    issue.comments,
-    proposal_id,
-    terminal_version
-  )
-  local marker_seconds = contract_time.iso_timestamp_epoch_seconds(marker_created_at)
-  local current_seconds = tonumber(now_seconds)
-  if marker_seconds == nil or current_seconds == nil or current_seconds < marker_seconds then
-    return ineligible("terminal-clock-invalid")
-  end
-  local elapsed_minutes = math.floor((current_seconds - marker_seconds) / 60)
-  if elapsed_minutes < common.terminal_retirement_dwell_minutes.declined then
-    return ineligible("retirement-dwell-active", elapsed_minutes)
-  end
-  local decline_reason = recorded_decline_reason(issue.comments, proposal_id, terminal_version)
-  if decline_reason == nil then
-    return ineligible("decline-reason-missing", elapsed_minutes)
-  end
-  if has_post_terminal_non_bot_comment(issue.comments, marker_index) then
-    return ineligible("post-terminal-non-bot-comment", elapsed_minutes)
-  end
 
-  local fact = {
-    proposal_id = proposal_id,
-    terminal_state = "declined",
-    terminal_version = terminal_version,
-    decline_reason = decline_reason,
-    elapsed_minutes = elapsed_minutes,
-  }
+  local fact, failure = retirement_kind.derive_fact(issue, proposal_id, terminal_version, now_seconds)
+  if fact == nil then
+    return failure
+  end
   if retirement_receipt_visible(issue.comments, fact) then
     return {
       decision = "eligible",
@@ -197,7 +330,7 @@ local function log_retirement(expected, decision, action, mode, reason)
     "dept=observability",
     "tag=TERMINAL_RETIREMENT",
     "proposal=" .. tostring(expected and expected.proposal_id or "unknown"),
-    "terminal_state=declined",
+    "terminal_state=" .. tostring(expected and expected.state or "unknown"),
     "terminal_version=" .. tostring(expected and expected.version or "unknown"),
     "decision=" .. tostring(decision or "ineligible"),
     "action=" .. tostring(action or "skip"),
@@ -209,9 +342,15 @@ end
 function M.reconcile(github, repo, entity, limits, deadline)
   local observed_state = type(entity) == "table" and entity.state or nil
   local observed_issue = type(entity) == "table" and entity.parent_issue or nil
+  local retirement_kind = type(observed_state) == "table"
+    and terminal_retirement_kinds[observed_state.state]
+    or nil
   if type(observed_state) ~= "table"
-    or observed_state.state ~= "declined"
+    or retirement_kind == nil
     or tostring(observed_issue and observed_issue.state or ""):upper() ~= "OPEN" then
+    return nil
+  end
+  if not retirement_kind.observed_candidate(entity) then
     return nil
   end
   local expected = {

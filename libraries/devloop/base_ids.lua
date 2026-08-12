@@ -36,6 +36,14 @@ function I.safe_repo(repo)
   return safe
 end
 
+function I.require_safe_repo(repo, error_message)
+  local value = tostring(repo or "")
+  if value == "" or I.safe_repo(value) ~= value then
+    error(error_message)
+  end
+  return value
+end
+
 function I.safe_issue(issue_number)
   local safe = strings.sanitize_key(issue_number, I.max_key_len):sub(1, I.max_issue_key_len):gsub("/+$", "")
   if safe == "" then

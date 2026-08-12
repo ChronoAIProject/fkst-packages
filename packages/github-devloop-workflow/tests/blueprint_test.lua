@@ -311,6 +311,33 @@ local reject_cases = {
     path = "steps[1].needs",
   },
   {
+    name = "unsupported already-satisfied policy",
+    mutate = function(doc) doc.steps[2].on_already_satisfied = "complete" end,
+    code = "unsupported_already_satisfied_policy",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
+    name = "non-string already-satisfied policy",
+    mutate = function(doc) doc.steps[2].on_already_satisfied = true end,
+    code = "not_string",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
+    name = "reserved already-satisfied policy in host workflow",
+    mutate = function(doc) doc.steps[2].on_already_satisfied = "hold" end,
+    code = "reserved_already_satisfied_policy",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
+    name = "reserved already-satisfied policy on another built-in step",
+    mutate = function(doc)
+      doc.id = "software-feature-flow"
+      doc.steps[2].on_already_satisfied = "hold"
+    end,
+    code = "reserved_already_satisfied_policy",
+    path = "steps[2].on_already_satisfied",
+  },
+  {
     name = "missing step id",
     mutate = function(doc) doc.steps[1].id = nil end,
     code = "not_string",
@@ -573,6 +600,16 @@ local tests = {
       labels_any = { "workflow", "fkst" },
       title_contains_any = { "orchestrate", "workflow" },
     }
+    local ok, err = blueprint.validate(doc)
+    t.eq(ok, true)
+    t.is_nil(err)
+  end,
+
+  test_builtin_production_slice_accepts_explicit_already_satisfied_hold_policy = function()
+    local doc = valid_blueprint()
+    doc.id = "software-feature-flow"
+    doc.steps[2].id = "production-slice"
+    doc.steps[2].on_already_satisfied = "hold"
     local ok, err = blueprint.validate(doc)
     t.eq(ok, true)
     t.is_nil(err)

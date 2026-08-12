@@ -153,15 +153,7 @@ local function compare_transition_versions(incoming_version, current_version)
   return transition_version.compare(incoming_version, current_version)
 end
 
-local function sign_order(value)
-  if value > 0 then
-    return 1
-  end
-  if value < 0 then
-    return -1
-  end
-  return 0
-end
+local sign_order = transition_version.sign_order
 
 function R.compare_state_marker_order(current, target_state, target_version)
   if current == nil or current.version == nil then

@@ -39,8 +39,9 @@ local function blueprint()
   }
 end
 
-local function blueprint_marker()
-  local built, err = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(blueprint()))
+local function blueprint_marker(bp)
+  local selected = bp or blueprint()
+  local built, err = marker.build_blueprint_marker(origin, selected.id, digest.blueprint_digest(selected))
   t.is_nil(err)
   return built
 end
@@ -83,9 +84,19 @@ local function generated_spec(slot, body)
   }
 end
 
-local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state)
-  local slot = slot_id == "second" and blueprint().steps[2] or blueprint().steps[1]
-  local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(blueprint()), slot, predecessor_ref_digest, spec)
+local function build_entry(slot_id, predecessor_ref_digest, spec, child_issue, state, bp)
+  local selected = bp or blueprint()
+  local slot = nil
+  for _, candidate in ipairs(selected.steps) do
+    if candidate.id == slot_id then
+      slot = candidate
+      break
+    end
+  end
+  if slot == nil then
+    error("unknown blueprint slot: " .. tostring(slot_id))
+  end
+  local entry = materialization.write_generated_entry(origin, digest.blueprint_digest(selected), slot, predecessor_ref_digest, spec)
   local built, err = marker.build_materialization_marker(
     origin,
     entry.blueprint_digest,
@@ -106,8 +117,8 @@ local function generated_comment(slot_id, predecessor_ref_digest, spec)
   return comment(built)
 end
 
-local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue)
-  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, child_issue, "created")
+local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue, bp)
+  local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, child_issue, "created", bp)
   return comment(built)
 end
 
@@ -145,9 +156,9 @@ local function child_body_with_blueprint(slot_id, spec, child_dedup, bp)
   return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
 end
 
-local function raise_capture(fn)
+local function raise_capture(fn, lock)
   local old_with_lock = with_lock
-  with_lock = function(_key, locked)
+  with_lock = lock or function(_key, locked)
     return locked()
   end
   local ok, result = pcall(fn)
@@ -176,10 +187,13 @@ local function run_with(fakes)
       list_open_issues = function()
         return fake.issues or { { number = origin_issue, title = "Workflow origin" } }
       end,
-      read_issue = function()
+      read_issue = function(...)
+        if type(fake.read_issue) == "function" then
+          return fake.read_issue(...)
+        end
         return fake.current or issue()
       end,
-      verify_issue_claim = function()
+      verify_issue_claim = fake.verify_issue_claim or function()
         return fake.claim ~= false
       end,
       dependency_gate = fake.dependency_gate or function()
@@ -202,11 +216,12 @@ local function run_with(fakes)
         if fake.workflow_missing then
           return { valid = {} }
         end
+        local selected = fake.blueprint or blueprint()
         return {
           valid = {
-            ["workflow-one"] = {
-              path = "test-workflow.json",
-              blueprint = fake.blueprint or blueprint(),
+            [selected.id] = {
+              path = fake.blueprint_path or "test-workflow.json",
+              blueprint = selected,
             },
           },
         }
@@ -228,7 +243,7 @@ local function run_with(fakes)
   }))
   local result = raise_capture(function()
     return testing.run_fake(dept, event())
-  end)
+  end, fake.with_lock)
   return result.raises
 end
 

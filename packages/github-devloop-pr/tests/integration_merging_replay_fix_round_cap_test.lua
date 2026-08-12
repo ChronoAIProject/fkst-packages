@@ -126,7 +126,7 @@ local function run_own_ci_merging_replay(version, head_sha, name)
       return true
     end,
   }
-  local replayers = core.replayer_review_registry(tools)
+  local replayers = assert(rawget(core, "replayer")).replay_sources.review_replayers(tools)
   local row = replay_fields.restart_transition_row(core.restart_transition_table(), "merging")
   local ok, outcome = pcall(
     replayers.merging,

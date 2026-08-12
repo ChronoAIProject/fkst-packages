@@ -1,10 +1,12 @@
 local convergence_shared = require("devloop.convergence.shared")
 local synthesis_contract = require("consensus.synthesis_contract")
 local devloop_base = require("devloop.base")
+local parsers_misc = require("devloop.parsers.misc")
 local h = require("tests.devloop_core_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
 local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -23,7 +25,7 @@ end
 local function trusted(body)
   return {
     body = body,
-    author_login = devloop_base.trusted_bot_login(),
+    author_login = parsers_misc.trusted_bot_login(),
   }
 end
 
@@ -84,7 +86,7 @@ return {
     local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
     local head_sha = "abcdef1234567890"
     local review_proposal_id = "github-devloop/pr-review/owner_repo/7/v1/abcdef1234567890"
-    local marker = conv_rounds.review_converge_round_marker(core,
+    local marker = conv_rounds.review_converge_round_marker(restart_policy,
       review_proposal_id,
       proposal_id,
       issue_version,
@@ -96,7 +98,7 @@ return {
       angles(),
       "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected"
     )
-    local facts = conv_rounds.review_converge_round_facts(core,
+    local facts = conv_rounds.review_converge_round_facts(restart_policy,
       { trusted(marker) },
       review_proposal_id,
       proposal_id,
@@ -104,8 +106,7 @@ return {
       head_sha,
       source_digest
     )
-    local proposal = payloads_builders.build_pr_review_loop_proposal(core,
-      "owner/repo",
+    local proposal = payloads_builders.build_pr_review_loop_proposal(      "owner/repo",
       42,
       7,
       issue_version,
