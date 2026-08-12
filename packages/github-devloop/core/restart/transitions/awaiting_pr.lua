@@ -55,6 +55,7 @@ return function(M, h)
       delegation_marker = "pr-delegation:v1",
       terminal_states = terminal_states,
     },
+    child_dependency = contract.child_dependency,
     terminal = false,
     to_states = { "merged", "ready", "blocked" },
     driving_queue = "devloop_observe_redrive",
@@ -142,7 +143,7 @@ return function(M, h)
     required_facts = {
       fact("state", "marker-read"),
       fact("pr-delegation", "marker-read"),
-      fact("child-state", "marker-read"),
+      fact("child-pr-dependency", "marker-read"),
     },
     advancing_facts = {
       advancing_fact("child-state", "merged", { issue = true, liveness_scan = true }, "source_ref:pr"),

@@ -90,7 +90,7 @@ local function terminal_linked_pr_action(tools, dept, issue, state, proposal_id,
   return tools.terminal_linked_pr_action(dept, issue, state, proposal_id, link, current_pr, facts)
 end
 
-local function log_decline(R, disposition, dept, proposal_id, state, from_state, to_state, outcome, reason)
+local function log_decline(R, disposition, dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
   local capture = R.replay_capture
   if capture ~= nil then
     capture.disposition = disposition
@@ -99,7 +99,7 @@ local function log_decline(R, disposition, dept, proposal_id, state, from_state,
     capture.from_state = from_state
     capture.to_state = to_state
   end
-  devloop_logging.log_cas_decision(dept, proposal_id, state, from_state, to_state, outcome, reason)
+  devloop_logging.log_cas_decision(dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
   return false
 end
 local function log_skip(R, ...) return log_decline(R, "stuck", ...) end

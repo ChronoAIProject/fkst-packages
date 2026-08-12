@@ -19,6 +19,7 @@ local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 
 function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_contains_child)
   local receipt_heads = {}
@@ -37,14 +38,13 @@ function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_co
 end
 
 function S.install(M, replay_log_decline)
-local child_terminal_states = {
-  merged = true,
-  ["closed-unmerged"] = true,
-  blocked = true,
-}
+local child_terminal_states = {}
+for _, state in ipairs(pr_partition_contract.pr_terminal_states()) do
+  child_terminal_states[state] = true
+end
 local canonical_pr_is_merged, origin_matches_delegation, canonical_merged_child_state, merged_child_landed_on_upstream
-local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason)
-  return replay_log_decline("stuck", dept, proposal_id, state, from_state, to_state, outcome, reason)
+local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
+  return replay_log_decline("stuck", dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
 end
 
 local function raise_effects(dept, proposal_id, apply_state, version, label_changes, effects)
@@ -367,6 +367,12 @@ local function monotone_terminal_child(state, delegation, current_pr)
 end
 
 local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
+  if observed_child_state ~= nil and observed_child_state.raw_state ~= nil
+    and not pr_partition_contract.child_state_predicate(observed_child_state.raw_state) then
+    return nil, "child-state-unrecognized", "delegated child PR reported unrecognized state: " .. tostring(observed_child_state.raw_state), {
+      { name = "child_state", values = { observed_child_state.raw_state } },
+    }
+  end
   local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
   local child_state = canonical_merged_state or observed_child_state
   local outcome, reason
@@ -429,7 +435,7 @@ function M.canonicalize_implementing_terminal_delegated_pr(dept, issue, state, f
     current_pr = read_delegated_child_pr(dept, issue, delegation)
   end
   local terminal_child, outcome, reason = resolve_delegated_terminal_child(
-    issue, state, delegation, current_pr, facts.child_state or facts["child-state"]
+    issue, state, delegation, current_pr, facts.child_pr_dependency or facts.child_state or facts["child-pr-dependency"] or facts["child-state"]
   )
   if terminal_child == nil then
     return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", outcome, reason)
@@ -567,11 +573,11 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(pr-delegation-child)", "pr-delegation child identity is malformed or cross-repo")
   end
   local current_pr = (facts.current_pr ~= nil and facts.current_pr.force_fresh == true) and facts.current_pr or read_delegated_child_pr(dept, issue, delegation)
-  local terminal_child, outcome, reason = resolve_delegated_terminal_child(
-    issue, state, delegation, current_pr, facts.child_state or facts["child-state"]
+  local terminal_child, outcome, reason, outcome_facts = resolve_delegated_terminal_child(
+    issue, state, delegation, current_pr, facts.child_pr_dependency or facts.child_state or facts["child-pr-dependency"] or facts["child-state"]
   )
   if terminal_child == nil then
-    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason)
+    return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason, outcome_facts)
   end
   local child_state = terminal_child.child_state
   local canonical_merged_state = terminal_child.canonical_merged_state
