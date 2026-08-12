@@ -5,6 +5,18 @@ function S.trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+function S.normalize_control_line(value)
+  if value == nil then
+    return nil
+  end
+  local text = tostring(value):gsub("%c", " "):gsub("%s+", " ")
+  text = S.trim(text)
+  if text == "" then
+    return nil
+  end
+  return text
+end
+
 function S.map_lines(value, transform)
   local output = {}
   local start = 1

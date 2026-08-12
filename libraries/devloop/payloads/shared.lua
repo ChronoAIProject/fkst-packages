@@ -33,12 +33,8 @@ function C.bounded_framing(framing)
 end
 
 function C.bounded_control_text(value, limit)
-  if value == nil then
-    return nil
-  end
-  local text = tostring(value):gsub("%c", " "):gsub("%s+", " ")
-  text = text:gsub("^%s+", ""):gsub("%s+$", "")
-  if text == "" then
+  local text = strings.normalize_control_line(value)
+  if text == nil then
     return nil
   end
   local cap = limit or devloop_base._max_blocking_gap_len
