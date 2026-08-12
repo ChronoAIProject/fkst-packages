@@ -90,23 +90,6 @@ function M.github_proxy_replay_budget(exec)
   return parsed
 end
 
-function M.github_proxy_poll_label_prefixes(exec)
-  local ok, value = pcall(M.read_env, "FKST_GITHUB_PROXY_POLL_LABEL_PREFIX", exec)
-  if not ok or value == nil then
-    return {}
-  end
-  local prefixes = {}
-  local seen = {}
-  for raw in tostring(value):gmatch("[^,]+") do
-    local prefix = raw:gsub("^%s+", ""):gsub("%s+$", "")
-    if prefix ~= "" and not seen[prefix] then
-      seen[prefix] = true
-      table.insert(prefixes, prefix)
-    end
-  end
-  return prefixes
-end
-
 require("forge.github_debug_stamp").install(M, M.read_env)
 
 function M.log_line(level, dept, tag, fields)
@@ -243,14 +226,6 @@ local function sanitize_runtime_segment(value)
   return safe
 end
 
-function M.issue_label_lock_key(repo, issue_number)
-  local id = sanitize_runtime_segment(repo) .. "/issue/" .. sanitize_runtime_segment(issue_number)
-  if #id > 180 then
-    id = id:sub(1, 180)
-  end
-  return "github-proxy/label-lock/" .. id
-end
-
 function M.entity_label_lock_key(repo, target_kind, number)
   local kind = tostring(target_kind or "issue")
   if kind ~= "issue" and kind ~= "pr" then
@@ -345,24 +320,6 @@ function M.parse_issue_list(gh_json_stdout)
   return M.parse_entity_list(gh_json_stdout, "issue")
 end
 
-function M.github_issue_list(repo, timeout)
-  return M.github().issue_list(repo, timeout or 30)
-end
-
-function M.github_pr_list(repo, timeout)
-  return M.github().pr_list(repo, timeout or 30)
-end
-
-function M.github_pr_list_head(repo, branch, base_branch, timeout)
-  if not is_git_ref_safe(branch) then
-    error("github-proxy: git-ref-invalid: invalid branch")
-  end
-  if base_branch ~= nil and not is_git_ref_safe(base_branch) then
-    error("github-proxy: git-ref-invalid: invalid base branch")
-  end
-  return M.github().pr_list_head(repo, branch, base_branch, timeout or 30)
-end
-
 function M.parse_pr_list_for_head(gh_json_stdout, branch)
   local decoded = json.decode(gh_json_stdout or "[]")
   for _, item in ipairs(decoded) do
@@ -428,16 +385,6 @@ function M.parse_git_show_ref_head(stdout, branch)
   return nil
 end
 
-function M.github_pr_create(repo, branch, base_branch, title, body_file, timeout)
-  if not is_git_ref_safe(branch) then
-    error("github-proxy: git-ref-invalid: invalid branch")
-  end
-  if base_branch ~= nil and not is_git_ref_safe(base_branch) then
-    error("github-proxy: git-ref-invalid: invalid base branch")
-  end
-  return M.github().pr_create(repo, branch, base_branch, title, body_file, timeout or 60)
-end
-
 function M.parse_pr_create(stdout)
   local url = tostring(stdout or ""):match("(https?://%S+/pull/(%d+))")
   local number = url and url:match("/pull/(%d+)")
@@ -448,13 +395,6 @@ function M.parse_pr_create(stdout)
     }
   end
   return nil
-end
-
-function M.github_pr_view_head_oid(repo, pr_number, timeout)
-  if not M.is_positive_integer(pr_number) then
-    error("github-proxy: pr-number-invalid: invalid PR number")
-  end
-  return M.github().pr_view(repo, pr_number, timeout or 30)
 end
 
 local function repository_name_with_owner(head_repository, head_repository_owner)
@@ -561,15 +501,6 @@ function M.parse_issue_labels(gh_json_stdout)
     end
   end
   return labels
-end
-
-function M.parse_entity_label_view(gh_json_stdout)
-  local decoded = json.decode(gh_json_stdout or "{}")
-  return {
-    labels = M.parse_issue_labels(gh_json_stdout),
-    comments = M.parse_issue_comments(gh_json_stdout),
-    raw = decoded,
-  }
 end
 
 function M.parse_repo_labels(gh_json_stdout)
