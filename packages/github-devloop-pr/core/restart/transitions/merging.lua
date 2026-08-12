@@ -1,4 +1,5 @@
 local devloop_state = require("devloop.state")
+local merge_gate_progress_signal = require("core.restart.liveness_signal_producers.merge_gate_wait").progress_signal
 local function effect_entitlements(semantic_variant, effect_ids)
   local id = "github-devloop-pr/merging/autonomous/" .. semantic_variant
   return {
@@ -43,14 +44,7 @@ return function(M, h)
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 30,
       external_wait_bound_minutes = 360,
-      progress_signal = {
-        family = "merge-gate-wait",
-        producer = "merge-gate-wait",
-        resolver = "merge-gate-wait",
-        surface = "pr-comment-stream",
-        version_form = "raw",
-        max_age_minutes = 360,
-      },
+      progress_signal = merge_gate_progress_signal(),
     }),
     on_timeout = timeout("devloop_merge_ready"),
     receiver_activations = {

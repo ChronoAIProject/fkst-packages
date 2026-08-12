@@ -32,9 +32,6 @@ local function bounded_segment(value, fallback, limit, keep_slashes)
     local suffix = "-" .. strings.decimal_checksum(value)
     segment = segment:sub(1, limit - #suffix):gsub("[/%-]+$", "") .. suffix
   end
-  if segment == "" then
-    return fallback
-  end
   return segment
 end
 
