@@ -81,7 +81,7 @@ class TestAffectedHarness:
                 "host_entry.sh",
                 "composed_manifest.sh",
                 "composed_conformance.sh",
-                "test_parallel.sh",
+                "test_parallel.sh", "test_coverage.sh",
                 "test_deadline.sh",
                 "run_department.sh",
                 "check_repo_intake_routing.py",
