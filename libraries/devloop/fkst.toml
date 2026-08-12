@@ -66,6 +66,7 @@ public = [
   "devloop.impl_failure",
   "devloop.implementation_refusal",
   "devloop.intake.default",
+  "devloop.local_iteration_failure_identity",
   "devloop.liveness",
   "devloop.liveness.signal",
   "devloop.liveness.timeout",
