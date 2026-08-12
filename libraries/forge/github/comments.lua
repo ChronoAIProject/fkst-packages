@@ -1,7 +1,7 @@
 local M = {}
 local stdout_policy = require("forge.github.stdout_policy")
 
-local function issue_comments_argv(repo, issue_number)
+function M.issue_comments_argv(repo, issue_number)
   return {
     "gh",
     "api",
@@ -66,11 +66,11 @@ end
 
 function M.install(handle)
   function handle.issue_comments(repo, issue_number, timeout)
-    return handle._exec(issue_comments_argv(repo, issue_number), timeout, "gh issue comments", stdout_policy.content_json("issue_comments"))
+    return handle._exec(M.issue_comments_argv(repo, issue_number), timeout, "gh issue comments", stdout_policy.content_json("issue_comments"))
   end
 
   function handle.pr_comments(repo, pr_number, timeout)
-    return handle._exec(issue_comments_argv(repo, pr_number), timeout, "gh PR comments", stdout_policy.content_json("pr_comments"))
+    return handle._exec(M.issue_comments_argv(repo, pr_number), timeout, "gh PR comments", stdout_policy.content_json("pr_comments"))
   end
 
   function handle.issue_comment_create(repo, issue_number, body_file, timeout)

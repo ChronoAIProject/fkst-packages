@@ -24,6 +24,20 @@ local function next_codex_run_id()
   return "codex-" .. ulid_prefix .. ulid_suffix(codex_run_counter)
 end
 
+function M.escape_json_string(value, unicode_escape_format)
+  return tostring(value)
+    :gsub("\\", "\\\\")
+    :gsub('"', '\\"')
+    :gsub("\b", "\\b")
+    :gsub("\f", "\\f")
+    :gsub("\n", "\\n")
+    :gsub("\r", "\\r")
+    :gsub("\t", "\\t")
+    :gsub("[%z\1-\31]", function(char)
+      return string.format(unicode_escape_format, string.byte(char))
+    end)
+end
+
 local function json_value(value)
   if type(value) == "number" then
     return tostring(value)

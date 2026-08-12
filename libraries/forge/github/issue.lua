@@ -1,5 +1,6 @@
 local M = {}
 local argv_render = require("forge.argv")
+local github_comments = require("forge.github.comments")
 local github_view = require("forge.github_view")
 local stdout_policy = require("forge.github.stdout_policy")
 local append_comments = github_view.append_comments
@@ -79,17 +80,7 @@ local function gh_issue_rest_argv(repo, issue_number)
   return { "gh", "api", "repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number) }
 end
 
-local function gh_issue_comments_rest_argv(repo, issue_number)
-  return {
-    "gh",
-    "api",
-    "--paginate",
-    "--slurp",
-    "repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number) .. "/comments?per_page=100",
-  }
-end
-
-local function gh_issue_edit_assignee_argv(repo, issue_number, flag, login)
+local function gh_issue_edit_argv(repo, issue_number, flag, value)
   return {
     "gh",
     "issue",
@@ -98,20 +89,7 @@ local function gh_issue_edit_assignee_argv(repo, issue_number, flag, login)
     "--repo",
     tostring(repo),
     flag,
-    tostring(login),
-  }
-end
-
-local function gh_issue_edit_label_argv(repo, issue_number, flag, label)
-  return {
-    "gh",
-    "issue",
-    "edit",
-    tostring(issue_number),
-    "--repo",
-    tostring(repo),
-    flag,
-    tostring(label),
+    tostring(value),
   }
 end
 
@@ -399,7 +377,7 @@ function M.install(handle)
       stdout_policy.content_json("issue_view")
     )
     local comments = handle._exec(
-      gh_issue_comments_rest_argv(repo, number),
+      github_comments.issue_comments_argv(repo, number),
       timeout,
       "gh issue comments",
       stdout_policy.content_json("issue_comments")
@@ -542,7 +520,7 @@ function M.install(handle)
 
   function handle.issue_assign(repo, issue_number, login, timeout)
     return handle._exec(
-      gh_issue_edit_assignee_argv(repo, issue_number, "--add-assignee", login),
+      gh_issue_edit_argv(repo, issue_number, "--add-assignee", login),
       timeout,
       "gh issue assign",
       stdout_policy.write_response()
@@ -551,7 +529,7 @@ function M.install(handle)
 
   function handle.issue_unassign(repo, issue_number, login, timeout)
     return handle._exec(
-      gh_issue_edit_assignee_argv(repo, issue_number, "--remove-assignee", login),
+      gh_issue_edit_argv(repo, issue_number, "--remove-assignee", login),
       timeout,
       "gh issue unassign",
       stdout_policy.write_response()
@@ -560,7 +538,7 @@ function M.install(handle)
 
   function handle.issue_add_label(repo, issue_number, label, timeout)
     return handle._exec(
-      gh_issue_edit_label_argv(repo, issue_number, "--add-label", label),
+      gh_issue_edit_argv(repo, issue_number, "--add-label", label),
       timeout,
       "gh issue add label",
       stdout_policy.write_response()
@@ -569,7 +547,7 @@ function M.install(handle)
 
   function handle.issue_remove_label(repo, issue_number, label, timeout)
     return handle._exec(
-      gh_issue_edit_label_argv(repo, issue_number, "--remove-label", label),
+      gh_issue_edit_argv(repo, issue_number, "--remove-label", label),
       timeout,
       "gh issue remove label",
       stdout_policy.write_response()
