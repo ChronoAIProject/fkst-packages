@@ -5,6 +5,10 @@ function S.trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+function S.trim_end(value)
+  return tostring(value or ""):gsub("%s+$", "")
+end
+
 function S.normalize_control_line(value)
   if value == nil then
     return nil
