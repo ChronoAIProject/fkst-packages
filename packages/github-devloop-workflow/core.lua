@@ -25,14 +25,7 @@ local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local saga_conformance = require("devloop.saga_conformance")
 
 local M
-local intake_prompt_surface = devloop_prompts.new({
-  prompts = {
-    intake = default_intake.prompt,
-  },
-}, {
-  intake = true,
-  intake_parser = true,
-})
+local intake_prompt_surface = default_intake.prompt_surface()
 
 local function conformance_errors()
   return saga_conformance.errors(M)

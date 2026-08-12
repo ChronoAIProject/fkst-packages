@@ -1,21 +1,12 @@
 local M = {}
+local testing = require("testkit_internal.testing")
 
 function M.new(core)
   core = core or error("testkit-internal: entity-read-mock-core-required: core is required")
   local fixture = {}
 
 local function encode_json_string(value)
-  return tostring(value or "")
-    :gsub("\\", "\\\\")
-    :gsub('"', '\\"')
-    :gsub("\b", "\\b")
-    :gsub("\f", "\\f")
-    :gsub("\n", "\\n")
-    :gsub("\r", "\\r")
-    :gsub("\t", "\\t")
-    :gsub("[%z\1-\31]", function(char)
-      return string.format("\\u%04X", string.byte(char))
-    end)
+  return testing.escape_json_string(value or "", "\\u%04X")
 end
 
 local function encode_json_value(value)

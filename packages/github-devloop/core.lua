@@ -177,7 +177,7 @@ package_replayer = require("devloop.replayer").new(restart_policy, {
   },
   issue_retry_policy = {
     impl_failure_retry_allowed = M.impl_failure_retry_allowed,
-    next_impl_retry_attempt = M.next_impl_retry_attempt,
+    next_implementation_retry_attempt = M.next_implementation_retry_attempt,
     implementation_retry_attempt = M.implementation_retry_attempt,
     ready_payload_inner_version = M.ready_payload_inner_version,
   },

@@ -33,6 +33,13 @@ function S.split_repo(repo)
   return owner, name
 end
 
+function S.is_bounded_repo(repo, limit)
+  if not contract_strings.is_bounded_string(repo, limit) or S.split_repo(repo) == nil then
+    return false
+  end
+  return repo:find("^[%w._-]+/[%w._-]+$") ~= nil
+end
+
 local function is_repo_segment(value)
   return type(value) == "string" and value ~= "" and value:find("/", 1, true) == nil
 end

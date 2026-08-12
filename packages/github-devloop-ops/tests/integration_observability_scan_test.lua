@@ -8,6 +8,7 @@ local decompose_lib = fixtures.decompose_lib
 local m_builders = fixtures.m_builders
 local queue_starvation = require("devloop.queue_starvation")
 local config = require("devloop.config")
+local transition_version = require("contract.transition_version")
 local opts = fixtures.opts
 local run_observability = fixtures.run_observability
 local mock_env = fixtures.mock_env
@@ -50,6 +51,95 @@ local mock_dashboard_patch = fixtures.mock_dashboard_patch
 local assert_orphan_reaper_skips_parent_owned_by = fixtures.assert_orphan_reaper_skips_parent_owned_by
 
 return {
+  test_triage_audit_log_line_preserves_every_retrieval_field = function()
+    local line = core.audit_verdict_log_line({
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      issue_number = 42,
+      state = "declined",
+      version = "github-devloop/issue/owner/repo/42/intake/v1",
+      marker_author = "fkst-test-bot",
+      verdict = "abstain",
+    })
+
+    t.eq(line, table.concat({
+      "github-devloop",
+      "dept=observability",
+      "tag=AUDIT_VERDICT",
+      "proposal=github-devloop/issue/owner/repo/42",
+      "issue=42",
+      "state=declined",
+      "version=github-devloop/issue/owner/repo/42/intake/v1",
+      "marker_author=fkst-test-bot",
+      "verdict=abstain",
+    }, " "))
+  end,
+
+  test_observability_retains_triage_verdicts_without_entering_the_work_item_path = function()
+    local waiting_proposal = "github-devloop/issue/owner/repo/42"
+    local waiting_version = waiting_proposal .. "/intake/v1"
+    local peer_version = transition_version.next_blocked(
+      transition_version.next_loop(waiting_version),
+      "child-pr-blocked"
+    )
+    local blocked_proposal = "github-devloop/issue/owner/repo/43"
+    local blocked_version = transition_version.next_blocked(
+      blocked_proposal .. "/intake/v1",
+      "child-pr-blocked"
+    )
+    mock_env()
+    mock_all_issue_lists({ 42, 43 })
+    mock_pr_list({})
+    mock_issue_view({
+      render_comment(core.state_marker(waiting_proposal, "blocked", "2099-01-01T00-00-00Z"), "mallory"),
+      render_comment(h.projected_state_comment(waiting_proposal, "dependency_wait", waiting_version), "fkst-test-bot"),
+      render_comment(core.state_marker(waiting_proposal, "blocked", peer_version), "ElonSG"),
+    }, nil, { number = 42 })
+    mock_issue_view({
+      render_comment(core.state_marker(blocked_proposal, "blocked", blocked_version), "fkst-test-bot"),
+    }, nil, { number = 43 })
+
+    local logs = capture_observability_logs()
+    local audit_logs = {}
+    for _, line in ipairs(logs) do
+      if line:find("tag=AUDIT_VERDICT", 1, true) ~= nil then
+        table.insert(audit_logs, line)
+      end
+    end
+
+    t.eq(#audit_logs, 2)
+    t.eq(audit_logs[1], table.concat({
+      "github-devloop",
+      "dept=observability",
+      "tag=AUDIT_VERDICT",
+      "proposal=" .. waiting_proposal,
+      "issue=42",
+      "state=blocked",
+      "version=" .. peer_version,
+      "marker_author=elonsg",
+      "verdict=derived",
+    }, " "))
+    t.is_true(audit_logs[2]:find("proposal=" .. blocked_proposal, 1, true) ~= nil)
+    t.is_true(audit_logs[2]:find("issue=43", 1, true) ~= nil)
+    t.is_true(audit_logs[2]:find("state=blocked", 1, true) ~= nil)
+    t.is_true(audit_logs[2]:find("version=" .. blocked_version, 1, true) ~= nil)
+    t.is_true(audit_logs[2]:find("marker_author=fkst-test-bot", 1, true) ~= nil)
+    t.is_true(audit_logs[2]:find("verdict=derived", 1, true) ~= nil)
+
+    mock_env()
+    mock_all_issue_lists({ 42, 43 })
+    mock_pr_list({})
+    mock_issue_view({
+      render_comment(h.projected_state_comment(waiting_proposal, "dependency_wait", waiting_version), "fkst-test-bot"),
+    }, nil, { number = 42 })
+    mock_issue_view({
+      render_comment(core.state_marker(blocked_proposal, "blocked", blocked_version), "fkst-test-bot"),
+    }, nil, { number = 43 })
+    local result = run_observability()
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
   test_summary_logs_all_known_states_with_zero_defaults = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env()

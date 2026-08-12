@@ -9,13 +9,7 @@ function M.trim(value)
 end
 
 function M.validate_repo(repo)
-  if not strings.is_bounded_string(repo, limits.repo) then
-    return false
-  end
-  if forge_strings.split_repo(repo) == nil then
-    return false
-  end
-  return tostring(repo):find("^[%w._-]+/[%w._-]+$") ~= nil
+  return forge_strings.is_bounded_repo(repo, limits.repo)
 end
 
 local function decode_json_list(stdout, context)

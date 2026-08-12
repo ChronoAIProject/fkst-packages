@@ -3,7 +3,7 @@ local intake_class = require("core.intake_class")
 local intake_service_class = require("core.intake_service_class")
 local devloop_logging = require("devloop.logging")
 local saga = require("workflow.saga")
-local prompts = require("devloop.prompts").new({ prompts = { intake = default_intake.prompt } }, { intake = true, intake_parser = true })
+local prompts = default_intake.prompt_surface()
 
 local spec = {
   consumes = { "github-devloop-intake.devloop_intake_candidate" },
