@@ -126,16 +126,22 @@ local function marker_attr(marker, key)
   return marker:match('%s' .. key .. '="([^"]*)"')
 end
 
-function P.child_state_fact(comments, delegation, parent_repo)
+function P.child_state_fact(observed_pr, delegation, parent_repo)
   if type(delegation) ~= "table" then
     return nil
   end
   local pr_repo, parsed_number = entity_lib.parse_pr_proposal_id(delegation.pr_proposal_id or delegation.pr_proposal)
+  local observed_repo = type(observed_pr) == "table" and observed_pr.repo or nil
+  local observed_pr_number = type(observed_pr) == "table" and observed_pr.number or nil
   local identity_valid = pr_repo == tostring(parent_repo or "")
     and tostring(parsed_number or "") == tostring(delegation.pr_number or "")
+    and tostring(observed_repo or "") == tostring(pr_repo or "")
+    and tostring(observed_pr_number or "") == tostring(delegation.pr_number or "")
   if not identity_valid then
     return {
       identity_valid = false,
+      observed_repo = observed_repo,
+      observed_pr_number = observed_pr_number,
       pr_proposal_id = delegation.pr_proposal_id or delegation.pr_proposal,
       pr_number = delegation.pr_number,
     }
@@ -144,7 +150,7 @@ function P.child_state_fact(comments, delegation, parent_repo)
   local delegation_version = tostring(delegation.version or "")
   local lineage_base = transition_version.strip_suffixes(delegation.version)
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(observed_pr.comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local proposal_id = marker_attr(marker, "proposal")
       local version = marker_attr(marker, "version")
@@ -160,6 +166,8 @@ function P.child_state_fact(comments, delegation, parent_repo)
           pr_proposal_id = delegation.pr_proposal_id or delegation.pr_proposal,
           pr_number = tonumber(delegation.pr_number),
           identity_valid = true,
+          observed_repo = observed_repo,
+          observed_pr_number = observed_pr_number,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }
       end

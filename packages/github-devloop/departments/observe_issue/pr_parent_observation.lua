@@ -22,6 +22,7 @@ local function fetch_current(event, pr)
   end
 
   local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
+  current_pr.repo = pr.repo
   current_pr.number = pr.number
   current_pr.force_fresh = true
   local origin = m_facts.pr_origin_fact(current_pr.comments)

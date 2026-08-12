@@ -108,7 +108,7 @@ local function read_delegated_child_pr(dept, issue, delegation)
     error("github-devloop: awaiting-pr-child-view-failed: " .. tostring(pr_view.stderr))
   end
   local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
-  current_pr.number, current_pr.force_fresh = delegation.pr_number, true
+  current_pr.repo, current_pr.number, current_pr.force_fresh = issue.repo, delegation.pr_number, true
   return current_pr
 end
 
@@ -367,6 +367,9 @@ local function monotone_terminal_child(state, delegation, current_pr)
 end
 
 local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
+  if observed_child_state ~= nil and observed_child_state.identity_valid == false then
+    return nil, "skip-stale(observed-child-identity)", "observed child PR identity does not match the parent delegation"
+  end
   if observed_child_state ~= nil and observed_child_state.raw_state ~= nil
     and not pr_partition_contract.child_state_predicate(observed_child_state.raw_state) then
     return nil, "child-state-unrecognized", "delegated child PR reported unrecognized state: " .. tostring(observed_child_state.raw_state), {

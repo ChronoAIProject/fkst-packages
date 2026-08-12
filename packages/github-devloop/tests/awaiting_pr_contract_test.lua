@@ -47,7 +47,11 @@ return {
       author_login = "fkst-test-bot",
       body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="vendor-paused" version="v1" -->',
     }}
-    local fact = pr_partition_contract.child_state_fact(comments, {
+    local fact = pr_partition_contract.child_state_fact({
+      repo = "owner/repo",
+      number = 7,
+      comments = comments,
+    }, {
       proposal_id = "github-devloop/issue/owner/repo/42",
       version = "v1",
       pr_proposal_id = "github-devloop/pr/owner/repo/7",
@@ -61,17 +65,39 @@ return {
     t.eq(pr_partition_contract.child_terminal_predicate("merged"), true)
     t.eq(pr_partition_contract.child_terminal_predicate("reviewing"), false)
     t.eq(pr_partition_contract.child_terminal_predicate("vendor-paused"), false)
-    local cross_repo = pr_partition_contract.child_state_fact(comments, {
+    local wrong_observed_child = pr_partition_contract.child_state_fact({
+      repo = "owner/repo",
+      number = 8,
+      comments = comments,
+    }, {
       proposal_id = "github-devloop/issue/owner/repo/42",
       version = "v1",
-      pr_proposal_id = "github-devloop/pr/other/repo/7",
+      pr_proposal_id = "github-devloop/pr/owner/repo/7",
+      pr_number = 7,
+    }, "owner/repo")
+    t.eq(wrong_observed_child.identity_valid, false)
+    t.eq(wrong_observed_child.observed_repo, "owner/repo")
+    t.eq(wrong_observed_child.observed_pr_number, 8)
+    t.eq(wrong_observed_child.raw_state, nil)
+    local cross_repo = pr_partition_contract.child_state_fact({
+      repo = "other/repo",
+      number = 7,
+      comments = comments,
+    }, {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      version = "v1",
+      pr_proposal_id = "github-devloop/pr/owner/repo/7",
       pr_number = 7,
     }, "owner/repo")
     t.eq(cross_repo.identity_valid, false)
-    local unversioned = pr_partition_contract.child_state_fact({{
-      author_login = "fkst-test-bot",
-      body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="merged" -->',
-    }}, {
+    local unversioned = pr_partition_contract.child_state_fact({
+      repo = "owner/repo",
+      number = 7,
+      comments = {{
+        author_login = "fkst-test-bot",
+        body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="merged" -->',
+      }},
+    }, {
       proposal_id = "github-devloop/issue/owner/repo/42",
       pr_proposal_id = "github-devloop/pr/owner/repo/7",
       pr_number = 7,

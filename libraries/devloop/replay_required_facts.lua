@@ -77,10 +77,10 @@ local function fetch_child_state_fact(replay_sources, facts)
       error("github-devloop: child-state-pr-view-failed: child-state PR view failed: " .. tostring(view.stderr))
     end
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
-    facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
+    facts.current_pr.repo, facts.current_pr.number, facts.current_pr.force_fresh = facts.issue.repo, delegation.pr_number, true
   end
   facts.child_state = pr_partition_contract.child_state_fact(
-    facts.current_pr.comments,
+    facts.current_pr,
     delegation,
     facts.issue.repo
   )
