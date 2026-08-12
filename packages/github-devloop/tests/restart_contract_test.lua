@@ -184,6 +184,11 @@ local function synthetic_heartbeat_row()
 end
 
 return {
+  test_contract_time_elapsed_whole_minutes_supports_issue_liveness = function()
+    local timestamp = "2026-06-03T01:02:03Z"
+    t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
+  end,
+
   test_restart_kernel_reports_missing_ops_at_build_time = function()
     local function noop() end
     local ops = {

@@ -357,6 +357,11 @@ local function timeout_reconcile_age_clock()
 end
 
 return {
+  test_contract_time_elapsed_whole_minutes_supports_pr_liveness = function()
+    local timestamp = "2026-06-04T01:02:03Z"
+    t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
+  end,
+
   test_merge_ready_fresh_merge_gate_wait_past_absolute_cap_escalates = function()
     assert_fresh_merge_wait_does_not_extend_absolute_cap("merge-ready")
   end,

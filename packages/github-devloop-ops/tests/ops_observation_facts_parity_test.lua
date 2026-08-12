@@ -127,6 +127,11 @@ local function state_gap_entity(case)
 end
 
 return {
+  test_contract_time_elapsed_whole_minutes_supports_ops_liveness = function()
+    local timestamp = "2026-08-12T01:00:00Z"
+    t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
+  end,
+
   test_doctor_observation_behavior_matches_frozen_golden = function()
     for state_name, expected in pairs(within_doctor_golden) do
       local actual = core.saga_doctor_classify_entity(doctor_entity(state_name), {
