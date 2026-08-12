@@ -295,18 +295,16 @@ local function mock_fix_execution(event, canonical, opts)
     })
   end
   h.mock_implement_codex(opts.codex_exit_code or 0, opts.codex_stdout or "rebased base-skewed fix", opts.codex_stderr)
-  if opts.codex_exit_code == nil or opts.codex_exit_code == 0 then
-    if opts.no_changes then
-      h.mock_git_status("")
-      t.mock_command("git rev-list --count " .. event.reviewed_head_sha .. "..refs/heads/" .. branch, {
-        stdout = "0\n",
-        stderr = "",
-        exit_code = 0,
-      })
-    else
-      h.mock_git_status(" M packages/github-devloop-pr/core.lua\n")
-      h.mock_git_commit("feedface", branch)
-    end
+  if opts.no_changes or (opts.codex_exit_code ~= nil and opts.codex_exit_code ~= 0) then
+    h.mock_git_status("")
+    t.mock_command("git rev-list --count " .. event.reviewed_head_sha .. "..refs/heads/" .. branch, {
+      stdout = "0\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  else
+    h.mock_git_status(" M packages/github-devloop-pr/core.lua\n")
+    h.mock_git_commit("feedface", branch)
   end
   h.mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, issue_comments, branch, event.version, {
     repo = repo,

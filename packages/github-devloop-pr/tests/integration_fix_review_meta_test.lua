@@ -496,6 +496,78 @@ return {
     t.eq(count_calls("diff --check 'def456..feedface'"), 1)
     t.eq(count_calls("git push origin"), 1)
   end,
+  test_fix_nonzero_codex_with_existing_ahead_commit_reuses_it = function()
+    local event = fixing()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local reject_comment = build_reject_comment(event, "Reject.")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
+    mock_pr_fix({ origin_marker }, branch, "def456")
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
+    local worktree = mock_existing_fix_worktree(branch, "feedface", nil, {
+      reviewed_head_sha = event.reviewed_head_sha,
+    })
+    t.mock_command("git -C " .. worktree .. " diff --check " .. event.reviewed_head_sha .. "..feedface", { stdout = "", stderr = "", exit_code = 0 })
+    mock_implement_codex(1, "Fix committed before Codex exited.")
+    mock_git_status("")
+    t.mock_command("rev-list --count", { stdout = "1\n", stderr = "", exit_code = 0 })
+    t.mock_command("rev-parse --verify refs/heads/", { stdout = "feedface\n", stderr = "", exit_code = 0 })
+    mock_write_env("1")
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
+    mock_git_push(branch)
+    mock_pr_fix({ origin_marker }, branch, "feedface")
+
+    local result = run_fix(event, opts("fix-nonzero-clean-ahead-reuse", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(core.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
+    t.eq(count_calls("add -A"), 0)
+    t.eq(count_calls("commit -m"), 0)
+    t.eq(count_calls("diff --check 'def456..feedface'"), 1)
+    t.eq(count_calls("git push origin"), 1)
+  end,
+  test_fix_nonzero_codex_with_dirty_worktree_refuses_uncommitted_output = function()
+    local event = fixing()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local reject_comment = build_reject_comment(event, "Reject.")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
+    mock_pr_fix({ origin_marker }, branch, "def456")
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
+    mock_existing_fix_worktree(branch, "def456")
+    mock_implement_codex(1, "", "Codex failed with uncommitted output.")
+    mock_git_status(" M packages/github-devloop-pr/core.lua\n")
+    mock_write_env("1")
+    mock_pr_fix({ origin_marker, core.state_marker(event.proposal_id, "fixing", event.version), reject_comment }, branch, "def456")
+
+    local result = run_fix(event, opts("fix-nonzero-dirty-refusal", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:review-meta")
+    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find(
+      "github-devloop fix escalated to review-meta: codex-failed", 1, true
+    ) ~= nil)
+    t.eq(count_calls("status --porcelain"), 1)
+    t.eq(count_calls("add -A"), 0)
+    t.eq(count_calls("commit -m"), 0)
+    t.eq(count_calls("diff --check"), 0)
+    t.eq(count_calls("git push origin"), 0)
+  end,
   test_fix_reviewing_clears_stale_fix_summary_when_codex_summary_is_empty = function()
     local event = fixing({ fix_summary = "stale summary from a prior round" })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)

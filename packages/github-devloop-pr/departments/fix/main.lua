@@ -270,6 +270,8 @@ local function run_fix_attempt(plan)
     devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, "result=deferred", nil)
     return nil
   end
+  local result_summary = type(result) == "table" and (result.stdout or result.stderr) or nil
+  local failed_outcome
   if type(result) ~= "table" or result.exit_code ~= 0 then
     local stderr = type(result) == "table" and result.stderr or "nil result"
     devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, nil, stderr, {
@@ -277,7 +279,7 @@ local function run_fix_attempt(plan)
       source_ref = plan.fix.source_ref,
       terminal = false,
     })
-    return {
+    failed_outcome = {
       kind = "review-meta",
       reason = "codex-failed",
       detail = stderr,
@@ -285,9 +287,10 @@ local function run_fix_attempt(plan)
       started_at = codex_started_at,
       finished_at = now(),
     }
+  else
+    devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, "result=completed", nil)
+    assert_no_unmerged_paths(worktree)
   end
-  devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, "result=completed", nil)
-  assert_no_unmerged_paths(worktree)
 
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then
@@ -303,11 +306,14 @@ local function run_fix_attempt(plan)
         old_head_sha = plan.fix.reviewed_head_sha,
         new_head_sha = existing_head_sha,
         reason = "existing fix commit pushed and PR head verified",
-        summary = result.stdout or result.stderr,
+        summary = result_summary,
         outcome = "completed: existing head pushed",
         started_at = codex_started_at,
         finished_at = now(),
       }
+    end
+    if failed_outcome ~= nil then
+      return failed_outcome
     end
     devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, nil, "no-changes", {
       queue = plan.event_queue,
@@ -318,11 +324,14 @@ local function run_fix_attempt(plan)
       kind = "review-meta",
       completed_without_new_head = true,
       reason = "no-fix",
-      detail = result.stdout or result.stderr,
+      detail = result_summary,
       outcome = "escalated: no-fix",
       started_at = codex_started_at,
       finished_at = now(),
     }
+  end
+  if failed_outcome ~= nil then
+    return failed_outcome
   end
 
   local add_result = devloop_commands.git_add_all(worktree, 30)
@@ -357,7 +366,7 @@ local function run_fix_attempt(plan)
       kind = "review-meta",
       completed_without_new_head = true,
       reason = "no-new-head",
-      detail = result.stdout or result.stderr,
+      detail = result_summary,
       outcome = "escalated: no-new-head",
       started_at = codex_started_at,
       finished_at = now(),
@@ -369,7 +378,7 @@ local function run_fix_attempt(plan)
     old_head_sha = plan.fix.reviewed_head_sha,
     new_head_sha = new_head_sha,
     reason = "fix pushed and PR head verified",
-    summary = result.stdout or result.stderr,
+    summary = result_summary,
     outcome = "completed: pushed for re-review",
     started_at = codex_started_at,
     finished_at = now(),
