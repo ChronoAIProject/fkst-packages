@@ -577,6 +577,40 @@ return {
     end
   end,
 
+  test_github_issue_list_cli_builds_exact_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_list_cli("owner/repo", "closed", 37, "number,title", 41)
+
+    assert(#calls == 1, "issue_list_cli must execute one command")
+    assert_argv_equal(calls[1].argv, {
+      "gh", "issue", "list", "--repo", "owner/repo", "--state", "closed",
+      "--limit", "37", "--json", "number,title",
+    }, "issue_list_cli")
+    assert(calls[1].timeout == 41, "issue_list_cli timeout mismatch")
+  end,
+
+  test_github_pr_list_cli_builds_exact_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.pr_list_cli("owner/repo", "merged", 29, "number,headRefOid", 43)
+
+    assert(#calls == 1, "pr_list_cli must execute one command")
+    assert_argv_equal(calls[1].argv, {
+      "gh", "pr", "list", "--repo", "owner/repo", "--state", "merged",
+      "--limit", "29", "--json", "number,headRefOid",
+    }, "pr_list_cli")
+    assert(calls[1].timeout == 43, "pr_list_cli timeout mismatch")
+  end,
+
   test_github_issue_updated_at_list_builds_one_exact_graphql_call = function()
     local calls = {}
     local handle = gh.new(function(opts)
