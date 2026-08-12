@@ -129,7 +129,7 @@ return {
     t.eq(count_calls("gh issue comment 42"), 1)
   end,
 
-  test_blocked_by_existing_trusted_marker_is_idempotent_noop = function()
+  test_blocked_by_existing_edge_and_trusted_marker_is_idempotent_noop = function()
     mock_write_env("1")
     mock_bot_env()
     local payload = event().payload
@@ -139,13 +139,37 @@ return {
         author_login = "fkst-test-bot",
       },
     })
+    mock_blocked_by({ { repo = "owner/x", number = 99 } })
 
-    local result = t.run_department("departments/github_issue_blocked_by/main.lua", event(), opts("blocked-by-existing-marker", {
+    local result = t.run_department("departments/github_issue_blocked_by/main.lua", event(), opts("blocked-by-existing-edge-marker", {
       FKST_GITHUB_WRITE = "1",
     }))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("addBlockedBy"), 0)
+    t.eq(count_calls("gh issue comment 42"), 0)
+  end,
+
+  test_blocked_by_missing_edge_with_trusted_marker_restores_edge_without_duplicate_marker = function()
+    mock_write_env("1")
+    mock_bot_env()
+    local payload = event().payload
+    mock_blocked_comments({
+      {
+        body = core.blocked_by_marker(payload.dedup_key, payload.blocked_issue_number, payload.blocking_issue_number),
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_blocked_by({})
+    mock_node_ids()
+    mock_add_blocked_by()
+
+    local result = t.run_department("departments/github_issue_blocked_by/main.lua", event(), opts("blocked-by-missing-edge-marker", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("addBlockedBy"), 1)
     t.eq(count_calls("gh issue comment 42"), 0)
   end,
 
