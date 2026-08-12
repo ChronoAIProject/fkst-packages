@@ -119,11 +119,10 @@ local function local_iteration_calls()
   return calls
 end
 
-local function mock_base_probe(worktree, options)
-  local base_probe = worktree .. "-base-probe"
+local function mock_base_probe(_worktree, options)
   local values = options or {}
   for _ = 1, 2 do
-    h.mock_force_clean(base_probe)
+    h.mock_force_clean()
   end
   t.mock_command("mkdir -p", {
     stdout = "",
@@ -523,9 +522,9 @@ return {
     local pinned_add = false
     for _, call in ipairs(t.command_calls()) do
       local rendered = tostring(call.rendered or "")
-      -- The issue-scoped lease owns this deterministic crash-recoverable probe path.
+      -- The runtime-scoped path and lease share one supervisor generation.
       if rendered:find("git worktree add --detach", 1, true) ~= nil
-        and rendered:find(worktree .. "-base-probe", 1, true) ~= nil
+        and rendered:find("/judgment-worktrees/", 1, true) ~= nil
         and rendered:find("abc123", 1, true) ~= nil then
         pinned_add = true
       end

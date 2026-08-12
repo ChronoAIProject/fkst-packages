@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local devloop_base = require("devloop.base")
 local harvest = require("departments.implement.harvest")
 local t = h.t
 
@@ -16,58 +17,100 @@ local function completed_probe(path)
   }
 end
 
-return {
-  test_same_attempt_overlap_cannot_clean_the_active_probe = function()
-    local candidate = "/tmp/fkst-packages-test/github-devloop/worktrees/candidate"
-    local probe_path = candidate .. "-base-probe"
-    local trace = {}
-    local active = false
-    local locked = false
-    local runtime = {}
-
-    runtime.with_lock = function(key, fn)
+local function runtime_generation(root, active_paths, cleaned_paths, run)
+  local locked = false
+  return {
+    with_lock = function(key, fn)
       t.eq(key, LOCK_KEY)
-      if locked then
-        trace[#trace + 1] = "defer"
-        error("with_lock lock busy: " .. key)
-      end
+      t.eq(locked, false)
       locked = true
-      trace[#trace + 1] = "acquire"
       local ok, value = pcall(fn)
       locked = false
-      trace[#trace + 1] = "release"
       if not ok then error(value) end
       return value
-    end
-    runtime.exec = function(request)
+    end,
+    exec = function(request)
+      if request.cmd == devloop_base.read_runtime_root_cmd() then
+        return { stdout = root, stderr = "", exit_code = 0 }
+      end
       t.is_true(request.cmd:find("mkdir -p", 1, true) ~= nil)
       return { stdout = "", stderr = "", exit_code = 0 }
-    end
-    runtime.run = function(path)
-      t.eq(path, probe_path)
-      active = true
-      trace[#trace + 1] = "test-start"
-      local ok, err = pcall(function()
-        harvest.base_local_iteration_probe(PROPOSAL_ID, candidate, "abc123", runtime)
-      end)
-      t.eq(ok, false)
-      t.is_true(tostring(err):find("with_lock lock busy: " .. LOCK_KEY, 1, true) ~= nil)
-      t.eq(active, true)
-      trace[#trace + 1] = "test-complete"
-      return completed_probe(path)
-    end
-    runtime.clean = function(path)
-      t.eq(path, probe_path)
-      trace[#trace + 1] = active and "cleanup" or "preclean"
-      active = false
+    end,
+    run = run,
+    clean = function(path)
+      cleaned_paths[#cleaned_paths + 1] = path
+      t.eq(active_paths[path], nil, "one runtime generation must not clean another generation's active probe")
       return true, ""
-    end
+    end,
+  }
+end
 
-    local observation = harvest.base_local_iteration_probe(PROPOSAL_ID, candidate, "abc123", runtime)
+return {
+  test_runtime_generations_own_distinct_probe_worktrees = function()
+    local active_paths = {}
+    local cleaned_paths = {}
+    local first_path
+    local second_path
+    local second_runtime = runtime_generation(
+      "/tmp/fkst-runtime.2",
+      active_paths,
+      cleaned_paths,
+      function(path)
+        second_path = path
+        return completed_probe(path)
+      end
+    )
+    local first_runtime = runtime_generation(
+      "/tmp/fkst-runtime.1",
+      active_paths,
+      cleaned_paths,
+      function(path)
+        first_path = path
+        active_paths[path] = true
+        local second = harvest.base_local_iteration_probe(PROPOSAL_ID, "abc123", second_runtime)
+        active_paths[path] = nil
+        t.eq(second.status, "completed")
+        return completed_probe(path)
+      end
+    )
 
-    t.eq(observation.worktree, probe_path)
-    t.eq(table.concat(trace, "\n"), table.concat({
-      "acquire", "preclean", "test-start", "defer", "test-complete", "cleanup", "release",
-    }, "\n"))
+    local first = harvest.base_local_iteration_probe(PROPOSAL_ID, "abc123", first_runtime)
+
+    t.eq(first.status, "completed")
+    t.is_true(first_path:find("/tmp/fkst-runtime.1/judgment-worktrees/", 1, true) == 1)
+    t.is_true(second_path:find("/tmp/fkst-runtime.2/judgment-worktrees/", 1, true) == 1)
+    t.is_true(first_path ~= second_path)
+    t.eq(cleaned_paths[1], first_path)
+    t.eq(cleaned_paths[2], second_path)
+    t.eq(cleaned_paths[3], second_path)
+    t.eq(cleaned_paths[4], first_path)
+  end,
+
+  test_runtime_root_read_failure_precedes_probe_mutation = function()
+    local clean_calls = 0
+    local run_calls = 0
+    local result = harvest.base_local_iteration_probe(PROPOSAL_ID, "abc123", {
+      with_lock = function(key, fn)
+        t.eq(key, LOCK_KEY)
+        return fn()
+      end,
+      exec = function(request)
+        t.eq(request.cmd, devloop_base.read_runtime_root_cmd())
+        return { stdout = "", stderr = "runtime root unavailable", exit_code = 1 }
+      end,
+      clean = function()
+        clean_calls = clean_calls + 1
+        return true, ""
+      end,
+      run = function()
+        run_calls = run_calls + 1
+        return completed_probe("unexpected")
+      end,
+    })
+
+    t.eq(result.status, "setup-failed")
+    t.eq(result.detail, "runtime root unavailable")
+    t.eq(clean_calls, 0)
+    t.eq(run_calls, 0)
   end,
 }

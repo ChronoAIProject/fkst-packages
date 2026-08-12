@@ -359,21 +359,29 @@ local function run_base_probe(worktree, base_sha)
   }
 end
 
--- The deterministic sibling path lets a later lease holder reclaim a worktree leaked
--- by a crash. The issue-scoped lease is the ownership boundary: no overlapping probe
--- can pre-clean or clean the path while its current owner is testing it.
+-- The probe path and issue-scoped lease share the runtime generation boundary. Attempts
+-- within one generation serialize on the lease, while a replacement generation cannot
+-- pre-clean or clean an orphaned generation's active probe.
 -- Exported so the materialization gate can be exercised with an injected git handle: it is the
 -- whole point of the fix and must be provable without a real half-written checkout.
 M.probe_tree_is_materialized = probe_tree_is_materialized
 
-function M.base_local_iteration_probe(proposal_id, candidate_worktree, base_sha, runtime)
+function M.base_local_iteration_probe(proposal_id, base_sha, runtime)
   local owner = runtime or {}
   local acquire = owner.with_lock or with_lock
   local run = owner.run or run_base_probe
   local clean = owner.clean or clean_probe_worktree
-  local probe_worktree = tostring(candidate_worktree) .. "-base-probe"
 
   return acquire(base_probe_lock_key(proposal_id), function()
+    local root_result = (owner.exec or exec_sync)({ cmd = devloop_base.read_runtime_root_cmd(), timeout = 30 })
+    if type(root_result) ~= "table" or tonumber(root_result.exit_code) ~= 0 then
+      return { status = "setup-failed", base_sha = base_sha, detail = command_detail(root_result) }
+    end
+    local path_ok, probe_worktree = pcall(
+      devloop_base.judgment_worktree_path, root_result.stdout, "base-probe", proposal_id)
+    if not path_ok then
+      return { status = "setup-failed", base_sha = base_sha, detail = tostring(probe_worktree) }
+    end
     local parent_ok, parent_detail = prepare_probe_parent(probe_worktree, owner.exec)
     if not parent_ok then
       return { status = "setup-failed", base_sha = base_sha, worktree = probe_worktree, detail = parent_detail }
@@ -559,7 +567,7 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     local base_probes = {}
     local verdict = "INDETERMINATE"
     for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
-      base_probe = M.base_local_iteration_probe(ready.proposal_id, worktree, base_head)
+      base_probe = M.base_local_iteration_probe(ready.proposal_id, base_head)
       base_probe.verification_attempt = verification_attempt
       table.insert(base_probes, base_probe)
       verdict = local_iteration_verdict.classify(candidate_result, base_probe, base_probes[#base_probes - 1])

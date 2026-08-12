@@ -141,10 +141,9 @@ local function assert_department_success(result, name)
     result.error or result.stderr or (result.failure and result.failure.error)))
 end
 
-local function mock_base_probe(worktree, outcome)
-  local base_probe = worktree .. "-base-probe"
+local function mock_base_probe(_worktree, outcome)
   for _ = 1, 2 do
-    h.mock_force_clean(base_probe)
+    h.mock_force_clean()
   end
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git worktree add --detach", {
