@@ -205,11 +205,15 @@ function M.write_issue_blocked_by_request(payload)
   local bot_login = M.assert_trusted_bot_configured()
   with_lock(M.issue_blocked_by_lock_key(payload.repo, payload.blocked_issue_number), function()
     local comments_view = M.gh_exec(M.gh_issue_view_comments_cmd(payload.repo, payload.blocked_issue_number), 30, "GitHub issue comments")
-    if M.has_trusted_blocked_by_marker(M.parse_issue_comments(comments_view.stdout), payload.dedup_key, bot_login) then
+    local marker_exists = M.has_trusted_blocked_by_marker(
+      M.parse_issue_comments(comments_view.stdout), payload.dedup_key, bot_login)
+    local edge_exists = M.issue_blocked_by_edge_exists(
+      payload.repo, payload.blocked_issue_number, payload.blocking_issue_number)
+    if marker_exists and edge_exists then
       log.info("github-proxy: skip-idempotent blocked-by marker already present")
       return
     end
-    if not M.issue_blocked_by_edge_exists(payload.repo, payload.blocked_issue_number, payload.blocking_issue_number) then
+    if not edge_exists then
       local blocked = M.gh_exec(M.gh_issue_node_id_cmd(payload.repo, payload.blocked_issue_number), 30, "GitHub blocked issue id")
       local blocking = M.gh_exec(M.gh_issue_node_id_cmd(payload.repo, payload.blocking_issue_number), 30, "GitHub blocking issue id")
       local blocked_id = M.parse_issue_node_id(blocked.stdout)
@@ -220,9 +224,11 @@ function M.write_issue_blocked_by_request(payload)
       M.gh_exec(M.gh_add_blocked_by_cmd(blocked_id, blocking_id), 30, "GitHub addBlockedBy")
     end
 
-    local path = marker_file(payload.dedup_key)
-    file.write(path, M.blocked_by_marker(payload.dedup_key, payload.blocked_issue_number, payload.blocking_issue_number) .. "\n")
-    M.gh_exec(M.gh_issue_comment_cmd(payload.repo, payload.blocked_issue_number, path), 30, "GitHub blocked-by marker comment")
+    if not marker_exists then
+      local path = marker_file(payload.dedup_key)
+      file.write(path, M.blocked_by_marker(payload.dedup_key, payload.blocked_issue_number, payload.blocking_issue_number) .. "\n")
+      M.gh_exec(M.gh_issue_comment_cmd(payload.repo, payload.blocked_issue_number, path), 30, "GitHub blocked-by marker comment")
+    end
     M.invalidate_entity_after_write(payload.repo, "issue", payload.blocked_issue_number)
   end)
 end
