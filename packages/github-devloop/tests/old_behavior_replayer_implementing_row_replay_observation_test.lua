@@ -402,12 +402,7 @@ local function assert_bidirectional(actual, expected, actual_label, expected_lab
   end
 end
 
-local function capture_records()
-  local records = json_array()
-  for _, fixture in ipairs(FIXTURES) do table.insert(records, build_record(fixture)) end
-  table.sort(records, function(left, right) return left.observation_id < right.observation_id end)
-  return records
-end
+local capture_records = observation_support.capture_records_with(FIXTURES, build_record)
 
 local function committed_records()
   local selected = json_array()
