@@ -1,15 +1,53 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
+local core = h.core
+local fix_rounds = require("core.fix_rounds")
 
 local BASE_SHA = string.rep("a", 40)
 local HEAD_SHA = string.rep("b", 40)
 local CANDIDATE_SHA = HEAD_SHA
+local BASE_VERSION = h.reviewing().version
 
 local function failure(name)
   return {
     owner_namespace = "github-devloop-pr",
     file = "tests/example_test.lua",
     name = name,
+  }
+end
+
+local function failed_check(sha, output)
+  return {
+    name = "test",
+    workflowName = "ci",
+    app = { slug = "github-actions" },
+    status = "completed",
+    conclusion = "failure",
+    head_sha = sha,
+    output = output,
+  }
+end
+
+local function own_ci_classification(comparison)
+  return {
+    kind = "OWN_CI_RED",
+    head_sha = HEAD_SHA,
+    ci_failure_key = "head:" .. HEAD_SHA .. "/checks:digest-0000000001",
+    current_pr = { head_sha = HEAD_SHA, state = "OPEN" },
+    failure_set_comparison = comparison,
+  }
+end
+
+local function admission_context()
+  return {
+    dept = "fix",
+    from_state = "fixing",
+    proposal_id = "github-devloop/issue/owner/repo/42",
+    review_proposal_id = "consensus:review",
+    review_dedup_key = "consensus:review/dedup",
+    pr_number = 7,
+    source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+    reason = "own-ci-red",
   }
 end
 
@@ -114,6 +152,79 @@ return {
       { base_commit = BASE_SHA, head_commit = HEAD_SHA }
     )
     t.eq(result.kind, "UNKNOWN")
+  end,
+
+  test_same_reported_check_failure_is_base_inherited_across_heads = function()
+    local result = require("core.ci_failure_sets").compare_check_runs(
+      { failed_check(BASE_SHA, { title = "assertion failed", summary = "test_k" }) },
+      { failed_check(HEAD_SHA, { title = "assertion failed", summary = "test_k" }) },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    t.eq(result.kind, "no-new-failing-identity")
+    t.eq(result.base_commit, BASE_SHA)
+    t.eq(result.tested_candidate_commit, HEAD_SHA)
+  end,
+
+  test_new_reported_check_failure_is_diff_caused = function()
+    local result = require("core.ci_failure_sets").compare_check_runs(
+      {},
+      { failed_check(HEAD_SHA, { title = "assertion failed", summary = "test_new" }) },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    t.eq(result.kind, "new-failing-identity")
+    t.eq(#result.new_failures, 1)
+  end,
+
+  test_missing_reported_failure_content_is_unknown = function()
+    local result = require("core.ci_failure_sets").compare_check_runs(
+      {},
+      { failed_check(HEAD_SHA, { title = "" }) },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    t.eq(result.kind, "UNKNOWN")
+  end,
+
+  test_missing_failure_commit_association_is_unknown = function()
+    local run = failed_check(HEAD_SHA, { title = "assertion failed" })
+    run.head_sha = nil
+    local result = require("core.ci_failure_sets").compare_check_runs(
+      {},
+      { run },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    t.eq(result.kind, "UNKNOWN")
+  end,
+
+  test_fix_loop_holds_when_check_failure_is_inherited_from_base = function()
+    local comparison = require("core.ci_failure_sets").compare_check_runs(
+      { failed_check(BASE_SHA, { title = "assertion failed", summary = "test_k" }) },
+      { failed_check(HEAD_SHA, { title = "assertion failed", summary = "test_k" }) },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    local decision = fix_rounds.admit_own_ci_continuation(
+      { state = "fixing", version = BASE_VERSION },
+      own_ci_classification(comparison),
+      admission_context()
+    )
+    t.eq(comparison.kind, "no-new-failing-identity")
+    t.eq(decision.kind, "hold")
+    t.eq(decision.reason, "no-new-failing-identity")
+  end,
+
+  test_fix_loop_admits_when_check_failure_is_new_on_head = function()
+    local comparison = require("core.ci_failure_sets").compare_check_runs(
+      {},
+      { failed_check(HEAD_SHA, { title = "assertion failed", summary = "test_new" }) },
+      { base_commit = BASE_SHA, head_commit = HEAD_SHA }
+    )
+    local decision = fix_rounds.admit_own_ci_continuation(
+      { state = "fixing", version = BASE_VERSION },
+      own_ci_classification(comparison),
+      admission_context()
+    )
+    t.eq(comparison.kind, "new-failing-identity")
+    t.eq(decision.kind, "admit")
+    t.eq(core.version_fix_round(decision.version), 1)
   end,
 
 }
