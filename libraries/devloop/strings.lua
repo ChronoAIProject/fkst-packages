@@ -178,7 +178,7 @@ function C.configure_output_lang(output_language, lang)
   configured_output_lang[output_language] = lang and normalize_output_lang(lang) or nil
 end
 
-function C.output_lang(output_language, exec)
+local function output_lang(output_language, exec)
   if configured_output_lang[output_language] ~= nil then
     return configured_output_lang[output_language]
   end
@@ -192,7 +192,7 @@ function C.output_lang(output_language, exec)
 end
 
 function C.comment_string(output_language, key, exec)
-  local lang = C.output_lang(output_language, exec)
+  local lang = output_lang(output_language, exec)
   local lang_strings = strings[lang] or strings.en
   return lang_strings[key] or strings.en[key] or tostring(key)
 end
