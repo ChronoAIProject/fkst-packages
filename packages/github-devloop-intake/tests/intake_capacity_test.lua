@@ -9,16 +9,7 @@ local marker_builders = require("devloop.markers.builders")
 local REPO = "owner/repo"
 local OWNER = "fkst-test-bot"
 
-local function copy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local result = {}
-  for key, field in pairs(value) do
-    result[copy(key)] = copy(field)
-  end
-  return result
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 local function trusted_comment(body, created_at)
   return {

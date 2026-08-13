@@ -104,27 +104,9 @@ local function mock_angle(angle, verdict, reply)
   })
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
-local function with_codex_runs(runs, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = runs or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
+local with_codex_runs = require("testkit_internal.testing").with_codex_runs
 
 local function dispatch_identity()
   return {

@@ -31,16 +31,7 @@ local UNMERGED = "100644 abcdef 1\tpackages/github-devloop/core.lua\n"
 local ATTEMPT_LEDGER_SHA = "4444444444444444444444444444444444444444"
 local ATTEMPT_LEDGER_TREE_SHA = "5555555555555555555555555555555555555555"
 
-local function copy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local result = {}
-  for key, field in pairs(value) do
-    result[copy(key)] = copy(field)
-  end
-  return result
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 local function comment(body, created_at, author)
   return {
@@ -356,24 +347,9 @@ local function count_rows(rows, kind, predicate)
   return count
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
-local function count_raises(raises, queue)
-  local count = 0
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      count = count + 1
-    end
-  end
-  return count
-end
+local count_raises = require("testkit_internal.raises").count
 
 local function run_fixture(fixture, write_mode)
   mock_env(write_mode, fixture.claim_mode)

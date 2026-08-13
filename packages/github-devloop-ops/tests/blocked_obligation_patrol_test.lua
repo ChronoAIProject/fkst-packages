@@ -96,14 +96,7 @@ local function observed_semantic_escalation_issue(dedup_key, issue_number, termi
   }
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function mock_observe_env()
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {

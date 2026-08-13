@@ -9,16 +9,7 @@ local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
 local restart_policy = assert(rawget(core, "restart_policy"))
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, nested in pairs(value) do
-    out[key] = copy_value(nested)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function copy_rows(rows)
   local copied = {}
@@ -28,13 +19,7 @@ local function copy_rows(rows)
   return copied
 end
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 local function joined_errors(errors)
   return table.concat(errors or {}, "\n")
@@ -203,9 +188,8 @@ return {
     t.eq(sources["child_workflow_wait:v1"].durable, true)
     t.eq(sources["child_workflow_wait:v1"].opens_generation, true)
     t.eq(sources["child_workflow_wait:v1"].excludes_deferred_time, true)
-    t.eq(sources["child_workflow_wait:v1"].requires_live_marker, true)
+    t.eq(sources["child_workflow_wait:v1"].requires_fact_dependency, true)
     t.eq(sources["child_workflow_wait:v1"].requires_delegation_marker, true)
-    t.eq(sources["child_workflow_wait:v1"].requires_terminal_states, true)
   end,
 
   test_row_budget_rows_declare_state_entry_actionable_epoch = function()
@@ -302,12 +286,12 @@ return {
     local parent_proposal_id = "github-devloop/issue/owner/repo/1248"
     local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
     local version = "ready/1248"
-    local due, age = core.liveness_timeout_due_with_facts(row, {
-      state = "awaiting-pr",
-      version = version,
-      proposal_id = parent_proposal_id,
-      marker_created_at = "2026-06-03T09:45:00Z",
-    }, {
+    local facts = {
+      child_pr_dependency = {
+        identity_valid = true,
+        raw_state = "reviewing",
+        state = "reviewing",
+      },
       proposal_id = parent_proposal_id,
       current = {
         comments = {
@@ -332,9 +316,16 @@ return {
           },
         },
       },
-    }, now_seconds)
+    }
+    local due, age = core.liveness_timeout_due_with_facts(row, {
+      state = "awaiting-pr",
+      version = version,
+      proposal_id = parent_proposal_id,
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }, facts, now_seconds)
     t.eq(due, false)
     t.eq(age, nil)
+    t.eq(facts.actionable_epoch_eval.status, "deferred")
   end,
 
   test_awaiting_pr_child_workflow_wait_actionable_on_terminal_child_state = function()
@@ -343,6 +334,11 @@ return {
     local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
     local version = "ready/1248"
     local facts = {
+      child_pr_dependency = {
+        identity_valid = true,
+        raw_state = "merged",
+        state = "merged",
+      },
       proposal_id = parent_proposal_id,
       current = {
         comments = {
@@ -371,6 +367,99 @@ return {
     }, facts, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
     t.eq(eval.status, "actionable")
     t.eq(eval.epoch_source, "child_workflow_wait:v1")
+  end,
+
+  test_awaiting_pr_child_workflow_wait_keeps_missing_dependency_distinct = function()
+    local row = rows_by_state(core.restart_transition_table())["awaiting-pr"]
+    local eval = m_rae.actionable_epoch_resolve(core, row, {
+      state = "awaiting-pr",
+      version = "ready/1248",
+      proposal_id = "github-devloop/issue/owner/repo/1248",
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }, {
+      proposal_id = "github-devloop/issue/owner/repo/1248",
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
+    t.eq(eval.status, "actionable")
+    t.eq(eval.reason, "child workflow dependency fact is missing")
+  end,
+
+  test_awaiting_pr_child_workflow_wait_uses_typed_terminal_over_raw_nonterminal = function()
+    local row = rows_by_state(core.restart_transition_table())["awaiting-pr"]
+    local parent_proposal_id = "github-devloop/issue/owner/repo/1248"
+    local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
+    local version = "ready/1248"
+    local eval = m_rae.actionable_epoch_resolve(core, row, {
+      state = "awaiting-pr",
+      version = version,
+      proposal_id = parent_proposal_id,
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }, {
+      proposal_id = parent_proposal_id,
+      child_pr_dependency = {
+        identity_valid = true,
+        raw_state = "merged",
+        state = "merged",
+      },
+      current = {
+        comments = {
+          {
+            author_login = "fkst-test-bot",
+            created_at = "2026-06-03T09:45:00Z",
+            body = m_builders.pr_delegation_marker(parent_proposal_id, child_pr_proposal_id, 7, version, "delegate-owner-repo-7"),
+          },
+        },
+      },
+      current_pr = {
+        comments = {
+          {
+            author_login = "fkst-test-bot",
+            created_at = "2026-06-03T10:31:00Z",
+            body = core.state_marker(parent_proposal_id, "reviewing", version),
+          },
+        },
+      },
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
+    t.eq(eval.status, "actionable")
+    t.eq(eval.epoch_source, "child_workflow_wait:v1")
+  end,
+
+  test_awaiting_pr_child_workflow_wait_uses_typed_nonterminal_over_raw_terminal = function()
+    local row = rows_by_state(core.restart_transition_table())["awaiting-pr"]
+    local parent_proposal_id = "github-devloop/issue/owner/repo/1248"
+    local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
+    local version = "ready/1248"
+    local eval = m_rae.actionable_epoch_resolve(core, row, {
+      state = "awaiting-pr",
+      version = version,
+      proposal_id = parent_proposal_id,
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }, {
+      proposal_id = parent_proposal_id,
+      child_pr_dependency = {
+        identity_valid = true,
+        raw_state = "reviewing",
+        state = "reviewing",
+      },
+      current = {
+        comments = {
+          {
+            author_login = "fkst-test-bot",
+            created_at = "2026-06-03T09:45:00Z",
+            body = m_builders.pr_delegation_marker(parent_proposal_id, child_pr_proposal_id, 7, version, "delegate-owner-repo-7"),
+          },
+        },
+      },
+      current_pr = {
+        comments = {
+          {
+            author_login = "fkst-test-bot",
+            created_at = "2026-06-03T10:30:00Z",
+            body = core.state_marker(parent_proposal_id, "merged", version),
+          },
+        },
+      },
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
+    t.eq(eval.status, "deferred")
   end,
 
   test_runtime_provenance_rejects_declared_source_drift = function()
@@ -542,7 +631,7 @@ return {
     local child_model = install_generic_restart_liveness_model(child_row)
     local child_errors = child_model.strict_restart_liveness_contract_errors({ child_row })
     t.is_true(
-      contains_error(child_errors, "synthetic-child-wait: policy not injected for defer kind child_workflow_wait field live_marker"),
+      contains_error(child_errors, "synthetic-child-wait: policy not injected for defer kind child_workflow_wait field delegation_marker"),
       joined_errors(child_errors)
     )
   end,

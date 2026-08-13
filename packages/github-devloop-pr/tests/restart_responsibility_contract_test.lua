@@ -2,24 +2,9 @@ local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, nested in pairs(value) do
-    out[key] = copy_value(nested)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 return {
   test_merge_ready_is_approval_wait_handoff_with_explicit_merge_gate_boundary = function()

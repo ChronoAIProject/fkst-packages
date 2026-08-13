@@ -32,26 +32,9 @@ local function reviewing_comments(version)
   }
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
-local function mock_branch_config()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_branch_config = require("testkit_internal.env_mocks").mock_branch_config
 
 local function mock_open_pr_list()
   t.mock_command(core.gh_pr_list_observe_cmd(repo), {

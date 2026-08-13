@@ -99,23 +99,10 @@ local function mock_empty_observe_lists()
 end
 
 local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
+  return gh_argv.count_calls(t, needle)
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function conflict_log_line(issue_number, pr_number, file, timestamp)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)

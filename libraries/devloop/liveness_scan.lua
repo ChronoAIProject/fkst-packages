@@ -176,6 +176,10 @@ function C.liveness_scan_maybe_timeout_action(M, entity, state, facts)
   if row == nil or row.terminal == true then
     return nil
   end
+  if row.actionable_epoch
+    and row.actionable_epoch.source == "child_workflow_wait:v1" then
+    facts = M.replayer.gather_replay_required_facts(row, entity, state, facts)
+  end
   local epoch = row.actionable_epoch
   if type(epoch) == "table"
     and epoch.allows_state_entry_if_never_deferred == true

@@ -418,14 +418,7 @@ local function with_entity_cap(cap, fn)
   return result
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function find_target_raise(raises, queue, field, value)
   for _, raised in ipairs(raises or {}) do

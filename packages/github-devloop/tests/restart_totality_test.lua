@@ -4,29 +4,14 @@ local t = h.t
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for nested_key, nested_value in pairs(value) do
-      nested[nested_key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     copied[index] = copy_value(row)
   end
   return copied
 end
 
-local function by_state(rows)
-  local indexed = {}
-  for _, row in ipairs(rows or {}) do
-    indexed[row.from_state] = row
-  end
-  return indexed
-end
+local by_state = require("testkit_internal.values").rows_by_state
 
 return {
   test_restart_totality_rejects_missing_reachable_state = function()

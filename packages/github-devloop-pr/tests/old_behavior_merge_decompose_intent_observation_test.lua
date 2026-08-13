@@ -584,27 +584,9 @@ local function assert_bidirectional_membership(actual, expected, actual_label, e
   end
 end
 
-local function is_target_record(record)
-  local site = type(record) == "table" and record.site or nil
-  return type(site) == "table"
-    and site.path == SITE.path
-    and site.symbol == SITE.symbol
-    and site.ordinal == SITE.ordinal
-end
+local is_target_record = observation_support.site_record_predicate(SITE)
 
-local function committed_records()
-  local inventory = json.decode(file.read(INVENTORY_PATH))
-  local selected = json_array()
-  for _, record in ipairs(inventory.old_behavior_observations or {}) do
-    if is_target_record(record) then
-      table.insert(selected, record)
-    end
-  end
-  table.sort(selected, function(left, right)
-    return tostring(left.observation_id) < tostring(right.observation_id)
-  end)
-  return selected
-end
+local committed_records = observation_support.committed_records_with(is_target_record)
 
 local function runtime_records(fixtures)
   local records = json_array()

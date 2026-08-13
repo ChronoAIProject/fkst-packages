@@ -17,27 +17,11 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for nested_key, nested_value in pairs(value) do
-      nested[nested_key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     local next_row = {}
     for key, value in pairs(row) do
@@ -101,13 +85,7 @@ local function table_by_state()
   return by_state
 end
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 local function allowed_extra_transition(state, next_state)
   return state == "impl-failed" and next_state == "implementing"
@@ -127,17 +105,7 @@ local function capture_raises(fn)
   return raised
 end
 
-local function with_codex_runs(running, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = running or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
+local with_codex_runs = require("testkit_internal.testing").with_codex_runs
 
 local function synthetic_heartbeat_row()
   local row = copy_rows(core.restart_transition_table())[1]
@@ -188,7 +156,6 @@ return {
     local timestamp = "2026-06-03T01:02:03Z"
     t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
   end,
-
   test_restart_kernel_reports_missing_ops_at_build_time = function()
     local function noop() end
     local ops = {
@@ -384,7 +351,7 @@ return {
       dependency_wait = { mode = "live-defer", family = "dependency-wait", resolver = "dependency-hold", max_age = 525600, budget = 525600 },
       ready = { mode = "row-budget-bounds-receiver", receiver = 15, external = 0, budget = 120 },
       implementing = { mode = "live-defer", codex_run = true, role = "implement", budget = 120 },
-      ["awaiting-pr"] = { mode = "live-defer", family = "state", producer = "child-state", resolver = "child-state", max_age = 1440, budget = 259200 },
+      ["awaiting-pr"] = { mode = "live-defer", fact_dependency = "child-pr-dependency", budget = 259200 },
       ["impl-failed"] = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
       blocked = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
     }
@@ -401,6 +368,9 @@ return {
           t.eq(row.liveness_contract.real_execution.match.role, spec.role)
           t.eq(row.liveness_contract.real_execution.match.proposal_id, "state.proposal_id")
           t.eq(row.liveness_contract.real_execution.match.dedup_key, "state.version")
+        elseif spec.fact_dependency then
+          t.eq(row.liveness_contract.fact_dependency, spec.fact_dependency)
+          t.eq(row.liveness_contract.signal, nil)
         else
           t.eq(row.liveness_contract.signal.family, spec.family)
           t.eq(row.liveness_contract.signal.resolver, spec.resolver)

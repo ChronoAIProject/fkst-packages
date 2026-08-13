@@ -45,18 +45,7 @@ local function version_at_fix_round(round)
   return version
 end
 
-local function mock_branch_config()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_branch_config = require("testkit_internal.env_mocks").mock_branch_config
 
 local function observe_department(run)
   local probes = {}
@@ -173,20 +162,7 @@ local function evidence_from_probe(probe)
   }
 end
 
-local function observe_shadow(run)
-  local evidence = nil
-  local original_resolve = catalog.resolve
-  catalog.resolve = function(policy_id, candidate, candidate_projection)
-    evidence = candidate
-    return original_resolve(policy_id, candidate, candidate_projection)
-  end
-  local ok, result = pcall(run)
-  catalog.resolve = original_resolve
-  if not ok then
-    error(result, 0)
-  end
-  return result, evidence
-end
+local observe_shadow = require("testkit_internal.cas_shadow").bind(catalog)
 
 local function review_event(fixture)
   local proposal_id = devloop_base.pr_review_proposal_id(

@@ -140,4 +140,36 @@ function S.runtime_safe_segment(value)
   return safe
 end
 
+S.max_cache_key_segment_len = 120
+
+-- Renders a value as one cache-key segment. A sibling of sanitize_key, not a variant of it:
+-- it excludes "#", takes allow_slash rather than always permitting slashes, collapses runs of
+-- "-", and carries its own bound. Three byte-identical copies lived in devloop, forge and
+-- github-proxy; all three already depend on contract, which is where the rest of this family is.
+function S.sanitize_cache_segment(value, allow_slash)
+  local pattern = allow_slash and "[^%w%._%-%/]" or "[^%w%._%-]"
+  local safe = tostring(value or ""):gsub(pattern, "-")
+  safe = safe:gsub("-+", "-")
+  if allow_slash then
+    safe = safe:gsub("/+", "/"):gsub("^/+", ""):gsub("/+$", "")
+  else
+    safe = safe:gsub("^-+", ""):gsub("-+$", "")
+  end
+  local segments = {}
+  for segment in safe:gmatch("[^/]+") do
+    if segment == "." or segment == ".." then
+      segment = "-"
+    end
+    table.insert(segments, segment)
+  end
+  safe = table.concat(segments, allow_slash and "/" or "-")
+  if #safe > S.max_cache_key_segment_len then
+    safe = safe:sub(1, S.max_cache_key_segment_len):gsub("/+$", ""):gsub("-+$", "")
+  end
+  if safe == "" then
+    return "empty"
+  end
+  return safe
+end
+
 return S

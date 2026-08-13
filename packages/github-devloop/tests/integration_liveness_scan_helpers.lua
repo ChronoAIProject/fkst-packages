@@ -65,13 +65,7 @@ local function run_liveness_scan_at(name, ts, run_opts)
   }, run_opts or opts(name or "liveness-scan"))
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function numbered_list_json(items)
   local rendered = {}

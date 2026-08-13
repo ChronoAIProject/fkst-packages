@@ -216,4 +216,48 @@ function M.run_fake_outcome(dept, event)
   }
 end
 
+-- Runs `fn` with fkst.codex_runs reporting `running`, restoring the original on every path so a
+-- failing body cannot leak a patched harness into later tests. Six suites each carried this.
+-- fkst is touched only when called, so this module still takes no harness global at load time.
+function M.with_codex_runs(running, fn)
+  local original = fkst.codex_runs
+  fkst.codex_runs = function()
+    return { running = running or {}, recent = {} }
+  end
+  local ok, err = pcall(fn)
+  fkst.codex_runs = original
+  if not ok then
+    error(err)
+  end
+end
+
+-- Runs `command` through the shell, capturing stdout and stderr together, and reports whether it
+-- succeeded. Eight suites across six packages carried this. io is a Lua stdlib global reached at
+-- call time, so this module still takes no harness global at load.
+function M.command_output(command)
+  local handle = assert(io.popen(command .. " 2>&1"))
+  local output = handle:read("*a")
+  local ok = handle:close()
+  return output, ok ~= false and ok ~= nil
+end
+
+-- Runs `fn` with log.warn recording instead of emitting, restoring the original on every path so a
+-- failing body cannot leak a patched logger into later tests. Returns the body's result and the
+-- captured messages. Four suites across four packages carried this under two names, differing only
+-- in the accumulator's name. log is reached at call time, so this module still takes no harness
+-- global at load.
+function M.capture_warn_logs(fn)
+  local previous_warn = log.warn
+  local logs = {}
+  log.warn = function(message)
+    table.insert(logs, tostring(message))
+  end
+  local ok, result = pcall(fn)
+  log.warn = previous_warn
+  if not ok then
+    error(result, 0)
+  end
+  return result, logs
+end
+
 return M

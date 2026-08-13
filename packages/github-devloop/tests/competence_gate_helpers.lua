@@ -13,16 +13,7 @@ local required_negative_controls = {
   "007-partial-write-idempotency-completeness",
 }
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, nested in pairs(value) do
-    out[key] = copy_value(nested)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function copy_rows(rows)
   local copied = {}

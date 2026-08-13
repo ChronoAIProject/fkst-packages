@@ -773,4 +773,55 @@ function M.with_isolated_cache(keys, run)
   return table.unpack(results, 2, results.n)
 end
 
+M.INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+
+-- Returns a committed_records() bound to `is_target_record`: the inventory's
+-- old_behavior_observations filtered by that predicate and sorted by observation_id.
+-- Six suites each carried this; only the predicate ever differed.
+function M.committed_records_with(is_target_record)
+  return function()
+    local inventory = json.decode(file.read(M.INVENTORY_PATH))
+    local selected = M.json_array()
+    for _, record in ipairs(inventory.old_behavior_observations or {}) do
+      if is_target_record(record) then
+        table.insert(selected, record)
+      end
+    end
+    table.sort(selected, function(left, right)
+      return tostring(left.observation_id) < tostring(right.observation_id)
+    end)
+    return selected
+  end
+end
+
+-- Predicate matching inventory records whose site is exactly `site`. Six suites carried this
+-- identically; only the site constant differed. Returned as a builder rather than folded into
+-- committed_records_with, because one suite needs a different predicate entirely and the single
+-- predicate-taking contract covers both.
+function M.site_record_predicate(site)
+  return function(record)
+    local record_site = type(record) == "table" and record.site or nil
+    return type(record_site) == "table"
+      and record_site.path == site.path
+      and record_site.symbol == site.symbol
+      and record_site.ordinal == site.ordinal
+  end
+end
+
+-- Returns a capture_records() bound to this suite's fixtures and record builder: every fixture
+-- built into a record, sorted by observation_id. Seven suites carried this identically; only the
+-- fixtures and the builder ever differed.
+function M.capture_records_with(fixtures, build_record)
+  return function()
+    local records = M.json_array()
+    for _, fixture in ipairs(fixtures) do
+      table.insert(records, build_record(fixture))
+    end
+    table.sort(records, function(left, right)
+      return left.observation_id < right.observation_id
+    end)
+    return records
+  end
+end
+
 return M

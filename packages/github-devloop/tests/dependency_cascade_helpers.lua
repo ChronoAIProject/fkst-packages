@@ -230,13 +230,7 @@ local function mock_implement_issue(labels, comments)
   })
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function mock_liveness_issue_list(items)
   local rendered = {}
@@ -322,15 +316,7 @@ local function has_queue(raises, queue)
   return find_raise(raises, queue) ~= nil
 end
 
-local function count_queue(raises, queue)
-  local count = 0
-  for _, item in ipairs(raises or {}) do
-    if item.queue == queue then
-      count = count + 1
-    end
-  end
-  return count
-end
+local count_queue = require("testkit_internal.raises").count
 
 local function has_marker(raises, marker_text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
@@ -339,13 +325,7 @@ local function has_marker(raises, marker_text)
 end
 
 local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
+  return gh_argv.count_calls(t, needle)
 end
 
 local function marker_body(raises, needle)

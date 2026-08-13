@@ -228,14 +228,7 @@ local function with_runtime(model, fn)
   end
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 return {
   test_attempt_lineage_survives_runtime_restart_and_changing_residuals = function()

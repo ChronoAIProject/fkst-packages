@@ -20,13 +20,7 @@ local function comment(state, marker_version, author_login, created_at, effects)
   }
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function mock_issue_list()
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {
@@ -75,14 +69,7 @@ local function run_liveness_scan(name)
   }, h.opts(name))
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function raise_queue_names(raises)
   local names = {}
