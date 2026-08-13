@@ -36,6 +36,7 @@ public = [
   "testkit_internal.restart_obligation_derivation_fixtures",
   "testkit_internal.saga_conformance",
   "testkit_internal.testing",
+  "testkit_internal.values",
 ]
 
 [visibility]
