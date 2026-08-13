@@ -20,13 +20,7 @@ local structural_fields = fixture.structural_fields
 local expected_entries = fixture.expected_entries
 local pending_order_goldens = fixture.pending_order_goldens
 
-local function key_set(keys)
-  local out = {}
-  for _, key in ipairs(keys) do
-    out[key] = true
-  end
-  return out
-end
+local key_set = require("testkit_internal.values").key_set
 
 local assert_exact_keys = require("testkit_internal.asserts").assert_exact_keys
 
