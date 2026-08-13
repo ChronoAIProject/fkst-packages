@@ -86,13 +86,7 @@ local function table_by_state()
   return by_state
 end
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 local function allowed_extra_transition(state, next_state)
   return state == "impl-failed" and next_state == "implementing"

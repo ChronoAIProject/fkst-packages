@@ -47,4 +47,15 @@ function M.key_set(keys)
   return out
 end
 
+-- Indexes restart rows by their from_state. Eight suites carried this under two names.
+-- The production copy in libraries/devloop keeps its own: it additionally guards against nil
+-- rows and nil from_state, and production must not require a test library regardless.
+function M.rows_by_state(rows)
+  local by_state = {}
+  for _, row in ipairs(rows or {}) do
+    by_state[row.from_state] = row
+  end
+  return by_state
+end
+
 return M
