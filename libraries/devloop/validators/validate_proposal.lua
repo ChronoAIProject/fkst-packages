@@ -4,7 +4,7 @@ local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
 local convergence_shared = require("devloop.convergence.shared")
 local C = {}
-function C.is_intake_hand_off(hand_off, proposal)
+local function is_intake_hand_off(hand_off, proposal)
   if type(hand_off) ~= "table" or type(proposal) ~= "table" then
     return false
   end
@@ -61,7 +61,7 @@ function C.validate_proposal(proposal)
   if proposal.findings_record ~= nil and not strings.is_bounded_string(proposal.findings_record, convergence_shared.findings_record_len) then
     return false
   end
-  return proposal.intake_hand_off == nil or C.is_intake_hand_off(proposal.intake_hand_off, proposal)
+  return proposal.intake_hand_off == nil or is_intake_hand_off(proposal.intake_hand_off, proposal)
 end
 
 return C
