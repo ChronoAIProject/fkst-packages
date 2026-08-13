@@ -213,19 +213,7 @@ local function ci_repair_hold_fixture(created_at)
   return event, comments, state, row, facts, due_seconds, delay_seconds
 end
 
-local function capture_raises(fn)
-  local raised = {}
-  local original = devloop_logging.log_raise
-  devloop_logging.log_raise = function(_, _, queue, payload)
-    table.insert(raised, { queue = queue, payload = payload })
-  end
-  local ok, err = pcall(fn)
-  devloop_logging.log_raise = original
-  if not ok then
-    error(err)
-  end
-  return raised
-end
+local capture_raises = require("testkit_internal.cas_shadow").bind_log_raise_capture(devloop_logging)
 
 local function captured_raise(raised, queue, predicate)
   for _, item in ipairs(raised or {}) do

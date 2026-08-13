@@ -10,19 +10,7 @@ local t = h.t
 local core = h.core
 replayer = assert(rawget(core, "replayer"))
 
-local function capture_raises(fn)
-  local raised = {}
-  local original = devloop_logging.log_raise
-  devloop_logging.log_raise = function(_, _, queue, payload)
-    table.insert(raised, { queue = queue, payload = payload })
-  end
-  local ok, err = pcall(fn)
-  devloop_logging.log_raise = original
-  if not ok then
-    error(err)
-  end
-  return raised
-end
+local capture_raises = require("testkit_internal.cas_shadow").bind_log_raise_capture(devloop_logging)
 
 local function with_shared_replayer_registry(fn)
   local original = replayer.replay_sources.review_replayers
