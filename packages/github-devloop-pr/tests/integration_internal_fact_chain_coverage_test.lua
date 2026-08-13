@@ -35,18 +35,7 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function mock_branch_config_env()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_branch_config_env = require("testkit_internal.env_mocks").mock_branch_config
 
 
 local function find_pr_label_raise(raises)
