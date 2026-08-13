@@ -150,7 +150,7 @@ function C.autonomy_valid_autonomous_merge(gates)
   return "true"
 end
 
-function C.autonomy_merge_rounds(version)
+local function autonomy_merge_rounds(version)
   return restart_metadata.version_loop_round(version) + restart_metadata.version_fix_round(version)
 end
 
@@ -500,7 +500,7 @@ function C.autonomy_result_record(evaluate_ci_status_gate, repo, issue_number, m
     task_class = C.autonomy_task_class(issue),
     human_touch_count = human_touch_count,
     pre_merge_ci = gates.pre_merge_ci,
-    rounds = C.autonomy_merge_rounds(merge_ready.version),
+    rounds = autonomy_merge_rounds(merge_ready.version),
     retry_count = restart_metadata.version_fix_round(merge_ready.version),
     codex_calls = nil,
     gates = gates,
@@ -712,7 +712,7 @@ function C.autonomy_result_fact(comments, proposal_id, pr_number, version, head_
   return nil
 end
 
-function C.autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts)
+local function autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts)
   if type(fact) ~= "table" then
     return nil
   end
@@ -781,7 +781,7 @@ function C.autonomy_audited_result_fact(evaluate_ci_status_gate, comments, propo
   if fact == nil then
     return nil
   end
-  local audit = C.autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts or {})
+  local audit = autonomy_audit_valid_autonomous_merge(evaluate_ci_status_gate, fact, opts or {})
   if type(audit) == "table" and audit.valid_autonomous_merge ~= nil then
     local state = tostring(audit.valid_autonomous_merge)
     if not audit_states[state] then
