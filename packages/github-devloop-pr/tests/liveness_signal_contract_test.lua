@@ -13,13 +13,7 @@ local function copy_rows(rows)
   return copied
 end
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 local function contains_error(errors, needle)
   for _, err in ipairs(errors or {}) do
