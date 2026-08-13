@@ -45,7 +45,7 @@ function C.timeout_attempt_v2_marker(proposal_id, state_name, liveness_class_id,
     .. '" -->'
 end
 
-function C.timeout_attempt_latest_marker(proposal_id, state_name, liveness_class_id, generation_key)
+local function timeout_attempt_latest_marker(proposal_id, state_name, liveness_class_id, generation_key)
   return '<!-- fkst:github-devloop:timeout-attempt:latest:v1 proposal="' .. safe_attr(proposal_id, devloop_base._max_key_len)
     .. '" state="' .. safe_attr(state_name, max_attr_len)
     .. '" liveness_class_id="' .. safe_attr(liveness_class_id or "", max_attr_len)
@@ -56,7 +56,7 @@ end
 function C.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt)
   local normalized = base_ids.normalize_source_ref(source_ref)
   local marker = C.timeout_attempt_marker(proposal_id, state.version, row.from_state, attempt, normalized)
-  local latest_marker = C.timeout_attempt_latest_marker(proposal_id, row.from_state, "", transition_version.strip_suffixes(state.version))
+  local latest_marker = timeout_attempt_latest_marker(proposal_id, row.from_state, "", transition_version.strip_suffixes(state.version))
   return entity_lib.build_entity_comment_request(target, "github-devloop timeout redrive attempt: "
     .. tostring(row.from_state)
     .. " "
@@ -80,7 +80,7 @@ end
 function C.build_timeout_attempt_v2_comment_request(target, proposal_id, state, row, source_ref, attempt, generation_key)
   local normalized = base_ids.normalize_source_ref(source_ref)
   local marker = C.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, attempt, normalized)
-  local latest_marker = C.timeout_attempt_latest_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key)
+  local latest_marker = timeout_attempt_latest_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key)
   return entity_lib.build_entity_comment_request(target, "github-devloop timeout redrive attempt: "
     .. tostring(row.from_state)
     .. " "
