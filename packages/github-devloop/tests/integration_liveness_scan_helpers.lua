@@ -65,7 +65,7 @@ local function run_liveness_scan_at(name, ts, run_opts)
   }, run_opts or opts(name or "liveness-scan"))
 end
 
-local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function numbered_list_json(items)
   local rendered = {}

@@ -584,13 +584,7 @@ local function assert_bidirectional_membership(actual, expected, actual_label, e
   end
 end
 
-local function is_target_record(record)
-  local site = type(record) == "table" and record.site or nil
-  return type(site) == "table"
-    and site.path == SITE.path
-    and site.symbol == SITE.symbol
-    and site.ordinal == SITE.ordinal
-end
+local is_target_record = observation_support.site_record_predicate(SITE)
 
 local committed_records = observation_support.committed_records_with(is_target_record)
 

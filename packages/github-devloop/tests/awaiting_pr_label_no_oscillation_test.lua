@@ -105,6 +105,7 @@ end
 
 local function mock_reads(issue_comments, pr_comments, opts)
   local options = opts or {}
+  local observed_pr_number = options.observed_pr_number or pr_number
   t.mock_command(core.gh_issue_list_decompose_children_cmd(repo, parent), {
     stdout = "[]\n",
     stderr = "",
@@ -120,7 +121,7 @@ local function mock_reads(issue_comments, pr_comments, opts)
   }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
-    number = pr_number,
+    number = observed_pr_number,
     comments = pr_comments,
     head = original_branch,
     head_sha = head_sha,
@@ -154,6 +155,7 @@ end
 
 local function run_pr_observe(issue_comments, pr_comments, opts)
   local options = opts or {}
+  local observed_pr_number = options.observed_pr_number or pr_number
   options.pr_view_times = options.pr_view_times or 2
   mock_env()
   mock_reads(issue_comments, pr_comments, options)
@@ -163,11 +165,11 @@ local function run_pr_observe(issue_comments, pr_comments, opts)
       schema = "github-proxy.v1",
       type = "pr",
       repo = repo,
-      number = pr_number,
+      number = observed_pr_number,
       state = "OPEN",
       updated_at = "2026-06-03T02:03:04Z",
-      dedup_key = "owner/repo#pr#7@2026-06-03T02:03:04Z",
-      source_ref = entity_lib.pr_source_ref(repo, pr_number),
+      dedup_key = "owner/repo#pr#" .. tostring(observed_pr_number) .. "@2026-06-03T02:03:04Z",
+      source_ref = entity_lib.pr_source_ref(repo, observed_pr_number),
     },
   })
 end
@@ -193,6 +195,17 @@ local function assert_settled_blocked_stable(result, pass)
 end
 
 return {
+  test_awaiting_pr_rejects_markers_from_a_different_observed_pr = function()
+    local result = run_pr_observe(parent_comments(), child_blocked_comments(), {
+      observed_pr_number = 8,
+      pr_view_times = 1,
+    })
+
+    assert_success(result, "wrong observed child identity")
+    t.eq(#raises_for(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(#raises_for(result.raises, "github-proxy.github_issue_label_request"), 0)
+  end,
+
   test_awaiting_pr_child_blocked_label_reconciliation_does_not_oscillate = function()
     local child_comments = child_blocked_comments()
 

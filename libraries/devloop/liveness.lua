@@ -53,11 +53,10 @@ local function devloop_restart_liveness_policy()
       indeterminate_timeout = "row-budget",
     },
     child_workflow_wait = {
-      live_marker = "state:v1",
       delegation_marker = "pr-delegation:v1",
-      signal_family = "state",
-      signal_resolver = "child-state",
-      surface = "pr-comment-stream",
+      dependency_kind = "delegated-child-pr",
+      fact_family = "child-pr-dependency",
+      predicate = "pr_partition_contract.child_terminal_predicate",
     },
   }
 end

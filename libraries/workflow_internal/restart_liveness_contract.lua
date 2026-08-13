@@ -88,12 +88,9 @@ local epoch_sources = {
     durable = true,
     opens_generation = true,
     excludes_deferred_time = true,
-    requires_live_marker = true,
-    requires_producer = true,
-    requires_freshness_ms = true,
+    requires_fact_dependency = true,
     requires_redrive_opens_generation = true,
     requires_delegation_marker = true,
-    requires_terminal_states = true,
     forbids_clear_fact = true,
     forbids_observed_fact = true,
     forbids_clear_opens_generation = true,
@@ -424,34 +421,18 @@ local function validate_child_workflow_wait_defer(row, errors)
   local state = state_name(row)
   local defer = row and row.defer or nil
   local epoch = row and row.actionable_epoch or nil
-  local signal = row and row.liveness_contract and row.liveness_contract.signal or nil
-  if not non_empty_string(defer.live_marker) then
-    table.insert(errors, state .. ": child_workflow_wait defer must declare live_marker")
-  end
+  local dependency = row and row.child_dependency or nil
+  local liveness_dependency = row and row.liveness_contract and row.liveness_contract.fact_dependency or nil
   local policy = require_policy(child_workflow_wait_policy, "child_workflow_wait", {
-    "live_marker",
     "delegation_marker",
-    "signal_family",
-    "signal_resolver",
-    "surface",
+    "dependency_kind",
+    "fact_family",
+    "predicate",
   }, errors, state)
   if policy == nil then
     return
   end
-  local expected_live_marker = policy.live_marker
   local expected_delegation_marker = policy.delegation_marker
-  local expected_signal_family = policy.signal_family
-  local expected_signal_resolver = policy.signal_resolver
-  local expected_surface = policy.surface
-  if defer.live_marker ~= expected_live_marker then
-    table.insert(errors, state .. ": child_workflow_wait defer live_marker must be " .. tostring(expected_live_marker))
-  end
-  if not non_empty_string(defer.producer) then
-    table.insert(errors, state .. ": child_workflow_wait defer must declare producer")
-  end
-  if tonumber(defer.freshness_ms) == nil or tonumber(defer.freshness_ms) <= 0 then
-    table.insert(errors, state .. ": child_workflow_wait defer must declare freshness_ms")
-  end
   if defer.redrive_opens_generation ~= true then
     table.insert(errors, state .. ": child_workflow_wait defer.redrive_opens_generation must be true")
   end
@@ -460,9 +441,6 @@ local function validate_child_workflow_wait_defer(row, errors)
   end
   if defer.delegation_marker ~= expected_delegation_marker then
     table.insert(errors, state .. ": child_workflow_wait defer delegation_marker must be " .. tostring(expected_delegation_marker))
-  end
-  if type(defer.terminal_states) ~= "table" or #defer.terminal_states == 0 then
-    table.insert(errors, state .. ": child_workflow_wait defer must declare terminal_states")
   end
   if epoch == nil or epoch.source ~= "child_workflow_wait:v1" then
     table.insert(errors, state .. ": child_workflow_wait defer must use child_workflow_wait:v1")
@@ -480,23 +458,17 @@ local function validate_child_workflow_wait_defer(row, errors)
   if type(on_stale) ~= "table" or on_stale.op ~= "redrive_receiver" then
     table.insert(errors, state .. ": child_workflow_wait defer must declare watchdog.on_stale.op=redrive_receiver")
   end
-  if type(on_stale) == "table" and on_stale.producer ~= nil and on_stale.producer ~= defer.producer then
-    table.insert(errors, state .. ": child_workflow_wait defer watchdog.on_stale producer must match defer.producer")
+  if type(dependency) ~= "table"
+    or dependency.kind ~= policy.dependency_kind
+    or dependency.fact_family ~= policy.fact_family
+    or dependency.predicate ~= policy.predicate then
+    table.insert(errors, state .. ": child_workflow_wait defer must declare the typed child dependency")
   end
-  if type(signal) ~= "table" then
-    table.insert(errors, state .. ": child_workflow_wait defer must declare liveness_contract.signal")
-    return
+  if type(dependency) == "table" and liveness_dependency ~= dependency.fact_family then
+    table.insert(errors, state .. ": child_workflow_wait liveness must use the row typed child dependency")
   end
-  local resolver = signal.resolver or signal.family
-  if signal.family ~= expected_signal_family or resolver ~= expected_signal_resolver or signal.producer ~= defer.producer then
-    table.insert(errors, state .. ": child_workflow_wait defer signal must resolve the PR child state marker")
-  end
-  if signal.surface ~= expected_surface then
-    table.insert(errors, state .. ": child_workflow_wait defer signal must use " .. tostring(expected_surface))
-  end
-  local binding = liveness_shared.liveness_signal_producer_contract(M, signal.producer)
-  if type(binding) ~= "table" or binding.resolver ~= expected_signal_resolver then
-    table.insert(errors, state .. ": child_workflow_wait defer producer must bind the " .. tostring(expected_signal_resolver) .. " resolver")
+  if row.liveness_contract.signal ~= nil then
+    table.insert(errors, state .. ": child_workflow_wait must not declare an independent marker signal")
   end
 end
 
