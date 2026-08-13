@@ -388,7 +388,10 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   if entry_ms == nil then
     return invalid("child workflow wait delegation epoch is missing")
   end
-  local eval = actionable(M, row, state, entry_ms, "pr-delegation:v1:" .. tostring(state and state.version or ""), "child workflow terminal or absent")
+  local reason = dependency == nil
+    and "child workflow dependency fact is missing"
+    or "child workflow terminal state is observed"
+  local eval = actionable(M, row, state, entry_ms, "pr-delegation:v1:" .. tostring(state and state.version or ""), reason)
   eval.signal = signal
   return eval
 end

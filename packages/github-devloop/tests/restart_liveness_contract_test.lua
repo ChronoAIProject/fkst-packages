@@ -375,6 +375,20 @@ return {
     t.eq(eval.epoch_source, "child_workflow_wait:v1")
   end,
 
+  test_awaiting_pr_child_workflow_wait_keeps_missing_dependency_distinct = function()
+    local row = rows_by_state(core.restart_transition_table())["awaiting-pr"]
+    local eval = m_rae.actionable_epoch_resolve(core, row, {
+      state = "awaiting-pr",
+      version = "ready/1248",
+      proposal_id = "github-devloop/issue/owner/repo/1248",
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }, {
+      proposal_id = "github-devloop/issue/owner/repo/1248",
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
+    t.eq(eval.status, "actionable")
+    t.eq(eval.reason, "child workflow dependency fact is missing")
+  end,
+
   test_awaiting_pr_child_workflow_wait_uses_typed_terminal_over_raw_nonterminal = function()
     local row = rows_by_state(core.restart_transition_table())["awaiting-pr"]
     local parent_proposal_id = "github-devloop/issue/owner/repo/1248"
