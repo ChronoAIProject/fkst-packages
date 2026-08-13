@@ -1,3 +1,5 @@
+local t = fkst.test
+
 local M = {}
 
 -- Returns an observe_shadow bound to `catalog`. It swaps in a recording `resolve`, runs the
@@ -45,6 +47,19 @@ function M.bind_log_raise_capture(devloop_logging)
       error(err)
     end
     return raised
+  end
+end
+
+-- Returns a mock_repo() that stubs the FKST_GITHUB_REPO env read with `repo`. Seven suites
+-- carried this. devloop_base is injected for the same reason as the binders above: this
+-- library may depend only on contract, workflow and forge, and devloop.base lives in devloop.
+function M.bind_mock_repo(devloop_base, repo)
+  return function()
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
+      stdout = repo,
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 
