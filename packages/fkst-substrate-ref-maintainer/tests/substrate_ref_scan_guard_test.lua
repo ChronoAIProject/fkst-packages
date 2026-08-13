@@ -133,4 +133,29 @@ return {
     eq_zero(count_calls("HEAD:refs/heads/chore/substrate-ref-bump"), "push for unpublishable target")
   end,
 
+  -- The gh adapter signals a non-zero-exit command by THROWING a table that carries the
+  -- command result; run_adapter unwraps it so run_gh can classify the failure itself.
+  -- Without that unwrap the throw escapes as the generic "adapter-operation-failed",
+  -- losing the narrow, greppable gh-command-failed class. Nothing observed this before.
+  test_failed_check_runs_read_surfaces_the_gh_command_error_class = function()
+    mock_env("")
+    mock_current_pin(current_pin)
+    mock_substrate_head(target_sha)
+    mock_no_existing_pr()
+    t.mock_command(core.gh_commit_check_runs_cmd(substrate_repo, target_sha), {
+      stdout = "",
+      stderr = "gh: check-runs read refused\n",
+      exit_code = 1,
+    })
+
+    local result = run_scan(opts("substrate-check-runs-read-failure"))
+
+    t.eq(result.exit_code, 1)
+    local raised = tostring(result.error or "")
+    t.eq(raised:find("gh-command-failed", 1, true) ~= nil, true)
+    t.eq(raised:find("substrate upstream check-runs read", 1, true) ~= nil, true)
+    t.eq(raised:find("gh: check-runs read refused", 1, true) ~= nil, true)
+    t.eq(raised:find("adapter-operation-failed", 1, true), nil)
+  end,
+
 }
