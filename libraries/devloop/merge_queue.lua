@@ -18,6 +18,8 @@ local config = require("devloop.config")
 
 local strings = require("contract.strings")
 local devloop_logging = require("devloop.logging")
+local wip_admission_classification
+local log_wip_exclusion
 
 local active_wip_states = {
   implementing = true,
@@ -323,7 +325,7 @@ function C.merge_queue_predecessor_set_matches_current_base(git, recorded_set, c
   return true, "predecessor-set-landed-prefix"
 end
 
-function C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry)
+local function merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry)
   if type(next_entry) ~= "table" then
     error("github-devloop: merge-queue-next-entry-invalid: invalid merge queue next entry")
   end
@@ -345,7 +347,7 @@ function C.merge_queue_tick_payload(repo, merged_pr_number, next_entry)
   end
   return {
     schema = "github-devloop.merge-queue-tick.v1",
-    dedup_key = C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry),
+    dedup_key = merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry),
     source_ref = entity_lib.pr_source_ref(repo, next_entry.pr_number),
     cause = {
       kind = "merge-progress",
@@ -471,11 +473,11 @@ function C.wip_capacity_allows_start(repo, current_issue_number)
       local current = parsers_issue.parse_issue_view_state(view.stdout)
       local proposal_id = base_ids.proposal_id(repo, issue_number)
       local state = devloop_state.current_state(current.comments, proposal_id)
-      local classification = C.wip_admission_classification(repo, proposal_id, current.comments, state, integration_branch)
+      local classification = wip_admission_classification(repo, proposal_id, current.comments, state, integration_branch)
       if classification.counts then
         count = count + 1
       elseif classification.reason ~= "state-not-active-wip" then
-        C.log_wip_exclusion(proposal_id, classification)
+        log_wip_exclusion(proposal_id, classification)
       end
     end
   end
@@ -499,7 +501,7 @@ local merge_gate_wait_wip_states = {
   merging = true,
 }
 
-function C.wip_admission_classification(repo, proposal_id, issue_comments, state, integration_branch)
+function wip_admission_classification(repo, proposal_id, issue_comments, state, integration_branch)
   local state_name = tostring(state and state.state or "")
   if not active_wip_states[state_name] then
     return {
@@ -549,7 +551,7 @@ function C.wip_admission_classification(repo, proposal_id, issue_comments, state
   }
 end
 
-function C.log_wip_exclusion(proposal_id, classification)
+function log_wip_exclusion(proposal_id, classification)
   local fields = {
     "reason=" .. tostring(classification.reason),
     "state=" .. tostring(classification.state),

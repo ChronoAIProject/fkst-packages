@@ -114,7 +114,7 @@ function C.build_thinking_label_request(issue, proposal)
   )
 end
 
-function C.result_label_dedup_key(reached)
+local function result_label_dedup_key(reached)
   return base_ids.dedup_key({
     tostring(reached.proposal_id),
     "label",
@@ -129,7 +129,7 @@ function C.build_result_state_label_request(repo, issue_number, reached, to_stat
     to_state,
     reached.proposal_id,
     tostring(reached.effect_version or reached.dedup_key),
-    C.result_label_dedup_key(reached),
+    result_label_dedup_key(reached),
     reached.source_ref
   )
 end

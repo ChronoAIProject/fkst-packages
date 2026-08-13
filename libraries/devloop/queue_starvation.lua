@@ -252,7 +252,7 @@ local function merge_queue_head_entity(repo, now_seconds)
   }
 end
 
-function C.queue_starvation_window_key(now_seconds)
+local function queue_starvation_window_key(now_seconds)
   local bucket_seconds = merge_recent_threshold_minutes * 60
   local bucket = math.floor((tonumber(now_seconds) or now()) / bucket_seconds)
   return "window-" .. tostring(bucket)
@@ -294,7 +294,7 @@ local function queue_head_entity(queue_head)
   return queue_head
 end
 
-function C.queue_starvation_redrive_payload(repo, evidence)
+local function queue_starvation_redrive_payload(repo, evidence)
   local head = queue_head_entity(evidence and evidence.queue_head or nil)
   if type(head) ~= "table" or head.pr_number == nil then
     return nil
@@ -324,7 +324,7 @@ local function raise_redrive(redrive_queue, redrive)
   raise(queue, redrive)
 end
 
-function C.queue_starvation_dedup_key(repo, identity)
+local function queue_starvation_dedup_key(repo, identity)
   return base_ids.dedup_key({
     detector,
     tostring(repo or ""),
@@ -363,7 +363,7 @@ local function alert_body(evidence, snapshot)
   return body
 end
 
-function C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
+local function build_queue_starvation_issue_create_request(repo, evidence, snapshot)
   local identity = evidence.incident_identity or stable_incident_identity(evidence.queue_head)
   local window_key = evidence.window_key
   return {
@@ -372,7 +372,7 @@ function C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
     title = alert_title(evidence.queue_head),
     body = alert_body(evidence, snapshot),
     labels = json.decode("[]"),
-    dedup_key = C.queue_starvation_dedup_key(repo, identity),
+    dedup_key = queue_starvation_dedup_key(repo, identity),
     parent_comment_target = {
       repo = repo,
       issue_number = tostring(evidence.queue_head.issue_number),
@@ -410,7 +410,7 @@ function C.observe_queue_starvation(redrive_queue, repo, _entities, limits, dead
   local newest = newest_recent_merge(merged, current_seconds)
   local evidence = {
     now_seconds = current_seconds,
-    window_key = C.queue_starvation_window_key(current_seconds),
+    window_key = queue_starvation_window_key(current_seconds),
     queue_head = queue_head.entity,
     queue_head_age_minutes = queue_head.age_minutes,
     threshold_minutes = m_mq._merge_ready_starvation_threshold_minutes,
@@ -418,7 +418,7 @@ function C.observe_queue_starvation(redrive_queue, repo, _entities, limits, dead
     recent_closed = recent_closed,
   }
   evidence.incident_identity = stable_incident_identity(queue_head)
-  local redrive = C.queue_starvation_redrive_payload(repo, evidence)
+  local redrive = queue_starvation_redrive_payload(repo, evidence)
   if newest ~= nil and newest.age_minutes <= merge_recent_threshold_minutes then
     raise_redrive(redrive_queue, redrive)
     log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=suppress"
@@ -434,7 +434,7 @@ function C.observe_queue_starvation(redrive_queue, repo, _entities, limits, dead
     }
   end
   local snapshot = write_snapshot(repo, evidence.window_key, evidence)
-  local request = C.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
+  local request = build_queue_starvation_issue_create_request(repo, evidence, snapshot)
   devloop_logging.log_raise("observability", detector .. "/merge-ready", "github-proxy.github_issue_create_request", request)
   raise_redrive(redrive_queue, redrive)
   log.info("github-devloop dept=observability tag=QUEUE_STARVATION"
