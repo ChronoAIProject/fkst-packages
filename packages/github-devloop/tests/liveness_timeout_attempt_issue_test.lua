@@ -26,7 +26,7 @@ local function render_comment(comment)
   return h.render_comment(comment)
 end
 
-local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function mock_issue_list(updated_at)
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {

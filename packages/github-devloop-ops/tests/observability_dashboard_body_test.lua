@@ -95,19 +95,7 @@ local function autonomy_record(fields)
   return record
 end
 
-local function capture_warn_logs(fn)
-  local previous_warn = log.warn
-  local logs = {}
-  log.warn = function(message)
-    table.insert(logs, tostring(message))
-  end
-  local ok, result = pcall(fn)
-  log.warn = previous_warn
-  if not ok then
-    error(result, 0)
-  end
-  return result, logs
-end
+local capture_warn_logs = require("testkit_internal.testing").capture_warn_logs
 
 local function assert_dashboard_marker_outside_fences(body)
   local marker_start = body:find("<!-- fkst:dashboard:v1", 1, true)

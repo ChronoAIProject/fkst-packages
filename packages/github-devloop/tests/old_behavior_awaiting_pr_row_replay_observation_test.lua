@@ -63,6 +63,14 @@ local FIXTURES = json_array({
   { name = "child-pr-blocked", pr_number = 9813, child_state = "blocked", expected_target = "blocked", expected_status = "route-to-terminal", expected_disposition = "applied(child-pr-blocked)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }) },
 })
 
+local POST_FIX_FIXTURES = json_array({
+  { name = "post-fix-child-pr-merged", pr_number = 9820, prior_child_state = "pr-open", child_state = "merged", child_version = VERSION .. "/fix/1", pr_state = "MERGED", base_branch = UPSTREAM_BRANCH, unified_branches = true, expected_target = "merged", expected_disposition = "applied(child-pr-merged)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }), expected_ledger_calls = 1 },
+  { name = "post-fix-child-pr-closed-unmerged", pr_number = 9821, prior_child_state = "pr-open", child_state = "closed-unmerged", child_version = VERSION .. "/fix/1", branch = ORIGINAL_BRANCH, pr_state = "CLOSED", expected_target = "ready", expected_disposition = "applied(child-pr-closed-unmerged)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal" }) },
+  { name = "post-fix-child-pr-blocked", pr_number = 9822, prior_child_state = "pr-open", child_state = "blocked", child_version = VERSION .. "/fix/1", expected_target = "blocked", expected_disposition = "applied(child-pr-blocked)", expected_effect_ids = json_array({ "comment:issue:awaiting-pr-terminal", "label:issue:awaiting-pr-terminal" }) },
+  { name = "post-fix-child-pr-defer", pr_number = 9823, prior_child_state = "pr-open", child_state = "reviewing", child_version = VERSION .. "/fix/1", expected_disposition = "skip-pending(child-nonterminal)" },
+  { name = "post-fix-child-state-unrecognized", pr_number = 9824, prior_child_state = "pr-open", child_state = "vendor-paused", child_version = VERSION .. "/fix/1", expected_disposition = "child-state-unrecognized", expected_decision_fact = "vendor-paused" },
+})
+
 local function trusted_comment(body, created_at)
   return { body = body, author_login = "fkst-test-bot", created_at = created_at or "2099-01-01T00:00:00Z" }
 end
@@ -102,12 +110,23 @@ local function child_comments(fixture)
       fixture.base_branch or INTEGRATION_BRANCH
     ), "2026-06-03T01:03:00Z"),
   })
-  if fixture.child_marker ~= false then
+  if fixture.prior_child_state ~= nil then
     table.insert(comments, trusted_comment(core.state_marker(
       PROPOSAL_ID,
-      fixture.child_state,
-      fixture.child_version or VERSION
-    ), "2026-06-03T01:04:00Z"))
+      fixture.prior_child_state,
+      VERSION
+    ), "2026-06-03T01:03:30Z"))
+  end
+  if fixture.child_marker ~= false then
+    local marker
+    if core.is_state(fixture.child_state) then
+      marker = core.state_marker(PROPOSAL_ID, fixture.child_state, fixture.child_version or VERSION)
+    else
+      marker = '<!-- fkst:github-devloop:state:v1 proposal="' .. PROPOSAL_ID
+        .. '" state="' .. tostring(fixture.child_state)
+        .. '" version="' .. tostring(fixture.child_version or VERSION) .. '" -->'
+    end
+    table.insert(comments, trusted_comment(marker, "2026-06-03T01:04:00Z"))
   end
   return comments
 end
@@ -188,7 +207,7 @@ local function prepare_fixture(fixture)
       stdout = "[[]]\n", stderr = "", exit_code = 0,
     })
   end
-  if fixture.name == "child-pr-merged" then
+  if fixture.expected_target == "merged" then
     t.mock_command("gh issue close", { stdout = "closed\n", stderr = "", exit_code = 0 })
   end
 end
@@ -245,13 +264,14 @@ local function capture_runtime(fixture)
       decisions = json_array(),
       raises = json_array(),
       applies = json_array(),
+      child_pr_dependency = copy_value(facts.child_pr_dependency),
     }
     local active_log_decision = devloop_logging.log_cas_decision
     local active_log_raise = devloop_logging.log_raise
     local active_log_apply = devloop_logging.log_apply
-    devloop_logging.log_cas_decision = function(log_dept, proposal_id, current, from_state, to_state, outcome, reason)
-      table.insert(dispatch.decisions, { proposal_id = proposal_id, from_state = from_state, to_state = to_state, outcome = outcome, reason = reason })
-      return active_log_decision(log_dept, proposal_id, current, from_state, to_state, outcome, reason)
+    devloop_logging.log_cas_decision = function(log_dept, proposal_id, current, from_state, to_state, outcome, reason, facts)
+      table.insert(dispatch.decisions, { proposal_id = proposal_id, from_state = from_state, to_state = to_state, outcome = outcome, reason = reason, facts = copy_value(facts) })
+      return active_log_decision(log_dept, proposal_id, current, from_state, to_state, outcome, reason, facts)
     end
     devloop_logging.log_raise = function(log_dept, proposal_id, queue, payload)
       table.insert(dispatch.raises, { proposal_id = proposal_id, queue = queue, payload = copy_value(payload) })
@@ -423,6 +443,18 @@ local function assert_exact_target_marker_skew_is_not_production_reachable()
 end
 
 return {
+  test_awaiting_pr_row_replay_selects_latest_same_lineage_post_fix_child_fact = function()
+    for _, fixture in ipairs(POST_FIX_FIXTURES) do
+      local _, _, dispatch = capture_runtime(fixture)
+      t.eq(dispatch.child_pr_dependency.raw_state, fixture.child_state, fixture.name .. ": latest child state")
+      t.eq(dispatch.child_pr_dependency.version, fixture.child_version, fixture.name .. ": latest child version")
+      if fixture.expected_decision_fact ~= nil then
+        t.eq(dispatch.decisions[1].facts[1].name, "child_state", fixture.name .. ": typed fact name")
+        t.eq(dispatch.decisions[1].facts[1].values[1], fixture.expected_decision_fact, fixture.name .. ": typed fact value")
+      end
+    end
+  end,
+
   test_awaiting_pr_row_replay_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_exact_target_marker_skew_is_not_production_reachable()
     local fixtures = fixture_tuple_set()
