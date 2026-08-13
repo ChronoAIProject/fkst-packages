@@ -173,13 +173,7 @@ local function mock_pr_view(comments, extra)
 end
 
 local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
+  return gh_argv.count_calls(t, needle)
 end
 
 local function has_call(needle)
