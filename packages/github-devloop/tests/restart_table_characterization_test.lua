@@ -4,16 +4,7 @@ local sha256 = require("contract.sha256")
 local t = fkst.test
 local EXPECTED_DIGEST = "9150936bdb3db07e72eb1581b31a170367da5594dca3e5d1e6a6a35fe4bb008d"
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local copied = {}
-  for key, field in pairs(value) do
-    copied[key] = copy_value(field)
-  end
-  return copied
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function rows_by_state(rows)
   local indexed = {}
