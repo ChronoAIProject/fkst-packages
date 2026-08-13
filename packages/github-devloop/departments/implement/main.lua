@@ -100,6 +100,11 @@ local function raise_impl_failed(repo, issue_number, ready, reason, fault_class,
     "github-proxy.github_issue_label_request",
   })
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  for _, diagnostic_request in ipairs(requests_lifecycle.build_local_iteration_failure_identity_comment_requests(
+      repo, issue_number, ready, reason, attempt, failure_identities)) do
+    devloop_logging.log_raise("implement", ready.proposal_id,
+      "github-proxy.github_issue_comment_request", diagnostic_request)
+  end
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
@@ -365,6 +370,11 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.failure_identities
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
+    for _, diagnostic_request in ipairs(requests_lifecycle.build_local_iteration_failure_identity_comment_requests(
+        repo, issue_number, outcome.ready, outcome.reason, outcome.attempt, outcome.failure_identities)) do
+      devloop_logging.log_raise("implement", outcome.ready.proposal_id,
+        "github-proxy.github_issue_comment_request", diagnostic_request)
+    end
     return
   end
   if outcome.kind == "impl-failed" then

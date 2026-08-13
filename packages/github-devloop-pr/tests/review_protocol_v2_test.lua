@@ -273,12 +273,16 @@ return {
       1,
       "SEMANTIC",
       false,
-      { identity }
-    ).body
+      { identity }).body
+    local diagnostic_comment = requests_lifecycle.build_local_iteration_failure_identity_comment_requests(
+      "owner/repo", 42, ready, "base-local-iteration-failed", 1, { identity })[1].body
 
     local prompt = core.build_review_meta_prompt(h.review_meta_event(), {
       title = "Review a pull request",
-      comments = { { body = comment, author_login = "fkst-test-bot" } },
+      comments = {
+        { body = comment, author_login = "fkst-test-bot" },
+        { body = diagnostic_comment, author_login = "fkst-test-bot" },
+      },
     })
 
     t.is_true(prompt:find(
