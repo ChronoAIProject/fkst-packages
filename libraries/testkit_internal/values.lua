@@ -38,4 +38,13 @@ function M.has_value(values, expected)
   return false
 end
 
+-- The set of `keys` as a table mapping each to true. Seven suites carried this.
+function M.key_set(keys)
+  local out = {}
+  for _, key in ipairs(keys) do
+    out[key] = true
+  end
+  return out
+end
+
 return M
