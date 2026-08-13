@@ -190,6 +190,11 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
   facts.pr_delegation = delegation
   facts["pr-delegation"] = delegation
+  if row
+    and row.actionable_epoch
+    and row.actionable_epoch.source == "child_workflow_wait:v1" then
+    facts = replayer.gather_replay_required_facts(row, issue, state, facts)
+  end
   local epoch = row and row.actionable_epoch
   if issue.source == "liveness-scan"
     and type(epoch) == "table"

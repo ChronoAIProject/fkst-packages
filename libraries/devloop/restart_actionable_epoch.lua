@@ -3,6 +3,7 @@ local dependency_gate = require("devloop.dependency_gate")
 local parsers_misc = require("devloop.parsers.misc")
 local conv_attempts = require("devloop.convergence.attempts")
 local contract_time = require("contract.time")
+local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 local C = {}
 
 local function comment_created_ms(M, comment)
@@ -358,11 +359,27 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
 end
 
 function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
-  if type(M.restart_row_liveness_signal) ~= "function" then
-    return invalid("child workflow liveness signal resolver is unavailable")
+  local dependency_contract = row and row.child_dependency
+  if type(dependency_contract) ~= "table"
+    or dependency_contract.kind ~= "delegated-child-pr"
+    or dependency_contract.fact_family ~= "child-pr-dependency"
+    or dependency_contract.predicate ~= "pr_partition_contract.child_terminal_predicate" then
+    return invalid("child workflow typed dependency contract is invalid")
   end
-  local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
-  if signal.live then
+  if row.liveness_contract == nil or row.liveness_contract.fact_dependency ~= dependency_contract.fact_family then
+    return invalid("child workflow liveness contract bypasses its typed dependency")
+  end
+  local dependency = facts and (facts.child_pr_dependency or facts[dependency_contract.fact_family]) or nil
+  local raw_state = dependency and (dependency.raw_state or dependency.state) or nil
+  local signal = {
+    family = dependency_contract.fact_family,
+    resolver = dependency_contract.predicate,
+    state = raw_state,
+  }
+  if dependency ~= nil
+    and dependency.identity_valid == true
+    and pr_partition_contract.child_state_predicate(raw_state)
+    and not pr_partition_contract.child_terminal_predicate(raw_state) then
     local eval = deferred("child workflow state is non-terminal")
     eval.signal = signal
     return eval
@@ -371,7 +388,10 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   if entry_ms == nil then
     return invalid("child workflow wait delegation epoch is missing")
   end
-  local eval = actionable(M, row, state, entry_ms, "pr-delegation:v1:" .. tostring(state and state.version or ""), "child workflow terminal or absent")
+  local reason = dependency == nil
+    and "child workflow dependency fact is missing"
+    or "child workflow terminal state is observed"
+  local eval = actionable(M, row, state, entry_ms, "pr-delegation:v1:" .. tostring(state and state.version or ""), reason)
   eval.signal = signal
   return eval
 end

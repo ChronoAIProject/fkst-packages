@@ -12,6 +12,7 @@ local dependency_gate = require("devloop.dependency_gate")
 local implementation_escalation = require("devloop.implementation_escalation")
 local transition_version = require("contract.transition_version")
 local replay_fields = require("devloop.replay_fields")
+local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 
 local F = {}
 
@@ -78,9 +79,13 @@ local function fetch_child_state_fact(replay_sources, facts)
       error("github-devloop: child-state-pr-view-failed: child-state PR view failed: " .. tostring(view.stderr))
     end
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
-    facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
+    facts.current_pr.repo, facts.current_pr.number, facts.current_pr.force_fresh = facts.issue.repo, delegation.pr_number, true
   end
-  facts.child_state = entity_lib.current_entity_state(facts.current_pr.comments, delegation.proposal_id)
+  facts.child_state = pr_partition_contract.child_state_fact(
+    facts.current_pr,
+    delegation,
+    facts.issue.repo
+  )
   return facts.child_state
 end
 
@@ -95,6 +100,9 @@ local function require_marker_fact(restart_policy, replay_sources, facts, family
     return child_pr_delegation_fact(facts)
   end
   if family == "child-state" then
+    return fetch_child_state_fact(replay_sources, facts)
+  end
+  if family == "child-pr-dependency" then
     return fetch_child_state_fact(replay_sources, facts)
   end
   if family == "converge-round" then
@@ -322,6 +330,10 @@ local function store_gathered_marker_fact(facts, family, value)
     facts["pr-delegation"] = value
   elseif family == "child-state" then
     facts.child_state = value
+  elseif family == "child-pr-dependency" then
+    facts.child_state = value
+    facts.child_pr_dependency = value
+    facts["child-pr-dependency"] = value
   end
 end
 

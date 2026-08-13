@@ -225,6 +225,16 @@ local function validate_liveness_contract(M, row, errors)
     return
   end
 
+  if row.actionable_epoch
+    and row.actionable_epoch.source == "child_workflow_wait:v1"
+    and type(row.child_dependency) == "table"
+    and contract.fact_dependency == row.child_dependency.fact_family then
+    if contract.signal ~= nil then
+      table.insert(errors, state .. ": live-defer child_workflow_wait must not declare marker signal")
+    end
+    return
+  end
+
   local signal = contract.signal
   if type(signal) ~= "table" then
     table.insert(errors, state .. ": live-defer must declare a signal")
