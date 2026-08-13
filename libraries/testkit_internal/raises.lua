@@ -13,4 +13,17 @@ function M.find(raises, queue)
   return nil
 end
 
+-- How many raises in a flat array target `queue`. Sibling of find, same argument shape.
+-- Four suites carried this under two names, differing only in the loop variable.
+-- Two other definitions take a result object rather than the array and are left alone.
+function M.count(raises, queue)
+  local count = 0
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == queue then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 return M
