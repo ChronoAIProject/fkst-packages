@@ -37,13 +37,7 @@ local pending_order_goldens = {
   ["github-devloop-pr/reviewing/operator_reentry/rereview_reviewing"] = { participates = false },
 }
 
-local function key_set(keys)
-  local out = {}
-  for _, key in ipairs(keys) do
-    out[key] = true
-  end
-  return out
-end
+local key_set = require("testkit_internal.values").key_set
 
 local assert_exact_keys = require("testkit_internal.asserts").assert_exact_keys
 
