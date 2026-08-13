@@ -10,15 +10,20 @@ local inventories = {
   entry = require("core.restart.entry_inventory"),
   operator_reentry = require("core.restart.operator_reentry_inventory"),
 }
-local exemplar = require("core.restart.review_reconcile_obligations")[1]
+local exemplars = {
+  require("core.restart.review_reconcile_obligations")[1],
+}
 
 local t = h.t
 
-local function witness_index(include_exemplar)
-  if not include_exemplar then
-    return {}
+local function witness_index_without(excluded_edge_id)
+  local result = {}
+  for _, exemplar in ipairs(exemplars) do
+    if exemplar.edge_id ~= excluded_edge_id then
+      result[exemplar.edge_id] = exemplar
+    end
   end
-  return { [exemplar.edge_id] = exemplar }
+  return result
 end
 
 local LOOP_CLASS_ORDER = {
@@ -185,7 +190,7 @@ return {
 
   test_pr_owner_derives_cas_admission_obligations_from_canonical_edges = function()
     local edges = canonical_edges()
-    local witnesses = witness_index(true)
+    local witnesses = witness_index_without(nil)
     local result = restart_obligations.derive(edges, witnesses)
     local derived = index_by_edge(result.obligations)
     local unmapped = index_by_edge(result.unmapped)
@@ -222,9 +227,9 @@ return {
   end,
 
   test_pr_owner_reports_removed_frozen_witness_as_unmapped = function()
-    local result = restart_obligations.derive(canonical_edges(), witness_index(false))
+    local result = restart_obligations.derive(canonical_edges(), witness_index_without(exemplars[1].edge_id))
     local unmapped = index_by_edge(result.unmapped)
-    t.eq(unmapped[exemplar.edge_id].reason, "missing-frozen-witness")
+    t.eq(unmapped[exemplars[1].edge_id].reason, "missing-frozen-witness")
   end,
 
   test_pr_owner_derives_pending_obligations_from_typed_participation = function()
