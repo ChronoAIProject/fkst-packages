@@ -32,19 +32,7 @@ local function self_current(extra)
   }
 end
 
-local function capture_warn_logs(fn)
-  local previous_warn = log.warn
-  local logs = {}
-  log.warn = function(message)
-    table.insert(logs, tostring(message))
-  end
-  local ok, result = pcall(fn)
-  log.warn = previous_warn
-  if not ok then
-    error(result, 0)
-  end
-  return result, logs
-end
+local capture_warn_logs = require("testkit_internal.testing").capture_warn_logs
 
 return {
   test_issue_claim_state_requires_complete_carrier_projection = function()
