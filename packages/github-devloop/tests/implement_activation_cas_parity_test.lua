@@ -250,20 +250,7 @@ local function evidence_from_probe(probe, handoff_checks)
   }
 end
 
-local function observe_shadow(run)
-  local evidence = nil
-  local original_resolve = catalog.resolve
-  catalog.resolve = function(policy_id, candidate, candidate_projection)
-    evidence = candidate
-    return original_resolve(policy_id, candidate, candidate_projection)
-  end
-  local ok, result = pcall(run)
-  catalog.resolve = original_resolve
-  if not ok then
-    error(result, 0)
-  end
-  return result, evidence
-end
+local observe_shadow = require("testkit_internal.cas_shadow").bind(catalog)
 
 local function decision_after_probe(decisions, probe, boundary_calls)
   local boundary_sequence = boundary_calls[1] and boundary_calls[1].sequence or math.huge

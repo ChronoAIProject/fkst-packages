@@ -153,20 +153,7 @@ local function observe_department(run)
   return result, probes, decisions, boundary_calls, grant_mints, facade_emits
 end
 
-local function observe_shadow(run)
-  local evidence = nil
-  local original_resolve = catalog.resolve
-  catalog.resolve = function(policy_id, candidate, candidate_projection)
-    evidence = candidate
-    return original_resolve(policy_id, candidate, candidate_projection)
-  end
-  local ok, result = pcall(run)
-  catalog.resolve = original_resolve
-  if not ok then
-    error(result, 0)
-  end
-  return result, evidence
-end
+local observe_shadow = require("testkit_internal.cas_shadow").bind(catalog)
 
 local function evidence_from_probe(probe, outcome_version)
   local definition = catalog.definition(POLICY_ID)
