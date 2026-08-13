@@ -305,15 +305,7 @@ local function mock_successful_codex_resolution()
   t.mock_command("commit -F", { stdout = "[detached cccc3333] Sync dev into integration/dev\n", stderr = "", exit_code = 0 })
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
 local function self_hash_normalizer_call()
   for _, call in ipairs(t.command_calls()) do

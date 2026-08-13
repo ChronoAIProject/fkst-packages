@@ -70,8 +70,14 @@ host_run_export_codex_repository_roots() {
 }
 
 host_run_resolve_target_platform_roots() {
-  local output line
-  output="$(python3 - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
+  local output line python_bin
+  if [ -n "${FKST_PYTHON:-}" ]; then
+    python_bin="$FKST_PYTHON"
+  else
+    python_bin="python3"
+    echo "warning: FKST_PYTHON is not set; falling back to python3 from PATH for this local host launch" >&2
+  fi
+  output="$("$python_bin" - "$HOST_RUN_PROJECT_ROOT" "$HOST_RUN_PLATFORM_PACKAGES" "$HOST_RUN_PLATFORM_ROOT" <<'PY'
 import re
 import shlex
 import subprocess

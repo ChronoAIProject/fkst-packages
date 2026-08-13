@@ -26,13 +26,7 @@ local function render_comment(comment)
   return h.render_comment(comment)
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
 
 local function mock_issue_list(updated_at)
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {
@@ -99,19 +93,7 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function capture_raises(fn)
-  local raised = {}
-  local original = devloop_logging.log_raise
-  devloop_logging.log_raise = function(_, _, queue, payload)
-    table.insert(raised, { queue = queue, payload = payload })
-  end
-  local ok, err = pcall(fn)
-  devloop_logging.log_raise = original
-  if not ok then
-    error(err)
-  end
-  return raised
-end
+local capture_raises = require("testkit_internal.cas_shadow").bind_log_raise_capture(devloop_logging)
 
 local function capture_failure_and_raises(fn)
   local raised = {}
@@ -133,17 +115,7 @@ local function captured_raise(raised, queue)
   return nil
 end
 
-local function with_codex_runs(running, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = running or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
+local with_codex_runs = require("testkit_internal.testing").with_codex_runs
 
 local function state_comment(state_name, state_version, created_at)
   return {

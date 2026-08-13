@@ -105,3 +105,161 @@ decided but not implemented; the remaining intra-file duplication surface is mos
 should not be extracted.
 
 ⟦AI:FKST⟧
+
+## Addendum, 2026-08-12: the instrument, not the surface, was the limit
+
+The section above ends by noting the remaining duplication surface is "mostly *arrangement* and should
+not be extracted." That was measured further and **confirmed**: nine independent random draws
+(seeds 20260811–20260819, 345 regions) classify at **~77% ARRANGEMENT, ~15% CANDIDATE, ~4% SYNTAX,
+~3% MANDATED**, stable across every seed. Parallel lifecycles have parallel shapes; consolidating them
+would produce a module serving two lifecycles, which this repo treats as a defect.
+
+**But that conclusion functioned as an ending, and it was the wrong one.** It said little was left,
+when what was actually left was invisible to the instrument being used.
+
+| instrument | found | could NOT find |
+|---|---|---|
+| duplication sampling | 28 implementations single-sourced, −124 lines | **dead code — it is not duplicated, it is absent from everything** |
+| direct mutation sampling | unwitnessed behaviour, unreachable code | behaviour that is tested but tested *wrong* |
+| token-frequency scan | 46 unreachable functions, −418 lines | dead *values* — a string a validator accepts and nothing emits |
+
+Switching from extraction to direct mutation — **for cost reasons, not insight** — surfaced a function
+whose mutation killed nothing because nothing called it. Generalising that produced 17 unreachable
+library exports, 3 unreachable locals, and 26 unreachable package exports. Sixteen of the last group
+were pre-ports `gh` command builders orphaned when the G-ADAPTER migration moved argv construction into
+`libraries/forge/` — migration residue with a history, not an artefact of the scan.
+
+A third shape appeared only when the autonomous devloop corrected an issue filed from this work: the
+intake-class outcome `"carrier"` is accepted by a validator and **emitted by nothing**, traced forward
+from the single production caller which passes the literal `"folded"`. No scan run here could have
+found it; it is a string, kept legal by the code that lists it.
+
+### The two populations are nearly disjoint — measured
+
+This is not only an argument from category. Measured between git refs, across the three deletion PRs:
+
+```
+duplicated regions before deletions: 2144
+                       after:        2138
+                       delta:          -6   (6 removed, 0 created)
+```
+
+**Deleting 46 unreachable functions removed 6 duplicated regions.** It should: dead code is selected by
+*frequency-1 identifiers*, duplicated code by *repeated blocks*, and almost nothing satisfies both. The
+6 are where a dead function happened to contain a repeated block.
+
+So the duplication instrument was not merely slow to find the dead code — it was looking at a nearly
+disjoint population. No amount of refining it would have converged on the other set.
+
+(An earlier statement here attributed a larger drop, 2247 to 2138, to the deletions. That was wrong;
+most of it came from the duplication-consolidation PRs, which remove duplicated regions by design, and
+from concurrent merges by the autonomous loop. The ref-to-ref measurement above isolates the deletions.)
+
+### What transfers
+
+**Each instrument's shape determines the *category* of finding, not just the hit rate — and a blind
+spot is invisible from inside the instrument that has it.** Eight rounds of refining the duplication
+method (three gates, distinct-candidate counting, per-owner witnesses) made it measurably better and
+could never have revealed what it structurally could not see. The switch came from a cost comparison,
+not from noticing.
+
+Corollary: **evidence for a method in one population is not evidence for it in another.** The dead-code
+scan went 17-for-17 in `libraries/`, and `packages/` has a calling convention `libraries/` does not —
+the engine invokes `M.spec`, `pipeline`, raisers and handler tables from Rust, so zero Lua references
+is the *normal* state there. The 17-for-17 record carried authority into a population where its central
+assumption did not hold.
+
+⟦AI:FKST⟧
+
+### The scan that found the dead code had its own blind spot
+
+Stated plainly because this document earlier implied the sweep was complete: **it was not.** The
+candidate scan anchored every pattern at column 0 (`^function`, `^local function`), so any callable
+defined inside another block was invisible to it. An independent survey found **seven** further
+definition shapes it could not see:
+
+| shape | approx sites | scanned |
+|---|---|---|
+| `name = function(` | ~4674 | no |
+| indented `function T.method(` | ~538 | no |
+| indented `name = function(` | ~500 | no |
+| `return function(` | ~70 | no |
+| `local f = function(` | ~24 | no |
+| colon `function T:method(` | ~15 | no |
+| computed key `name[expr] = function(` | ~10 | no |
+
+Those counts include tests, fixtures and inline anonymous callbacks, so the dead-code-relevant subset
+is far smaller than the raw total — but the completeness claim was still false.
+
+Checking three of the missed shapes yielded **3 further candidates**, which cascaded to 5 deletions
+(−21 lines) once their orphaned helpers were followed. So the gap was real and nearly empty: indented
+definitions are overwhelmingly live, because they sit inside `install(M)` functions that are actively
+used.
+
+**That the gap happened to be nearly empty is not a defence.** Had it held 200 dead functions, the same
+reasoning that produced "four shapes, sweep complete" would have missed every one, and nothing in the
+method would have signalled it. **How much a blind spot contains is independent of whether you knew it
+was there** — which is this section's own thesis, arriving as evidence about the person who wrote it.
+
+
+### A surviving mutation does not mean "untested"
+
+The campaign used one rule to decide whether an extraction was safe to ship: mutate the behaviour and
+require some test to go red. Survivals were recorded as *missing witnesses* and two were filed as
+coverage gaps. **That inference has a second explanation, and it went unchecked: the code may be
+unreachable.** A mutation reports only that no test observed the change; it is silent about why.
+
+The two readings demand opposite work — one wants a test written, the other wants the code deleted —
+so conflating them makes the follow-up wrong in a way the original measurement cannot reveal.
+
+One error-unwrap idiom, spelled seven times, separates cleanly once reachability is read per site.
+The gh adapter reports a non-zero-exit command by *throwing* a table carrying the command result; a
+repo-wide scan finds exactly two producers of such a throw, the gh adapter and one test simulating it.
+Everything else is a consumer that may or may not sit on a path reaching it.
+
+| site | wraps | reachable | witness |
+|---|---|---|---|
+| `forge/github/result.lua` `gh_result` | gh — canonical, owned by the producer's package | yes | not established |
+| `devloop/commands/support.lua` `gh_result` | gh, 32 call sites; also propagates `class`/`retryable`/`permanent` | yes | not established |
+| `devloop/dependency_graphql.lua` `github_result` | gh graphql | yes | **witnessed** |
+| `devloop/git_mechanics.lua` `run_git` | git only | **no** | n/a — deleted |
+| `forge/git/refs.lua` `exec_result` | git only | **no** | n/a |
+| `substrate_ref.lua` `run_adapter` | git, and gh via `run_gh` | yes | **witnessed** |
+| `release_notes.lua` (inlined) | gh `pr_create_body`; enclosing function has no production callers | yes | unwitnessed |
+
+All the probed copies survived their suites. One needed nothing, two needed a test, two needed
+deleting — and the mutation results were identical in every case.
+
+The two "dead" verdicts are proved the same way, and not by the mutation: neither file reaches a gh
+handle, and the git adapter's only table-shaped throw carries no `result` field, so the outer test can
+never hold. The dead branch is also what *caused* the misreading — reading it, git failures appear to
+arrive carrying a result, which is exactly what makes a survival look like a missing test.
+
+**Pair every surviving mutation with a reachability read before naming it a gap.**
+
+### Two of this document's own numbers were mislabelled
+
+**"21 PRs, −634 lines" was a phase count reported as the campaign total.** Measured across every PR
+carrying this campaign's session key and merged into the integration branch: **85 PRs, #3152 through
+#3704, +22767/−24859, net −2092 lines.** (That includes a revert pair, #3310 and #3316, and counts
+added tests as additions.) The error understated the work, which is why nothing downstream caught it —
+a wrong number is checked only when someone dislikes it.
+
+**The duplicated-region counts quoted earlier are not comparable to each other**, because they came
+from scans with different filters. Re-measured with a single instrument at two refs — window 6,
+production `.lua` only, windows of fewer than three distinct lines dropped:
+
+```
+de24dff7d  (base of the first campaign PR)   573 files   1837 regions
+816a0e8e8  (current)                         584 files   1718 regions
+```
+
+−119 regions while the tree grew by 11 files. The earlier backlog estimate — "~33 extractable remain,
+~20 more PRs" — divided one of the incomparable counts by an overlap ratio, so it rests on a number
+that does not correspond to what it was compared against, and should not be quoted.
+
+Both errors have the shape this document keeps rediscovering: **the value was computed, the label was
+asserted by hand.** A measurement script can assert its own subject; a sentence written afterwards
+cannot.
+
+⟦AI:FKST⟧

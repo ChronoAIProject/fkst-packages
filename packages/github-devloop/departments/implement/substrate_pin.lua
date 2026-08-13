@@ -1,3 +1,4 @@
+local contract_strings = require("contract.strings")
 local git_adapter = require("forge.git")
 local forge_validators = require("devloop.forge_validators")
 local devloop_logging = require("devloop.logging")
@@ -21,15 +22,11 @@ local function git(opts)
   return git_handle
 end
 
-local function trim(value)
-  return tostring(value or ""):gsub("%s+$", "")
-end
-
 local function is_substrate_ref_absent_in_tree(result)
   if type(result) ~= "table" then
     return false
   end
-  if result.exit_code ~= 128 or trim(result.stdout) ~= "" then
+  if result.exit_code ~= 128 or contract_strings.trim_end(result.stdout) ~= "" then
     return false
   end
   local stderr = tostring(result.stderr or "")
@@ -48,7 +45,7 @@ local function show_pin(ref, opts)
     end
     error("github-devloop: implement-substrate-pin-read-failed: " .. tostring(result and result.stderr or "nil git result"))
   end
-  local pin = trim(result.stdout)
+  local pin = contract_strings.trim_end(result.stdout)
   if not forge_validators.is_git_sha(pin) then
     error("github-devloop: implement-substrate-pin-invalid: invalid implementation substrate-ref pin")
   end

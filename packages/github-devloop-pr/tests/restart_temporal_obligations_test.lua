@@ -15,16 +15,7 @@ local expected_keys = {
   ["github-devloop-pr/reviewing/response-with-deadline"] = true,
 }
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, item in pairs(value) do
-    out[key] = copy_value(item)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function contains(value, needle)
   return tostring(value or ""):find(needle, 1, true) ~= nil

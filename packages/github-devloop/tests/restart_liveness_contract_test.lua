@@ -9,16 +9,7 @@ local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
 local restart_policy = assert(rawget(core, "restart_policy"))
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, nested in pairs(value) do
-    out[key] = copy_value(nested)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function copy_rows(rows)
   local copied = {}

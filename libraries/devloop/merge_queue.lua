@@ -323,23 +323,6 @@ function C.merge_queue_predecessor_set_matches_current_base(git, recorded_set, c
   return true, "predecessor-set-landed-prefix"
 end
 
-function C.merge_queue_allows_event(repo, base_branch, merge_ready, current_pr)
-  local head = C.merge_queue_head(repo, base_branch, {
-    pr_number = merge_ready.pr_number,
-    pr = current_pr,
-  })
-  if head == nil then
-    return false, "merge-queue-empty"
-  end
-  if tostring(head.proposal_id or "") ~= tostring(merge_ready.proposal_id or "")
-    or tostring(head.version or "") ~= tostring(merge_ready.version or "")
-    or tostring(head.pr_number or "") ~= tostring(merge_ready.pr_number or "")
-    or tostring(head.head_sha or "") ~= tostring(merge_ready.reviewed_head_sha or "") then
-    return false, "merge-queue-head-pr-" .. tostring(head.pr_number or "unknown")
-  end
-  return true, "merge-queue-head"
-end
-
 function C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry)
   if type(next_entry) ~= "table" then
     error("github-devloop: merge-queue-next-entry-invalid: invalid merge queue next entry")

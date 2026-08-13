@@ -28,47 +28,11 @@ local function key_set(keys)
   return out
 end
 
-local function assert_exact_keys(value, expected)
-  local count = 0
-  for key in pairs(value) do
-    count = count + 1
-    t.eq(expected[key], true)
-  end
-  local expected_count = 0
-  for _ in pairs(expected) do
-    expected_count = expected_count + 1
-  end
-  t.eq(count, expected_count)
-end
+local assert_exact_keys = require("testkit_internal.asserts").assert_exact_keys
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, nested in pairs(value) do
-    out[key] = copy_value(nested)
-  end
-  return out
-end
+local copy_value = require("testkit_internal.values").copy_value
 
-local function assert_same_value(actual, expected)
-  if type(expected) ~= "table" then
-    t.eq(actual, expected)
-    return
-  end
-  t.eq(type(actual), "table")
-  local actual_count = 0
-  for _ in pairs(actual) do
-    actual_count = actual_count + 1
-  end
-  local expected_count = 0
-  for key, nested in pairs(expected) do
-    expected_count = expected_count + 1
-    assert_same_value(actual[key], nested)
-  end
-  t.eq(actual_count, expected_count)
-end
+local assert_same_value = require("testkit_internal.asserts").assert_same_value
 
 local function consumed_queue(spec, expected)
   for _, queue_name in ipairs(spec.consumes or {}) do
@@ -372,17 +336,7 @@ local function ingress_edges(edges)
   return out
 end
 
-local function assert_valid_cas(edge)
-  if edge.cas_policy_id == nil then
-    return
-  end
-  local definition = restart_cas_catalog.definition(edge.cas_policy_id)
-  t.is_true(definition ~= nil)
-  if edge.cas_variant ~= nil then
-    t.is_true(definition.variants ~= nil)
-    t.is_true(definition.variants[edge.cas_variant] ~= nil)
-  end
-end
+local assert_valid_cas = require("testkit_internal.asserts").bind_assert_valid_cas(restart_cas_catalog)
 
 local function assert_entry_shape(edges)
   local seen_ids = {}

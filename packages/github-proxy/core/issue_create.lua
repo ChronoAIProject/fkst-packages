@@ -256,21 +256,6 @@ function M.parse_issue_create_search(stdout)
   return issues
 end
 
-function M.has_trusted_issue_create_marker(issues, dedup_key, bot_login)
-  if type(issues) ~= "table" then
-    return false
-  end
-  local marker = M.issue_create_marker(dedup_key)
-  for _, issue in ipairs(issues) do
-    if forge_strings.canonical_login(issue_author_login(issue))
-      == forge_strings.canonical_login(bot_login)
-      and tostring(issue.body or ""):find(marker, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
 function M.trusted_issue_create_number(issues, dedup_key, bot_login)
   if type(issues) ~= "table" then
     return nil

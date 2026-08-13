@@ -720,10 +720,27 @@ merged_child_landed_on_upstream = function(dept, issue, state, delegation, curre
           error("github-devloop: awaiting-pr-rollup-receipt-invalid: merged rollup PR metadata is incomplete")
         end
         if tostring(candidate.head_repository) == tostring(issue.repo) then
-          local fetched = git_mechanics.run_required(
-            git_commands.git_fetch_pr_head_oid("origin", candidate.number, 60),
-            "awaiting-pr rollup receipt head"
-          )
+          -- Fetching a candidate's head is an EXTERNAL, transient operation. Raising on a non-zero
+          -- exit escapes this per-candidate callback, past `fetch_then_scan_rollup_receipts`, and
+          -- fails the whole `observe_issue` pass -- so one row's momentary network failure stops
+          -- every other row from advancing (26 dead-letters over 11h, all rows frozen, supervise
+          -- still `panic 0`). Fail-closed is right; batch-wide is the wrong granularity. Isolate it
+          -- to this candidate: emit an explicit fact and treat the candidate as unverifiable THIS
+          -- pass, which yields the existing non-terminal `skip-pending(rollup-receipt-missing)` and
+          -- is re-derived from source on the next tick. This is not swallowing -- the outcome is
+          -- explicitly non-terminal and the fact is recorded.
+          local fetch_result = git_commands.git_fetch_pr_head_oid("origin", candidate.number, 60)
+          if type(fetch_result) ~= "table" or tonumber(fetch_result.exit_code) ~= 0 then
+            devloop_logging.log_cas_decision(
+              dept, delegation and delegation.proposal_id, state,
+              "awaiting-pr", "awaiting-pr",
+              "skip-candidate(rollup-receipt-head-unfetchable)",
+              "rollup PR #" .. tostring(candidate.number)
+                .. " head fetch exited " .. tostring(type(fetch_result) == "table" and fetch_result.exit_code or "nil")
+                .. "; candidate unverifiable this pass, other candidates and rows continue")
+            return nil
+          end
+          local fetched = fetch_result
           local fetched_head = contract_strings.trim(fetched.stdout)
           if fetched_head ~= tostring(candidate.head_sha) then
             error("github-devloop: awaiting-pr-rollup-receipt-head-mismatch: fetched rollup PR head differs from GitHub metadata")

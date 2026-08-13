@@ -47,9 +47,6 @@ local forge_validators = require("devloop.forge_validators")
     if ok then
       return result_or_error
     end
-    if type(result_or_error) == "table" and result_or_error.result ~= nil then
-      return result_or_error.result
-    end
     error("github-devloop: git-adapter-failed: " .. tostring(label or "git-adapter operation") .. " failed: " .. tostring(result_or_error))
   end
 
@@ -216,10 +213,6 @@ local forge_validators = require("devloop.forge_validators")
       require_safe_sha("expected old branch sha", expected_old_sha),
       timeout
     )
-  end
-
-  function C.git_push_branch_update(git, branch, timeout)
-    return git.push_branch_update(require_safe_branch("push branch", branch), timeout)
   end
 
   function C.git_push_worktree_branch_update(git, worktree, branch, timeout)

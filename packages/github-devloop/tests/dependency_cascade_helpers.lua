@@ -230,13 +230,7 @@ local function mock_implement_issue(labels, comments)
   })
 end
 
-local function mock_repo()
-  t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
-    stdout = repo,
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
 
 local function mock_liveness_issue_list(items)
   local rendered = {}
@@ -339,13 +333,7 @@ local function has_marker(raises, marker_text)
 end
 
 local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, needle) then
-      count = count + 1
-    end
-  end
-  return count
+  return gh_argv.count_calls(t, needle)
 end
 
 local function marker_body(raises, needle)

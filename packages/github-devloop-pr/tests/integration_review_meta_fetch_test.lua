@@ -18,14 +18,7 @@ local find_causal_raise = h.find_causal_raise
 local action_label = h.action_label
 local reason_label = h.reason_label
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -45,15 +38,7 @@ local function mock_meta_codex(stdout)
   })
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
 local function assert_review_meta_judgment_call()
   local calls = codex_calls()

@@ -391,10 +391,6 @@ function fixture.mock_pr_list_command(t, command, prs, times)
   register_view_commands(t, { command }, list_stdout(prs, pr_list_item_json), times or 1)
 end
 
-function fixture.mock_recent_merged_pr_list(t, repo, prs, times)
-  fixture.mock_pr_list_command(t, core.gh_pr_list_recent_merged_cmd(repo, #prs > 0 and #prs or 30), prs, times)
-end
-
 function fixture.mock_issue_list_raw_command(t, command, result, times)
   register_command_result(t, command, result or {}, times or 1)
 end

@@ -133,13 +133,8 @@ local function source_contains(path, needle)
 end
 shared.source_contains = source_contains
 
-local function signal_age_from_created_at(M, created_at, now_seconds)
-  local created_seconds = contract_time.iso_timestamp_epoch_seconds(created_at)
-  local current_seconds = tonumber(now_seconds)
-  if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
-    return math.floor((current_seconds - created_seconds) / 60)
-  end
-  return nil
+local function signal_age_from_created_at(created_at, now_seconds)
+  return contract_time.iso_timestamp_age_minutes(created_at, now_seconds)
 end
 shared.signal_age_from_created_at = signal_age_from_created_at
 

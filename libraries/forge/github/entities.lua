@@ -13,10 +13,10 @@ local function issue_list_argv(repo)
   return { "gh", "api", "--paginate", "--slurp", "repos/" .. tostring(repo) .. "/issues?state=open&per_page=100" }
 end
 
-local function issue_list_cli_argv(repo, state, limit, fields)
+local function entity_list_cli_argv(command, repo, state, limit, fields)
   return {
     "gh",
-    "issue",
+    command,
     "list",
     "--repo",
     tostring(repo),
@@ -27,6 +27,10 @@ local function issue_list_cli_argv(repo, state, limit, fields)
     "--json",
     tostring(fields),
   }
+end
+
+local function issue_list_cli_argv(repo, state, limit, fields)
+  return entity_list_cli_argv("issue", repo, state, limit, fields)
 end
 
 local function issue_list_open_assigned_argv(repo, assignee)
@@ -48,19 +52,7 @@ local function issue_list_open_assigned_argv(repo, assignee)
 end
 
 local function pr_list_cli_argv(repo, state, limit, fields)
-  return {
-    "gh",
-    "pr",
-    "list",
-    "--repo",
-    tostring(repo),
-    "--state",
-    tostring(state),
-    "--limit",
-    tostring(limit),
-    "--json",
-    tostring(fields),
-  }
+  return entity_list_cli_argv("pr", repo, state, limit, fields)
 end
 
 local function pr_list_recent_merged_argv(repo, limit)

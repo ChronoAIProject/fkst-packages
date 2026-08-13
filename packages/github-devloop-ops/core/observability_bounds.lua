@@ -27,10 +27,6 @@ function M.observability_deadline(now_seconds, limits)
   return sweep_bounds.sweep_deadline(now_seconds, limits)
 end
 
-function M.observability_remaining_seconds(deadline)
-  return sweep_bounds.sweep_remaining_seconds(deadline)
-end
-
 function M.observability_call_timeout(limits, deadline)
   return sweep_bounds.sweep_call_timeout(limits, deadline)
 end
@@ -144,10 +140,6 @@ end
 
 function M.observability_rotation_offset(count, seed)
   return sweep_bounds.sweep_rotation_offset(count, seed)
-end
-
-function M.observability_rotate(items, seed)
-  return sweep_bounds.sweep_rotate(items, seed)
 end
 
 function M.observability_batch(items, seed, cap)

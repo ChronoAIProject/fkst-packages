@@ -216,4 +216,19 @@ function M.run_fake_outcome(dept, event)
   }
 end
 
+-- Runs `fn` with fkst.codex_runs reporting `running`, restoring the original on every path so a
+-- failing body cannot leak a patched harness into later tests. Six suites each carried this.
+-- fkst is touched only when called, so this module still takes no harness global at load time.
+function M.with_codex_runs(running, fn)
+  local original = fkst.codex_runs
+  fkst.codex_runs = function()
+    return { running = running or {}, recent = {} }
+  end
+  local ok, err = pcall(fn)
+  fkst.codex_runs = original
+  if not ok then
+    error(err)
+  end
+end
+
 return M

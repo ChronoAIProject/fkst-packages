@@ -17,27 +17,11 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for nested_key, nested_value in pairs(value) do
-      nested[nested_key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     local next_row = {}
     for key, value in pairs(row) do
@@ -128,17 +112,7 @@ local function capture_raises(fn)
   return raised
 end
 
-local function with_codex_runs(running, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = running or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
+local with_codex_runs = require("testkit_internal.testing").with_codex_runs
 
 local function synthetic_heartbeat_row()
   local row = copy_rows(core.restart_transition_table())[1]
@@ -185,6 +159,11 @@ local function synthetic_heartbeat_row()
 end
 
 return {
+  test_contract_time_elapsed_whole_minutes_supports_issue_liveness = function()
+    local timestamp = "2026-06-03T01:02:03Z"
+    t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
+  end,
+
   test_restart_kernel_reports_missing_ops_at_build_time = function()
     local function noop() end
     local ops = {

@@ -6,16 +6,7 @@ local hidden_state = require("devloop.hidden_state_conformance")
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for key, nested_value in pairs(value) do
-      nested[key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     copied[index] = copy_value(row)
   end
@@ -99,6 +90,16 @@ return {
       t.eq(signal.version_form, "raw")
       t.eq(signal.max_age_minutes, 360)
     end
+  end,
+
+  test_merge_ready_binds_merge_gate_progress_signal_metadata = function()
+    local signal = rows_by_state(core.restart_transition_table())["merge-ready"].liveness_contract.progress_signal
+    t.eq(signal.max_age_minutes, 360)
+  end,
+
+  test_merging_binds_merge_gate_progress_signal_metadata = function()
+    local signal = rows_by_state(core.restart_transition_table()).merging.liveness_contract.progress_signal
+    t.eq(signal.max_age_minutes, 360)
   end,
 
   test_liveness_contract_rejects_live_defer_surface_or_version_form_drift = function()

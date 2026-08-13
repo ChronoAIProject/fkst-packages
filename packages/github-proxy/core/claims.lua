@@ -39,14 +39,6 @@ function M.gh_issue_view_ownership_cmd(repo, issue_number)
   return M.gh_issue_rest_view_cmd(repo, issue_number)
 end
 
-function M.github_issue_assign(repo, issue_number, login, timeout)
-  return M.github().issue_assign(repo, issue_number, login, timeout or 30)
-end
-
-function M.github_issue_unassign(repo, issue_number, login, timeout)
-  return M.github().issue_unassign(repo, issue_number, login, timeout or 30)
-end
-
 local function claim_contract_carrier(claim)
   if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
     return nil

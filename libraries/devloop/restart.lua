@@ -360,19 +360,6 @@ for _, row in ipairs(transition_table) do
   audit_by_state[row.from_state] = row
 end
 
-function K.restart_completeness_audit()
-  local rows = {}
-  for _, row in ipairs(transition_table) do
-    table.insert(rows, {
-      state = row.from_state,
-      marker_facts = row.marker_facts,
-      kickoff = row.kickoff,
-      replay = row.replay,
-    })
-  end
-  return rows
-end
-
 function K.restart_completeness_audit_for_state(state)
   return audit_by_state[state]
 end
@@ -387,10 +374,6 @@ end
 
 function K.restart_source_ref_derivations()
   return source_ref_derivations
-end
-
-function K.restart_required_replay_payload_fields()
-  return required_replay_payload_fields
 end
 
 return K

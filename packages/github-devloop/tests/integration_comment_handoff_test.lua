@@ -32,12 +32,7 @@ local function ready_handoff(source_ref, handoff_version, marker_version)
   }).handoff
 end
 
-local function copy(value)
-  if type(value) ~= "table" then return value end
-  local out = {}
-  for key, item in pairs(value) do out[copy(key)] = copy(item) end
-  return out
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 return {
   test_comment_written_ready_ack_raises_durable_ready_with_verifiable_hand_off = function()

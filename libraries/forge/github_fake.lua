@@ -88,18 +88,6 @@ function M.new(model)
       exit_code = 0,
     }
   end
-  function handle.issue_view(repo, issue_number, fields, timeout)
-    return handle._exec({
-      "gh",
-      "issue",
-      "view",
-      tostring(issue_number),
-      "--repo",
-      tostring(repo),
-      "--json",
-      tostring(fields),
-    }, timeout, "gh issue view")
-  end
   function handle.issue_view_full(repo, issue_number, timeout)
     return handle._exec({
       "gh",
