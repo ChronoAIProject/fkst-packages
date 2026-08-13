@@ -329,17 +329,7 @@ local function ingress_edges(edges)
   return out
 end
 
-local function assert_valid_cas(edge)
-  if edge.cas_policy_id == nil then
-    return
-  end
-  local definition = restart_cas_catalog.definition(edge.cas_policy_id)
-  t.is_true(definition ~= nil)
-  if edge.cas_variant ~= nil then
-    t.is_true(definition.variants ~= nil)
-    t.is_true(definition.variants[edge.cas_variant] ~= nil)
-  end
-end
+local assert_valid_cas = require("testkit_internal.asserts").bind_assert_valid_cas(restart_cas_catalog)
 
 local function assert_entry_shape(edges)
   local seen_ids = {}
