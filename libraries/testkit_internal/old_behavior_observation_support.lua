@@ -808,4 +808,20 @@ function M.site_record_predicate(site)
   end
 end
 
+-- Returns a capture_records() bound to this suite's fixtures and record builder: every fixture
+-- built into a record, sorted by observation_id. Seven suites carried this identically; only the
+-- fixtures and the builder ever differed.
+function M.capture_records_with(fixtures, build_record)
+  return function()
+    local records = M.json_array()
+    for _, fixture in ipairs(fixtures) do
+      table.insert(records, build_record(fixture))
+    end
+    table.sort(records, function(left, right)
+      return left.observation_id < right.observation_id
+    end)
+    return records
+  end
+end
+
 return M

@@ -357,7 +357,12 @@ function M.write_comment_request(payload, target)
     return
   end
 
-  if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
+  local write_enabled = M.read_env("FKST_GITHUB_WRITE") == "1"
+  if payload.real_write_allowed == false and write_enabled then
+    log.info("github-proxy: comment request real-write capability denied")
+    return
+  end
+  if not write_enabled then
     log.info("github-proxy dry-run: would comment on " .. repo .. "#" .. tostring(target.number))
     return
   end
