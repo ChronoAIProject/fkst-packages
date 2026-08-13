@@ -47,4 +47,26 @@ function M.key_set(keys)
   return out
 end
 
+-- Indexes restart rows by their from_state. Eight suites carried this under two names.
+-- The production copy in libraries/devloop keeps its own: it additionally guards against nil
+-- rows and nil from_state, and production must not require a test library regardless.
+function M.rows_by_state(rows)
+  local by_state = {}
+  for _, row in ipairs(rows or {}) do
+    by_state[row.from_state] = row
+  end
+  return by_state
+end
+
+-- Indexes a list by one of each element's fields. Six suites carried this; two of them wrote
+-- the loop body on a single line, which is why a whitespace-blind comparison reported them as
+-- a different function.
+function M.index_by(values, field)
+  local result = {}
+  for _, value in ipairs(values) do
+    result[value[field]] = value
+  end
+  return result
+end
+
 return M

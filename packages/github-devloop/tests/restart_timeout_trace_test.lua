@@ -14,13 +14,7 @@ local core = h.core
 local NULL = restart_trace.null
 local CORPUS_PATH = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
 
-local function index_by(values, field)
-  local result = {}
-  for _, value in ipairs(values) do
-    result[value[field]] = value
-  end
-  return result
-end
+local index_by = require("testkit_internal.values").index_by
 
 local function timeout_edge()
   for _, edge in ipairs(restart_edges.extract_timeout_edges(

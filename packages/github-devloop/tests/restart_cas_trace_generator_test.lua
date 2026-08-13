@@ -25,13 +25,7 @@ local inventories = {
   operator_reentry = require("core.restart.operator_reentry_inventory"),
 }
 
-local function index_by(values, field)
-  local result = {}
-  for _, value in ipairs(values) do
-    result[value[field]] = value
-  end
-  return result
-end
+local index_by = require("testkit_internal.values").index_by
 
 local function canonical_edges()
   return owner_projection.edges(OWNER, h.core.restart_transition_table(), inventories)
