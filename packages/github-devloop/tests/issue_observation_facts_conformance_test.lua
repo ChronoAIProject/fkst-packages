@@ -16,16 +16,7 @@ local expected_states = {
   thinking = { from_state = "thinking", terminal = false, driving_queue = "devloop_consensus_request", budget_minutes = 150 },
 }
 
-local function copy_value(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local copied = {}
-  for key, field in pairs(value) do
-    copied[key] = copy_value(field)
-  end
-  return copied
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function facts_copy()
   return {
