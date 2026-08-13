@@ -28,14 +28,7 @@ local codex_status = require("tests.codex_status_helpers")
 local m_builders = require("devloop.markers.builders")
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function mock_linked_pr_state(comments, state, exit_code, times)
   local rendered_comments = {}
