@@ -94,10 +94,10 @@ return {
     t.is_true(#diagnostic_requests[1].body <= core._max_body_len)
   end,
 
-  test_failure_identity_set_beyond_the_comment_contract_is_preserved = function()
+  test_failure_identity_set_at_the_comment_request_budget_is_preserved = function()
     local ready = h.ready()
     local identities = {}
-    for index = 1, 60 do
+    for index = 1, failure_identity.max_set_size do
       identities[#identities + 1] = 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"failure_kind":"assertion_failure",'
         .. '"file":"tests/example_test.lua","kind":"test","name":"test_' .. tostring(index)
         .. string.rep("x", 150) .. '","owner_namespace":"github-devloop"}'
@@ -117,7 +117,7 @@ return {
       identities)
     local diagnostic_requests = identity_requests(ready, "base-local-iteration-failed", 1, identities)
 
-    t.is_true(#diagnostic_requests > 1)
+    t.eq(#diagnostic_requests, failure_identity.max_set_size)
     t.is_true(#request.body <= core._max_body_len)
     local combined = {}
     for _, diagnostic_request in ipairs(diagnostic_requests) do
@@ -128,6 +128,20 @@ return {
     for _, identity in ipairs(identities) do
       t.is_true(combined_body:find(identity, 1, true) ~= nil)
     end
+  end,
+
+  test_failure_identity_set_beyond_the_comment_request_budget_is_rejected = function()
+    local ready = h.ready()
+    local identities = {}
+    for index = 1, failure_identity.max_set_size + 1 do
+      identities[#identities + 1] = 'FKST_LOCAL_ITERATION_FAILURE_IDENTITY:v1:{"command":"check_'
+        .. tostring(index) .. '","kind":"check"}'
+    end
+
+    local ok, err = pcall(identity_requests, ready, "base-local-iteration-failed", 1, identities)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("set-too-large", 1, true) ~= nil)
   end,
 
   test_maximum_admitted_identity_fits_the_serialized_comment_contract = function()

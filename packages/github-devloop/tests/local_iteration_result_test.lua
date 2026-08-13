@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local result = require("departments.implement.local_iteration_result")
+local failure_identity = require("devloop.local_iteration_failure_identity")
 
 local function classify(command_result)
   return result.from_command(command_result)
@@ -95,9 +96,9 @@ return {
     t.eq(classified.failure_identities[1], canonical_identity:sub(1, -2))
   end,
 
-  test_oversized_failure_identity_set_is_preserved = function()
+  test_failure_identity_set_beyond_the_comment_request_budget_is_unknown = function()
     local lines = {}
-    for index = 1, 60 do
+    for index = 1, failure_identity.max_set_size + 1 do
       lines[#lines + 1] = identity('{"kind":"test","owner_namespace":"github-devloop","file":"tests/example_test.lua",'
         .. '"name":"test_' .. tostring(index) .. string.rep("x", 150)
         .. '","failure_kind":"assertion_failure"}')
@@ -108,8 +109,8 @@ return {
       stderr = marker("FAIL", "SEMANTIC"),
     })
 
-    t.eq(classified.kind, "SEMANTIC_FAIL")
-    t.eq(#classified.failure_identities, 60)
+    t.eq(classified.kind, "UNKNOWN")
+    t.eq(classified.reason, "failure-identity-set-too-large")
   end,
 
   test_typed_nonsemantic_failures_preserve_the_producer_fault_class = function()
