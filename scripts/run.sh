@@ -167,6 +167,7 @@ cmd_check() {
   local -a units=(
     'python3 -B "$ROOT/scripts/check_repo.py"'
     'python3 -B "$ROOT/scripts/ci_workflow_test.py"'
+    'python3 -B "$ROOT/scripts/build_test_failure_set_test.py"'
     'python3 -B "$ROOT/scripts/ratchet_base_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fkst_layout.py"'
     'python3 -B "$ROOT/scripts/check_repo_dedup_test.py"'
@@ -392,11 +393,25 @@ finish_test_reports() {
   rm -rf "$dir"
 }
 
+publish_expected_test_report_inventory() {
+  local inventory="${FKST_TEST_REPORT_INVENTORY_FILE:-}" inventory_tmp=""
+  [ -n "$inventory" ] || return 0
+  if mkdir -p "$(dirname "$inventory")" \
+      && inventory_tmp="$(mktemp "${inventory}.tmp.XXXXXX")" \
+      && printf '%s\n' "$@" > "$inventory_tmp" \
+      && mv -f "$inventory_tmp" "$inventory"; then
+    return 0
+  fi
+  echo "warning: could not publish expected test report inventory to $inventory" >&2
+  [ -z "$inventory_tmp" ] || rm -f "$inventory_tmp"
+  return 0
+}
+
 cmd_test() {
   local ran=0 fail=0 pkg name target selected verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
   local coverage_artifacts=()
-  local -a targets=() pkg_units=() ran_names=() ordered_pkgs=()
+  local -a targets=() pkg_units=() ran_names=() ordered_pkgs=() expected_reports=()
   # Keep failure-relevant lines only unless verbose; per-test FAIL is anchored so
   # expected error-path logs containing tag=FAILURE do not match.
   local test_failure_filter='^FAIL |passed, [0-9]+ failed|panic'
@@ -480,11 +495,23 @@ cmd_test() {
     ran=$((ran + 1))
     rc=0; is_composed "$pkg" || rc=$?
     case "$rc" in
-      0) pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 1 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")"); ran_names+=("$name") ;;
-      1) pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 0 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")"); ran_names+=("$name") ;;
+      0)
+        pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 1 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")")
+        ran_names+=("$name")
+        expected_reports+=("$name.json")
+        if compgen -G "$pkg/tests/run_graph*_test.lua" >/dev/null; then
+          expected_reports+=("$name.graph.json")
+        fi
+        ;;
+      1)
+        pkg_units+=("run_one_package $(printf '%q' "$name") $(printf '%q' "$pkg") 0 $(printf '%q' "$report_dir") $(printf '%q' "$coverage_report_dir") $(printf '%q' "$TEST_HERMETIC_PKG_ROOTS") $(printf '%q' "$test_failure_filter")")
+        ran_names+=("$name")
+        expected_reports+=("$name.json")
+        ;;
       *) echo "error: failed to read package composition for $pkg" >&2; fail=$((fail + 1)) ;;
     esac
   done
+  publish_expected_test_report_inventory "${expected_reports[@]}"
   if [ "${#pkg_units[@]}" -gt 0 ]; then
     run_units_parallel "$pool" "${pkg_units[@]}" || fail=$(( fail + $? ))
   fi

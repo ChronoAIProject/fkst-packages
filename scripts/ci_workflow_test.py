@@ -89,6 +89,16 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_test_job_publishes_producer_bound_failure_set_even_on_failure(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertIn("FKST_LOCAL_ITERATION_RESULT_FILE", workflow)
+        self.assertIn("FKST_TEST_REPORT_INVENTORY_FILE", workflow)
+        self.assertIn("scripts/build_test_failure_set.py", workflow)
+        self.assertIn("failure-set.json", workflow)
+        self.assertRegex(workflow, r"(?s)set \+e.*scripts/run\.sh test.*test_status=\$\?.*set -e")
+        self.assertIn('exit "$test_status"', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

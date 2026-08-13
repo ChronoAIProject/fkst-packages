@@ -96,14 +96,31 @@ jobs:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
           FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
+          FKST_TEST_REPORT_INVENTORY_FILE: ${{ github.workspace }}/.fkst/run/test-report-inventory.txt
+          FKST_LOCAL_ITERATION_RESULT_FILE: ${{ github.workspace }}/.fkst/run/local-iteration-result.txt
         run: |
           test -x "$BIN"
+          set +e
           scripts/run.sh test
+          test_status=$?
+          set -e
+          python3 scripts/build_test_failure_set.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --report-dir "$FKST_TEST_REPORT_DIR" \
+            --inventory-file "$FKST_TEST_REPORT_INVENTORY_FILE" \
+            --result-file "$FKST_LOCAL_ITERATION_RESULT_FILE" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --tested-commit "$GITHUB_SHA" \
+            --output "$FKST_TEST_REPORT_DIR/failure-set.json"
+          exit "$test_status"
 
-      # Per-test outcomes exist in every run as `--report-json` files and were discarded with
-      # their scratch dir, so a CI run's per-test results could not be inspected afterwards and
-      # the summary counts were the only surviving evidence. Uploaded on failure too — that is
-      # the case where they are actually needed.
+      # The producer-owned failure-set manifest preserves the workflow and commit association;
+      # raw per-test reports remain available for diagnosis. Upload on failure too, because that
+      # is the path where differential attribution consumes the manifest.
       - name: Upload test reports artifact
         uses: actions/upload-artifact@v4
         if: always()

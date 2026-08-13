@@ -17,6 +17,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_PARALLEL = REPO_ROOT / "scripts" / "test_parallel.sh"
 RUN_SH = REPO_ROOT / "scripts" / "run.sh"
+BUILD_TEST_FAILURE_SET = REPO_ROOT / "scripts" / "build_test_failure_set.py"
 
 
 def _run(snippet: str) -> subprocess.CompletedProcess:
@@ -658,6 +659,57 @@ finish_test_reports "$source_dir"
                 "fkst.test.unit_timing.v1",
             )
             self.assertFalse(source.exists())
+
+
+class ExpectedTestReportInventoryTest(unittest.TestCase):
+    def test_missing_selected_package_report_is_an_inventory_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            source = root / "source"
+            reports = root / "reports"
+            inventory = root / "inventory.txt"
+            result_file = root / "result.txt"
+            event_file = root / "event.json"
+            manifest_file = reports / "failure-set.json"
+            snippet = f"""
+source_dir={shlex.quote(str(source))}
+FKST_TEST_REPORT_DIR={shlex.quote(str(reports))}
+FKST_TEST_REPORT_INVENTORY_FILE={shlex.quote(str(inventory))}
+export FKST_TEST_REPORT_DIR FKST_TEST_REPORT_INVENTORY_FILE
+mkdir -p "$source_dir"
+publish_expected_test_report_inventory selected.json
+finish_test_reports "$source_dir"
+printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE' \
+  >{shlex.quote(str(result_file))}
+printf '%s\n' '{{"after":"{'a' * 40}"}}' >{shlex.quote(str(event_file))}
+python3 -B {shlex.quote(str(BUILD_TEST_FAILURE_SET))} \
+  --repo-root {shlex.quote(str(REPO_ROOT))} \
+  --report-dir "$FKST_TEST_REPORT_DIR" \
+  --inventory-file "$FKST_TEST_REPORT_INVENTORY_FILE" \
+  --result-file {shlex.quote(str(result_file))} \
+  --repository owner/repo \
+  --workflow-run-id 101 \
+  --workflow-run-attempt 1 \
+  --event-name push \
+  --event-path {shlex.quote(str(event_file))} \
+  --tested-commit {'a' * 40} \
+  --output {shlex.quote(str(manifest_file))}
+"""
+            execution = _run_run_sh(snippet)
+            self.assertEqual(
+                execution.returncode,
+                0,
+                execution.stderr + execution.stdout,
+            )
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+
+            self.assertFalse(manifest["complete"])
+            self.assertEqual(manifest["expected_report_count"], 1)
+            self.assertEqual(manifest["report_count"], 0)
+            self.assertIn(
+                "report-inventory-mismatch",
+                manifest["incomplete_reasons"],
+            )
 
 
 class FailCodeSurfaceTest(unittest.TestCase):
