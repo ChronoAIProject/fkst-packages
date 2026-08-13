@@ -316,15 +316,7 @@ local function has_queue(raises, queue)
   return find_raise(raises, queue) ~= nil
 end
 
-local function count_queue(raises, queue)
-  local count = 0
-  for _, item in ipairs(raises or {}) do
-    if item.queue == queue then
-      count = count + 1
-    end
-  end
-  return count
-end
+local count_queue = require("testkit_internal.raises").count
 
 local function has_marker(raises, marker_text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
