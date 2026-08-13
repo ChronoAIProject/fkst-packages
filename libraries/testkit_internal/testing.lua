@@ -231,4 +231,14 @@ function M.with_codex_runs(running, fn)
   end
 end
 
+-- Runs `command` through the shell, capturing stdout and stderr together, and reports whether it
+-- succeeded. Eight suites across six packages carried this. io is a Lua stdlib global reached at
+-- call time, so this module still takes no harness global at load.
+function M.command_output(command)
+  local handle = assert(io.popen(command .. " 2>&1"))
+  local output = handle:read("*a")
+  local ok = handle:close()
+  return output, ok ~= false and ok ~= nil
+end
+
 return M
