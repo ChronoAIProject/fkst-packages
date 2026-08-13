@@ -230,7 +230,7 @@ function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue,
   return C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id).owned
 end
 
-function C.fork_grace_seconds(exec)
+local function fork_grace_seconds(exec)
   local raw = devloop_base.read_env("FKST_DEVLOOP_FORK_GRACE_HOURS", exec)
   raw = strings.trim(raw or "")
   if raw == "" then
@@ -362,7 +362,7 @@ local function claim_admission_peer_snapshot_provenance(detail)
   return provenance
 end
 
-function C.claim_admission_epoch_is_current(detail)
+local function claim_admission_epoch_is_current(detail)
   local provenance = claim_admission_peer_snapshot_provenance(detail)
   if provenance == nil then
     return true
@@ -419,7 +419,7 @@ function C.claim_admission_precheck(current, inputs)
     return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
   if canonical_author ~= parsers_misc.canonical_login(inputs.owner) then
-    if not C.claim_admission_epoch_is_current(inputs) then
+    if not claim_admission_epoch_is_current(inputs) then
       return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     end
     if inputs.peer_discovery_error ~= nil then
@@ -467,7 +467,7 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
   if admission ~= "needs-claim" then
     error("github-devloop: claim-admission-decision-invalid: invalid claim admission decision")
   end
-  if not C.claim_admission_epoch_is_current(detail) then
+  if not claim_admission_epoch_is_current(detail) then
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     return false
   end
@@ -488,7 +488,7 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
-    local grace_seconds = C.fork_grace_seconds()
+    local grace_seconds = fork_grace_seconds()
     local elapsed, grace_reason, age_seconds = C.fork_grace_elapsed(repo, issue_number, current, now(), grace_seconds)
     if not elapsed then
       local reason = "other-authored unassigned issue is inside fork grace window"
@@ -508,7 +508,7 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
-    if not C.claim_admission_epoch_is_current(detail) then
+    if not claim_admission_epoch_is_current(detail) then
       log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before fork")
       return false
     end
@@ -526,7 +526,7 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
     return true
   end
 
-  if not C.claim_admission_epoch_is_current(detail) then
+  if not claim_admission_epoch_is_current(detail) then
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before claim")
     return false
   end
@@ -601,7 +601,7 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   return true
 end
 
-function C.claim_required_payload(source_ref)
+local function claim_required_payload(source_ref)
   local normalized = base_ids.normalize_source_ref(source_ref)
   local repo, issue_number = devloop_base.parse_issue_source_ref(normalized)
   if repo == nil or issue_number == nil then
@@ -621,7 +621,7 @@ function C.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
     return payload
   end
-  payload.claim = C.claim_required_payload(source_ref or payload.source_ref)
+  payload.claim = claim_required_payload(source_ref or payload.source_ref)
   return payload
 end
 

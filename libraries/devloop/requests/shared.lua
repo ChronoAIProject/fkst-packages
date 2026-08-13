@@ -14,7 +14,7 @@ C.max_display_block_len = 5000
 C.max_verdict_summary_items = 8
 C.max_verdict_summary_len = 600
 
-function C.bounded_neutralized_text(value, limit)
+local function bounded_neutralized_text(value, limit)
   local text = tostring(value or "")
   local cap = limit or C.max_display_digest_len
   if #text > cap then
@@ -27,17 +27,17 @@ function C.bounded_neutralized_text(value, limit)
   return text
 end
 
-function C.angle_display_text(item)
+local function angle_display_text(item)
   if type(item) ~= "table" then
     return nil
   end
-  local angle = C.bounded_neutralized_text(item.angle or "unknown", C.max_display_attr_len)
-  local verdict = C.bounded_neutralized_text(item.verdict or "invalid", C.max_display_attr_len)
+  local angle = bounded_neutralized_text(item.angle or "unknown", C.max_display_attr_len)
+  local verdict = bounded_neutralized_text(item.verdict or "invalid", C.max_display_attr_len)
   local digest = item.digest
   if digest == nil or tostring(digest) == "" then
     digest = item.reply
   end
-  digest = C.bounded_neutralized_text(digest or "", C.max_display_digest_len)
+  digest = bounded_neutralized_text(digest or "", C.max_display_digest_len)
   if digest == "" then
     return "- " .. angle .. ": " .. verdict
   end
@@ -48,7 +48,7 @@ function C.build_convergence_display(output_language, header, unresolved, round)
   local lines = {
     header .. tostring(round) .. comment_strings.comment_string(output_language, "convergence_suffix"),
   }
-  local question = C.bounded_neutralized_text(unresolved and unresolved.narrowed_question or "", C.max_display_question_len)
+  local question = bounded_neutralized_text(unresolved and unresolved.narrowed_question or "", C.max_display_question_len)
   if question ~= "" then
     table.insert(lines, "")
     table.insert(lines, comment_strings.comment_string(output_language, "narrowed_question_label") .. question)
@@ -56,7 +56,7 @@ function C.build_convergence_display(output_language, header, unresolved, round)
   local angle_lines = {}
   if type(unresolved) == "table" and type(unresolved.angle_digests) == "table" then
     for _, item in ipairs(unresolved.angle_digests) do
-      local line = C.angle_display_text(item)
+      local line = angle_display_text(item)
       if line ~= nil then
         table.insert(angle_lines, line)
       end
@@ -86,8 +86,8 @@ function C.build_verdict_summary(output_language, angle_results)
       break
     end
     if type(item) == "table" then
-      local angle = C.bounded_neutralized_text(item.angle or "unknown", C.max_display_attr_len)
-      local verdict = C.bounded_neutralized_text(item.verdict or "invalid", C.max_display_attr_len)
+      local angle = bounded_neutralized_text(item.angle or "unknown", C.max_display_attr_len)
+      local verdict = bounded_neutralized_text(item.verdict or "invalid", C.max_display_attr_len)
       table.insert(parts, angle .. "=" .. verdict)
     end
   end

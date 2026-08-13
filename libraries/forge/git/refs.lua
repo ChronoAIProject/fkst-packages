@@ -201,10 +201,6 @@ local function push_branch_force_with_lease_argv(branch, new_sha, expected_old_s
   }
 end
 
-local function push_branch_update_argv(branch)
-  return { "git", "push", "origin", "HEAD:refs/heads/" .. tostring(branch) }
-end
-
 local function push_worktree_branch_update_argv(worktree, branch, expected_old_sha)
   local ref = "refs/heads/" .. tostring(branch)
   local argv = worktree_argv(worktree, "push", "origin", "HEAD:" .. ref)
