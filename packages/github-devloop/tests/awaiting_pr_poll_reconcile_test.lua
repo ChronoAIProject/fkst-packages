@@ -58,15 +58,7 @@ local function find_raise(raises, queue, predicate)
   return nil
 end
 
-local function count_raises(raises, queue)
-  local count = 0
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      count = count + 1
-    end
-  end
-  return count
-end
+local count_raises = require("testkit_internal.raises").count
 
 local function count_calls(needle)
   return h.count_calls(needle)
