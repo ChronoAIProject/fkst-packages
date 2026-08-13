@@ -14,4 +14,17 @@ function M.copy_value(value)
   return out
 end
 
+-- Deep-copies nested tables, copying KEYS as well as values. Distinct from copy_value,
+-- which shares keys; eight suites each carried their own identical definition.
+function M.copy_value_and_keys(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local out = {}
+  for key, nested in pairs(value) do
+    out[M.copy_value_and_keys(key)] = M.copy_value_and_keys(nested)
+  end
+  return out
+end
+
 return M

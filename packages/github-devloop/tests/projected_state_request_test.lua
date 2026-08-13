@@ -39,12 +39,7 @@ local function has_value(values, expected)
   return false
 end
 
-local function copy(value)
-  if type(value) ~= "table" then return value end
-  local out = {}
-  for key, item in pairs(value) do out[copy(key)] = copy(item) end
-  return out
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 return {
   test_raw_state_marker_rejects_projected_state_creation = function()
