@@ -322,16 +322,7 @@ local function build_record(fixture)
   }
 end
 
-local function capture_records()
-  local records = json_array()
-  for _, fixture in ipairs(FIXTURES) do
-    table.insert(records, build_record(fixture))
-  end
-  table.sort(records, function(left, right)
-    return left.observation_id < right.observation_id
-  end)
-  return records
-end
+local capture_records = observation_support.capture_records_with(FIXTURES, build_record)
 
 local is_target_record = observation_support.site_record_predicate(SITE)
 
