@@ -45,18 +45,7 @@ local function version_at_fix_round(round)
   return version
 end
 
-local function mock_branch_config()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_branch_config = require("testkit_internal.env_mocks").mock_branch_config
 
 local function observe_department(run)
   local probes = {}
