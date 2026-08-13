@@ -4,29 +4,8 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
 local exec_sync = exec_sync
-local with_lock = with_lock
 
 local M = {}
-
-function M.worktree_lease_key(branch)
-  return "github-devloop/implementation-worktree/" .. tostring(branch)
-end
-
-function M.with_worktree_lease(branch, fn)
-  local key = M.worktree_lease_key(branch)
-  local entered = false
-  local ok, result = pcall(function()
-    return with_lock(key, function()
-      entered = true
-      return fn()
-    end)
-  end)
-  if ok then return true, result end
-  if not entered and tostring(result):match("^[^\r\n]+") == "with_lock lock busy: " .. key then
-    return false
-  end
-  error(result, 0)
-end
 
 local function implementation_root()
   local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
