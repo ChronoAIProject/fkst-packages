@@ -32,19 +32,9 @@ local function build_request(state, additions, removals)
   })
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then return true end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
-local function copy(value)
-  if type(value) ~= "table" then return value end
-  local out = {}
-  for key, item in pairs(value) do out[copy(key)] = copy(item) end
-  return out
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 return {
   test_raw_state_marker_rejects_projected_state_creation = function()

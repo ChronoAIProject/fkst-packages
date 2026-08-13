@@ -263,19 +263,7 @@ local function is_target_record(record)
     and record.observation_id:sub(1, #OBSERVATION_PREFIX) == OBSERVATION_PREFIX
 end
 
-local function committed_records()
-  local inventory = json.decode(file.read(INVENTORY_PATH))
-  local selected = json_array()
-  for _, record in ipairs(inventory.old_behavior_observations or {}) do
-    if is_target_record(record) then
-      table.insert(selected, record)
-    end
-  end
-  table.sort(selected, function(left, right)
-    return tostring(left.observation_id) < tostring(right.observation_id)
-  end)
-  return selected
-end
+local committed_records = observation_support.committed_records_with(is_target_record)
 
 return {
   test_execute_start_consensus_proposal_published_intent_is_real_dispatch_and_bidirectional = function()

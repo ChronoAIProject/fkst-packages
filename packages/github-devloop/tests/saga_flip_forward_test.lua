@@ -83,12 +83,7 @@ local function rendered_calls(first_index)
   return table.concat(calls, " | ")
 end
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then return true end
-  end
-  return false
-end
+local contains = require("testkit_internal.values").has_value
 
 local function sink_probe_cases()
   local ready_apply = ready()

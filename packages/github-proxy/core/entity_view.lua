@@ -6,33 +6,8 @@ local parse_view_updated_at = github_view.parse_view_updated_at
 local parse_updated_at_stdout = github_view.parse_updated_at_stdout
 local json_string = github_view.json_string
 
-local max_cache_key_segment_len = 120
 
-local function sanitize_cache_segment(value, allow_slash)
-  local pattern = allow_slash and "[^%w%._%-%/]" or "[^%w%._%-]"
-  local safe = tostring(value or ""):gsub(pattern, "-")
-  safe = safe:gsub("-+", "-")
-  if allow_slash then
-    safe = safe:gsub("/+", "/"):gsub("^/+", ""):gsub("/+$", "")
-  else
-    safe = safe:gsub("^-+", ""):gsub("-+$", "")
-  end
-  local segments = {}
-  for segment in safe:gmatch("[^/]+") do
-    if segment == "." or segment == ".." then
-      segment = "-"
-    end
-    table.insert(segments, segment)
-  end
-  safe = table.concat(segments, allow_slash and "/" or "-")
-  if #safe > max_cache_key_segment_len then
-    safe = safe:sub(1, max_cache_key_segment_len):gsub("/+$", ""):gsub("-+$", "")
-  end
-  if safe == "" then
-    return "empty"
-  end
-  return safe
-end
+local sanitize_cache_segment = require("contract.strings").sanitize_cache_segment
 
 local function entity_view_storage_base_key(repo, kind, number, updated_at)
   return "github-proxy/view-v2/"

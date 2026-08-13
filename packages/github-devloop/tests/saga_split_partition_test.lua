@@ -10,14 +10,7 @@ local function marker(state, version)
   return h.state_comment(proposal_id, state, version or ("2026-06-03T01-02-03Z/" .. state))
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 return {
   test_issue_partition_rejects_pr_phase_states = function()

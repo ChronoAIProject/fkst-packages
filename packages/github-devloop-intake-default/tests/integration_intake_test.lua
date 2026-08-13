@@ -94,14 +94,7 @@ local function assert_execution_request_chain(raises, payload, extra, service_cl
   t.eq(find_label_add(raises, "fkst-dev:thinking"), nil)
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tostring(value) == tostring(expected) then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function assert_folded_label_guard(payload, candidate)
   t.eq(payload.require_marker_guard, true)
@@ -265,15 +258,7 @@ local function mock_recent_closed_class_siblings(issues)
   })
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
 local function assert_intake_judgment_call()
   local calls = codex_calls()

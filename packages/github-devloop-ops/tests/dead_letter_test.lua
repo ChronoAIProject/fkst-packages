@@ -60,14 +60,7 @@ local function event(payload)
   }
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 return {
   test_dead_letter_logs_delivery_identity = function()

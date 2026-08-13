@@ -16,14 +16,7 @@ local function install_author_policy_env(t, run_opts)
   })
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 function M.new(deps)
   deps = deps or {}

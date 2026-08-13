@@ -201,14 +201,7 @@ local function run_judge_with_logs(candidate, comments, name)
   }, table.concat(logs, "\n")
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 return {
   test_real_default_executor_preserves_correction_bound_identity = function()

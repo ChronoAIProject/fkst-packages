@@ -40,14 +40,7 @@ local function writes_direct_pr_open_issue_label(body)
     or body:find('state_label_reconcile_changes%([^%)]-"pr%-open"', 1, false) ~= nil
 end
 
-local function contains_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local contains_value = require("testkit_internal.values").has_value
 
 return {
   test_observe_issue_reconciles_pr_open_label_when_backing_pr_exists = function()

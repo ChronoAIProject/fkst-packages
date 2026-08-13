@@ -18,6 +18,8 @@ version = "workspace"
 [exports]
 exact = true
 public = [
+  "testkit_internal.cas_shadow",
+  "testkit_internal.command_calls",
   "testkit_internal.devloop_core_fixtures",
   "testkit_internal.devloop_fixtures",
   "testkit_internal.devloop_fixtures.mocks",
@@ -31,9 +33,11 @@ public = [
   "testkit_internal.liveness_scan_rate_limit_fixture",
   "testkit_internal.namespaced_dispatch_conformance",
   "testkit_internal.old_behavior_observation_support",
+  "testkit_internal.raises",
   "testkit_internal.projected_state_fixture",
   "testkit_internal.restart_edges_conformance_fixtures",
   "testkit_internal.restart_obligation_derivation_fixtures",
+  "testkit_internal.asserts",
   "testkit_internal.saga_conformance",
   "testkit_internal.testing",
   "testkit_internal.values",

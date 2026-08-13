@@ -2,14 +2,7 @@ local t = fkst.test
 
 local department = require("departments.observability.main")
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local contains = require("testkit_internal.values").has_value
 
 return {
   test_anomaly_queues_are_exactly_the_ephemeral_at_most_once_consumes = function()
