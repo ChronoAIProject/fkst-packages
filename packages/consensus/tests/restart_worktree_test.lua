@@ -99,15 +99,7 @@ local function mock_full_debate()
   end
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
 local function assert_phase_sequence(calls)
   for index = 1, 3 do

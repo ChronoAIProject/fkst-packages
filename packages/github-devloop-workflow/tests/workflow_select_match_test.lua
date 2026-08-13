@@ -279,15 +279,7 @@ local function raises_to_queue(raises, queue)
   return result
 end
 
-local function codex_calls()
-  local calls = {}
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find("codex exec", 1, true) ~= nil then
-      table.insert(calls, call)
-    end
-  end
-  return calls
-end
+local codex_calls = require("testkit_internal.command_calls").codex_calls
 
 local function assert_default_enable_raised(result)
   t.is_true(#raises_to_queue(result.raises, "github-devloop.devloop_execute_request") == 1)
