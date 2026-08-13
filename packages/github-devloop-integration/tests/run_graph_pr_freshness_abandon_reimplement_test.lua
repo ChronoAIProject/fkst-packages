@@ -31,16 +31,7 @@ local UNMERGED = "100644 abcdef 1\tpackages/github-devloop/core.lua\n"
 local ATTEMPT_LEDGER_SHA = "4444444444444444444444444444444444444444"
 local ATTEMPT_LEDGER_TREE_SHA = "5555555555555555555555555555555555555555"
 
-local function copy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local result = {}
-  for key, field in pairs(value) do
-    result[copy(key)] = copy(field)
-  end
-  return result
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 local function comment(body, created_at, author)
   return {
