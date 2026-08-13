@@ -14,4 +14,28 @@ function M.copy_value(value)
   return out
 end
 
+-- Deep-copies nested tables, copying KEYS as well as values. Distinct from copy_value,
+-- which shares keys; eight suites each carried their own identical definition.
+function M.copy_value_and_keys(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local out = {}
+  for key, nested in pairs(value) do
+    out[M.copy_value_and_keys(key)] = M.copy_value_and_keys(nested)
+  end
+  return out
+end
+
+-- True when `values` contains `expected`. Eighteen definitions existed under four names.
+-- Production sites keep their own: this is a test library, and production must not require it.
+function M.has_value(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end
+
 return M

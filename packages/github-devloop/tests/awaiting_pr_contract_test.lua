@@ -6,14 +6,7 @@ local devloop_logging = require("devloop.logging")
 local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 local t = h.t
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function table_by_state()
   local by_state = {}

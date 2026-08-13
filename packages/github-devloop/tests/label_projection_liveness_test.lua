@@ -75,14 +75,7 @@ local function run_liveness_scan(name)
   }, h.opts(name))
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function raise_queue_names(raises)
   local names = {}

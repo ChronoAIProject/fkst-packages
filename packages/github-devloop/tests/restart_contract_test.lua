@@ -17,14 +17,7 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function copy_rows(rows)
   local copied = {}

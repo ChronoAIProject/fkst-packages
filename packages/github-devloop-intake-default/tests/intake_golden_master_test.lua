@@ -196,14 +196,7 @@ local function assert_issue_claim(payload)
   assert_source_ref(payload.claim, "owner/repo#issue/42")
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tostring(value) == tostring(expected) then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local function assert_common_issue_request(payload, schema, dedup_key)
   t.eq(payload.schema, schema)

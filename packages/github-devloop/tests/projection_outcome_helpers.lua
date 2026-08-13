@@ -8,16 +8,7 @@ local t = h.t
 local core = h.core
 local canonical_json = observation_support.canonical_json
 
-local function copy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for key, item in pairs(value) do
-    out[copy(key)] = copy(item)
-  end
-  return out
-end
+local copy = require("testkit_internal.values").copy_value_and_keys
 
 local function sorted_unique(values)
   local seen = {}

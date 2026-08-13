@@ -36,14 +36,7 @@ local function has(s, sub)
   return tostring(s):find(sub, 1, true) ~= nil
 end
 
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local contains = require("testkit_internal.values").has_value
 
 return {
   -- Regression: the materialization marker comment dedup_key must be
