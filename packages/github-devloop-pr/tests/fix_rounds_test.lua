@@ -28,6 +28,13 @@ local function own_ci_admission(state)
   end)
 end
 
+local function own_ci_admission_with_comparison(state, comparison)
+  return with_own_ci(function(classification)
+    classification.failure_set_comparison = comparison
+    return fix_rounds.admit_own_ci_continuation(state, classification, admission_context())
+  end)
+end
+
 admission_context = function()
   return {
     dept = "fix",
@@ -128,5 +135,40 @@ return {
     t.eq(reconcile.payload.reason_class, "fix-loop-max-rounds")
 
     t.is_true(h.find_raise(terminal_raises, "github-devloop-decompose.devloop_decompose") ~= nil)
+  end,
+
+  test_no_new_failing_identity_holds_without_spending_or_terminating_at_cap = function()
+    local at_cap = base_version
+    for _ = 1, config.max_fix_rounds() do
+      at_cap = core.next_fix_version(at_cap)
+    end
+    local decision
+    local raised = capture_raises(function()
+      decision = own_ci_admission_with_comparison(
+        { state = "fixing", version = at_cap },
+        { kind = "no-new-failing-identity" }
+      )
+    end)
+    t.eq(decision.kind, "hold")
+    t.eq(decision.status, "hold")
+    t.eq(decision.reason, "no-new-failing-identity")
+    t.eq(decision.version, nil)
+    t.eq(#raised, 0)
+  end,
+
+  test_new_or_unknown_failure_comparison_keeps_fix_admission = function()
+    local under = core.next_fix_version(base_version)
+    local new_failure = own_ci_admission_with_comparison(
+      { state = "fixing", version = under },
+      { kind = "new-failing-identity" }
+    )
+    local unknown = own_ci_admission_with_comparison(
+      { state = "fixing", version = under },
+      { kind = "UNKNOWN", reason = "failure-report-missing" }
+    )
+    t.eq(new_failure.kind, "admit")
+    t.eq(unknown.kind, "admit")
+    t.eq(core.version_fix_round(new_failure.version), 2)
+    t.eq(core.version_fix_round(unknown.version), 2)
   end,
 }

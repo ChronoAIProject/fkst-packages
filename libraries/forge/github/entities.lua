@@ -145,6 +145,27 @@ local function commit_check_runs_argv(repo, head_sha)
   return { "gh", "api", "repos/" .. tostring(repo) .. "/commits/" .. sha .. "/check-runs" }
 end
 
+local function run_download_artifact_argv(repo, run_id, artifact_name, destination)
+  local id = tostring(run_id or "")
+  local name = tostring(artifact_name or "")
+  local dir = tostring(destination or "")
+  if id == "" or id:find("[^0-9]") ~= nil then
+    error("forge.github: workflow-run-id-invalid: workflow run id must be numeric", 0)
+  end
+  if name == "" or name:find("[^%w_.%-]") ~= nil then
+    error("forge.github: artifact-name-invalid: artifact name is invalid", 0)
+  end
+  if dir == "" or dir:find("[\r\n]") ~= nil then
+    error("forge.github: artifact-destination-invalid: artifact destination is invalid", 0)
+  end
+  return {
+    "gh", "run", "download", id,
+    "--repo", tostring(repo),
+    "--name", name,
+    "--dir", dir,
+  }
+end
+
 local function pr_diff_argv(repo, pr_number)
   return { "gh", "pr", "diff", tostring(pr_number), "--repo", tostring(repo) }
 end
@@ -577,6 +598,17 @@ function M.install(handle)
   function handle.gh_commit_check_runs(repo, head_sha, timeout)
     return gh_result(function()
       return handle._exec(commit_check_runs_argv(repo, head_sha), timeout, "gh api GET", stdout_policy.trusted_metadata_json())
+    end)
+  end
+
+  function handle.gh_run_download_artifact(repo, run_id, artifact_name, destination, timeout)
+    return gh_result(function()
+      return handle._exec(
+        run_download_artifact_argv(repo, run_id, artifact_name, destination),
+        timeout,
+        "gh run download artifact",
+        stdout_policy.plain_text()
+      )
     end)
   end
 

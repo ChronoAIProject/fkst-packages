@@ -159,6 +159,18 @@ function C.admit_own_ci_continuation(state, classification, ctx)
       bound_head_sha = bound_head_sha,
     }
   end
+  if type(classification.failure_set_comparison) == "table"
+    and classification.failure_set_comparison.kind == "no-new-failing-identity" then
+    return {
+      kind = "hold",
+      status = "hold",
+      reason = "no-new-failing-identity",
+      merge_blocking = true,
+      current_pr = current_pr,
+      bound_head_sha = bound_head_sha,
+      failure_set_comparison = classification.failure_set_comparison,
+    }
+  end
   local decision = admit_decision(state)
   if decision.kind == "terminate" then
     local terminal_ctx = {}

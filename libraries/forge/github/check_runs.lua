@@ -319,6 +319,44 @@ function C.check_run_state(run)
   return tostring(run.state or run.status or ""):upper(), tostring(run.conclusion or ""):upper()
 end
 
+local function workflow_run_id(run)
+  local details_url = type(run) == "table" and (run.details_url or run.detailsUrl) or nil
+  local run_id = tostring(details_url or ""):match("/actions/runs/(%d+)")
+  if run_id == nil or run_id == "" then
+    return nil
+  end
+  return run_id
+end
+
+function C.required_test_report_run_id(runs, head_sha, required_names)
+  if type(runs) ~= "table" or not gitref.is_git_sha(head_sha) then
+    return nil, "check-runs-unavailable"
+  end
+  local expected = tostring(head_sha):lower()
+  local required = required_name_set(required_names or required_check_run_names)
+  local selected = nil
+  for _, run in ipairs(runs) do
+    local state = C.check_run_state(run)
+    if required[C.check_run_name(run)] and state == "COMPLETED" then
+      if C.check_run_head_sha(run) ~= expected then
+        return nil, "check-run-commit-incomparable"
+      end
+      local run_id = workflow_run_id(run)
+      if run_id == nil then
+        return nil, "check-run-workflow-run-missing"
+      end
+      if selected ~= nil and selected ~= run_id then
+        return nil, "check-run-workflow-run-ambiguous"
+      end
+      selected = run_id
+    end
+  end
+  if selected == nil then
+    return nil, "required-check-run-missing"
+  end
+  return selected, nil
+end
+
 local green_required_check_conclusions = {
   SUCCESS = true,
   NEUTRAL = true,

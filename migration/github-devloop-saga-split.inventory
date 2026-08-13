@@ -180,6 +180,7 @@
 {"path":"packages/github-devloop-pr/core/review_carry_over.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/review_meta_requests.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/review_redrive.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
+{"path":"packages/github-devloop-pr/core/ci_failure_sets.lua","owner":"pr","reason":"PR check-run differential failure identity comparison stays within the PR saga authority."}
 {"path":"packages/github-devloop-pr/core/span_conformance.lua","owner":"cross-cutting","reason":"package-owned PR-side span declaration conformance wrapper."}
 {"path":"packages/github-devloop-pr/departments/comment_handoff/main.lua","owner":"pr","reason":"github-devloop-pr owns PR comment-stream handoff authority after extraction."}
 {"path":"packages/github-devloop-pr/departments/fix/main.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
