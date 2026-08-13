@@ -12,7 +12,7 @@ local function fingerprint(prefix, fields)
   return prefix .. "-" .. error_facts.stable_hash(table.concat(fields, "\0"))
 end
 
-function C.normalize_evidence(value)
+local function normalize_evidence(value)
   local text = tostring(value or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
   text = text:gsub("[ \t]+\n", "\n")
   return text:gsub("^%s+", ""):gsub("%s+$", "")
@@ -22,14 +22,14 @@ function C.premise_fingerprint(proposal_id, decision_dedup_key, decline_reason)
   return fingerprint("premise", {
     "proposal=" .. tostring(proposal_id or ""),
     "decision=" .. tostring(decision_dedup_key or ""),
-    "reason=" .. C.normalize_evidence(decline_reason),
+    "reason=" .. normalize_evidence(decline_reason),
   })
 end
 
 function C.correction_fingerprint(comment_id, evidence)
   local content = table.concat({
     "comment=" .. tostring(comment_id or ""),
-    "evidence=" .. C.normalize_evidence(evidence),
+    "evidence=" .. normalize_evidence(evidence),
   }, "\0")
   return "correction-sha256-" .. sha256.hex(content)
 end
@@ -96,7 +96,7 @@ function C.correction_comment_fact(comment)
   if not C.is_premise_fingerprint(premise) or not C.is_correction_fingerprint(correction) then
     return nil
   end
-  local evidence = C.normalize_evidence(body:gsub(marker_pattern, ""))
+  local evidence = normalize_evidence(body:gsub(marker_pattern, ""))
   if evidence == "" or correction ~= C.correction_fingerprint(comment.id, evidence) then
     return nil
   end

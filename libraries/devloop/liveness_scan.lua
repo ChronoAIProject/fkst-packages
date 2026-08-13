@@ -69,7 +69,7 @@ function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
   cache_set(cursor_key, tostring(state.last_number or 0) .. ":" .. tostring(state.high_water or 0))
 end
 
-function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
+local function liveness_scan_build_observe_payload(repo, entity, kind, tick)
   local number = tostring(entity.number or "")
   local updated_at = tostring(entity.updated_at or "")
   local source_ref = kind == "pr" and entity_lib.pr_source_ref(repo, number) or entity_lib.issue_source_ref(repo, number)
@@ -107,7 +107,7 @@ function C.liveness_scan_build_failure_observe_payload(repo, entity, kind, failu
   local queue = observe_queue(kind)
   local error_class = devloop_logging.error_class_from_message(failure)
   local fingerprint = devloop_logging.error_fingerprint(error_class, queue, "liveness_scan", failure)
-  local payload = C.liveness_scan_build_observe_payload(repo, entity, kind)
+  local payload = liveness_scan_build_observe_payload(repo, entity, kind)
   payload.proposal_id = proposal_id
   payload.dedup_key = base_ids.dedup_key({
     "liveness-scan-failure",
@@ -142,7 +142,7 @@ function C.liveness_scan_fail_observe_payload(payload)
     .. " fingerprint=" .. fingerprint, 0)
 end
 
-function C.liveness_scan_state_is_non_terminal(M, state)
+local function liveness_scan_state_is_non_terminal(M, state)
   local row = replay_fields.restart_transition_row(M.restart_transition_table(), state and state.state)
   return row ~= nil and row.terminal ~= true
 end
@@ -156,7 +156,7 @@ function C.liveness_scan_should_reinject_state(M, proposal_id, state, labels)
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "reinject-label-projection", "current issue state label does not match the canonical state marker")
     return true, "label-projection-mismatch"
   end
-  if not C.liveness_scan_state_is_non_terminal(M, state) then
+  if not liveness_scan_state_is_non_terminal(M, state) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "skip-terminal", "current restart state is terminal or unknown")
     return false
   end
@@ -211,7 +211,7 @@ function C.liveness_scan_maybe_timeout_action(M, entity, state, facts)
   return nil
 end
 
-function C.liveness_scan_observe_queue(kind)
+local function liveness_scan_observe_queue(kind)
   return observe_queue(kind)
 end
 
@@ -326,8 +326,8 @@ end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)
   local proposal_id = kind == "pr" and entity_lib.pr_proposal_id(repo, entity.number) or base_ids.proposal_id(repo, entity.number)
-  local payload = C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
-  local queue = C.liveness_scan_observe_queue(kind)
+  local payload = liveness_scan_build_observe_payload(repo, entity, kind, tick)
+  local queue = liveness_scan_observe_queue(kind)
   devloop_logging.log_apply("liveness_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
     queue,
   })

@@ -12,7 +12,7 @@ local function consumed_queue_set(consumes)
   return set
 end
 
-function C.queue_bare_name(queue, package_namespace)
+local function queue_bare_name(queue, package_namespace)
   if type(queue) ~= "string" then
     return nil
   end
@@ -25,12 +25,12 @@ function C.queue_bare_name(queue, package_namespace)
 end
 
 function C.event_queue_matches(event, bare_queue, package_namespace)
-  return C.queue_bare_name(type(event) == "table" and event.queue or nil, package_namespace) == bare_queue
+  return queue_bare_name(type(event) == "table" and event.queue or nil, package_namespace) == bare_queue
 end
 
 function C.dispatch_consumed_queue(dept, spec, event, handlers, package_namespace)
   local queue = type(event) == "table" and event.queue or nil
-  local bare_queue = C.queue_bare_name(queue, package_namespace)
+  local bare_queue = queue_bare_name(queue, package_namespace)
   local consumed = consumed_queue_set((spec or {}).consumes)
   if bare_queue == nil or not consumed[bare_queue] then
     return false, "foreign"
