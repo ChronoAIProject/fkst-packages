@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+local failure_identity = require("devloop.local_iteration_failure_identity")
 local t = h.t
 local core = h.core
 
@@ -127,5 +128,16 @@ return {
     for _, identity in ipairs(identities) do
       t.is_true(combined_body:find(identity, 1, true) ~= nil)
     end
+  end,
+
+  test_maximum_admitted_identity_fits_the_serialized_comment_contract = function()
+    local ready = h.ready()
+    local identity = failure_identity.prefix .. string.rep("x", failure_identity.max_line_len - #failure_identity.prefix)
+    local diagnostic_requests = identity_requests(ready, "base-local-iteration-failed", 1, { identity })
+
+    t.eq(#diagnostic_requests, 1)
+    t.eq(#identity, failure_identity.max_line_len)
+    t.eq(#diagnostic_requests[1].body, core._max_body_len)
+    t.is_true(diagnostic_requests[1].body:find(identity, 1, true) ~= nil)
   end,
 }
