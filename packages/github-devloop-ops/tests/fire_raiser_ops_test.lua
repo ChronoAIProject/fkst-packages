@@ -196,19 +196,6 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 gh_argv.install(t, core)
 
-local function opts(name)
-  return {
-    env = {
-      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop-ops/fire-raiser-child/" .. tostring(now()) .. "/" .. tostring(name),
-      FKST_GITHUB_REPO = "owner/repo",
-      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
-      FKST_GITHUB_WRITE = "",
-      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
-      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration/dev",
-    },
-  }
-end
-
 local function mock_env(reads)
   reads = reads or 8
   for _ = 1, reads do
