@@ -23,17 +23,7 @@ local function mock_real_write_env_reads()
   end
 end
 
-local function with_codex_runs(running, fn)
-  local original = fkst.codex_runs
-  fkst.codex_runs = function()
-    return { running = running or {}, recent = {} }
-  end
-  local ok, err = pcall(fn)
-  fkst.codex_runs = original
-  if not ok then
-    error(err)
-  end
-end
+local with_codex_runs = require("testkit_internal.testing").with_codex_runs
 
 local function queue_pr_comments(pr_number, issue_number, version, head_sha)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)

@@ -32,12 +32,7 @@ local function build_request(state, additions, removals)
   })
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then return true end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 local copy = require("testkit_internal.values").copy_value_and_keys
 
