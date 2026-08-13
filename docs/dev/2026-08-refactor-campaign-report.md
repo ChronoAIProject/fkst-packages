@@ -201,3 +201,65 @@ reasoning that produced "four shapes, sweep complete" would have missed every on
 method would have signalled it. **How much a blind spot contains is independent of whether you knew it
 was there** — which is this section's own thesis, arriving as evidence about the person who wrote it.
 
+
+### A surviving mutation does not mean "untested"
+
+The campaign used one rule to decide whether an extraction was safe to ship: mutate the behaviour and
+require some test to go red. Survivals were recorded as *missing witnesses* and two were filed as
+coverage gaps. **That inference has a second explanation, and it went unchecked: the code may be
+unreachable.** A mutation reports only that no test observed the change; it is silent about why.
+
+The two readings demand opposite work — one wants a test written, the other wants the code deleted —
+so conflating them makes the follow-up wrong in a way the original measurement cannot reveal.
+
+One error-unwrap idiom, spelled seven times, separates cleanly once reachability is read per site.
+The gh adapter reports a non-zero-exit command by *throwing* a table carrying the command result; a
+repo-wide scan finds exactly two producers of such a throw, the gh adapter and one test simulating it.
+Everything else is a consumer that may or may not sit on a path reaching it.
+
+| site | wraps | reachable | witness |
+|---|---|---|---|
+| `forge/github/result.lua` `gh_result` | gh — canonical, owned by the producer's package | yes | not established |
+| `devloop/commands/support.lua` `gh_result` | gh, 32 call sites; also propagates `class`/`retryable`/`permanent` | yes | not established |
+| `devloop/dependency_graphql.lua` `github_result` | gh graphql | yes | **witnessed** |
+| `devloop/git_mechanics.lua` `run_git` | git only | **no** | n/a — deleted |
+| `forge/git/refs.lua` `exec_result` | git only | **no** | n/a |
+| `substrate_ref.lua` `run_adapter` | git, and gh via `run_gh` | yes | **witnessed** |
+| `release_notes.lua` (inlined) | gh `pr_create_body`; enclosing function has no production callers | yes | unwitnessed |
+
+All the probed copies survived their suites. One needed nothing, two needed a test, two needed
+deleting — and the mutation results were identical in every case.
+
+The two "dead" verdicts are proved the same way, and not by the mutation: neither file reaches a gh
+handle, and the git adapter's only table-shaped throw carries no `result` field, so the outer test can
+never hold. The dead branch is also what *caused* the misreading — reading it, git failures appear to
+arrive carrying a result, which is exactly what makes a survival look like a missing test.
+
+**Pair every surviving mutation with a reachability read before naming it a gap.**
+
+### Two of this document's own numbers were mislabelled
+
+**"21 PRs, −634 lines" was a phase count reported as the campaign total.** Measured across every PR
+carrying this campaign's session key and merged into the integration branch: **85 PRs, #3152 through
+#3704, +22767/−24859, net −2092 lines.** (That includes a revert pair, #3310 and #3316, and counts
+added tests as additions.) The error understated the work, which is why nothing downstream caught it —
+a wrong number is checked only when someone dislikes it.
+
+**The duplicated-region counts quoted earlier are not comparable to each other**, because they came
+from scans with different filters. Re-measured with a single instrument at two refs — window 6,
+production `.lua` only, windows of fewer than three distinct lines dropped:
+
+```
+de24dff7d  (base of the first campaign PR)   573 files   1837 regions
+816a0e8e8  (current)                         584 files   1718 regions
+```
+
+−119 regions while the tree grew by 11 files. The earlier backlog estimate — "~33 extractable remain,
+~20 more PRs" — divided one of the incomparable counts by an overlap ratio, so it rests on a number
+that does not correspond to what it was compared against, and should not be quoted.
+
+Both errors have the shape this document keeps rediscovering: **the value was computed, the label was
+asserted by hand.** A measurement script can assert its own subject; a sentence written afterwards
+cannot.
+
+⟦AI:FKST⟧
