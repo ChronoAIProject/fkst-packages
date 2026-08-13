@@ -1,10 +1,8 @@
-local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local autonomy_ledger = require("devloop.autonomy_ledger")
-local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
@@ -84,53 +82,6 @@ local mock_bot_env = h.mock_bot_env
 local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
-
-local function pr_native_review_reached(extra)
-  local version = "pr-native-version"
-  local proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, version, "def456")
-  local value = {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = proposal_id,
-    decision = "approve",
-    body = "Review consensus approves the PR-native diff.",
-    dedup_key = "consensus:" .. proposal_id .. "/review",
-    source_ref = h.pr_source_ref(),
-  }
-  for key, field in pairs(extra or {}) do
-    value[key] = field
-  end
-  return value
-end
-
-local function pr_native_merge_ready(extra)
-  local event = pr_native_review_reached()
-  local value = payloads_builders.build_devloop_merge_ready_payload(entity_lib.pr_proposal_id("owner/repo", 7),
-    7,
-    "pr-native-version",
-    {
-      review_proposal_id = event.proposal_id,
-      review_dedup_key = event.dedup_key,
-      reviewed_head_sha = "def456",
-    },
-    h.pr_source_ref()
-  )
-  for key, field in pairs(extra or {}) do
-    value[key] = field
-  end
-  return value
-end
-
-local function mock_base_head_for_stale_mergeability() t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", { stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", stderr = "", exit_code = 0 })
-  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", { stdout = "", stderr = "", exit_code = 1 }) end
-
-local function mock_failing_required_check_runs()
-  t.mock_command("gh api 'repos/owner/repo/commits/def456/check-runs'", {
-    stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n',
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 return {
   test_merge_pr_head_advanced_after_recheck_reenters_reviewing_for_current_head = function()

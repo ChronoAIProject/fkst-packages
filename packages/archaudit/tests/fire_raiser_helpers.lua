@@ -164,10 +164,6 @@ local function mock_busy_observe_at(generated_at_ms)
   }))
 end
 
-local function mock_busy_observe()
-  mock_busy_observe_at(1781830860000)
-end
-
 local function mock_production_github(search_stdout, label_stdout)
   t.mock_command("gh issue list --repo owner/repo --state all --limit 100 --search fkst:archaudit:audit-run:v1 --json 'number,title,state,author,body,url,createdAt,updatedAt'", {
     stdout = search_stdout or "[]",
