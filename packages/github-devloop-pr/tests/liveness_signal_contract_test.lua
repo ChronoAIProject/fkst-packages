@@ -6,16 +6,7 @@ local hidden_state = require("devloop.hidden_state_conformance")
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for key, nested_value in pairs(value) do
-      nested[key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     copied[index] = copy_value(row)
   end
