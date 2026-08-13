@@ -27,6 +27,7 @@ public = [
   "testkit_internal.devloop_pr_fixtures",
   "testkit_internal.devloop_worktree_fixtures",
   "testkit_internal.entity_read_mock_fixtures",
+  "testkit_internal.env_mocks",
   "testkit_internal.gh_argv_mock",
   "testkit_internal.github_author_policy",
   "testkit_internal.legacy_command_renderers",

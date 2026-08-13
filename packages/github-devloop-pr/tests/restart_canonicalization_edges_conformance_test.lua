@@ -101,18 +101,7 @@ local function mock_issue_result_view(labels, comments)
   entity_read_mocks.mock_issue_view_selector(t, {}, "assignees,author,labels")
 end
 
-local function mock_branch_config_env()
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = "dev",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-end
+local mock_branch_config_env = require("testkit_internal.env_mocks").mock_branch_config
 
 local function run_observe_pr(name)
   mock_branch_config_env()
