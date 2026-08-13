@@ -20,7 +20,7 @@ local function comment(state, marker_version, author_login, created_at, effects)
   }
 end
 
-local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function mock_issue_list()
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {

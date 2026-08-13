@@ -28,7 +28,7 @@ return function(M, h)
   local advancing_fact = h.advancing_fact
   local responsibility_signature = h.responsibility_signature
   local contract = require("devloop.restart.issue.pr_partition_contract").awaiting_pr_contract()
-  local terminal_states = contract.child_terminal_states
+  local child_dependency = contract.child_dependency
   return {
     from_state = "awaiting-pr",
     liveness_class_id = "child_workflow_wait",
@@ -37,24 +37,18 @@ return function(M, h)
       budget_ms = 180 * 24 * 60 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
-        producer = "child-state",
       },
     },
     actionable_epoch = {
       source = "child_workflow_wait:v1",
       generation_source = "same_as_actionable_epoch",
-      live_marker = "state:v1",
-      producer = "child-state",
     },
     defer = {
       kind = "child_workflow_wait",
-      live_marker = "state:v1",
-      producer = "child-state",
-      freshness_ms = 24 * 60 * 60 * 1000,
       redrive_opens_generation = true,
       delegation_marker = "pr-delegation:v1",
-      terminal_states = terminal_states,
     },
+    child_dependency = child_dependency,
     terminal = false,
     to_states = { "merged", "ready", "blocked" },
     driving_queue = "devloop_observe_redrive",
@@ -67,7 +61,7 @@ return function(M, h)
         kind = "response-with-deadline",
         body = {
           actionable_epoch_source = "child_workflow_wait:v1",
-          resolver = "child-state",
+          resolver = child_dependency.predicate,
           budget_minutes = 180 * 24 * 60,
         },
       },
@@ -75,14 +69,7 @@ return function(M, h)
     budget = budget(180 * 24 * 60, "The parent issue delegates PR work to a child workflow and waits on the PR child's state:v1 marker; PR review and merge time is deferred by child_workflow_wait rather than charged to the parent."),
     liveness_contract = liveness({
       mode = "live-defer",
-      signal = {
-        family = "state",
-        resolver = "child-state",
-        producer = "child-state",
-        surface = "pr-comment-stream",
-        version_form = "raw",
-        max_age_minutes = 24 * 60,
-      },
+      fact_dependency = child_dependency.fact_family,
     }),
     on_timeout = timeout("devloop_observe_redrive"),
     responsibility_signature = responsibility_signature({
@@ -142,7 +129,7 @@ return function(M, h)
     required_facts = {
       fact("state", "marker-read"),
       fact("pr-delegation", "marker-read"),
-      fact("child-state", "marker-read"),
+      fact(child_dependency.fact_family, "marker-read"),
     },
     advancing_facts = {
       advancing_fact("child-state", "merged", { issue = true, liveness_scan = true }, "source_ref:pr"),

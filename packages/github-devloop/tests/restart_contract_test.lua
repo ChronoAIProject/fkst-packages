@@ -85,13 +85,7 @@ local function table_by_state()
   return by_state
 end
 
-local function rows_by_state(rows)
-  local by_state = {}
-  for _, row in ipairs(rows or {}) do
-    by_state[row.from_state] = row
-  end
-  return by_state
-end
+local rows_by_state = require("testkit_internal.values").rows_by_state
 
 local function allowed_extra_transition(state, next_state)
   return state == "impl-failed" and next_state == "implementing"
@@ -162,7 +156,6 @@ return {
     local timestamp = "2026-06-03T01:02:03Z"
     t.eq(contract_time.iso_timestamp_age_minutes(timestamp, contract_time.iso_timestamp_epoch_seconds(timestamp)), 0)
   end,
-
   test_restart_kernel_reports_missing_ops_at_build_time = function()
     local function noop() end
     local ops = {
@@ -358,7 +351,7 @@ return {
       dependency_wait = { mode = "live-defer", family = "dependency-wait", resolver = "dependency-hold", max_age = 525600, budget = 525600 },
       ready = { mode = "row-budget-bounds-receiver", receiver = 15, external = 0, budget = 120 },
       implementing = { mode = "live-defer", codex_run = true, role = "implement", budget = 120 },
-      ["awaiting-pr"] = { mode = "live-defer", family = "state", producer = "child-state", resolver = "child-state", max_age = 1440, budget = 259200 },
+      ["awaiting-pr"] = { mode = "live-defer", fact_dependency = "child-pr-dependency", budget = 259200 },
       ["impl-failed"] = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
       blocked = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
     }
@@ -375,6 +368,9 @@ return {
           t.eq(row.liveness_contract.real_execution.match.role, spec.role)
           t.eq(row.liveness_contract.real_execution.match.proposal_id, "state.proposal_id")
           t.eq(row.liveness_contract.real_execution.match.dedup_key, "state.version")
+        elseif spec.fact_dependency then
+          t.eq(row.liveness_contract.fact_dependency, spec.fact_dependency)
+          t.eq(row.liveness_contract.signal, nil)
         else
           t.eq(row.liveness_contract.signal.family, spec.family)
           t.eq(row.liveness_contract.signal.resolver, spec.resolver)

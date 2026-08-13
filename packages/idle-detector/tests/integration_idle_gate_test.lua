@@ -50,19 +50,7 @@ local function fake_department(seed, env_values, overrides)
   return dept
 end
 
-local function capture_warns(fn)
-  local previous_warn = log.warn
-  local warnings = {}
-  log.warn = function(message)
-    table.insert(warnings, tostring(message))
-  end
-  local ok, result = pcall(fn)
-  log.warn = previous_warn
-  if not ok then
-    error(result, 0)
-  end
-  return result, warnings
-end
+local capture_warns = require("testkit_internal.testing").capture_warn_logs
 
 local function run_with_logs(dept, evt)
   local result, warnings = capture_warns(function()

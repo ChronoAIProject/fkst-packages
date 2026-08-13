@@ -11,13 +11,7 @@ local function copy_rows(rows)
   return copied
 end
 
-local function by_state(rows)
-  local indexed = {}
-  for _, row in ipairs(rows or {}) do
-    indexed[row.from_state] = row
-  end
-  return indexed
-end
+local by_state = require("testkit_internal.values").rows_by_state
 
 return {
   test_restart_totality_rejects_missing_reachable_state = function()
