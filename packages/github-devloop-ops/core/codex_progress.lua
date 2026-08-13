@@ -97,6 +97,7 @@ function M.project_running_row(row)
       issue_number = target.issue_number,
       body = body,
       dedup_key = dedup_key,
+      real_write_allowed = false,
       replace_marker = marker,
       source_ref = source_ref,
     },

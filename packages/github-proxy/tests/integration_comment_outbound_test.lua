@@ -257,6 +257,29 @@ return {
     t.is_true(comment_calls[1].rendered:find("repos/owner/payload/issues/42/comments", 1, true) ~= nil)
   end,
 
+  test_restricted_real_write_capability_blocks_replayed_request = function()
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        body = "running progress",
+        dedup_key = "codex-progress-replay",
+        real_write_allowed = false,
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    local result = t.run_department("departments/github_comment/main.lua", event, opts("comment-replay-denied", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 0)
+    t.eq(count_calls(issue_comment_create), 0)
+  end,
+
   test_comment_real_write_failure_errors_for_retry = function()
     local event = {
       queue = "github_issue_comment_request",

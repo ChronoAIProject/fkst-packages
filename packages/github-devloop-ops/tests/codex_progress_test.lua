@@ -30,6 +30,7 @@ return {
     t.eq(first.request.issue_number, "42")
     t.eq(first.request.source_ref.kind, "external")
     t.eq(first.request.source_ref.ref, "owner/repo#issue/42")
+    t.eq(first.request.real_write_allowed, false)
     t.eq(first.request.replace_marker, progress.marker(proposal_id))
     t.eq(first.request.replace_marker, second.request.replace_marker)
     t.eq(first.request.dedup_key, second.request.dedup_key)

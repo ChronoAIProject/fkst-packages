@@ -93,6 +93,26 @@ return {
     })
     t.eq(proxy_step.exit_code, 0)
     t.eq(#proxy_step.raises, 0)
+
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+      stdout = "1",
+      stderr = "",
+      exit_code = 0,
+    })
+    local real_mode_replay = graph.require_quiescent(graph.run({
+      queue = raised.queue,
+      payload = raised.payload,
+      source_ref = {
+        kind = "external",
+        reference = "owner/repo#issue/42",
+      },
+    }, { max_steps = 2 }))
+    local replay_step = graph.require_delivery(real_mode_replay, {
+      queue = "github-proxy.github_issue_comment_request",
+      consumer = "github-proxy.github_comment",
+    })
+    t.eq(replay_step.exit_code, 0)
+    t.eq(#replay_step.raises, 0)
   end,
 
   test_real_write_mode_cannot_publish_running_only_progress = function()
