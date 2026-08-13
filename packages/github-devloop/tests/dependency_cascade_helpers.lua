@@ -230,7 +230,7 @@ local function mock_implement_issue(labels, comments)
   })
 end
 
-local mock_repo = require("testkit_internal.cas_shadow").bind_mock_repo(devloop_base, repo)
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
 
 local function mock_liveness_issue_list(items)
   local rendered = {}

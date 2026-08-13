@@ -794,4 +794,18 @@ function M.committed_records_with(is_target_record)
   end
 end
 
+-- Predicate matching inventory records whose site is exactly `site`. Six suites carried this
+-- identically; only the site constant differed. Returned as a builder rather than folded into
+-- committed_records_with, because one suite needs a different predicate entirely and the single
+-- predicate-taking contract covers both.
+function M.site_record_predicate(site)
+  return function(record)
+    local record_site = type(record) == "table" and record.site or nil
+    return type(record_site) == "table"
+      and record_site.path == site.path
+      and record_site.symbol == site.symbol
+      and record_site.ordinal == site.ordinal
+  end
+end
+
 return M

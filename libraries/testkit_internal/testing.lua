@@ -241,4 +241,23 @@ function M.command_output(command)
   return output, ok ~= false and ok ~= nil
 end
 
+-- Runs `fn` with log.warn recording instead of emitting, restoring the original on every path so a
+-- failing body cannot leak a patched logger into later tests. Returns the body's result and the
+-- captured messages. Four suites across four packages carried this under two names, differing only
+-- in the accumulator's name. log is reached at call time, so this module still takes no harness
+-- global at load.
+function M.capture_warn_logs(fn)
+  local previous_warn = log.warn
+  local logs = {}
+  log.warn = function(message)
+    table.insert(logs, tostring(message))
+  end
+  local ok, result = pcall(fn)
+  log.warn = previous_warn
+  if not ok then
+    error(result, 0)
+  end
+  return result, logs
+end
+
 return M
