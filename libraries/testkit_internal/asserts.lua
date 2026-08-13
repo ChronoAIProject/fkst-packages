@@ -36,4 +36,22 @@ function M.assert_exact_keys(value, expected)
   t.eq(count, expected_count)
 end
 
+-- Returns an assert_valid_cas bound to the CAS catalog: an edge naming a cas_policy_id must
+-- resolve in the catalog, and a named variant must exist on that definition. Four conformance
+-- suites carried this. The catalog is injected because this library may depend only on
+-- contract, workflow and forge, while restart_cas_catalog lives in devloop.
+function M.bind_assert_valid_cas(restart_cas_catalog)
+  return function(edge)
+    if edge.cas_policy_id == nil then
+      return
+    end
+    local definition = restart_cas_catalog.definition(edge.cas_policy_id)
+    t.is_true(definition ~= nil)
+    if edge.cas_variant ~= nil then
+      t.is_true(definition.variants ~= nil)
+      t.is_true(definition.variants[edge.cas_variant] ~= nil)
+    end
+  end
+end
+
 return M

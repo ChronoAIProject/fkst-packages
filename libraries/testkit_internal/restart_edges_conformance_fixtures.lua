@@ -37,13 +37,7 @@ local structural_fields = {
 
 local deferred_kinds = {}
 
-local function key_set(keys)
-  local out = {}
-  for _, key in ipairs(keys) do
-    out[key] = true
-  end
-  return out
-end
+local key_set = require("testkit_internal.values").key_set
 
 local function empty_entitlements(id)
   return {

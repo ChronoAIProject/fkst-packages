@@ -50,27 +50,11 @@ local pending_order_goldens = {
   ["github-devloop/awaiting-pr/canonicalization/legacy_pr_open_delegation"] = { participates = false },
 }
 
-local function key_set(keys)
-  local out = {}
-  for _, key in ipairs(keys) do
-    out[key] = true
-  end
-  return out
-end
+local key_set = require("testkit_internal.values").key_set
 
 local assert_exact_keys = require("testkit_internal.asserts").assert_exact_keys
 
-local function assert_valid_cas(edge)
-  if edge.cas_policy_id == nil then
-    return
-  end
-  local definition = restart_cas_catalog.definition(edge.cas_policy_id)
-  t.is_true(definition ~= nil)
-  if edge.cas_variant ~= nil then
-    t.is_true(definition.variants ~= nil)
-    t.is_true(definition.variants[edge.cas_variant] ~= nil)
-  end
-end
+local assert_valid_cas = require("testkit_internal.asserts").bind_assert_valid_cas(restart_cas_catalog)
 
 local copy_value = require("testkit_internal.values").copy_value
 
