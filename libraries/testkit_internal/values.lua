@@ -27,4 +27,15 @@ function M.copy_value_and_keys(value)
   return out
 end
 
+-- True when `values` contains `expected`. Eighteen definitions existed under four names.
+-- Production sites keep their own: this is a test library, and production must not require it.
+function M.has_value(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end
+
 return M

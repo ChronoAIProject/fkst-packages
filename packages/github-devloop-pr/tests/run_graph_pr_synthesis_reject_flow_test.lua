@@ -145,14 +145,7 @@ local function mock_review_result_reads()
   mock_result("gh pr diff '7' --repo 'owner/repo' --name-only", "file.lua\n")
 end
 
-local function has_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
-    end
-  end
-  return false
-end
+local has_value = require("testkit_internal.values").has_value
 
 return {
   test_run_graph_gate_synthesis_reject_advances_pr_review_to_fixing = function()
