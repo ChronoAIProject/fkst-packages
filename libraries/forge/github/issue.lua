@@ -16,33 +16,8 @@ local parse_updated_at_stdout = github_view.parse_updated_at_stdout
 -- Two documented exclusions: `blocked_by` needs GraphQL (a separate read op, not gh issue
 -- view), and comment `updated_at` is not exposed by gh issue view (only createdAt).
 local issue_view_fields = "number,title,body,url,updatedAt,state,labels,comments,assignees,author"
-local max_cache_key_segment_len = 120
 
-local function sanitize_cache_segment(value, allow_slash)
-  local pattern = allow_slash and "[^%w%._%-%/]" or "[^%w%._%-]"
-  local safe = tostring(value or ""):gsub(pattern, "-")
-  safe = safe:gsub("-+", "-")
-  if allow_slash then
-    safe = safe:gsub("/+", "/"):gsub("^/+", ""):gsub("/+$", "")
-  else
-    safe = safe:gsub("^-+", ""):gsub("-+$", "")
-  end
-  local segments = {}
-  for segment in safe:gmatch("[^/]+") do
-    if segment == "." or segment == ".." then
-      segment = "-"
-    end
-    table.insert(segments, segment)
-  end
-  safe = table.concat(segments, allow_slash and "/" or "-")
-  if #safe > max_cache_key_segment_len then
-    safe = safe:sub(1, max_cache_key_segment_len):gsub("/+$", ""):gsub("-+$", "")
-  end
-  if safe == "" then
-    return "empty"
-  end
-  return safe
-end
+local sanitize_cache_segment = require("contract.strings").sanitize_cache_segment
 
 local function issue_view_cache_key(repo, number)
   return "github-proxy/view-v2/"
