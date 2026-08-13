@@ -52,7 +52,7 @@ local AWAITING_PR_CONTRACT = {
       pr_number = "pr-delegation.pr_number",
       repository = "parent.repo",
     },
-    predicate = "pr_partition_contract.child_terminal_predicate",
+    predicate = "pr_partition_contract.child_state_fact",
     unknown_state_outcome = "child-state-unrecognized",
   },
 }
@@ -123,13 +123,48 @@ function P.child_state_predicate(state)
   return PR_STATE_SET[tostring(state or "")] == true
 end
 
+local function child_fact(fields)
+  fields.schema = "pr_partition_contract.child-state-fact.v2"
+  return fields
+end
+
+local function classify_child_state(raw_state)
+  if PR_PHASE_STATE_SET[tostring(raw_state or "")] then
+    return "in-flight"
+  end
+  if PR_TERMINAL_STATE_SET[tostring(raw_state or "")] then
+    return "terminal"
+  end
+  return "unknown"
+end
+
+function P.child_state_evaluation(fact)
+  if type(fact) ~= "table" then
+    return child_fact({ disposition = "missing" })
+  end
+  if fact.schema == "pr_partition_contract.child-state-fact.v2" and fact.disposition ~= nil then
+    return fact
+  end
+  local evaluated = {}
+  for key, value in pairs(fact) do
+    evaluated[key] = value
+  end
+  evaluated.disposition = fact.identity_valid == false
+    and "identity-mismatch"
+    or classify_child_state(fact.raw_state or fact.state)
+  if evaluated.disposition ~= "unknown" and evaluated.state == nil then
+    evaluated.state = evaluated.raw_state
+  end
+  return child_fact(evaluated)
+end
+
 local function marker_attr(marker, key)
   return marker:match('%s' .. key .. '="([^"]*)"')
 end
 
 function P.child_state_fact(observed_pr, delegation, parent_repo)
   if type(delegation) ~= "table" then
-    return nil
+    return child_fact({ disposition = "missing", identity_valid = false })
   end
   local pr_repo, parsed_number = entity_lib.parse_pr_proposal_id(delegation.pr_proposal_id or delegation.pr_proposal)
   local observed_repo = type(observed_pr) == "table" and observed_pr.repo or nil
@@ -139,28 +174,36 @@ function P.child_state_fact(observed_pr, delegation, parent_repo)
     and tostring(observed_repo or "") == tostring(pr_repo or "")
     and tostring(observed_pr_number or "") == tostring(delegation.pr_number or "")
   if not identity_valid then
-    return {
+    return child_fact({
+      disposition = "identity-mismatch",
       identity_valid = false,
       observed_repo = observed_repo,
       observed_pr_number = observed_pr_number,
       pr_proposal_id = delegation.pr_proposal_id or delegation.pr_proposal,
       pr_number = delegation.pr_number,
-    }
+    })
   end
   local latest = nil
+  local latest_stale = nil
   local delegation_version = tostring(delegation.version or "")
+  if delegation_version == "" then
+    return child_fact({
+      disposition = "missing-version",
+      identity_valid = true,
+      observed_repo = observed_repo,
+      observed_pr_number = observed_pr_number,
+      pr_proposal_id = delegation.pr_proposal_id or delegation.pr_proposal,
+      pr_number = delegation.pr_number,
+    })
+  end
   local lineage_base = transition_version.strip_suffixes(delegation.version)
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(observed_pr.comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local proposal_id = marker_attr(marker, "proposal")
       local version = marker_attr(marker, "version")
-      if proposal_id == tostring(delegation.proposal_id or "")
-        and delegation_version ~= ""
-        and version ~= nil
-        and transition_version.strip_suffixes(version) == lineage_base
-        and (latest == nil or transition_version.compare(version, latest.version) >= 0) then
-        latest = {
+      if proposal_id == tostring(delegation.proposal_id or "") and version ~= nil then
+        local candidate = {
           raw_state = marker_attr(marker, "state"),
           version = version,
           proposal_id = proposal_id,
@@ -171,16 +214,35 @@ function P.child_state_fact(observed_pr, delegation, parent_repo)
           observed_pr_number = observed_pr_number,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }
+        if transition_version.strip_suffixes(version) == lineage_base then
+          if latest == nil or transition_version.compare(version, latest.version) >= 0 then
+            latest = candidate
+          end
+        elseif latest_stale == nil or transition_version.compare(version, latest_stale.version) >= 0 then
+          latest_stale = candidate
+        end
       end
     end
   end
   if latest == nil then
-    return nil
+    if latest_stale ~= nil then
+      latest_stale.disposition = "stale"
+      return child_fact(latest_stale)
+    end
+    return child_fact({
+      disposition = "missing",
+      identity_valid = true,
+      observed_repo = observed_repo,
+      observed_pr_number = observed_pr_number,
+      pr_proposal_id = delegation.pr_proposal_id or delegation.pr_proposal,
+      pr_number = tonumber(delegation.pr_number),
+    })
   end
-  if P.child_state_predicate(latest.raw_state) then
+  latest.disposition = classify_child_state(latest.raw_state)
+  if latest.disposition ~= "unknown" then
     latest.state = latest.raw_state
   end
-  return latest
+  return child_fact(latest)
 end
 
 function P.state_allowed_for_saga(saga_kind, state)
@@ -192,9 +254,6 @@ function P.state_allowed_for_saga(saga_kind, state)
   end
   return false
 end
-
--- Step 1 target: add a scoped current-state reader at the department boundary
--- using the production version-CAS comparator and entity-scoped comments.
 
 function P.install(M)
   M.pr_partition_contract = P

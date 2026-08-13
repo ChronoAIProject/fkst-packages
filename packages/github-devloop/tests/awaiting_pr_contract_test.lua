@@ -27,7 +27,7 @@ return {
     t.eq(dependency.identity.pr_proposal_id, "pr-delegation.pr_proposal_id")
     t.eq(dependency.identity.pr_number, "pr-delegation.pr_number")
     t.eq(dependency.identity.repository, "parent.repo")
-    t.eq(dependency.predicate, "pr_partition_contract.child_terminal_predicate")
+    t.eq(dependency.predicate, "pr_partition_contract.child_state_fact")
     t.eq(dependency.unknown_state_outcome, "child-state-unrecognized")
     local saw_typed_fact = false
     for _, required in ipairs(row.required_facts or {}) do
@@ -96,7 +96,39 @@ return {
       pr_proposal_id = "github-devloop/pr/owner/repo/7",
       pr_number = 7,
     }, "owner/repo")
-    t.eq(unversioned, nil)
+    t.eq(unversioned.disposition, "missing-version")
+  end,
+
+  test_pr_partition_child_state_fact_assigns_one_evidence_preserving_disposition = function()
+    local delegation = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      version = "v1",
+      pr_proposal_id = "github-devloop/pr/owner/repo/7",
+      pr_number = 7,
+    }
+    local states = {}
+    for _, state in ipairs(pr_partition_contract.pr_phase_states()) do
+      table.insert(states, { raw_state = state, disposition = "in-flight" })
+    end
+    for _, state in ipairs(pr_partition_contract.pr_terminal_states()) do
+      table.insert(states, { raw_state = state, disposition = "terminal" })
+    end
+    table.insert(states, { raw_state = "vendor-paused", disposition = "unknown" })
+    for _, expected in ipairs(states) do
+      local fact = pr_partition_contract.child_state_fact({
+        repo = "owner/repo",
+        number = 7,
+        comments = {{
+          author_login = "fkst-test-bot",
+          body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="'
+            .. expected.raw_state .. '" version="v1" -->',
+        }},
+      }, delegation, "owner/repo")
+      t.eq(fact.disposition, expected.disposition, expected.raw_state)
+      t.eq(fact.raw_state, expected.raw_state, expected.raw_state .. ": raw state")
+      t.eq(fact.identity_valid, true, expected.raw_state .. ": identity")
+      t.eq(fact.version, "v1", expected.raw_state .. ": version")
+    end
   end,
 
   test_awaiting_pr_restart_row_declares_child_workflow_boundary = function()

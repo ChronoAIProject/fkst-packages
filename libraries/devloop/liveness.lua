@@ -56,7 +56,7 @@ local function devloop_restart_liveness_policy()
       delegation_marker = "pr-delegation:v1",
       dependency_kind = "delegated-child-pr",
       fact_family = "child-pr-dependency",
-      predicate = "pr_partition_contract.child_terminal_predicate",
+      predicate = "pr_partition_contract.child_state_fact",
     },
   }
 end

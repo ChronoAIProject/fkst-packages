@@ -363,23 +363,25 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   if type(dependency_contract) ~= "table"
     or dependency_contract.kind ~= "delegated-child-pr"
     or dependency_contract.fact_family ~= "child-pr-dependency"
-    or dependency_contract.predicate ~= "pr_partition_contract.child_terminal_predicate" then
+    or dependency_contract.predicate ~= "pr_partition_contract.child_state_fact" then
     return invalid("child workflow typed dependency contract is invalid")
   end
   if row.liveness_contract == nil or row.liveness_contract.fact_dependency ~= dependency_contract.fact_family then
     return invalid("child workflow liveness contract bypasses its typed dependency")
   end
-  local dependency = facts and (facts.child_pr_dependency or facts[dependency_contract.fact_family]) or nil
+  local raw_dependency = facts and (facts.child_pr_dependency or facts[dependency_contract.fact_family]) or nil
+  local dependency = pr_partition_contract.child_state_evaluation(raw_dependency)
   local raw_state = dependency and (dependency.raw_state or dependency.state) or nil
   local signal = {
     family = dependency_contract.fact_family,
     resolver = dependency_contract.predicate,
     state = raw_state,
+    disposition = dependency and dependency.disposition or nil,
+    identity_valid = dependency and dependency.identity_valid or nil,
+    version = dependency and dependency.version or nil,
   }
   if dependency ~= nil
-    and dependency.identity_valid == true
-    and pr_partition_contract.child_state_predicate(raw_state)
-    and not pr_partition_contract.child_terminal_predicate(raw_state) then
+    and dependency.disposition == "in-flight" then
     local eval = deferred("child workflow state is non-terminal")
     eval.signal = signal
     return eval
@@ -388,7 +390,7 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
   if entry_ms == nil then
     return invalid("child workflow wait delegation epoch is missing")
   end
-  local reason = dependency == nil
+  local reason = raw_dependency == nil
     and "child workflow dependency fact is missing"
     or "child workflow terminal state is observed"
   local eval = actionable(M, row, state, entry_ms, "pr-delegation:v1:" .. tostring(state and state.version or ""), reason)

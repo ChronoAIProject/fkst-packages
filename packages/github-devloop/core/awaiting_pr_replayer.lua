@@ -38,10 +38,6 @@ function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_co
 end
 
 function S.install(M, replay_log_decline)
-local child_terminal_states = {}
-for _, state in ipairs(pr_partition_contract.pr_terminal_states()) do
-  child_terminal_states[state] = true
-end
 local canonical_pr_is_merged, origin_matches_delegation, canonical_merged_child_state, merged_child_landed_on_upstream
 local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
   return replay_log_decline("stuck", dept, proposal_id, state, from_state, to_state, outcome, reason, facts)
@@ -333,7 +329,7 @@ function M.awaiting_pr_exit_transition_status(issue, proposal_id, state, to_stat
   return decision.status, snapshot, decision
 end
 
-local terminal_milestones = { "merged", "closed-unmerged", "blocked" }
+local terminal_milestones = pr_partition_contract.pr_terminal_states()
 local terminal_requires_canonical_merge = { merged = true }
 local terminal_generation = {
   ["closed-unmerged"] = closed_unmerged_generation,
@@ -367,25 +363,41 @@ local function monotone_terminal_child(state, delegation, current_pr)
 end
 
 local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
-  if observed_child_state ~= nil and observed_child_state.identity_valid == false then
+  observed_child_state = observed_child_state ~= nil
+    and pr_partition_contract.child_state_evaluation(observed_child_state)
+    or nil
+  if observed_child_state ~= nil and observed_child_state.disposition == "identity-mismatch" then
     return nil, "skip-stale(observed-child-identity)", "observed child PR identity does not match the parent delegation"
   end
-  if observed_child_state ~= nil and observed_child_state.raw_state ~= nil
-    and not pr_partition_contract.child_state_predicate(observed_child_state.raw_state) then
+  if observed_child_state ~= nil and observed_child_state.disposition == "unknown" then
     return nil, "child-state-unrecognized", "delegated child PR reported unrecognized state: " .. tostring(observed_child_state.raw_state), {
       { name = "child_state", values = { observed_child_state.raw_state } },
     }
   end
-  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
+  if observed_child_state ~= nil
+    and (observed_child_state.disposition == "missing" or observed_child_state.disposition == "missing-version") then
+    observed_child_state = nil
+  end
+  local canonical_merged_raw = canonical_merged_child_state(issue, state, delegation, current_pr)
+  local canonical_merged_state = canonical_merged_raw ~= nil
+    and pr_partition_contract.child_state_evaluation(canonical_merged_raw)
+    or nil
   local child_state = canonical_merged_state or observed_child_state
+  if observed_child_state ~= nil and observed_child_state.disposition == "stale" and canonical_merged_state == nil then
+    return nil, "skip-stale(child-state-lineage)", "child state does not match parent delegation lineage"
+  end
   local outcome, reason
   if child_state == nil then
-    child_state, outcome, reason = monotone_terminal_child(state, delegation, current_pr)
+    local fallback_state
+    fallback_state, outcome, reason = monotone_terminal_child(state, delegation, current_pr)
+    child_state = fallback_state ~= nil
+      and pr_partition_contract.child_state_evaluation(fallback_state)
+      or nil
   end
   if child_state == nil or child_state.state == nil then
     return nil, outcome or "skip-pending(child-terminal-missing)", reason or "delegated child PR has no trusted terminal marker or canonical merged state"
   end
-  if child_terminal_states[child_state.state] ~= true then
+  if child_state.disposition ~= "terminal" then
     return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
   end
   if not child_lineage_matches_delegation(state, delegation, child_state) then
