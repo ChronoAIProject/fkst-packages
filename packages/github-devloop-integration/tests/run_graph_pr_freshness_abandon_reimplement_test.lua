@@ -349,15 +349,7 @@ end
 
 local find_raise = require("testkit_internal.raises").find
 
-local function count_raises(raises, queue)
-  local count = 0
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      count = count + 1
-    end
-  end
-  return count
-end
+local count_raises = require("testkit_internal.raises").count
 
 local function run_fixture(fixture, write_mode)
   mock_env(write_mode, fixture.claim_mode)

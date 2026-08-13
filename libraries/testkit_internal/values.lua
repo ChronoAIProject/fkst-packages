@@ -58,4 +58,15 @@ function M.rows_by_state(rows)
   return by_state
 end
 
+-- Indexes a list by one of each element's fields. Six suites carried this; two of them wrote
+-- the loop body on a single line, which is why a whitespace-blind comparison reported them as
+-- a different function.
+function M.index_by(values, field)
+  local result = {}
+  for _, value in ipairs(values) do
+    result[value[field]] = value
+  end
+  return result
+end
+
 return M

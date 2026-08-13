@@ -38,13 +38,7 @@ local function frozen_records()
   return records
 end
 
-local function index_by(values, field)
-  local result = {}
-  for _, value in ipairs(values) do
-    result[value[field]] = value
-  end
-  return result
-end
+local index_by = require("testkit_internal.values").index_by
 
 local function index_records(records)
   local result = {}

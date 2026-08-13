@@ -15,13 +15,7 @@ local EDGE_ID = "github-devloop/thinking/entry/issue_reconcile_true_stall"
 local V_EQUAL = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
-local function index_by(values, field)
-  local result = {}
-  for _, value in ipairs(values) do
-    result[value[field]] = value
-  end
-  return result
-end
+local index_by = require("testkit_internal.values").index_by
 
 local function issue_reconcile_edge()
   for _, edge in ipairs(restart_authority.edges()) do
