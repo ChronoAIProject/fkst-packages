@@ -81,18 +81,21 @@ return {
     t.eq(#classified.failure_identities, 1)
   end,
 
-  test_identity_that_cannot_be_published_makes_the_observation_unknown = function()
+  test_oversized_failure_identity_is_preserved = function()
+    local long_identity = identity('{"kind":"check","command":"' .. string.rep("x", 2000) .. '"}')
+    local canonical_identity = identity('{"command":"' .. string.rep("x", 2000) .. '","kind":"check"}')
     local classified = classify({
       exit_code = 1,
-      stdout = identity('{"kind":"check","command":"' .. string.rep("x", 2000) .. '"}'),
+      stdout = long_identity,
       stderr = marker("FAIL", "SEMANTIC"),
     })
 
-    t.eq(classified.kind, "UNKNOWN")
-    t.eq(classified.reason, "invalid-failure-identity")
+    t.eq(classified.kind, "SEMANTIC_FAIL")
+    t.eq(#classified.failure_identities, 1)
+    t.eq(classified.failure_identities[1], canonical_identity:sub(1, -2))
   end,
 
-  test_identity_set_beyond_the_comment_contract_makes_the_observation_unknown = function()
+  test_oversized_failure_identity_set_is_preserved = function()
     local lines = {}
     for index = 1, 60 do
       lines[#lines + 1] = identity('{"kind":"test","owner_namespace":"github-devloop","file":"tests/example_test.lua",'
@@ -105,8 +108,8 @@ return {
       stderr = marker("FAIL", "SEMANTIC"),
     })
 
-    t.eq(classified.kind, "UNKNOWN")
-    t.eq(classified.reason, "failure-identity-set-too-large")
+    t.eq(classified.kind, "SEMANTIC_FAIL")
+    t.eq(#classified.failure_identities, 60)
   end,
 
   test_typed_nonsemantic_failures_preserve_the_producer_fault_class = function()

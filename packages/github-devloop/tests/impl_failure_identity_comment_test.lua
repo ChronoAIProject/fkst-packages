@@ -79,7 +79,7 @@ return {
     t.is_true(request.body:find(identity, 1, true) > request.body:find(string.rep("x", 20), 1, true))
   end,
 
-  test_failure_identity_set_beyond_the_comment_contract_is_rejected = function()
+  test_failure_identity_set_beyond_the_comment_contract_is_preserved = function()
     local ready = h.ready()
     local identities = {}
     for index = 1, 60 do
@@ -88,7 +88,7 @@ return {
         .. string.rep("x", 150) .. '","owner_namespace":"github-devloop"}'
     end
 
-    local ok, err = pcall(requests_lifecycle.build_impl_failure_comment_request,
+    local request = requests_lifecycle.build_impl_failure_comment_request(
       core.impl_failure_marker,
       core.output_language,
       "owner/repo",
@@ -101,7 +101,9 @@ return {
       false,
       identities)
 
-    t.eq(ok, false)
-    t.is_true(tostring(err):find("invalid-local-iteration-failure-identity-set", 1, true) ~= nil)
+    for _, identity in ipairs(identities) do
+      t.is_true(request.body:find(identity, 1, true) ~= nil)
+    end
+    t.is_true(#request.body > core._max_body_len)
   end,
 }
