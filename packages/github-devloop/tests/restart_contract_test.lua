@@ -28,16 +28,7 @@ end
 
 local function copy_rows(rows)
   local copied = {}
-  local function copy_value(value)
-    if type(value) ~= "table" then
-      return value
-    end
-    local nested = {}
-    for nested_key, nested_value in pairs(value) do
-      nested[nested_key] = copy_value(nested_value)
-    end
-    return nested
-  end
+  local copy_value = require("testkit_internal.values").copy_value
   for index, row in ipairs(rows or {}) do
     local next_row = {}
     for key, value in pairs(row) do

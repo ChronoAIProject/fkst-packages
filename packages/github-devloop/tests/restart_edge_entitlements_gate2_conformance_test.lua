@@ -62,12 +62,7 @@ local expected_new_apply_effects = {
   },
 }
 
-local function copy_value(value)
-  if type(value) ~= "table" then return value end
-  local copy = {}
-  for key, nested in pairs(value) do copy[key] = copy_value(nested) end
-  return copy
-end
+local copy_value = require("testkit_internal.values").copy_value
 
 local function assert_array(actual, expected)
   t.eq(#actual, #expected)
