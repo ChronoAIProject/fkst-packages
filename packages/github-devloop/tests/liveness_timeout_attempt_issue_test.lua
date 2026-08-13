@@ -99,19 +99,7 @@ local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function capture_raises(fn)
-  local raised = {}
-  local original = devloop_logging.log_raise
-  devloop_logging.log_raise = function(_, _, queue, payload)
-    table.insert(raised, { queue = queue, payload = payload })
-  end
-  local ok, err = pcall(fn)
-  devloop_logging.log_raise = original
-  if not ok then
-    error(err)
-  end
-  return raised
-end
+local capture_raises = require("testkit_internal.cas_shadow").bind_log_raise_capture(devloop_logging)
 
 local function capture_failure_and_raises(fn)
   local raised = {}
