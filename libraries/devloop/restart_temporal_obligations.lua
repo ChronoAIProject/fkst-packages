@@ -99,6 +99,12 @@ local function row_resolver(row)
   if type(contract.real_execution) == "table" and is_nonempty_string(contract.real_execution.primitive) then
     return contract.real_execution.primitive
   end
+  if is_nonempty_string(contract.fact_dependency)
+      and type(row.child_dependency) == "table"
+      and row.child_dependency.fact_family == contract.fact_dependency
+      and is_nonempty_string(row.child_dependency.predicate) then
+    return row.child_dependency.predicate
+  end
   if is_nonempty_string(contract.mode) then
     return contract.mode
   end
