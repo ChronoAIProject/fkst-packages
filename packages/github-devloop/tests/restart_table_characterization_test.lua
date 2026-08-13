@@ -2,7 +2,7 @@ local core = require("core")
 local observation = require("testkit_internal.old_behavior_observation_support")
 local sha256 = require("contract.sha256")
 local t = fkst.test
-local EXPECTED_DIGEST = "9150936bdb3db07e72eb1581b31a170367da5594dca3e5d1e6a6a35fe4bb008d"
+local EXPECTED_DIGEST = "642cc8039f3b105413b3b3a4e46a2a2d884048e5dc620381223a87a065a1a533"
 
 local copy_value = require("testkit_internal.values").copy_value
 

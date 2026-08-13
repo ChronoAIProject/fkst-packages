@@ -45,6 +45,7 @@ local AWAITING_PR_CONTRACT = {
   },
   child_dependency = {
     kind = "delegated-child-pr",
+    fact_family = "child-pr-dependency",
     identity = {
       source = "pr-delegation:v1",
       pr_proposal_id = "pr-delegation.pr_proposal_id",
