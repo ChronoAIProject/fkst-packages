@@ -343,12 +343,7 @@ local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
-local function command_output(command)
-  local handle = assert(io.popen(command .. " 2>&1"))
-  local output = handle:read("*a")
-  local ok = handle:close()
-  return output, ok ~= false and ok ~= nil
-end
+local command_output = require("testkit_internal.testing").command_output
 
 local function write_duplicate_recovery_source(root)
   local directory = root .. "/packages/github-devloop-pr/departments/test_duplicate_fixing"
