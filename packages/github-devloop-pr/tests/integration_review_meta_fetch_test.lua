@@ -18,14 +18,7 @@ local find_causal_raise = h.find_causal_raise
 local action_label = h.action_label
 local reason_label = h.reason_label
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
