@@ -347,14 +347,7 @@ local function count_rows(rows, kind, predicate)
   return count
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function count_raises(raises, queue)
   local count = 0

@@ -102,14 +102,7 @@ local function count_calls(needle)
   return gh_argv.count_calls(t, needle)
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
-end
+local find_raise = require("testkit_internal.raises").find
 
 local function conflict_log_line(issue_number, pr_number, file, timestamp)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
