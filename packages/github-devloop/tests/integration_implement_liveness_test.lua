@@ -43,6 +43,16 @@ local function run_implement_with_logs(payload)
   m_claims.managed_bot_logins = function()
     return {}
   end
+  t.mock_command("FKST_IMPLEMENTATION_WORKTREE_LEASE:v1", {
+    stdout = "FKST_IMPLEMENTATION_WORKTREE_LEASE:v1:ACQUIRED:abc123\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("FKST_IMPLEMENTATION_WORKTREE_LEASE:v1", {
+    stdout = "FKST_IMPLEMENTATION_WORKTREE_LEASE:v1:RELEASED:abc123\n",
+    stderr = "",
+    exit_code = 0,
+  })
   local ok, result = pcall(function()
     return testing.run_fake(implement_department, {
       queue = "devloop_ready",

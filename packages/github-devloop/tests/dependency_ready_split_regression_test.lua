@@ -818,7 +818,7 @@ return {
     local branch = h.deterministic_branch_for(ready)
     local delegation = "g" .. tostring(core.implementation_delegation_generation(implementing_version))
     mock_blocked_by_failure(42)
-    mock_implement_issue({ "fkst-dev:enabled", "fkst-dev:implementing" }, {
+    local implementing_comments = {
       h.projected_state_comment(proposal_id, "ready", version),
       core.state_marker(proposal_id, "implementing", implementing_version),
       core.implement_attempt_marker(proposal_id, implementing_version, 1, "2026-06-03T01:01:00Z"),
@@ -830,7 +830,9 @@ return {
         implementing_version,
         delegation
       ),
-    })
+    }
+    mock_implement_issue({ "fkst-dev:enabled", "fkst-dev:implementing" }, implementing_comments)
+    mock_implement_issue({ "fkst-dev:enabled", "fkst-dev:implementing" }, implementing_comments)
     t.mock_command("git fetch 'origin' '" .. branch .. "'", command_result(0))
     t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", command_result(0, "", "def456\n"))
 

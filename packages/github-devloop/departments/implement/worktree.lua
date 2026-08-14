@@ -15,6 +15,12 @@ local function implementation_root()
   return devloop_base.implementation_worktree_root(durable_result.stdout)
 end
 
+function M.canonical_worktree_path(repo, issue_number, dedup_key, retry_attempt)
+  local worktree_version = impl_failure.implementation_branch_version(dedup_key, retry_attempt)
+  return devloop_base.implement_worktree_path(
+    implementation_root(), repo, issue_number, worktree_version)
+end
+
 local function assert_canonical_registration(porcelain, branch, worktree)
   for _, registered in ipairs(devloop_commands.find_worktrees_for_branch(porcelain, branch)) do
     if registered ~= worktree then
@@ -108,10 +114,7 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
 end
 
 local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, branch)
-  local stable_root = implementation_root()
-  local worktree_version = impl_failure.implementation_branch_version(dedup_key, retry_attempt)
-  local worktree = devloop_base.implement_worktree_path(
-    stable_root, repo, issue_number, worktree_version)
+  local worktree = M.canonical_worktree_path(repo, issue_number, dedup_key, retry_attempt)
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))

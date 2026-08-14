@@ -14,6 +14,8 @@ local sink_inventory = require("core.restart.sink_inventory")
 local testing = require("testkit_internal.testing")
 local devloop_commands = require("devloop.commands")
 local implement_department = require("departments.implement.main")
+local worktree_lifecycle = require("departments.implement.worktree")
+local worktree_lease = require("departments.implement.worktree_lease")
 local observe_issue_department = require("departments.observe_issue.main")
 
 local t = h.t
@@ -542,6 +544,16 @@ local function capture_implement(fixture)
     if dept == "implement" then
       table.insert(decisions, { proposal_id = proposal_id, current = copy_value(current), from_state = from_state, to_state = to_state, outcome = outcome, reason = reason })
     end
+  end, restorations)
+  replace(worktree_lifecycle, "canonical_worktree_path", function()
+    return "/tmp/fkst-receiver-activation-observation"
+  end, restorations)
+  replace(worktree_lease, "make", function()
+    return {
+      with_lease = function(_, fn)
+        return true, fn()
+      end,
+    }
   end, restorations)
   replace(_G, "with_lock", function(key, fn)
     table.insert(lock_calls, key)

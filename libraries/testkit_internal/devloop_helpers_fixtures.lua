@@ -290,6 +290,16 @@ function M.new(deps)
     mock_empty_dependencies()
     local payload, run_opts = ...
     mock_context_bundle(payload, run_opts)
+    helpers.t.mock_command("FKST_IMPLEMENTATION_WORKTREE_LEASE:v1", {
+      stdout = "FKST_IMPLEMENTATION_WORKTREE_LEASE:v1:ACQUIRED:abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    helpers.t.mock_command("FKST_IMPLEMENTATION_WORKTREE_LEASE:v1", {
+      stdout = "FKST_IMPLEMENTATION_WORKTREE_LEASE:v1:RELEASED:abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
     return base_run_implement(...)
   end
 

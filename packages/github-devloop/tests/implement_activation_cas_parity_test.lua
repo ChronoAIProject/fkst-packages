@@ -25,6 +25,8 @@ local restart_effects = require("core.restart_effects")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local workflow_codex = require("workflow_internal.codex")
+local worktree_lifecycle = require("departments.implement.worktree")
+local worktree_lease = require("departments.implement.worktree_lease")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -90,9 +92,21 @@ local function observe_department(run, opts)
   local original_codex_dispatch = workflow_codex.dispatch
   local original_implementing_comment = requests_lifecycle.build_implementing_state_comment_request
   local original_implementing_label = requests_labels.build_implementing_label_request
+  local original_canonical_worktree_path = worktree_lifecycle.canonical_worktree_path
+  local original_worktree_lease_make = worktree_lease.make
 
   dispatch_live_run.dispatch_live_run_dedup = function()
     return false
+  end
+  worktree_lifecycle.canonical_worktree_path = function()
+    return "/tmp/fkst-implement-activation-observation"
+  end
+  worktree_lease.make = function()
+    return {
+      with_lease = function(_, fn)
+        return true, fn()
+      end,
+    }
   end
   if opts.stop_after_activation then
     context_bundle.context_fetch_from_bundle = function()
@@ -212,6 +226,8 @@ local function observe_department(run, opts)
   local ok, result = pcall(run)
   requests_labels.build_implementing_label_request = original_implementing_label
   requests_lifecycle.build_implementing_state_comment_request = original_implementing_comment
+  worktree_lease.make = original_worktree_lease_make
+  worktree_lifecycle.canonical_worktree_path = original_canonical_worktree_path
   workflow_codex.dispatch = original_codex_dispatch
   context_bundle.context_fetch_from_bundle = original_context_fetch_from_bundle
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
@@ -442,6 +458,14 @@ local function run_real_department(event)
     payload = event,
   })
   raise = original_raise
+  if not ok then
+    local calls = t.command_calls()
+    local tail = {}
+    for index = math.max(1, #calls - 5), #calls do
+      table.insert(tail, tostring(calls[index].rendered or ""):sub(1, 240))
+    end
+    failure = "recent commands: " .. table.concat(tail, " | ") .. "; failure: " .. tostring(failure)
+  end
   return {
     exit_code = ok and 0 or 1,
     error = ok and nil or tostring(failure),
@@ -546,7 +570,8 @@ local function assert_case(fixture)
     t.eq(#boundary_calls, 0, fixture.name .. ": pre-CAS input cannot reach admission boundary")
   end
 
-  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
+  t.eq(result.exit_code, fixture.expected_exit_code or 0,
+    fixture.name .. ": department exit code: " .. tostring(result.error))
   t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effects")
   t.eq(
     post_admission_disposition(boundary_calls),
@@ -627,7 +652,8 @@ local function capture_trace_production(fixture)
       cas_outcome = decision.outcome,
     }
   end
-  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.fixture_id .. ": OLD exit code")
+  t.eq(result.exit_code, fixture.expected_exit_code or 0,
+    fixture.fixture_id .. ": OLD exit code: " .. tostring(result.error))
   local write_count = #serializers.comment + #serializers.label
   t.eq(#result.raises, write_count, fixture.fixture_id .. ": OLD writes use observed serializers")
   local expected_serializer_calls = captured.status == "apply" and 1 or 0
