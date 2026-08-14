@@ -3,6 +3,7 @@ local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local h = require("tests.devloop_core_helpers")
 local m_builders = require("devloop.markers.builders")
+local github_view = require("forge.github_view")
 local core = h.core
 local t = h.t
 
@@ -289,6 +290,23 @@ return {
     t.eq(parsed.body, long_body)
     t.is_true(#parsed.body > core.max_body_len())
     t.is_true(parsed.body:find("FULL_BODY_TAIL", 1, true) ~= nil)
+  end,
+
+  test_draft_alias_acceptance_differs_between_devloop_and_forge = function()
+    -- Characterization of a DIFFERENCE, which is the load-bearing fact for any later
+    -- consolidation: the two layers do not accept the same shapes.
+    --   devloop.parsers.pr:25       pr.isDraft or pr.is_draft or pr.draft   -- three
+    --   forge.github_view:241-243   decoded.isDraft, falling back to is_draft -- two
+    -- The bare `draft` key is accepted by devloop ONLY, and before this test no test fed it.
+    local function freshness(json) return parsers_pr.parse_pr_list_freshness(json)[1] end
+    t.eq(freshness('[[{"number":21,"headRefOid":"a1","state":"OPEN","isDraft":true}]]').is_draft, true)
+    t.eq(freshness('[[{"number":22,"headRefOid":"a2","state":"OPEN","is_draft":true}]]').is_draft, true)
+    t.eq(freshness('[[{"number":23,"headRefOid":"a3","state":"OPEN","draft":true}]]').is_draft, true)
+
+    t.eq(github_view.parse_pr_view_merge('{"number":24,"isDraft":true}').is_draft, true)
+    t.eq(github_view.parse_pr_view_merge('{"number":25,"is_draft":true}').is_draft, true)
+    -- the asymmetry: forge does NOT read the bare key, so this must not become true
+    t.is_true(github_view.parse_pr_view_merge('{"number":26,"draft":true}').is_draft ~= true)
   end,
 
   test_pr_parsers_accept_snake_case_head_ref_oid = function()
