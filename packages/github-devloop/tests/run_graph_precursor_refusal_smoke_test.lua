@@ -99,6 +99,7 @@ return {
       impl_version = ready.dedup_key,
       harvest_checks = 1,
     })
+    h.mock_implement_worktree_singleflight()
     h.mock_implement_codex(0, refusal_receipt(ready))
     h.mock_git_status("")
     t.mock_command("rev-list --count", {

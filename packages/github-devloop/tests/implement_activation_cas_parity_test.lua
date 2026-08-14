@@ -25,6 +25,8 @@ local restart_effects = require("core.restart_effects")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local workflow_codex = require("workflow_internal.codex")
+local worktree_lifecycle = require("departments.implement.worktree")
+local worktree_singleflight = require("departments.implement.worktree_singleflight")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -90,9 +92,21 @@ local function observe_department(run, opts)
   local original_codex_dispatch = workflow_codex.dispatch
   local original_implementing_comment = requests_lifecycle.build_implementing_state_comment_request
   local original_implementing_label = requests_labels.build_implementing_label_request
+  local original_canonical_worktree_path = worktree_lifecycle.canonical_worktree_path
+  local original_worktree_singleflight_make = worktree_singleflight.make
 
   dispatch_live_run.dispatch_live_run_dedup = function()
     return false
+  end
+  worktree_lifecycle.canonical_worktree_path = function()
+    return "/tmp/fkst-implement-activation-observation"
+  end
+  worktree_singleflight.make = function()
+    return {
+      with_lock = function(_, fn)
+        return true, fn()
+      end,
+    }
   end
   if opts.stop_after_activation then
     context_bundle.context_fetch_from_bundle = function()
@@ -212,6 +226,8 @@ local function observe_department(run, opts)
   local ok, result = pcall(run)
   requests_labels.build_implementing_label_request = original_implementing_label
   requests_lifecycle.build_implementing_state_comment_request = original_implementing_comment
+  worktree_singleflight.make = original_worktree_singleflight_make
+  worktree_lifecycle.canonical_worktree_path = original_canonical_worktree_path
   workflow_codex.dispatch = original_codex_dispatch
   context_bundle.context_fetch_from_bundle = original_context_fetch_from_bundle
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup

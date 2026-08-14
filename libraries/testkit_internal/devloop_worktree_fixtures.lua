@@ -76,6 +76,11 @@ function M.new(deps)
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', command_result(0, "", root))
   end
 
+  local function mock_implement_durable_root(root)
+    mock_durable_root(root)
+    mock_durable_root(root)
+  end
+
   local function mock_dev_base_head(head_sha)
     t.mock_command("git fetch 'origin' 'dev'", command_result(0))
     t.mock_command("refs/remotes/'origin'/'dev'^{commit}",
@@ -188,7 +193,7 @@ function M.new(deps)
     branch_pin = opts.branch_pin or branch_pin
     mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", command_result(1))
-    mock_durable_root(durable)
+    mock_implement_durable_root(durable)
     t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
@@ -214,7 +219,7 @@ function M.new(deps)
     local pr_number = external.pr_number or 7
     local head_sha = external.head_sha or "1234567890abcdef1234567890abcdef12345678"
     mock_dev_base_head()
-    mock_durable_root(durable)
+    mock_implement_durable_root(durable)
     t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree)
     mock_worktree_parent_mkdir()
@@ -256,7 +261,7 @@ function M.new(deps)
     mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", command_result(0))
     t.mock_command("rev-list --count", command_result(0, "", "0\n"))
-    mock_durable_root(durable)
+    mock_implement_durable_root(durable)
     t.mock_command("git worktree list --porcelain", command_result(0))
     mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
@@ -286,7 +291,7 @@ function M.new(deps)
     t.mock_command("show-ref --verify --quiet", command_result(0))
     t.mock_command("rev-list --count",
       command_result(0, "", tostring(ahead_count or "0") .. "\n"))
-    mock_durable_root(durable)
+    mock_implement_durable_root(durable)
     t.mock_command("git worktree list --porcelain", command_result(
       0, "", "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
     ))
@@ -316,7 +321,7 @@ function M.new(deps)
     mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", command_result(0))
     t.mock_command("rev-list --count", command_result(0, "", "1\n"))
-    mock_durable_root(durable)
+    mock_implement_durable_root(durable)
     t.mock_command("git worktree list --porcelain", command_result(
       0, "", "worktree " .. stale .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
     ))

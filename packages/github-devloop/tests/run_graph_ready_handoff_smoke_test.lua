@@ -377,6 +377,7 @@ return {
     h.mock_fresh_implement_worktree({
       impl_version = lean_ready_version,
     })
+    h.mock_implement_worktree_singleflight()
     t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {
       stdout = "blob\n",
       stderr = "",

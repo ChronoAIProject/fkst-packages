@@ -309,6 +309,7 @@ local function mock_stale_worker_recovery()
     dedup_key = stale_version,
     source_ref = issue_source_ref(stale_issue_number),
   })
+  h.mock_implement_worktree_singleflight()
   t.mock_command("git fetch 'origin' 'dev'", {
     stdout = "",
     stderr = "",
@@ -488,6 +489,7 @@ local function mock_healthy_implementation()
     dedup_key = healthy_version,
     source_ref = issue_source_ref(healthy_issue_number),
   })
+  h.mock_implement_worktree_singleflight()
   t.mock_command("git worktree list --porcelain", {
     stdout = "",
     stderr = "",

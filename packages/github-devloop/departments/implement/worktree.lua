@@ -107,11 +107,15 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   end
 end
 
-local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, branch)
+function M.canonical_worktree_path(repo, issue_number, dedup_key, retry_attempt)
   local stable_root = implementation_root()
   local worktree_version = impl_failure.implementation_branch_version(dedup_key, retry_attempt)
-  local worktree = devloop_base.implement_worktree_path(
+  return devloop_base.implement_worktree_path(
     stable_root, repo, issue_number, worktree_version)
+end
+
+local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, branch)
+  local worktree = M.canonical_worktree_path(repo, issue_number, dedup_key, retry_attempt)
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))

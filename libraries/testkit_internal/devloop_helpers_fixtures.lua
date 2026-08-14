@@ -286,10 +286,24 @@ function M.new(deps)
     return base_run_result_expecting_failure(...)
   end
 
+  helpers.mock_implement_worktree_singleflight = function()
+    helpers.t.mock_command("FKST_IMPLEMENTATION_WORKTREE_SINGLEFLIGHT_HELPER", {
+      stdout = "FKST_IMPLEMENTATION_WORKTREE_SINGLEFLIGHT:v1:ACQUIRED:abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    helpers.t.mock_command("FKST_IMPLEMENTATION_WORKTREE_SINGLEFLIGHT_HELPER", {
+      stdout = "FKST_IMPLEMENTATION_WORKTREE_SINGLEFLIGHT:v1:RELEASED:abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
   helpers.run_implement = function(...)
     mock_empty_dependencies()
     local payload, run_opts = ...
     mock_context_bundle(payload, run_opts)
+    helpers.mock_implement_worktree_singleflight()
     return base_run_implement(...)
   end
 
