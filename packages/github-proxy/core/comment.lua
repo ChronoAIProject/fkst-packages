@@ -498,6 +498,10 @@ function M.write_comment_request(payload, target)
       target = tostring(target.kind) .. ":" .. tostring(repo) .. "#" .. tostring(target.number),
       dedup_key = payload.dedup_key,
     })
+    if existing ~= nil and M._comment_body(existing) == body then
+      log.info("github-proxy: comment-body-identical-noop: skipping unchanged GitHub comment edit")
+      return
+    end
     local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
     file.write(path, body)
     local handled, edit_status, edited_comment, did_edit = edit_existing_comment(
