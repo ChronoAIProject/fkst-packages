@@ -31,8 +31,10 @@ return {
     t.eq(first.request.source_ref.kind, "external")
     t.eq(first.request.source_ref.ref, "owner/repo#issue/42")
     t.eq(first.request.real_write_allowed, false)
-    t.eq(first.request.replace_marker, progress.marker(proposal_id))
+    t.eq(first.request.replace_marker, progress.replace_marker(proposal_id))
     t.eq(first.request.replace_marker, second.request.replace_marker)
+    t.eq(first.request.replace_snapshot.run_id, running_row().run_id)
+    t.eq(first.request.replace_snapshot.status, "running")
     t.eq(first.request.dedup_key, second.request.dedup_key)
     t.eq(first.request.body, second.request.body)
 
@@ -43,7 +45,7 @@ return {
       "Elapsed: `90.5s / 3600s`",
       "Applying patch",
       "Running tests",
-      progress.marker(proposal_id),
+      progress.marker(proposal_id, running_row().run_id, "running"),
     }) do
       t.is_true(first.request.body:find(fragment, 1, true) ~= nil, "missing card fragment: " .. fragment)
     end
