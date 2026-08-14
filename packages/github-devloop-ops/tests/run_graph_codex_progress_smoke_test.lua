@@ -67,9 +67,16 @@ return {
     t.eq(raised.payload.issue_number, "42")
     t.eq(raised.payload.source_ref.kind, "external")
     t.eq(raised.payload.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(raised.payload.replace_snapshot.run_id:find("^codex%-") ~= nil)
+    t.eq(raised.payload.replace_snapshot.status, "running")
     t.eq(raised.payload.replace_marker,
-      '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="' .. proposal_id .. '" -->')
+      '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="' .. proposal_id .. '"')
     t.is_true(raised.payload.body:find("Implementing card", 1, true) ~= nil)
+    t.is_true(raised.payload.body:find(
+      'run_id="' .. raised.payload.replace_snapshot.run_id .. '" status="running"',
+      1,
+      true
+    ) ~= nil)
     t.eq(raised.payload.body:find("<!-- fkst:github-devloop:state:v1", 1, true) == nil, true)
 
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
