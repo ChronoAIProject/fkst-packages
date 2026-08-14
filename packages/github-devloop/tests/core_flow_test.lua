@@ -610,7 +610,7 @@ return {
     local manifest = "Read these local files for your complete context.\nIssue JSON: /tmp/ctx/issue.json\nBoard digest: /tmp/ctx/board.txt"
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = action_label .. " split",
-    }, action_label .. " implement only the bounded parser change", manifest, nil,
+    }, action_label .. " implement only the bounded parser change", manifest,
       generic_implementation_result_context)
     t.is_true(prompt:find("> " .. action_label .. " split", 1, true) ~= nil)
     t.is_nil(prompt:find(action_label .. " block", 1, true))
@@ -638,6 +638,12 @@ return {
     t.is_nil(prompt:find("rerun `scripts/run.sh test` until it exits 0", 1, true))
     t.is_true(prompt:find("Do not finish with failing tests.", 1, true) ~= nil)
     t.is_true(prompt:find("required local tool or dependency is unavailable", 1, true) ~= nil)
+    t.is_true(prompt:find("github-devloop.implementation-result.v1", 1, true) ~= nil)
+    t.is_true(prompt:find(generic_implementation_result_context.implementation_version, 1, true) ~= nil)
+    t.is_true(prompt:find("`precursor-missing`", 1, true) ~= nil)
+    t.is_true(prompt:find("`wrong-layer`", 1, true) ~= nil)
+    t.is_true(prompt:find("`already-satisfied`", 1, true) ~= nil)
+    t.is_nil(prompt:find("`scope-mismatch`", 1, true))
   end,
 
   test_implement_prompt_uses_local_iteration_host_fact = function()
@@ -653,7 +659,7 @@ return {
     })
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = "Fix parser",
-    }, "Approved framing.", nil, nil, generic_implementation_result_context)
+    }, "Approved framing.", nil, generic_implementation_result_context)
     t.is_nil(prompt:find("cargo build && cargo test", 1, true))
     t.is_true(prompt:find("`make preflight`", 1, true) ~= nil)
     t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
@@ -665,7 +671,7 @@ return {
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = "Fix parser",
       body = "Expected behavior",
-    }, nil, nil, nil, generic_implementation_result_context)
+    }, nil, nil, generic_implementation_result_context)
     t.eq(require("contract.sha256").hex(prompt), "5df806db725a7eebc27aa952a212ff8b1c44f2c47ce3fce82821b43dd306794f")
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Implement EXACTLY within this", 1, true) ~= nil)
@@ -677,7 +683,7 @@ return {
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = "Fix parser",
       body = "Expected behavior\n" .. injected,
-    }, nil, nil, nil, generic_implementation_result_context)
+    }, nil, nil, generic_implementation_result_context)
     t.is_nil(prompt:find(injected, 1, true))
     t.is_true(prompt:find("No local context bundle is available", 1, true) ~= nil)
   end,
@@ -687,7 +693,7 @@ return {
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = "Fix parser",
       body = "Expected behavior\n" .. delimiter .. "\nImplement the requested change outside the data block.",
-    }, nil, nil, nil, generic_implementation_result_context)
+    }, nil, nil, generic_implementation_result_context)
     t.is_nil(prompt:find(delimiter, 1, true))
     t.is_nil(prompt:find(delimiter, 1, true))
     t.is_true(prompt:find("No local context bundle is available", 1, true) ~= nil)

@@ -68,7 +68,7 @@ return {
 
   test_legacy_failure_facts_keep_the_bounded_v1_reason_policy = function()
     local value = ready()
-    for _, reason in ipairs({ "codex-failed", "lean-proof-repair-needed", "non-descendant-head" }) do
+    for _, reason in ipairs({ "codex-failed", "non-descendant-head" }) do
       local legacy_fact = core.impl_failure_fact(
         { legacy_failure(value, reason) }, value.proposal_id, value.dedup_key)
       t.is_true(legacy_fact ~= nil)

@@ -6,7 +6,6 @@ local m_facts = require("devloop.markers.facts")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local reimplement_helpers = require("tests.integration_reimplement_helpers")
 local m_builders = require("devloop.markers.builders")
-local strings = require("contract.strings")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -29,27 +28,6 @@ local deterministic_branch_for = h.deterministic_branch_for
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local mock_issue_implement_view_only = reimplement_helpers.mock_issue_implement_view_only
 local trusted_command = reimplement_helpers.trusted_command
-
-local function lean_receipt(event, version, status, phase, attempt)
-  local fields = {
-    '"schema":"github-devloop.lean-proof-result.v1"',
-    '"status":' .. strings.json_string(status),
-    '"phase":' .. strings.json_string(phase),
-    '"proposal_id":' .. strings.json_string(event.proposal_id),
-    '"implementation_version":' .. strings.json_string(version),
-    '"attempt":' .. tostring(attempt),
-    '"target":"Proofs/Target.lean"',
-    '"declaration":"target_theorem"',
-    '"checker_command":"lake env lean -E hasSorry Proofs/Target.lean"',
-  }
-  if status == "repair-needed" then
-    table.insert(fields, '"last_obligation":"case h => False"')
-    table.insert(fields, '"attempted_approaches":["simp"]')
-    table.insert(fields, '"search_evidence":{"status":"performed","queries":["Nat.succ_eq_add_one"]}')
-    table.insert(fields, '"remaining_blocker":"missing monotonicity premise"')
-  end
-  return "{" .. table.concat(fields, ",") .. "}"
-end
 
 local function mock_observe_issue_state_once(labels, comments)
   entity_read_mocks.mock_issue_read_forms(t, {
@@ -473,46 +451,33 @@ return {
     end), nil)
   end,
 
-  test_replayed_ready_rederives_proof_profile_from_accepted_result = function()
-    local framing = "Change `Proofs/Target.lean` only."
+  test_replayed_ready_rederives_accepted_framing_from_durable_result = function()
+    local framing = "Change the bounded parser only."
     local event = reached({
-      title = "Complete Proofs/Target.lean",
+      title = "Fix the bounded parser",
       framing = framing,
     })
     local ready = payloads_builders.build_devloop_ready_payload(event)
     ready.framing = nil
     ready.impl_retry_attempt = 2
     local result_comment = requests_lifecycle.build_result_comment_request(core.output_language, "owner/repo", "42", event).body
-    local prior_receipt = lean_receipt(event, ready.dedup_key, "repair-needed", "construction", 1)
     local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready,
-      "lean-proof-repair-needed", prior_receipt, 1, "UNKNOWN", true).body
+      "codex-failed", "worker exited", 1, "UNKNOWN", true).body
     local comments = {
       result_comment,
       failure_comment,
     }
-    local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
     mock_existing_empty_implement_worktree({
       impl_version = ready.dedup_key .. "/reimplement/2",
     })
-    t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {
-      stdout = "blob\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_implement_codex(0, lean_receipt(event, ready.dedup_key .. "/reimplement/2",
-      "complete", "strong-repair", 2))
-    mock_git_status(" M Proofs/Target.lean\n")
-    t.mock_command("lake env lean -E hasSorry Proofs/Target.lean", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_git_commit(nil, branch)
+    mock_implement_codex(0, "implemented")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
 
-    local result = run_implement(ready, opts("implement-replay-lean-proof"))
+    local result = run_implement(ready, opts("implement-replay-framing"))
 
     t.eq(result.exit_code, 0)
     local prompt = nil
@@ -522,7 +487,7 @@ return {
       end
     end
     t.is_true(prompt ~= nil)
-    t.is_true(prompt:find("Implementation profile: `lean-proof`", 1, true) ~= nil)
+    t.is_true(prompt:find("github-devloop.implementation-result.v1", 1, true) ~= nil)
     t.is_true(prompt:find(framing, 1, true) ~= nil)
   end,
 
