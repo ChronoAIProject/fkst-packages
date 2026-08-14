@@ -177,4 +177,23 @@ Method note: a scan for string literals must mask long-bracket literals first
 (`check_repo_lua.code_mask`), or fragments of template-generated code (`"):gsub("`) surface as if
 they were literals in their own right.
 
+## Running it again: `python3 scripts/refactor_survey.py`
+
+This ledger recorded the *method* in prose while the instruments lived in a scratch directory that
+does not survive the session — so the next pass would have rebuilt them and re-walked every trap
+above. `scripts/refactor_survey.py` is those measurements, with each trap written beside the unit it
+broke:
+
+- unused exports — matches the bare word across **all tracked file types**, because a name can be
+  referenced from a manifest or a doc, not only from Lua (the narrow `.name(` form called 62 live
+  functions dead)
+- unused `lib_deps` — parses the array inside the section, not the section key
+- leaf functions — excludes DI installer wrappers, which are correct at 700–800 lines
+- never-required modules — reported with an explicit false-positive warning; results under a
+  directory family are a registry, not a corpse
+
+It is **advisory and never fails a build**: reversible, low-harm drift gets detection and correction
+rather than an up-front gate. The one unit here that is genuinely gated has its own checker,
+`check_repo_dead_locals.py`, because that category regrew four times in nine days.
+
 ⟦AI:FKST⟧
