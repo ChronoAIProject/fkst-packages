@@ -78,7 +78,7 @@ function C.has_state_marker(comments, issue_proposal_id)
   if type(comments) ~= "table" then
     return false
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       if marker_attr(marker, "proposal") == tostring(issue_proposal_id)
@@ -109,7 +109,7 @@ end
 
 local function highest_state_fix_round(body, issue_proposal_id)
   local highest = nil
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = shared.STATE_MARKER_PATTERN
   for marker in tostring(body or ""):gmatch(marker_pattern) do
     if marker_attr(marker, "proposal") == tostring(issue_proposal_id) then
       local round = devloop_state.version_fix_round(marker_attr(marker, "version"))

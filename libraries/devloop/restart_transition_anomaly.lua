@@ -1,5 +1,6 @@
 local restart_edges = require("devloop.restart_edges")
 local parsers_misc = require("devloop.parsers.misc")
+local markers_shared = require("devloop.markers.shared")
 
 local M = {}
 
@@ -210,7 +211,7 @@ end
 
 function M.marker_history(comments, proposal_id)
   local history = {}
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local attrs = {}

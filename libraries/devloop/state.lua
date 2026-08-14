@@ -10,6 +10,7 @@ local devloop_base = require("devloop.base")
 local transition_version = require("contract.transition_version")
 local m_builders = require("devloop.markers.builders")
 local issue_observation_facts = require("devloop.restart.issue_observation_facts")
+local markers_shared = require("devloop.markers.shared")
 
 local function marker_attrs(marker)
   local attrs = {}
@@ -111,7 +112,7 @@ local function derive_current_marker(comments, proposal_id, trust_set, include_a
   end
 
   local current = nil
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments, trust_set)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
@@ -205,7 +206,7 @@ function C.reached(comments, proposal_id, milestone, opts)
   local domain = options.domain or options.milestone_domain
   restart_metadata._validate_milestone_domain(domain, milestone)
 
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
@@ -225,7 +226,7 @@ function C.has_state_marker(comments, proposal_id, state, version)
   if type(comments) ~= "table" then
     return false
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
@@ -244,7 +245,7 @@ local function state_marker_comment_id(comments, proposal_id, state, version, ef
   if type(comments) ~= "table" then
     return nil
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)

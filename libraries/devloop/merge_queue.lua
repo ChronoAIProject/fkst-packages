@@ -18,6 +18,7 @@ local config = require("devloop.config")
 
 local strings = require("contract.strings")
 local devloop_logging = require("devloop.logging")
+local markers_shared = require("devloop.markers.shared")
 local wip_admission_classification
 local log_wip_exclusion
 
@@ -104,7 +105,7 @@ end
 
 local function current_any_entity_state(entity_comments)
   local best = nil
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity_comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
