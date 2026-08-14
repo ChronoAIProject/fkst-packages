@@ -121,4 +121,37 @@ Practical consequence: **an instrument that can report absence must carry a posi
 same invocation.** "Zero" is a claim about the query until something known-present proves the query
 can see.
 
+## Structural units, measured and refused (added 2026-08-14)
+
+Subtractive units were exhausted, so function-level structure was measured too. It yielded no work,
+and the reasons are worth keeping so the next pass does not re-derive them.
+
+| unit | measured | yield |
+|---|---|---|
+| function length (all functions) | `check_repo_lua.code_mask` + block-depth spans | 46 over 250 lines — **misleading, see below** |
+| function length (leaf functions only) | same, excluding any function containing another | 22 over 150 lines, 58 over 100 |
+
+**The raw count is a trap.** The longest "functions" are 700–800 lines and span nearly a whole file —
+because this repo uses the dependency-injection installer shape, `function S.install(M, restart_policy)`
+wrapping a module body with dozens of nested locals (`pr_review_replayer.lua:25-816` is 792 lines and
+entirely correct). Reporting those as extract-method candidates would propose refactoring 46 DI
+wrappers. Only **leaf** functions — those containing no nested function — are candidates.
+
+**And the leaf candidates were refused, on two distinct grounds:**
+
+- The largest cluster is `core/restart/transitions/*.lua` (242, 241, 222, 211 lines). These are
+  **declarative transition rows**: `return function(M, h)` destructuring a handler bundle, then a
+  table. Splitting one fragments a table definition and makes it less readable, not more.
+- The one genuinely imperative candidate,
+  `packages/github-devloop-pr/departments/review_result/main.lua:116-377` (a 262-line `with_lock`
+  closure), sits on the core PR-merge CAS path.
+
+The decisive point is not risk, it is **standard**: this repo sets a *file* limit (1000 hard, 900
+soft) and **no function-length rule whatsoever**. With 22 leaf functions over 150 lines, the revealed
+standard tolerates them. Refactoring core merge logic to satisfy a limit the repo has not adopted is
+speculative work against an imported aesthetic — the WORTH GATE names that as a defect in itself.
+
+**What would make this actionable:** adopting a function-length standard. That is a policy decision
+for the repo, not something a refactoring pass may assume and then enforce by hand.
+
 ⟦AI:FKST⟧
