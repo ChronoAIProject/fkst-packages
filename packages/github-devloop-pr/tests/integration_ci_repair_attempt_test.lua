@@ -16,6 +16,8 @@ local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local mock_existing_fix_worktree = h.mock_existing_fix_worktree
+local BASE_SHA = string.rep("a", 40)
+local HEAD_SHA = string.rep("b", 40)
 
 local function mock_real_write_env_reads()
   for _ = 1, 4 do
@@ -24,6 +26,16 @@ local function mock_real_write_env_reads()
 end
 
 local with_codex_runs = require("testkit_internal.testing").with_codex_runs
+
+local function bind_fixing_to_head(event)
+  local review_version = core._strip_latest_fix_version_suffix(event.version)
+  event.reviewed_head_sha = HEAD_SHA
+  event.review_proposal_id = devloop_base.pr_review_proposal_id(
+    "owner/repo", event.pr_number, review_version, HEAD_SHA
+  )
+  event.review_dedup_key = "consensus:" .. event.review_proposal_id .. "/review"
+  return event
+end
 
 local function queue_pr_comments(pr_number, issue_number, version, head_sha)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
@@ -76,12 +88,16 @@ end
 
 local function base_review_identity()
   local base = fixing()
+  local review_version = core._strip_latest_fix_version_suffix(base.version)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(
+    "owner/repo", base.pr_number, review_version, HEAD_SHA
+  )
   return {
     proposal_id = base.proposal_id,
     pr_number = base.pr_number,
-    review_proposal_id = base.review_proposal_id,
-    review_dedup_key = base.review_dedup_key,
-    reviewed_head_sha = base.reviewed_head_sha,
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = "consensus:" .. review_proposal_id .. "/review",
+    reviewed_head_sha = HEAD_SHA,
     source_ref = base.source_ref,
     base_version = base.version, -- fix_round 1
   }
@@ -128,15 +144,15 @@ local function mock_speculative_predecessor_drift(event, feedback_comments)
   for _, comment in ipairs(feedback_comments) do
     table.insert(pr_comments, comment)
   end
-  local own_ci_rollup = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"test","headSha":"def456"}]'
-  mock_pr_fix(pr_comments, branch, "def456", nil, nil, nil, nil, own_ci_rollup)
-  h.mock_required_check_runs_for("def456", "failure", "owner/repo")
+  local own_ci_rollup = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"test","headSha":"' .. HEAD_SHA .. '"}]'
+  mock_pr_fix(pr_comments, branch, HEAD_SHA, nil, nil, nil, nil, own_ci_rollup, BASE_SHA)
+  h.mock_required_check_runs_for(HEAD_SHA, "failure", "owner/repo")
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
     stderr = "",
     exit_code = 0,
   })
-  mock_existing_fix_worktree(branch, "def456")
+  mock_existing_fix_worktree(branch, HEAD_SHA)
   -- The current merge queue holds PR 6 ahead of PR 7, so the current predecessor set differs
   -- from the recorded "none" -> predecessor-set mismatch -> speculative refix.
   mock_merge_queue_list({ 6 })
@@ -150,8 +166,15 @@ end
 local function run_speculative_refix(event, feedback_comments, name)
   mock_speculative_predecessor_drift(event, feedback_comments)
   local result
-  with_codex_runs({}, function()
-    result = run_fix(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
+  h.with_new_failure_set_evidence({
+    repo = "owner/repo",
+    pr_number = event.pr_number,
+    base_commit = BASE_SHA,
+    head_commit = HEAD_SHA,
+  }, function()
+    with_codex_runs({}, function()
+      result = run_fix(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
+    end)
   end)
   return result
 end
@@ -252,7 +275,7 @@ return {
   -- refix must NOT mint another generation; the single admission owner emits the same
   -- WHY-bearing, head-bound terminal intent as every other own-CI entrance.
   test_ci_failure_speculative_refix_terminates_at_max_fix_rounds = function()
-    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local ci_failure_key = "head:" .. HEAD_SHA .. "/checks:digest-0000000101"
     local event = fixing_at_round(config.max_fix_rounds(), { ci_failure_key = ci_failure_key })
     t.eq(event.repair_input, "ci-failure")
     t.eq(core.version_fix_round(event.version), config.max_fix_rounds())
@@ -271,7 +294,7 @@ return {
   end,
 
   test_ci_failure_speculative_refix_admits_one_generation_below_cap = function()
-    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local ci_failure_key = "head:" .. HEAD_SHA .. "/checks:digest-0000000101"
     local event = fixing_at_round(config.max_fix_rounds() - 1, { ci_failure_key = ci_failure_key })
     local result = run_speculative_refix(event, speculative_feedback_comments(event, ci_failure_key), "fix-ci-refix-below-cap")
     t.eq(result.exit_code, 0)
@@ -282,7 +305,7 @@ return {
     -- exactly one admitted generation, monotonically advancing to the cap
     t.eq(core.version_fix_round(handoff.payload.handoff.version), config.max_fix_rounds())
     t.is_true(handoff.payload.handoff.ci_failure_key ~= ci_failure_key)
-    t.is_true(handoff.payload.handoff.ci_failure_key:find("head:def456/checks:", 1, true) == 1)
+    t.is_true(handoff.payload.handoff.ci_failure_key:find("head:" .. HEAD_SHA .. "/checks:", 1, true) == 1)
     t.eq(find_attempt_fact(result), nil)
   end,
 
@@ -306,7 +329,7 @@ return {
   end,
 
   test_completed_ci_repair_attempt_defers_duplicate_delivery_without_spawning = function()
-    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local ci_failure_key = "head:" .. HEAD_SHA .. "/checks:digest-0000000101"
     local event = fixing({
       repair_input = "ci-failure",
       ci_failure_key = ci_failure_key,
@@ -344,13 +367,13 @@ return {
   end,
 
   test_speculative_refix_replaces_stale_payload_key_with_fresh_verdict_key = function()
-    local ci_failure_key = "head:def456/checks:digest-0000000101"
-    local event = fixing({
+    local ci_failure_key = "head:" .. HEAD_SHA .. "/checks:digest-0000000101"
+    local event = bind_fixing_to_head(fixing({
       repair_input = "ci-failure",
       ci_failure_key = ci_failure_key,
       predecessor_set = "none",
       gate_failure_excerpt = "own-ci-red",
-    })
+    }))
     event.work_unit_key = payloads_builders.fixing_work_unit_key(event)
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local merge_ready_version = core._strip_latest_fix_version_suffix(event.version)
@@ -386,14 +409,14 @@ return {
       core.state_marker(event.proposal_id, "fixing", event.version),
       merge_gate_marker,
     }, branch, event.version)
-    mock_pr_fix(current_pr_comments, branch, "def456")
-    h.mock_required_check_runs_for("def456", "failure", "owner/repo")
+    mock_pr_fix(current_pr_comments, branch, HEAD_SHA, nil, nil, nil, nil, nil, BASE_SHA)
+    h.mock_required_check_runs_for(HEAD_SHA, "failure", "owner/repo")
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
       stderr = "",
       exit_code = 0,
     })
-    mock_existing_fix_worktree(branch, "def456")
+    mock_existing_fix_worktree(branch, HEAD_SHA)
     mock_merge_queue_list({ 6 })
     mock_merge_queue_pr(6,
       41,
@@ -401,8 +424,15 @@ return {
       "abc999"
     )
     local result
-    with_codex_runs({}, function()
-      result = run_fix(event, opts("fix-ci-refix-preserves-key", { FKST_GITHUB_WRITE = "1" }))
+    h.with_new_failure_set_evidence({
+      repo = "owner/repo",
+      pr_number = event.pr_number,
+      base_commit = BASE_SHA,
+      head_commit = HEAD_SHA,
+    }, function()
+      with_codex_runs({}, function()
+        result = run_fix(event, opts("fix-ci-refix-preserves-key", { FKST_GITHUB_WRITE = "1" }))
+      end)
     end)
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex"), 0)
@@ -414,7 +444,7 @@ return {
     t.eq(comment_raise.payload.handoff.repair_input, "ci-failure")
     local fresh_key = comment_raise.payload.handoff.ci_failure_key
     t.is_true(fresh_key ~= ci_failure_key)
-    t.is_true(fresh_key:find("head:def456/checks:", 1, true) == 1)
+    t.is_true(fresh_key:find("head:" .. HEAD_SHA .. "/checks:", 1, true) == 1)
     t.is_true(comment_raise.payload.body:find('ci_failure_key="' .. fresh_key .. '"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.dedup_key:find(fresh_key, 1, true) == nil)
   end,

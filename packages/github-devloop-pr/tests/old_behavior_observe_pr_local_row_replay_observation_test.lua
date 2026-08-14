@@ -19,6 +19,7 @@ local github_port_proxy = setmetatable({}, {
 github_factory.production_handle = function() return github_port_proxy end
 
 local base_ids = require("devloop.base_ids")
+local ci_failure_sets = require("core.ci_failure_sets")
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local config = require("devloop.config")
 local conv_rounds = require("devloop.convergence.rounds")
@@ -416,6 +417,7 @@ local function capture_runtime(fixture)
   h.mock_bot_env()
   local event, department = pr_event(fixture), make_department(fixture)
   local original = replayer.replay_from_table
+  local original_compare_current = ci_failure_sets.compare_current
   local calls = json_array()
   replayer.replay_from_table = function(dept, issue, state, row, facts)
     local call = { dept = dept, state = state.state, version = state.version, row_from_state = row and row.from_state, driving_queue = row and row.driving_queue, decisions = json_array(), raises = json_array(), applies = json_array() }
@@ -428,6 +430,13 @@ local function capture_runtime(fixture)
     if not ok then error(issued, 0) end
     call.issued = issued == true; table.insert(calls, call); return issued
   end
+  if fixture.name == "route-fixing-ci-repair-due-own-ci" then
+    ci_failure_sets.compare_current = function()
+      return { kind = "new-failing-identity", new_failures = json_array({
+        { identity = "producer:test", owner_namespace = "github-devloop-pr", file = "tests/example_test.lua", name = "test_new" },
+      }) }
+    end
+  end
   local ok, result, captured = pcall(function()
     return observation_support.observe_department({ config = config, devloop_logging = devloop_logging, devloop_state = devloop_state, dept = "observe_pr", from_state = fixture.state, run = function()
       return observation_support.with_isolated_cache({ HIGHWATER_KEY }, function()
@@ -436,6 +445,7 @@ local function capture_runtime(fixture)
     end, codex_runs_for_read = json_array(), write_mode = "real" })
   end)
   replayer.replay_from_table = original
+  ci_failure_sets.compare_current = original_compare_current
   if not ok then error(result, 0) end
   if fixture.before_replayer then
     t.eq(#calls, 0, fixture.name .. ": production guard resolves before generic row replay")

@@ -286,7 +286,9 @@ return {
 
   test_merge_batch_window_stops_when_candidate_gate_fails = function()
     local first = event_for_pr(7, 42, "2026-06-03T00-00-00Z", "def456")
-    local second = event_for_pr(8, 43, "2026-06-03T00-01-00Z", "fed789")
+    local second_head = string.rep("b", 40)
+    local second_base = string.rep("a", 40)
+    local second = event_for_pr(8, 43, "2026-06-03T00-01-00Z", second_head)
     mock_bot_env()
     mock_write_env("1")
     mock_repo_env()
@@ -310,16 +312,22 @@ return {
     mock_branch_config_env()
     mock_queue_list({})
     mock_claimed_issue_for_event(second, 1)
-    mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
-    mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE", second_base)
+    mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE", second_base)
     h.mock_required_check_runs_for(second.reviewed_head_sha, "failure")
     mock_queue_list({ 8 })
     mock_queue_pr(second, "2026-06-03T01:01:00Z", "fixing", second.version .. "/fix/1")
 
-    local result = run_merge_queue_tick(opts("merge-batch-window-gate-fails", {
-      FKST_GITHUB_WRITE = "1",
-      FKST_GITHUB_REPO = "owner/repo",
-    }))
+    local result = h.with_new_failure_set_evidence({
+      pr_number = second.pr_number,
+      base_commit = second_base,
+      head_commit = second_head,
+    }, function()
+      return run_merge_queue_tick(opts("merge-batch-window-gate-fails", {
+        FKST_GITHUB_WRITE = "1",
+        FKST_GITHUB_REPO = "owner/repo",
+      }))
+    end)
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh pr merge"), 1)
     t.eq(count_calls("gh issue close"), 0)

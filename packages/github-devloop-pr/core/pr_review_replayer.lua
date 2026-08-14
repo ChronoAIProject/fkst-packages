@@ -329,6 +329,9 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     if decision.kind == "defer" then
       return tools.log_defer(dept, proposal_id, state, "fixing", "fixing", "skip-pending(ci-repair-backoff)", "completed CI repair round is waiting for its version-derived retry epoch")
     end
+    if decision.kind == "hold" then
+      return tools.log_defer(dept, proposal_id, state, "fixing", "fixing", "skip-pending(ci-failure-attribution)", tostring(decision.reason or "CI failure attribution evidence is unavailable"))
+    end
     if decision.kind == "terminate" then
       return true
     end

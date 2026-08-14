@@ -15,15 +15,16 @@ local core = h.core
 local repo = "base-skew/repo"
 local issue_number = 2400
 local pr_number = 2401
-local old_base = "281c4f9e"
-local new_base = "828df8d3"
+local reviewed_head = string.rep("c", 40)
+local old_base = string.rep("a", 40)
+local new_base = string.rep("b", 40)
 local predecessor_set = "none"
 
 local function base_skew_fixture(ci_failure_key)
   local template = h.fixing()
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local version = tostring(template.version):gsub("owner/repo/42", repo .. "/" .. tostring(issue_number))
-  local review_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, version, template.reviewed_head_sha)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, version, reviewed_head)
   local seed = h.fixing({
     proposal_id = proposal_id,
     pr_number = pr_number,
@@ -31,6 +32,7 @@ local function base_skew_fixture(ci_failure_key)
     review_proposal_id = review_proposal_id,
     review_dedup_key = "consensus:" .. review_proposal_id .. "/review",
     source_ref = entity_lib.pr_source_ref(repo, pr_number),
+    reviewed_head_sha = reviewed_head,
   })
   local lineage = {
     review_proposal_id = seed.review_proposal_id,
@@ -224,6 +226,8 @@ local function mock_pr_fix_for_event(event, comments, branch, head_sha, status_c
     comments = comments,
     head = branch,
     head_sha = head_sha,
+    base_branch = "dev",
+    base_sha = new_base,
     state = "OPEN",
     head_repo = repo,
     status_check_rollup_json = status_check_rollup_json or "[]",
@@ -430,7 +434,7 @@ local function run_duplicate_recovery_fixture()
 end
 
 local function assert_ci_recovery_duplicate_executes_once(outcome)
-  local ci_failure_key = "head:def456/checks:digest-0000000101"
+  local ci_failure_key = "head:" .. reviewed_head .. "/checks:digest-0000000101"
   local event, canonical = base_skew_fixture(ci_failure_key)
   local recovery = payloads_builders.build_replayed_fixing_payload({
     proposal_id = event.proposal_id,
@@ -451,20 +455,27 @@ local function assert_ci_recovery_duplicate_executes_once(outcome)
   h.mock_default_issue_claim(repo, issue_number)
   mock_comment_handoff(event, canonical, false)
   mock_fix_execution(event, canonical, outcome)
-  local trace = graph.run({
-    queue = "github-devloop-pr.test_duplicate_fixing",
-    payload = {
-      schema = "github-devloop-pr.test-duplicate-fixing.v1",
-      first = event,
-      second = recovery,
-      dedup_key = "test-duplicate-fixing/" .. event.work_unit_key,
-      source_ref = event.source_ref,
-    },
-    source_ref = {
-      kind = event.source_ref.kind,
-      reference = event.source_ref.ref,
-    },
-  }, { max_steps = 12 })
+  local trace = h.with_new_failure_set_evidence({
+    repo = repo,
+    pr_number = pr_number,
+    base_commit = new_base,
+    head_commit = event.reviewed_head_sha,
+  }, function()
+    return graph.run({
+      queue = "github-devloop-pr.test_duplicate_fixing",
+      payload = {
+        schema = "github-devloop-pr.test-duplicate-fixing.v1",
+        first = event,
+        second = recovery,
+        dedup_key = "test-duplicate-fixing/" .. event.work_unit_key,
+        source_ref = event.source_ref,
+      },
+      source_ref = {
+        kind = event.source_ref.kind,
+        reference = event.source_ref.ref,
+      },
+    }, { max_steps = 12 })
+  end)
 
   t.eq(trace.status, "quiescent")
   t.eq(trace.final.dead_letters, 0)
@@ -629,7 +640,7 @@ local tests = {
   end,
 
   test_ci_failure_base_skew_runs_rebase_instead_of_yielding = function()
-    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local ci_failure_key = "head:" .. reviewed_head .. "/checks:digest-0000000101"
     local old_event, canonical = base_skew_fixture(ci_failure_key)
     local _, canonical_matches, event_fact_visible = m_facts.merge_gate_fix_fact(
       { canonical },

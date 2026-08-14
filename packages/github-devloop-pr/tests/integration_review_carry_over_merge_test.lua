@@ -180,12 +180,13 @@ return {
 
   test_merge_carried_approval_ci_red_stays_in_fixing_without_rereview = function()
     local event = merge_ready()
-    local new_head = "feedface"
+    local new_head = string.rep("b", 40)
+    local base_head = string.rep("a", 40)
     mock_bot_env()
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_pr_merge({ origin_marker(event) }, "devloop-owner-repo-42-01HY", new_head)
-    mock_base_fetch("ba5e1234")
+    mock_base_fetch(base_head)
     mock_resolution_delta(0)
 
     local carry_result = run_merge(event, opts("merge-carry-over-before-ci-red", { FKST_GITHUB_WRITE = "1" }))
@@ -208,11 +209,17 @@ return {
     mock_write_env("1")
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, carried_comments)
-    mock_pr_merge(carried_comments, "devloop-owner-repo-42-01HY", new_head, "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
-    mock_pr_merge(carried_comments, "devloop-owner-repo-42-01HY", new_head, "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    mock_pr_merge(carried_comments, "devloop-owner-repo-42-01HY", new_head, "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE", nil, nil, base_head)
+    mock_pr_merge(carried_comments, "devloop-owner-repo-42-01HY", new_head, "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE", nil, nil, base_head)
     h.mock_required_check_runs_for(new_head, "failure")
 
-    local ci_red = run_merge(carried.payload, opts("merge-carry-over-ci-red", { FKST_GITHUB_WRITE = "1" }))
+    local ci_red = h.with_new_failure_set_evidence({
+      pr_number = event.pr_number,
+      base_commit = base_head,
+      head_commit = new_head,
+    }, function()
+      return run_merge(carried.payload, opts("merge-carry-over-ci-red", { FKST_GITHUB_WRITE = "1" }))
+    end)
 
     t.eq(ci_red.exit_code, 0)
     t.eq(find_raise(ci_red.raises, "devloop_reviewing"), nil)

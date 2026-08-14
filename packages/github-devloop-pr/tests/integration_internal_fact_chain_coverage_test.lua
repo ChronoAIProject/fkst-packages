@@ -30,6 +30,8 @@ local merge_comments = h.merge_comments
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 local count_calls = h.count_calls
+local BASE_SHA = string.rep("a", 40)
+local HEAD_SHA = string.rep("b", 40)
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -430,24 +432,36 @@ return {
 
   test_merge_direct_cascade_and_poll_recovery_cover_terminal_and_repair_paths = function()
     local event = merge_ready()
+    event.reviewed_head_sha = HEAD_SHA
+    event.review_proposal_id = devloop_base.pr_review_proposal_id(
+      "owner/repo", event.pr_number, event.version, HEAD_SHA
+    )
+    event.review_dedup_key = "consensus:" .. event.review_proposal_id .. "/review"
     local origin_marker = review_origin_marker(event.version)
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
-    mock_pr_merge_rollup(merge_comments(event), '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci"}]')
-    mock_pr_merge_rollup(merge_comments(event), '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci"}]')
+    mock_pr_merge_rollup(merge_comments(event), '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci"}]', nil, HEAD_SHA, nil, nil, nil, nil, nil, nil, nil, BASE_SHA)
+    mock_pr_merge_rollup(merge_comments(event), '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci"}]', nil, HEAD_SHA, nil, nil, nil, nil, nil, nil, nil, BASE_SHA)
     h.mock_required_check_runs_for(event.reviewed_head_sha, "failure")
 
-    local red = run_merge(event, opts("internal-chain-merge-red-direct", { FKST_GITHUB_WRITE = "1" }))
+    local red = h.with_new_failure_set_evidence({
+      repo = "owner/repo",
+      pr_number = event.pr_number,
+      base_commit = BASE_SHA,
+      head_commit = HEAD_SHA,
+    }, function()
+      return run_merge(event, opts("internal-chain-merge-red-direct", { FKST_GITHUB_WRITE = "1" }))
+    end)
     t.eq(red.exit_code, 0)
     local direct_fix = find_causal_raise(red, "devloop_fixing")
     t.eq(direct_fix.payload.schema, "github-devloop.fixing.v1")
-    t.eq(direct_fix.payload.gate_baseline_sha, "abc123")
+    t.eq(direct_fix.payload.gate_baseline_sha, BASE_SHA)
     t.eq(count_calls("gh pr merge"), 0)
 
     local merge_gate_comment = find_raise(red.raises, "github-proxy.github_pr_comment_request").payload.body
-    t.is_true(merge_gate_comment:find('gate_baseline_sha="abc123"', 1, true) ~= nil)
+    t.is_true(merge_gate_comment:find('gate_baseline_sha="' .. BASE_SHA .. '"', 1, true) ~= nil)
     mock_pr_origin({
       origin_marker,
       core.state_marker(event.proposal_id, "fixing", direct_fix.payload.version),
@@ -472,7 +486,7 @@ return {
     mock_bot_env()
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
-    mock_pr_merge(merge_comments(event), "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
+    mock_pr_merge(merge_comments(event), "devloop-owner-repo-42-01HY", HEAD_SHA, "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z", nil, BASE_SHA)
     mock_write_env("1")
     h.mock_issue_close()
     local terminal = run_merge(event, opts("internal-chain-merge-terminal-recovery", { FKST_GITHUB_WRITE = "1" }))

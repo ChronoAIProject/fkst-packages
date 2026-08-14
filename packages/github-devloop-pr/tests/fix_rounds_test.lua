@@ -24,6 +24,7 @@ end
 
 local function own_ci_admission(state)
   return with_own_ci(function(classification)
+    classification.failure_set_comparison = { kind = "new-failing-identity" }
     return fix_rounds.admit_own_ci_continuation(state, classification, admission_context())
   end)
 end
@@ -156,19 +157,29 @@ return {
     t.eq(#raised, 0)
   end,
 
-  test_new_or_unknown_failure_comparison_keeps_fix_admission = function()
+  test_new_failure_comparison_keeps_fix_admission = function()
     local under = core.next_fix_version(base_version)
     local new_failure = own_ci_admission_with_comparison(
       { state = "fixing", version = under },
       { kind = "new-failing-identity" }
     )
-    local unknown = own_ci_admission_with_comparison(
-      { state = "fixing", version = under },
-      { kind = "UNKNOWN", reason = "failure-report-missing" }
-    )
     t.eq(new_failure.kind, "admit")
-    t.eq(unknown.kind, "admit")
     t.eq(core.version_fix_round(new_failure.version), 2)
-    t.eq(core.version_fix_round(unknown.version), 2)
+  end,
+
+  test_unknown_failure_comparison_holds_without_spending_a_fix_round = function()
+    local under = core.next_fix_version(base_version)
+    local decision
+    local raised = capture_raises(function()
+      decision = own_ci_admission_with_comparison(
+        { state = "fixing", version = under },
+        { kind = "UNKNOWN", reason = "failure-report-missing" }
+      )
+    end)
+    t.eq(decision.kind, "hold")
+    t.eq(decision.status, "hold")
+    t.eq(decision.reason, "failure-report-missing")
+    t.eq(decision.version, nil)
+    t.eq(#raised, 0)
   end,
 }

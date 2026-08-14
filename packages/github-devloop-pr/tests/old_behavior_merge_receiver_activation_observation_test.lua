@@ -1,6 +1,7 @@
 local check_runs = require("forge.github.check_runs")
 local ra = require("tests.receiver_activation_observation_helpers")
 local config = require("devloop.config")
+local ci_failure_sets = require("core.ci_failure_sets")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -480,6 +481,11 @@ local function capture(fixture)
   end
   if fixture.fix_terminate then
     ra.replace(config, "max_fix_rounds", function() return 1 end, restorations)
+    ra.replace(ci_failure_sets, "compare_current", function()
+      return { kind = "new-failing-identity", new_failures = ra.json_array({
+        { identity = "producer:test", owner_namespace = "github-devloop-pr", file = "tests/example_test.lua", name = "test_new" },
+      }) }
+    end, restorations)
   end
   local production_evaluate_ci_status_gate = core.evaluate_ci_status_gate
   ra.replace(core, "evaluate_ci_status_gate", function(pr, opts)

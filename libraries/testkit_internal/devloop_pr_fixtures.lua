@@ -439,7 +439,7 @@ function M.new(deps)
     return comments
   end
 
-  local function mock_pr_fix(comments, head, head_sha, state, head_repo, cross_repo, times, status_check_rollup_json)
+  local function mock_pr_fix(comments, head, head_sha, state, head_repo, cross_repo, times, status_check_rollup_json, base_sha)
     local cached = base.take_pr_phase_comments()
     local with_origin = {
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", 42, head or "devloop-owner-repo-42-01HY", base.reviewing().version, "dev"),
@@ -463,6 +463,7 @@ function M.new(deps)
       state = state or "OPEN",
       head_repo = head_repo or "owner/repo",
       cross_repo = cross_repo,
+      base_sha = base_sha,
       status_check_rollup_json = status_check_rollup_json or "[]",
       -- Scoped CI effects re-read the same canonical facts independently.
       -- Later phases pass an exact count when they intentionally need a
@@ -476,6 +477,7 @@ function M.new(deps)
       state = state or "OPEN",
       head_repo = head_repo or "owner/repo",
       cross_repo = cross_repo,
+      base_sha = base_sha,
     }, entity_read_mocks.pr_fix_selector, times or 2)
     entity_read_mocks.mock_pr_view_selector(t, {
       comments = with_origin,
@@ -484,6 +486,7 @@ function M.new(deps)
       state = state or "OPEN",
       head_repo = head_repo or "owner/repo",
       cross_repo = cross_repo,
+      base_sha = base_sha,
     }, entity_read_mocks.pr_fix_precheck_selector, times or 1)
   end
 

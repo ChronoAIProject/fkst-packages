@@ -23,6 +23,7 @@ github_factory.production_handle = function()
 end
 
 local config = require("devloop.config")
+local ci_failure_sets = require("core.ci_failure_sets")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
@@ -360,11 +361,19 @@ local function capture_runtime(fixture)
   local department = prepare_fixture(fixture)
   local constructor_payloads = json_array()
   local original_builder = payloads_builders.build_devloop_decompose_payload
+  local original_compare_current = ci_failure_sets.compare_current
 
   payloads_builders.build_devloop_decompose_payload = function(...)
     local payload = original_builder(...)
     table.insert(constructor_payloads, copy_value(payload))
     return payload
+  end
+  if fixture.name == "own-ci" then
+    ci_failure_sets.compare_current = function()
+      return { kind = "new-failing-identity", new_failures = json_array({
+        { identity = "producer:test", owner_namespace = "github-devloop-pr", file = "tests/example_test.lua", name = "test_new" },
+      }) }
+    end
   end
 
   local ok, result, captured = pcall(function()
@@ -383,6 +392,7 @@ local function capture_runtime(fixture)
     return run_result, run_capture
   end)
   payloads_builders.build_devloop_decompose_payload = original_builder
+  ci_failure_sets.compare_current = original_compare_current
   if not ok then
     error(result, 0)
   end

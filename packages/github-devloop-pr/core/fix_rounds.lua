@@ -159,16 +159,20 @@ function C.admit_own_ci_continuation(state, classification, ctx)
       bound_head_sha = bound_head_sha,
     }
   end
-  if type(classification.failure_set_comparison) == "table"
-    and classification.failure_set_comparison.kind == "no-new-failing-identity" then
+  local comparison = classification.failure_set_comparison
+  if type(comparison) ~= "table" or comparison.kind ~= "new-failing-identity" then
+    local comparison_kind = type(comparison) == "table" and comparison.kind or "UNKNOWN"
+    local comparison_reason = type(comparison) == "table" and comparison.reason or nil
     return {
       kind = "hold",
       status = "hold",
-      reason = "no-new-failing-identity",
+      reason = comparison_kind == "no-new-failing-identity"
+        and "no-new-failing-identity"
+        or tostring(comparison_reason or "failure-manifest-comparison-unknown"),
       merge_blocking = true,
       current_pr = current_pr,
       bound_head_sha = bound_head_sha,
-      failure_set_comparison = classification.failure_set_comparison,
+      failure_set_comparison = comparison or { kind = "UNKNOWN", reason = "failure-manifest-comparison-missing" },
     }
   end
   local decision = admit_decision(state)

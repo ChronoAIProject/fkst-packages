@@ -23,7 +23,8 @@ local ci_repo = "owner/timeout-ci"
 local ci_issue_number = 43
 local ci_pr_number = 8
 local ci_branch = "devloop-owner-timeout-ci-43-01HY"
-local ci_head = "c1fade"
+local ci_head = string.rep("c", 40)
+local ci_base = string.rep("a", 40)
 local marker_created_at = "2026-06-03T00:00:00Z"
 local timeout_now = "2026-06-03T02:01:00Z"
 local ci_failure_key = "head:" .. ci_head .. "/checks:digest-0000000101"
@@ -149,7 +150,7 @@ local function drive_own_ci_to_fixing()
     merge_ready,
     fix_version,
     "own-ci-red",
-    "ba5e9999",
+    ci_base,
     entity_lib.pr_source_ref(ci_repo, ci_pr_number),
     nil,
     {
@@ -220,7 +221,7 @@ local function mock_frozen_pr(fixing, feedback_body, fields)
     head = selected_branch,
     head_sha = current_head,
     base_branch = "dev",
-    base_sha = "ba5e9999",
+    base_sha = selected.own_ci == true and ci_base or "ba5e9999",
     state = "OPEN",
     updated_at = updated_at,
     labels = {},
@@ -445,8 +446,15 @@ return {
     })
 
     with_no_codex_runs(function()
-      local trace = graph.require_quiescent(graph.run(
-        liveness_tick("2026-06-03T02:01:02Z"), { max_steps = 8 }))
+      local trace = h.with_new_failure_set_evidence({
+        repo = ci_repo,
+        pr_number = ci_pr_number,
+        base_commit = ci_base,
+        head_commit = ci_head,
+      }, function()
+        return graph.require_quiescent(graph.run(
+          liveness_tick("2026-06-03T02:01:02Z"), { max_steps = 8 }))
+      end)
       local next_version = core.next_fix_version(fixing.version)
       local progress = graph.require_raise(
         trace,

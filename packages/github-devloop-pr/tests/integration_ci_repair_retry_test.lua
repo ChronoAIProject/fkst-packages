@@ -19,6 +19,9 @@ local pr_number = 7
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local branch = "devloop-owner-repo-42-01HY"
 local base_version = h.reviewing().version
+local BASE_SHA = string.rep("a", 40)
+local CHURNED_BASE_SHA = string.rep("d", 40)
+local HEAD_SHA = string.rep("b", 40)
 local source_ref = {
   kind = "external",
   ref = "owner/repo#pr/7",
@@ -34,7 +37,7 @@ local function version_at(round)
 end
 
 local function failure_key(suffix)
-  return "head:def456/checks:digest-" .. tostring(suffix)
+  return "head:" .. HEAD_SHA .. "/checks:digest-" .. tostring(suffix)
 end
 
 local function rollup(conclusion, head_sha)
@@ -48,7 +51,7 @@ end
 local function attempt_fixture(round, fields)
   local selected = fields or {}
   local version = selected.version or version_at(round)
-  local reviewed_head_sha = selected.reviewed_head_sha or "def456"
+  local reviewed_head_sha = selected.reviewed_head_sha or HEAD_SHA
   local ci_failure_key = selected.ci_failure_key or failure_key("0000000101")
   local review_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, base_version, reviewed_head_sha)
   local review_dedup_key = "consensus:" .. review_proposal_id .. "/review"
@@ -59,7 +62,7 @@ local function attempt_fixture(round, fields)
     review_proposal_id = review_proposal_id,
     review_dedup_key = review_dedup_key,
     reviewed_head_sha = reviewed_head_sha,
-    gate_baseline_sha = selected.gate_baseline_sha or "abc123",
+    gate_baseline_sha = selected.gate_baseline_sha or BASE_SHA,
     ci_failure_key = ci_failure_key,
     gate_failure_excerpt = "own-ci-red",
   }, source_ref)
@@ -81,7 +84,7 @@ local function attempt_fixture(round, fields)
       review_proposal_id,
       review_dedup_key,
       reviewed_head_sha,
-      selected.gate_baseline_sha or "abc123",
+      selected.gate_baseline_sha or BASE_SHA,
       "own-ci-red",
       nil,
       ci_failure_key
@@ -118,7 +121,7 @@ end
 
 local function mock_retry_pr(fixture, fields)
   local selected = fields or {}
-  local head_sha = selected.head_sha or "def456"
+  local head_sha = selected.head_sha or HEAD_SHA
   local common = {
     repo = repo,
     number = pr_number,
@@ -126,7 +129,7 @@ local function mock_retry_pr(fixture, fields)
     head = branch,
     head_sha = head_sha,
     base_branch = "dev",
-    base_sha = selected.base_sha or "abc123",
+    base_sha = selected.base_sha or BASE_SHA,
     state = "OPEN",
     labels = { "fkst-dev:fixing" },
     mergeable = "MERGEABLE",
@@ -144,7 +147,7 @@ local function mock_retry_pr(fixture, fields)
     head = branch,
     head_sha = selected.reobserved_head_sha or head_sha,
     base_branch = "dev",
-    base_sha = selected.base_sha or "abc123",
+    base_sha = selected.base_sha or BASE_SHA,
     state = "OPEN",
     labels = { "fkst-dev:fixing" },
     mergeable = "MERGEABLE",
@@ -161,7 +164,22 @@ end
 
 local function run_retry(fixture, name, fields)
   mock_retry_pr(fixture, fields)
-  return h.run_observe_pr(pr_event(name), opts(name), fields and fields.now_seconds or fixed_now_seconds)
+  local function run()
+    return h.run_observe_pr(
+      pr_event(name),
+      opts(name),
+      fields and fields.now_seconds or fixed_now_seconds
+    )
+  end
+  if fields and fields.failure_set_comparison ~= nil then
+    return run()
+  end
+  return h.with_new_failure_set_evidence({
+    repo = repo,
+    pr_number = pr_number,
+    base_commit = fields and fields.base_sha or BASE_SHA,
+    head_commit = HEAD_SHA,
+  }, run)
 end
 
 local function state_comment(result, state_name)
@@ -198,7 +216,7 @@ local function run_own_ci_reconcile(reconcile, comments, name, fields)
     head = branch,
     head_sha = head_sha,
     base_branch = "dev",
-    base_sha = "abc123",
+    base_sha = BASE_SHA,
     state = "OPEN",
     labels = { "fkst-dev:fixing" },
     mergeable = "MERGEABLE",
@@ -236,7 +254,7 @@ return {
         pr_number = pr_number,
         review_proposal_id = fixture.review_proposal_id,
         review_dedup_key = fixture.review_dedup_key,
-        reviewed_head_sha = "def456",
+        reviewed_head_sha = HEAD_SHA,
         source_ref = source_ref,
         comments = fixture.comments,
         now_seconds = current_seconds,
@@ -279,6 +297,20 @@ return {
     t.eq(state_comment(result, "blocked"), nil)
   end,
 
+  test_missing_manifest_evidence_holds_without_minting_a_fix_generation = function()
+    local fixture = attempt_fixture(2, {
+      attempt_created_at = "2026-06-03T01:50:00Z",
+    })
+    local result = run_retry(fixture, "ci-repair-manifest-unknown", {
+      failure_set_comparison = { kind = "UNKNOWN", reason = "failure-manifest-unavailable" },
+    })
+    t.eq(result.exit_code, 0)
+    t.eq(state_comment(result, "fixing"), nil)
+    t.eq(h.find_raise(result.raises, "devloop_fix_reconcile"), nil)
+    t.eq(h.find_raise(result.raises, "github-devloop-decompose.devloop_decompose"), nil)
+    t.eq(h.count_calls("codex"), 0)
+  end,
+
   test_timestamp_free_production_version_uses_state_marker_clock_without_terminal = function()
     local production_base = "ready/github-devloop/issue/ChronoAIProject/fkst-packages/3204/intake/0768218242"
     local production_version = production_base .. "/review-loop/1/fix/1/fix/2/fix/3"
@@ -305,7 +337,7 @@ return {
         pr_number = pr_number,
         review_proposal_id = fixture.review_proposal_id,
         review_dedup_key = fixture.review_dedup_key,
-        reviewed_head_sha = "def456",
+        reviewed_head_sha = HEAD_SHA,
         source_ref = source_ref,
         comments = fixture.comments,
         now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-05T01:20:00Z"),
@@ -392,7 +424,7 @@ return {
           pr_number = pr_number,
           review_proposal_id = fixture.review_proposal_id,
           review_dedup_key = fixture.review_dedup_key,
-          reviewed_head_sha = "def456",
+          reviewed_head_sha = HEAD_SHA,
           source_ref = source_ref,
           comments = fixture.comments,
           now_seconds = case.now_seconds or fixed_now_seconds,
@@ -431,7 +463,7 @@ return {
         pr_number = pr_number,
         review_proposal_id = fixture.review_proposal_id,
         review_dedup_key = fixture.review_dedup_key,
-        reviewed_head_sha = "def456",
+        reviewed_head_sha = HEAD_SHA,
         source_ref = source_ref,
         comments = fixture.comments,
         now_seconds = fixed_now_seconds,
@@ -556,7 +588,7 @@ return {
     t.is_true(decompose ~= nil)
     t.eq(reconcile.payload.round, config.max_fix_rounds())
     t.eq(reconcile.payload.reason_class, "fix-loop-max-rounds")
-    t.eq(reconcile.payload.bound_head_sha, "def456")
+    t.eq(reconcile.payload.bound_head_sha, HEAD_SHA)
     t.eq(decompose.payload.round, config.max_fix_rounds())
     t.eq(state_comment(admitted, "fixing"), nil)
     t.eq(h.count_calls("codex"), 0)
@@ -614,13 +646,13 @@ return {
   end,
 
   test_two_supervisors_and_base_churn_choose_one_next_generation_identity = function()
-    local first_fixture = attempt_fixture(2, { gate_baseline_sha = "abc123" })
-    local first = run_retry(first_fixture, "ci-repair-supervisor-a", { base_sha = "abc123" })
+    local first_fixture = attempt_fixture(2, { gate_baseline_sha = BASE_SHA })
+    local first = run_retry(first_fixture, "ci-repair-supervisor-a", { base_sha = BASE_SHA })
     local first_request = state_comment(first, "fixing")
     t.is_true(first_request ~= nil)
 
-    local second_fixture = attempt_fixture(2, { gate_baseline_sha = "ba5e9999" })
-    local second = run_retry(second_fixture, "ci-repair-supervisor-b", { base_sha = "ba5e9999" })
+    local second_fixture = attempt_fixture(2, { gate_baseline_sha = CHURNED_BASE_SHA })
+    local second = run_retry(second_fixture, "ci-repair-supervisor-b", { base_sha = CHURNED_BASE_SHA })
     local second_request = state_comment(second, "fixing")
     t.is_true(second_request ~= nil)
 

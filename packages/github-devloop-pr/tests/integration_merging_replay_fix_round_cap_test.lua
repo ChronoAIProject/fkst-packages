@@ -13,6 +13,9 @@ local branch = "devloop-owner-repo-42-01HY"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local pr_number = 7
 local base_version = h.reviewing().version
+local BASE_SHA = string.rep("a", 40)
+local HEAD_SHA_A = string.rep("b", 40)
+local HEAD_SHA_B = string.rep("d", 40)
 
 local function version_at(round)
   local version = base_version
@@ -51,7 +54,7 @@ local function run_own_ci_merging_replay(version, head_sha, name)
     head_ref_name = branch,
     head_sha = head_sha,
     base_ref_name = "dev",
-    base_ref_oid = "abc123",
+    base_ref_oid = BASE_SHA,
     state = "OPEN",
     mergeable = "MERGEABLE",
     merge_state_status = "CLEAN",
@@ -97,7 +100,7 @@ local function run_own_ci_merging_replay(version, head_sha, name)
     head = branch,
     head_sha = head_sha,
     base_branch = "dev",
-    base_sha = "abc123",
+    base_sha = BASE_SHA,
     head_repo = repo,
     state = "OPEN",
     mergeable = "MERGEABLE",
@@ -128,14 +131,20 @@ local function run_own_ci_merging_replay(version, head_sha, name)
   }
   local replayers = assert(rawget(core, "replayer")).replay_sources.review_replayers(tools)
   local row = replay_fields.restart_transition_row(core.restart_transition_table(), "merging")
-  local ok, outcome = pcall(
-    replayers.merging,
-    "observe_pr",
-    { repo = repo, number = 42, source_ref = h.source_ref() },
-    state,
-    row,
-    facts
-  )
+  local ok, outcome = pcall(h.with_new_failure_set_evidence, {
+    repo = repo,
+    pr_number = pr_number,
+    base_commit = BASE_SHA,
+    head_commit = head_sha,
+  }, function()
+    return replayers.merging(
+      "observe_pr",
+      { repo = repo, number = 42, source_ref = h.source_ref() },
+      state,
+      row,
+      facts
+    )
+  end)
   raise = original_raise
   core.evaluate_ci_status_gate = original_evaluate
   if not ok then
@@ -174,7 +183,7 @@ local function consume_own_ci_reconcile(reconcile, comments, name)
     head = branch,
     head_sha = reconcile.bound_head_sha,
     base_branch = "dev",
-    base_sha = "abc123",
+    base_sha = BASE_SHA,
     state = "OPEN",
     labels = { "fkst-dev:fixing" },
     mergeable = "MERGEABLE",
@@ -195,7 +204,7 @@ return {
     local calls, result, event = with_counted_owner(function()
       return run_own_ci_merging_replay(
         version_at(config.max_fix_rounds()),
-        "def456",
+        HEAD_SHA_A,
         "merging-replay-own-ci-at-cap"
       )
     end)
@@ -234,7 +243,7 @@ return {
 
   test_merging_replay_below_cap_admits_exactly_one_generation_through_owner = function()
     local calls, result = with_counted_owner(function()
-      return run_own_ci_merging_replay(version_at(1), "def456", "merging-replay-own-ci-below-cap")
+      return run_own_ci_merging_replay(version_at(1), HEAD_SHA_A, "merging-replay-own-ci-below-cap")
     end)
     t.eq(calls, 1)
     local handoff = fixing_handoff(result)
@@ -246,7 +255,7 @@ return {
 
   test_head_review_ping_pong_admits_only_bounded_own_ci_generations = function()
     local version = base_version
-    local head_sha = "def456"
+    local head_sha = HEAD_SHA_A
     local admitted_generations = 0
     local owner_calls = 0
     local terminated = false
@@ -273,7 +282,7 @@ return {
       -- fixing -> reviewing bump. The approved review preserves that version into merging,
       -- where the next own-CI-red head must pass the same admission owner again.
       version = core.next_fix_version(fixing_version)
-      head_sha = head_sha == "def456" and "feedface" or "def456"
+      head_sha = head_sha == HEAD_SHA_A and HEAD_SHA_B or HEAD_SHA_A
     end
     t.eq(terminated, true)
     t.is_true(admitted_generations <= config.max_fix_rounds())

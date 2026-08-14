@@ -289,7 +289,9 @@ return {
 
   test_merge_queue_poll_routes_blocked_red_head_to_fixing_and_releases_next_green = function()
     local current = merge_ready()
-    local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aabb11")
+    local older_head = string.rep("b", 40)
+    local older_base = string.rep("a", 40)
+    local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", older_head)
     local origin_marker = m_builders.pr_origin_marker(current.proposal_id, "42", "devloop-owner-repo-42-01HY", current.version, "dev")
     mock_bot_env()
     mock_write_env("1")
@@ -297,10 +299,10 @@ return {
     mock_repo_env()
     mock_branch_config_env(2)
     mock_queue_list({ 9, 7 })
-    mock_queue_pr(older, "2026-06-03T01:00:00Z", nil, nil, "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE")
+    mock_queue_pr(older, "2026-06-03T01:00:00Z", nil, nil, "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE", older_base)
     mock_queue_pr(current, "2026-06-03T02:00:00Z")
-    mock_merge_pr_view(older, "OPEN", "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE")
-    mock_merge_pr_view(older, "OPEN", "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE")
+    mock_merge_pr_view(older, "OPEN", "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE", older_base)
+    mock_merge_pr_view(older, "OPEN", "MERGEABLE", "BLOCKED", "COMPLETED", "FAILURE", older_base)
     h.mock_required_check_runs_for(older.reviewed_head_sha, "failure")
     h.mock_required_check_runs_for(older.reviewed_head_sha, "failure")
     mock_diff_name_only(9, { "packages/older.lua" })
@@ -317,10 +319,16 @@ return {
     })
     mock_queue_list({})
 
-    local first_poll = run_merge_queue_tick(opts("merge-queue-poll-red-head", {
-      FKST_GITHUB_WRITE = "1",
-      FKST_GITHUB_REPO = "owner/repo",
-    }))
+    local first_poll = h.with_new_failure_set_evidence({
+      pr_number = older.pr_number,
+      base_commit = older_base,
+      head_commit = older_head,
+    }, function()
+      return run_merge_queue_tick(opts("merge-queue-poll-red-head", {
+        FKST_GITHUB_WRITE = "1",
+        FKST_GITHUB_REPO = "owner/repo",
+      }))
+    end)
     t.is_true(find_causal_raise(first_poll, "devloop_fixing") ~= nil)
     t.eq(find_raise(first_poll.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
 

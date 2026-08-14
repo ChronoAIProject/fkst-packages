@@ -511,63 +511,6 @@ function C.check_run_failure_identity(run, expected_head_sha)
   return "failure:" .. sha256.hex(content)
 end
 
-local function strict_failure_identities(runs, expected_head_sha)
-  if type(runs) ~= "table" or not gitref.is_git_sha(expected_head_sha) then
-    return nil, "check-runs-unavailable"
-  end
-  local expected = tostring(expected_head_sha):lower()
-  local failures = {}
-  local seen = {}
-  for _, run in ipairs(runs) do
-    local state, conclusion = C.check_run_state(run)
-    if state == "COMPLETED" and not green_required_check_conclusions[conclusion] then
-      if C.check_run_head_sha(run) ~= expected then
-        return nil, "check-run-commit-incomparable"
-      end
-      local identity = C.check_run_failure_identity(run, expected)
-      if identity == nil then
-        return nil, "check-run-failure-identity-unavailable"
-      end
-      if not seen[identity] then
-        table.insert(failures, { identity = identity, run = run })
-        seen[identity] = true
-      end
-    end
-  end
-  table.sort(failures, function(left, right) return left.identity < right.identity end)
-  return failures, nil
-end
-
-function C.compare_failure_sets(base_runs, head_runs, expected)
-  expected = type(expected) == "table" and expected or {}
-  local base_sha = type(expected.base_commit) == "string" and expected.base_commit:lower() or ""
-  local head_sha = type(expected.head_commit) == "string" and expected.head_commit:lower() or ""
-  if not gitref.is_git_sha(base_sha) or not gitref.is_git_sha(head_sha) then
-    return { kind = "UNKNOWN", reason = "comparison-commit-binding-missing" }
-  end
-  local base_failures, base_reason = strict_failure_identities(base_runs, base_sha)
-  local head_failures, head_reason = strict_failure_identities(head_runs, head_sha)
-  if base_failures == nil or head_failures == nil then
-    return { kind = "UNKNOWN", reason = base_reason or head_reason }
-  end
-  local base_set = {}
-  for _, failure in ipairs(base_failures) do
-    base_set[failure.identity] = true
-  end
-  local new_failures = {}
-  for _, failure in ipairs(head_failures) do
-    if not base_set[failure.identity] then
-      table.insert(new_failures, { identity = failure.identity })
-    end
-  end
-  return {
-    kind = #new_failures == 0 and "no-new-failing-identity" or "new-failing-identity",
-    base_commit = base_sha,
-    tested_candidate_commit = head_sha,
-    new_failures = new_failures,
-  }
-end
-
 function C.head_ci_failure_summary(runs, head_sha, limit)
   local failing = failing_head_runs(runs, head_sha)
   if failing == nil or #failing == 0 then

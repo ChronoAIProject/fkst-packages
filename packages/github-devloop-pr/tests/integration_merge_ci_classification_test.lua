@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local devloop_base = require("devloop.base")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
@@ -14,7 +15,20 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local check_runs_cmd = "gh api 'repos/owner/repo/commits/def456/check-runs'"
+local BASE_SHA = string.rep("a", 40)
+local HEAD_SHA = string.rep("b", 40)
+local HEAD_RUN_ID = "9002"
+local check_runs_cmd = "gh api 'repos/owner/repo/commits/" .. HEAD_SHA .. "/check-runs'"
+
+local function merge_ready_for_head()
+  local event = merge_ready()
+  event.reviewed_head_sha = HEAD_SHA
+  event.review_proposal_id = devloop_base.pr_review_proposal_id(
+    "owner/repo", event.pr_number, event.version, HEAD_SHA
+  )
+  event.review_dedup_key = "consensus:" .. event.review_proposal_id .. "/review"
+  return event
+end
 
 local function origin_marker(event)
   return m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
@@ -26,7 +40,12 @@ local function mock_required_check_run(conclusion, id, status, output_text)
     output = ',"output":{"title":"baseline admission","summary":"RULE_REJECTED","text":"' .. tostring(output_text) .. '"}'
   end
   t.mock_command(check_runs_cmd, {
-    stdout = '{"total_count":1,"check_runs":[{"id":' .. tostring(id or 101) .. ',"name":"test","status":"' .. tostring(status or "completed") .. '","conclusion":"' .. tostring(conclusion or "") .. '","head_sha":"def456"' .. output .. '}]}\n',
+    stdout = '{"total_count":1,"check_runs":[{"id":' .. tostring(id or 101)
+      .. ',"name":"test","status":"' .. tostring(status or "completed")
+      .. '","conclusion":"' .. tostring(conclusion or "")
+      .. '","head_sha":"' .. HEAD_SHA
+      .. '","details_url":"https://github.com/owner/repo/actions/runs/' .. HEAD_RUN_ID .. '"'
+      .. output .. '}]}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -41,22 +60,34 @@ local function mock_check_runs_json(json)
 end
 
 local function run_rollup_red_merge(name, check_conclusion, id, status, merge_state, output_text)
-  local event = merge_ready()
+  local event = merge_ready_for_head()
   local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/shared","name":"shared-integration","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"integration"}]'
   mock_bot_env()
   mock_write_env("1")
   mock_write_env("1")
   mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
-  mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE")
-  mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE")
+  mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", HEAD_SHA, "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE", nil, nil, BASE_SHA)
+  mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", HEAD_SHA, "OPEN", "owner/repo", false, "MERGEABLE", merge_state or "UNSTABLE", nil, nil, BASE_SHA)
   for _ = 1, merge_state == "BLOCKED" and 2 or 1 do
     mock_required_check_run(check_conclusion, id, status, output_text)
   end
-  return event, run_merge(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
+  local function run()
+    return run_merge(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
+  end
+  if (check_conclusion == "failure" or check_conclusion == "timed_out")
+      and tostring(status or "completed") == "completed" then
+    return event, h.with_new_failure_set_evidence({
+      repo = "owner/repo",
+      base_commit = BASE_SHA,
+      head_commit = HEAD_SHA,
+      head_run_id = HEAD_RUN_ID,
+    }, run)
+  end
+  return event, run()
 end
 
 local function stable_ci_failure_key(value)
-  return tostring(value or ""):match("^head:def456/checks:digest%-%d%d%d%d%d%d%d%d%d%d$") ~= nil
+  return tostring(value or ""):match("^head:" .. HEAD_SHA .. "/checks:digest%-%d%d%d%d%d%d%d%d%d%d$") ~= nil
 end
 
 return {
@@ -156,18 +187,26 @@ return {
     t.is_true(comment_raise.payload.body:find('reason="checks-pending"', 1, true) ~= nil)
   end,
 
-  test_host_named_completed_failure_routes_to_ci_repair_without_named_test_check = function()
-    local event = merge_ready()
+  test_host_named_completed_failure_routes_to_ci_repair_with_test_report_producer = function()
+    local event = merge_ready_for_head()
     local rollup_json = '[{"__typename":"CheckRun","conclusion":"FAILURE","name":"rust lint","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"rust build","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"rust test","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"docker build","status":"COMPLETED"},{"__typename":"CheckRun","conclusion":"SUCCESS","name":"gitleaks","status":"COMPLETED"}]'
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
-    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
-    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
-    mock_check_runs_json('{"total_count":5,"check_runs":[{"id":101,"name":"rust lint","status":"completed","conclusion":"failure","head_sha":"def456"},{"id":102,"name":"rust build","status":"completed","conclusion":"success","head_sha":"def456"},{"id":103,"name":"rust test","status":"completed","conclusion":"success","head_sha":"def456"},{"id":104,"name":"docker build","status":"completed","conclusion":"success","head_sha":"def456"},{"id":105,"name":"gitleaks","status":"completed","conclusion":"success","head_sha":"def456"}]}\n')
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", HEAD_SHA, "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE", nil, nil, BASE_SHA)
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", HEAD_SHA, "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE", nil, nil, BASE_SHA)
+    local run_url = "https://github.com/owner/repo/actions/runs/" .. HEAD_RUN_ID
+    mock_check_runs_json('{"total_count":6,"check_runs":[{"id":100,"name":"test","status":"completed","conclusion":"success","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"},{"id":101,"name":"rust lint","status":"completed","conclusion":"failure","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"},{"id":102,"name":"rust build","status":"completed","conclusion":"success","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"},{"id":103,"name":"rust test","status":"completed","conclusion":"success","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"},{"id":104,"name":"docker build","status":"completed","conclusion":"success","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"},{"id":105,"name":"gitleaks","status":"completed","conclusion":"success","head_sha":"' .. HEAD_SHA .. '","details_url":"' .. run_url .. '"}]}\n')
 
-    local result = run_merge(event, opts("merge-host-named-red-fixing", { FKST_GITHUB_WRITE = "1" }))
+    local result = h.with_new_failure_set_evidence({
+      repo = "owner/repo",
+      base_commit = BASE_SHA,
+      head_commit = HEAD_SHA,
+      head_run_id = HEAD_RUN_ID,
+    }, function()
+      return run_merge(event, opts("merge-host-named-red-fixing", { FKST_GITHUB_WRITE = "1" }))
+    end)
     t.eq(result.exit_code, 0)
     local fixing = find_causal_raise(result, "devloop_fixing").payload
     t.eq(fixing.repair_input, "ci-failure")
