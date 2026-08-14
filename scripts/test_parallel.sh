@@ -36,6 +36,10 @@ run_units_parallel() {
   local -a unit_pids=()
   local n=${#cmds[@]}
   [ "$n" -gt 0 ] || return 0
+  # Distinct nonzero codes observed this run, so a caller can tell a typed failure (a checker
+  # reporting violations) from a bare nonzero (attribution indeterminate). The RETURN value stays
+  # the failure count, so existing callers are unaffected.
+  RUN_UNITS_FAIL_CODES=""
   # Fail CLOSED on setup failure: run under `set +e` / left-of-|| where errexit is
   # suppressed, so an unchecked mktemp would leave $dir empty and route unit output to
   # `/$i.out` — silently truncating files at / on a writable-/ host (CI-as-root) and
@@ -43,12 +47,9 @@ run_units_parallel() {
   local dir
   if ! dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-units.XXXXXX")"; then
     echo "error: run_units_parallel could not create its work directory" >&2
+    RUN_UNITS_FAIL_CODES="12"
     return 1
   fi
-  # Distinct nonzero codes observed this run, so a caller can tell a typed failure (a checker
-  # reporting violations) from a bare nonzero (attribution indeterminate). The RETURN value stays
-  # the failure count, so existing callers are unaffected.
-  RUN_UNITS_FAIL_CODES=""
   local i j fails=0 rc running
   for (( i=0; i<n; i++ )); do
     # Throttle: launch the next unit only once a worker slot frees (true work-stealing).

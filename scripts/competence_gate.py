@@ -14,6 +14,7 @@ from typing import Iterable
 
 SCHEMA = "github-devloop.competence-obligations.v1"
 REPORT_SCHEMA = "github-devloop.competence-gate-ci-report.v1"
+SEMANTIC_FAILURE_EXIT = 10
 REQUIRED_CHALLENGE_COUNT = 7
 REQUIRED_NEGATIVE_CONTROLS = {
     "001-release-replay-uses-split-version",
@@ -303,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         print("competence gate failed:", file=sys.stderr)
         for error in report["errors"]:
             print(f"  {error}", file=sys.stderr)
-    return rc
+    return 0 if rc == 0 else SEMANTIC_FAILURE_EXIT
 
 
 if __name__ == "__main__":

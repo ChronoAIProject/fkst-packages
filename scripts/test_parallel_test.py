@@ -9,6 +9,7 @@ green while silently deadening the parallel gate."""
 import json
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -118,9 +119,11 @@ class RunUnitsParallelTest(unittest.TestCase):
         # files at / and can return a false-green). Force mktemp to fail via a bad TMPDIR.
         result = _run(
             'TMPDIR=/no/such/dir/xyz run_units_parallel 2 '
-            "'echo passA' 'echo passB'; echo \"rc=$?\""
+            "'echo passA' 'echo passB'; "
+            'echo "rc=$?"; echo "codes=$RUN_UNITS_FAIL_CODES"'
         )
-        self.assertNotIn("rc=0", result.stdout)
+        self.assertIn("rc=1", result.stdout)
+        self.assertIn("codes=12", result.stdout)
         self.assertIn("could not create its work directory", result.stderr + result.stdout)
 
     def test_unit_whose_subshell_exits_before_recording_rc_fails_closed(self) -> None:
@@ -731,6 +734,30 @@ class CheckVerdictMappingTest(unittest.TestCase):
 
     def test_typed_configuration_code_maps_to_configuration(self) -> None:
         self.assertEqual(self._verdict_for("11"), "FAIL:CONFIGURATION")
+
+    def test_typed_pool_setup_code_maps_to_infrastructure(self) -> None:
+        self.assertEqual(self._verdict_for("12"), "FAIL:INFRASTRUCTURE")
+
+    def test_completed_unittest_failure_reaches_consumer_as_semantic(self) -> None:
+        runner = REPO_ROOT / "scripts" / "run_typed_unittest.py"
+        with tempfile.TemporaryDirectory(prefix="fkst-check-unit-") as tmp:
+            fixture = Path(tmp) / "fixture_test.py"
+            fixture.write_text(
+                "import unittest\n"
+                "class FixtureTest(unittest.TestCase):\n"
+                "    def test_fails(self): self.fail('repository violation')\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, "-B", str(runner), str(fixture)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 10, result.stderr + result.stdout)
+        self.assertEqual(self._verdict_for(str(result.returncode)), "FAIL:SEMANTIC")
 
     def test_bare_nonzero_leaves_the_verdict_unset(self) -> None:
         # Attribution is genuinely indeterminate, so cmd_check must set NOTHING and let the exit

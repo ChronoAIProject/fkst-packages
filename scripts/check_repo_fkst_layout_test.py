@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import io
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 import check_repo_fkst_layout
 
@@ -133,6 +136,28 @@ class FkstLayoutGuardTest(unittest.TestCase):
         subprocess.run(["git", "rm", "--cached", ".fkst/substrate-ref"], cwd=root, check=True, stdout=subprocess.DEVNULL)
 
         self.assertViolationContains(root, "missing .fkst/substrate-ref")
+
+    def test_main_returns_typed_semantic_exit_for_layout_violations(self) -> None:
+        with mock.patch.object(
+            check_repo_fkst_layout,
+            "check_layout",
+            return_value=["deterministic layout violation"],
+        ):
+            with redirect_stderr(io.StringIO()):
+                exit_code = check_repo_fkst_layout.main()
+
+        self.assertEqual(exit_code, 10)
+
+    def test_main_keeps_git_failure_untyped(self) -> None:
+        with mock.patch.object(
+            check_repo_fkst_layout,
+            "check_layout",
+            side_effect=RuntimeError("git ls-files failed"),
+        ):
+            with redirect_stderr(io.StringIO()):
+                exit_code = check_repo_fkst_layout.main()
+
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":

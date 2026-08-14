@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 
 def load_competence_gate():
@@ -113,6 +116,27 @@ class CompetenceGateTest(unittest.TestCase):
         self.assertIn('python3 -B "$ROOT/scripts/competence_gate.py"', source)
         self.assertIn('--base-ref "$competence_base_ref"', source)
         self.assertIn("competence_gate_base_ref()", source)
+
+    def test_main_returns_typed_semantic_exit_for_reported_errors(self) -> None:
+        report = {
+            "classification": {"level": "L2"},
+            "errors": ["deterministic competence violation"],
+            "metrics": {},
+        }
+        with mock.patch.object(competence_gate, "run", return_value=(1, report)):
+            with redirect_stderr(io.StringIO()):
+                exit_code = competence_gate.main(["--paths", "scripts/run.sh"])
+
+        self.assertEqual(exit_code, 10)
+
+    def test_main_keeps_operational_exception_untyped(self) -> None:
+        with mock.patch.object(
+            competence_gate, "run", side_effect=RuntimeError("base unavailable")
+        ):
+            with redirect_stderr(io.StringIO()):
+                exit_code = competence_gate.main(["--paths", "scripts/run.sh"])
+
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":

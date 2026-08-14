@@ -25,6 +25,7 @@ LEGACY_TRACKED_PATHS = (
     ".fkst/substrate-src",
     ".fkst/board-cache.json",
 )
+VIOLATIONS_EXIT = 10
 
 
 def repo_root() -> Path:
@@ -107,7 +108,7 @@ def main() -> int:
         print("repository layout check failed:", file=sys.stderr)
         for violation in violations:
             print(f"  {violation}", file=sys.stderr)
-        return 1
+        return VIOLATIONS_EXIT
     print("OK: fkst layout checks passed")
     return 0
 
