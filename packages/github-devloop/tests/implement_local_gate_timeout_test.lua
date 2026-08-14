@@ -38,7 +38,7 @@ end
 
 return {
   test_role_timeout_seconds_defaults_to_the_implement_attempt_budget = function()
-    t.eq(codex.role_timeout_seconds("implement"), 2 * 60 * 60)
+    t.eq(codex.role_timeout_seconds("implement"), 5 * 60 * 60)
   end,
 
   test_role_timeout_seconds_follows_the_role_env_override = function()

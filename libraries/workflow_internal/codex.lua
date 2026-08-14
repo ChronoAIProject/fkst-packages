@@ -4,8 +4,8 @@ local M = {}
 
 local role_timeout_defaults = {
   consensus = 3600,
-  implement = 2 * 60 * 60,
-  fix = 2 * 60 * 60,
+  implement = 5 * 60 * 60,
+  fix = 5 * 60 * 60,
   ["review-meta"] = 3600,
   archaudit = 3600,
   ["release-notes"] = 3600,
