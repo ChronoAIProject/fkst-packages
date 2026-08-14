@@ -196,4 +196,48 @@ It is **advisory and never fails a build**: reversible, low-harm drift gets dete
 rather than an up-front gate. The one unit here that is genuinely gated has its own checker,
 `check_repo_dead_locals.py`, because that category regrew four times in nine days.
 
+## The ownership axis: what a six-seat consensus found that the survey cannot (2026-08-15)
+
+Every unit in the table above is subtractive — it asks *what can be deleted*. Running the repo's
+own `sshx` six-seat panel against the same tree surfaced a different class entirely, and none of it
+is visible to `scripts/refactor_survey.py`, because the code involved is **live, used and tested**:
+
+| class | example found | why the survey is blind |
+|---|---|---|
+| a declared migration stopped half-way | `install(M)` scaffold whose own deletion trigger has fired (`logging.lua:235-237`; the G-DEVLOOP-INSTALLER ratchet reads zero production readers) | symbols are exported *and* referenced from tests, so they never read as unused |
+| a non-owner re-declaring a format | the `state:v1` marker grammar declared 17 times in production | each declaration is used |
+| a decision placed at the least-informed layer | cache consistency selected by caller booleans `opts.force_fresh` / `opts.allow_cached_validator` | no unused symbol, no size violation |
+
+Six increments were landed from that backlog (#3786, #3788, #3789, #3791, #3793, #3798).
+
+### The N2 precondition, measured
+
+The largest remaining item is consolidating GitHub PR field-alias normalization — 60 alias-resolution
+sites over 13 production files, with `libraries/forge/github_view.lua` as the natural owner (its
+sibling `forge/github/issue.lua:307` already does exactly this for issues).
+
+**Do not start with the migration.** Each call site accepts a *different* set of shapes; that is why
+the duplication exists. Consolidating without first pinning the accepted set changes it silently and
+the suite stays green. Test-feed counts show the risk is asymmetric:
+
+| field | camelCase test files | snake_case test files |
+|---|---|---|
+| head ref oid | `headRefOid` **34** | `head_ref_oid` **1** |
+| head ref name | `headRefName` 47 | `head_ref_name` 26 |
+| draft | `isDraft` 14 | `is_draft` 6 |
+| merged at | `mergedAt` 13 | `merged_at` 21 |
+
+So the first increment of N2 is **table-driven characterization fixtures over the thinly covered
+snake_case aliases**, not the extraction. `head_ref_oid` is the specific one to pin first.
+
+### Two refusals worth not re-litigating
+
+- **Writer vs matcher.** `state.lua` renders the marker with an unescaped literal while the matcher
+  is a Lua pattern with `%-` escapes. They are two representations of one grammar and cannot share a
+  string without an escaping helper — more machinery than the duplication costs.
+- **`github-external-pr-intake/core.lua:464`** keeps its own copy of the grammar permanently. That
+  package is absent from `libraries/devloop` `[visibility] allow`; it is not permitted to see the
+  library. Widening a visibility list to remove one literal is a boundary-owner decision, not a
+  refactoring one. That duplication is the correct outcome of an intentional boundary.
+
 ⟦AI:FKST⟧
