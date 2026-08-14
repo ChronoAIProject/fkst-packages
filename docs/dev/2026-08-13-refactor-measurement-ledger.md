@@ -154,4 +154,27 @@ speculative work against an imported aesthetic — the WORTH GATE names that as 
 **What would make this actionable:** adopting a function-length standard. That is a policy decision
 for the repo, not something a refactoring pass may assume and then enforce by hand.
 
+## Repeated string literals — measured, and the repetition is REQUIRED
+
+352 distinct literals appear in 6 or more production files (tests excluded, 591 files scanned). The
+obvious reading is "extract shared constants". Do not.
+
+| what dominates the count | why it is not extractable |
+|---|---|
+| `require` paths (`devloop.base` ×153, `contract.strings` ×127) | module names, not magic strings |
+| Lua type names (`"string"`, `"function"`, `"number"`) | idiomatic `type(x) ==` checks |
+| queue names (`github-proxy.github_issue_label_request` ×60) | **must stay literal — see below** |
+| lifecycle state names (`"blocked"` ×86, `"reviewing"` ×48) | the restart table is data; literals are how it is expressed |
+
+**The queue-name case is the trap.** A queue name hard-coded in 60 departments looks exactly like a
+missing constant. It is not: `G-SAGA-HEAD` requires each department to declare
+`local spec = { consumes, produces, ... }` at file head **"so the engine static graph contract stays
+greppable at the top of each department"**. Replacing those literals with shared constants defeats a
+CI-enforced requirement — the repetition *is* the contract. A reasonable refactor here breaks the
+build for a non-obvious reason.
+
+Method note: a scan for string literals must mask long-bracket literals first
+(`check_repo_lua.code_mask`), or fragments of template-generated code (`"):gsub("`) surface as if
+they were literals in their own right.
+
 ⟦AI:FKST⟧
