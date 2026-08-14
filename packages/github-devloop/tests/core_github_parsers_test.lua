@@ -292,6 +292,23 @@ return {
     t.is_true(parsed.body:find("FULL_BODY_TAIL", 1, true) ~= nil)
   end,
 
+  test_pr_parsers_accept_snake_case_base_ref_name = function()
+    -- Third unguarded alias branch, found by mutation rather than by counting: removing all
+    -- three `or pr.base_ref_name` fallbacks left the whole suite green (1421 passed, 0 failed).
+    -- Test-file counts had suggested this field was well covered; it was not.
+    local freshness = parsers_pr.parse_pr_list_freshness(
+      '[[{"number":31,"headRefOid":"b1","head_ref_name":"f/a","base_ref_name":"dev","state":"OPEN"}]]')
+    t.eq(freshness[1].base_ref_name, "dev")
+
+    local promotions = parsers_pr.parse_pr_list_promotions(
+      '[[{"number":32,"headRefOid":"b2","head_ref_name":"f/b","base_ref_name":"integration/x","state":"OPEN"}]]')
+    t.eq(promotions[1].base_ref_name, "integration/x")
+
+    local origin = parsers_pr.parse_pr_view_origin(
+      '{"number":33,"headRefOid":"b3","base_ref_name":"dev","state":"OPEN"}')
+    t.eq(origin.base_ref_name, "dev")
+  end,
+
   test_draft_alias_acceptance_differs_between_devloop_and_forge = function()
     -- Characterization of a DIFFERENCE, which is the load-bearing fact for any later
     -- consolidation: the two layers do not accept the same shapes.
