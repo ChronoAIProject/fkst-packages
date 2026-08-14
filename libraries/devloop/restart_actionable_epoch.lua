@@ -370,7 +370,7 @@ function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
     return invalid("child workflow liveness contract bypasses its typed dependency")
   end
   local raw_dependency = facts and (facts.child_pr_dependency or facts[dependency_contract.fact_family]) or nil
-  local dependency = pr_partition_contract.child_state_evaluation(raw_dependency)
+  local dependency = pr_partition_contract.require_child_state_fact(raw_dependency)
   local raw_state = dependency and (dependency.raw_state or dependency.state) or nil
   local signal = {
     family = dependency_contract.fact_family,

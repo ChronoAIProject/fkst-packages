@@ -58,9 +58,10 @@ local function child_pr_delegation_fact(facts)
     or m_facts.pr_delegation_fact(facts.snapshot.comments, facts.proposal_id, facts.state and facts.state.version)
 end
 
-local function fetch_child_state_fact(replay_sources, facts)
-  if facts.child_state ~= nil then
-    return facts.child_state
+local function fetch_child_pr_dependency(replay_sources, facts)
+  local dependency = facts.child_pr_dependency or facts["child-pr-dependency"]
+  if dependency ~= nil then
+    return pr_partition_contract.require_child_state_fact(dependency)
   end
   local delegation = child_pr_delegation_fact(facts)
   if delegation == nil then
@@ -79,12 +80,13 @@ local function fetch_child_state_fact(replay_sources, facts)
     facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
     facts.current_pr.repo, facts.current_pr.number, facts.current_pr.force_fresh = facts.issue.repo, delegation.pr_number, true
   end
-  facts.child_state = pr_partition_contract.child_state_fact(
+  facts.child_pr_dependency = pr_partition_contract.child_state_fact(
     facts.current_pr,
     delegation,
     facts.issue.repo
   )
-  return facts.child_state
+  facts["child-pr-dependency"] = facts.child_pr_dependency
+  return facts.child_pr_dependency
 end
 
 local function require_marker_fact(restart_policy, replay_sources, facts, family)
@@ -97,11 +99,8 @@ local function require_marker_fact(restart_policy, replay_sources, facts, family
   if family == "pr-delegation" then
     return child_pr_delegation_fact(facts)
   end
-  if family == "child-state" then
-    return fetch_child_state_fact(replay_sources, facts)
-  end
   if family == "child-pr-dependency" then
-    return fetch_child_state_fact(replay_sources, facts)
+    return fetch_child_pr_dependency(replay_sources, facts)
   end
   if family == "converge-round" then
     return restart_policy.latest_complete_converge_round(
@@ -256,10 +255,7 @@ local function store_gathered_marker_fact(facts, family, value)
   elseif family == "pr-delegation" then
     facts.pr_delegation = value
     facts["pr-delegation"] = value
-  elseif family == "child-state" then
-    facts.child_state = value
   elseif family == "child-pr-dependency" then
-    facts.child_state = value
     facts.child_pr_dependency = value
     facts["child-pr-dependency"] = value
   end

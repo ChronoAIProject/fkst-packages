@@ -30,6 +30,17 @@ local PR_TERMINAL_STATES = {
   "blocked",
 }
 
+local CHILD_STATE_FACT_SCHEMA = "pr_partition_contract.child-state-fact.v2"
+local CHILD_STATE_DISPOSITIONS = {
+  ["identity-mismatch"] = true,
+  ["in-flight"] = true,
+  ["missing"] = true,
+  ["missing-version"] = true,
+  ["stale"] = true,
+  ["terminal"] = true,
+  ["unknown"] = true,
+}
+
 local AWAITING_PR_CONTRACT = {
   state = "awaiting-pr",
   responsibility = "parent issue polls one delegated PR child terminal state",
@@ -124,7 +135,7 @@ function P.child_state_predicate(state)
 end
 
 local function child_fact(fields)
-  fields.schema = "pr_partition_contract.child-state-fact.v2"
+  fields.schema = CHILD_STATE_FACT_SCHEMA
   return fields
 end
 
@@ -138,24 +149,17 @@ local function classify_child_state(raw_state)
   return "unknown"
 end
 
-function P.child_state_evaluation(fact)
-  if type(fact) ~= "table" then
-    return child_fact({ disposition = "missing" })
+function P.require_child_state_fact(fact)
+  if fact == nil then
+    return nil
   end
-  if fact.schema == "pr_partition_contract.child-state-fact.v2" and fact.disposition ~= nil then
-    return fact
+  if type(fact) ~= "table" or fact.schema ~= CHILD_STATE_FACT_SCHEMA then
+    error("github-devloop: child-state-fact-tag-invalid: expected " .. CHILD_STATE_FACT_SCHEMA)
   end
-  local evaluated = {}
-  for key, value in pairs(fact) do
-    evaluated[key] = value
+  if CHILD_STATE_DISPOSITIONS[fact.disposition] ~= true then
+    error("github-devloop: child-state-fact-disposition-invalid: unrecognized child disposition")
   end
-  evaluated.disposition = fact.identity_valid == false
-    and "identity-mismatch"
-    or classify_child_state(fact.raw_state or fact.state)
-  if evaluated.disposition ~= "unknown" and evaluated.state == nil then
-    evaluated.state = evaluated.raw_state
-  end
-  return child_fact(evaluated)
+  return fact
 end
 
 local function marker_attr(marker, key)

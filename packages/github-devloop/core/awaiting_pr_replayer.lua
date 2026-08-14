@@ -329,75 +329,35 @@ function M.awaiting_pr_exit_transition_status(issue, proposal_id, state, to_stat
   return decision.status, snapshot, decision
 end
 
-local terminal_milestones = pr_partition_contract.pr_terminal_states()
 local terminal_requires_canonical_merge = { merged = true }
 local terminal_generation = {
   ["closed-unmerged"] = closed_unmerged_generation,
 }
 
-local function child_reached(current_pr, delegation, milestone, lineage_base)
-  return devloop_state.reached(current_pr.comments, delegation.proposal_id, milestone, {
-    domain = "github-devloop-pr",
-    lineage_base = lineage_base,
-  })
-end
-
-local function monotone_terminal_child(state, delegation, current_pr)
-  for _, milestone in ipairs(terminal_milestones) do
-    if child_reached(current_pr, delegation, milestone, state.version) then
-      return { state = milestone, version = delegation.version }
-    end
-  end
-  for _, milestone in ipairs(terminal_milestones) do
-    if child_reached(current_pr, delegation, milestone) then
-      return nil, "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage"
-    end
-  end
-  if child_reached(current_pr, delegation, "pr-open", state.version) then
-    return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
-  end
-  if child_reached(current_pr, delegation, "pr-open") then
-    return nil, "skip-stale(child-state-lineage)", "child state does not match parent delegation lineage"
-  end
-  return nil, "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state"
-end
-
 local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
-  observed_child_state = observed_child_state ~= nil
-    and pr_partition_contract.child_state_evaluation(observed_child_state)
-    or nil
-  if observed_child_state ~= nil and observed_child_state.disposition == "identity-mismatch" then
+  observed_child_state = pr_partition_contract.require_child_state_fact(observed_child_state)
+  if observed_child_state == nil
+    or observed_child_state.disposition == "missing"
+    or observed_child_state.disposition == "missing-version" then
+    observed_child_state = nil
+  elseif observed_child_state.disposition == "identity-mismatch" then
     return nil, "skip-stale(observed-child-identity)", "observed child PR identity does not match the parent delegation"
-  end
-  if observed_child_state ~= nil and observed_child_state.disposition == "unknown" then
+  elseif observed_child_state.disposition == "unknown" then
     return nil, "child-state-unrecognized", "delegated child PR reported unrecognized state: " .. tostring(observed_child_state.raw_state), {
       { name = "child_state", values = { observed_child_state.raw_state } },
     }
   end
+  local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
   if observed_child_state ~= nil
-    and (observed_child_state.disposition == "missing" or observed_child_state.disposition == "missing-version") then
-    observed_child_state = nil
-  end
-  local canonical_merged_raw = canonical_merged_child_state(issue, state, delegation, current_pr)
-  local canonical_merged_state = canonical_merged_raw ~= nil
-    and pr_partition_contract.child_state_evaluation(canonical_merged_raw)
-    or nil
-  local child_state = canonical_merged_state or observed_child_state
-  if observed_child_state ~= nil and observed_child_state.disposition == "stale" and canonical_merged_state == nil then
+    and observed_child_state.disposition == "stale"
+    and canonical_merged_state == nil then
     return nil, "skip-stale(child-state-lineage)", "child state does not match parent delegation lineage"
   end
-  local outcome, reason
-  if child_state == nil then
-    local fallback_state
-    fallback_state, outcome, reason = monotone_terminal_child(state, delegation, current_pr)
-    child_state = fallback_state ~= nil
-      and pr_partition_contract.child_state_evaluation(fallback_state)
-      or nil
-  end
+  local child_state = canonical_merged_state or observed_child_state
   if child_state == nil or child_state.state == nil then
-    return nil, outcome or "skip-pending(child-terminal-missing)", reason or "delegated child PR has no trusted terminal marker or canonical merged state"
+    return nil, "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state"
   end
-  if child_state.disposition ~= "terminal" then
+  if canonical_merged_state == nil and child_state.disposition ~= "terminal" then
     return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
   end
   if not child_lineage_matches_delegation(state, delegation, child_state) then
@@ -449,8 +409,10 @@ function M.canonicalize_implementing_terminal_delegated_pr(dept, issue, state, f
   if type(current_pr) ~= "table" or current_pr.force_fresh ~= true then
     current_pr = read_delegated_child_pr(dept, issue, delegation)
   end
+  local child_pr_dependency = facts.child_pr_dependency or facts["child-pr-dependency"]
+    or pr_partition_contract.child_state_fact(current_pr, delegation, issue.repo)
   local terminal_child, outcome, reason = resolve_delegated_terminal_child(
-    issue, state, delegation, current_pr, facts.child_pr_dependency or facts.child_state or facts["child-pr-dependency"] or facts["child-state"]
+    issue, state, delegation, current_pr, child_pr_dependency
   )
   if terminal_child == nil then
     return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", outcome, reason)
@@ -589,7 +551,7 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   end
   local current_pr = (facts.current_pr ~= nil and facts.current_pr.force_fresh == true) and facts.current_pr or read_delegated_child_pr(dept, issue, delegation)
   local terminal_child, outcome, reason, outcome_facts = resolve_delegated_terminal_child(
-    issue, state, delegation, current_pr, facts.child_pr_dependency or facts.child_state or facts["child-pr-dependency"] or facts["child-state"]
+    issue, state, delegation, current_pr, facts.child_pr_dependency or facts["child-pr-dependency"]
   )
   if terminal_child == nil then
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason, outcome_facts)

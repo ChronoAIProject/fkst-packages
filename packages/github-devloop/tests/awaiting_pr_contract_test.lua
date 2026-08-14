@@ -8,6 +8,12 @@ local t = h.t
 
 local has_value = require("testkit_internal.values").has_value
 
+local function assert_child_fact_coherence_rejected(fact, label)
+  local ok, err = pcall(pr_partition_contract.require_child_state_fact, fact)
+  t.eq(ok, false, label)
+  t.is_true(tostring(err):find("child-state-fact-coherence-invalid", 1, true) ~= nil, label)
+end
+
 local function table_by_state()
   local by_state = {}
   for _, row in ipairs(core.restart_transition_table()) do
@@ -56,9 +62,6 @@ return {
     t.eq(fact.pr_proposal_id, "github-devloop/pr/owner/repo/7")
     t.eq(fact.pr_number, 7)
     t.eq(fact.identity_valid, true)
-    t.eq(pr_partition_contract.child_terminal_predicate("merged"), true)
-    t.eq(pr_partition_contract.child_terminal_predicate("reviewing"), false)
-    t.eq(pr_partition_contract.child_terminal_predicate("vendor-paused"), false)
     local wrong_observed_child = pr_partition_contract.child_state_fact({
       repo = "owner/repo",
       number = 8,
@@ -124,11 +127,146 @@ return {
             .. expected.raw_state .. '" version="v1" -->',
         }},
       }, delegation, "owner/repo")
+      t.eq(fact.schema, "pr_partition_contract.child-state-fact.v2", expected.raw_state .. ": schema")
       t.eq(fact.disposition, expected.disposition, expected.raw_state)
       t.eq(fact.raw_state, expected.raw_state, expected.raw_state .. ": raw state")
       t.eq(fact.identity_valid, true, expected.raw_state .. ": identity")
       t.eq(fact.version, "v1", expected.raw_state .. ": version")
+      t.eq(pr_partition_contract.require_child_state_fact(fact), fact, expected.raw_state .. ": valid fact")
     end
+  end,
+
+  test_pr_partition_child_state_fact_preserves_negative_observation_kinds = function()
+    local delegation = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      version = "v1",
+      pr_proposal_id = "github-devloop/pr/owner/repo/7",
+      pr_number = 7,
+    }
+    local function evaluate(overrides)
+      local observed = {
+        repo = "owner/repo",
+        number = 7,
+        comments = {},
+      }
+      local selected_delegation = {}
+      for key, value in pairs(delegation) do selected_delegation[key] = value end
+      for key, value in pairs(overrides or {}) do
+        if key == "comments" or key == "repo" or key == "number" then
+          observed[key] = value
+        else
+          selected_delegation[key] = value
+        end
+      end
+      return pr_partition_contract.child_state_fact(observed, selected_delegation, "owner/repo")
+    end
+
+    local absent = evaluate()
+    t.eq(absent.disposition, "missing")
+    t.eq(absent.identity_valid, true)
+
+    local malformed = evaluate({ pr_proposal_id = "not-a-pr-proposal" })
+    t.eq(malformed.disposition, "identity-mismatch")
+    t.eq(malformed.identity_valid, false)
+
+    local wrong_number = evaluate({ number = 8 })
+    t.eq(wrong_number.disposition, "identity-mismatch")
+    t.eq(wrong_number.observed_pr_number, 8)
+
+    local untrusted = evaluate({
+      comments = {{
+        author_login = "untrusted-user",
+        body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="merged" version="v1" -->',
+      }},
+    })
+    t.eq(untrusted.disposition, "missing")
+
+    local stale = evaluate({
+      comments = {{
+        author_login = "fkst-test-bot",
+        body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="blocked" version="v0" -->',
+      }},
+    })
+    t.eq(stale.disposition, "stale")
+    t.eq(stale.raw_state, "blocked")
+    t.eq(stale.version, "v0")
+    t.eq(pr_partition_contract.require_child_state_fact(absent), absent)
+    t.eq(pr_partition_contract.require_child_state_fact(malformed), malformed)
+    t.eq(pr_partition_contract.require_child_state_fact(wrong_number), wrong_number)
+    t.eq(pr_partition_contract.require_child_state_fact(untrusted), untrusted)
+    t.eq(pr_partition_contract.require_child_state_fact(stale), stale)
+  end,
+
+  test_child_state_consumers_reject_untagged_reclassification = function()
+    local ok, err = pcall(pr_partition_contract.require_child_state_fact, {
+      identity_valid = true,
+      raw_state = "reviewing",
+      state = "reviewing",
+    })
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("child-state-fact-tag-invalid", 1, true) ~= nil)
+
+    ok, err = pcall(pr_partition_contract.require_child_state_fact, {
+      schema = "pr_partition_contract.child-state-fact.v2",
+      disposition = "paused",
+    })
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("child-state-fact-disposition-invalid", 1, true) ~= nil)
+  end,
+
+  test_child_state_fact_rejects_incomplete_and_contradictory_variants = function()
+    local schema = "pr_partition_contract.child-state-fact.v2"
+    local identity = {
+      identity_valid = true,
+      observed_repo = "owner/repo",
+      observed_pr_number = 7,
+      pr_proposal_id = "github-devloop/pr/owner/repo/7",
+      pr_number = 7,
+    }
+    local function fact(disposition, fields)
+      local value = { schema = schema, disposition = disposition }
+      for key, item in pairs(identity) do value[key] = item end
+      for key, item in pairs(fields or {}) do value[key] = item end
+      return value
+    end
+
+    assert_child_fact_coherence_rejected({
+      schema = schema,
+      disposition = "in-flight",
+    }, "incomplete in-flight fact")
+    assert_child_fact_coherence_rejected(fact("in-flight", {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      raw_state = "merged",
+      state = "merged",
+      version = "v1",
+    }), "in-flight fact with terminal state")
+    assert_child_fact_coherence_rejected(fact("terminal", {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      raw_state = "merged",
+      state = "blocked",
+      version = "v1",
+    }), "terminal fact with contradictory state")
+    assert_child_fact_coherence_rejected(fact("unknown", {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      raw_state = "reviewing",
+      version = "v1",
+    }), "unknown fact with recognized state")
+    assert_child_fact_coherence_rejected(fact("stale", {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      raw_state = "blocked",
+    }), "stale fact without marker version")
+    assert_child_fact_coherence_rejected(fact("missing", {
+      raw_state = "reviewing",
+    }), "missing fact with observed state")
+    assert_child_fact_coherence_rejected(fact("missing-version", {
+      version = "v1",
+    }), "missing-version fact with marker version")
+    assert_child_fact_coherence_rejected(fact("identity-mismatch", {
+      identity_valid = true,
+    }), "identity-mismatch fact with valid identity")
+    assert_child_fact_coherence_rejected(fact("missing", {
+      observed_repo = "other/repo",
+    }), "identity-valid fact with mismatched repository")
   end,
 
   test_awaiting_pr_restart_row_declares_child_workflow_boundary = function()

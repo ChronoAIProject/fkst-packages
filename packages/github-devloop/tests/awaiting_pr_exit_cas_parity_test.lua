@@ -6,6 +6,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
+local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 local replay_fields = require("devloop.replay_fields")
 local testing = require("testkit_internal.testing")
 
@@ -92,6 +93,7 @@ end
 local function child_pr(fixture)
   return {
     force_fresh = true,
+    repo = REPO,
     number = fixture.pr_number,
     state = fixture.pr_state,
     merged_at = fixture.pr_state == "MERGED" and "2026-06-03T02:05:04Z" or nil,
@@ -214,11 +216,12 @@ local function run_apply(fixture)
   local ok, result = pcall(function()
     return testing.run_fake({
       pipeline = function()
+        local selected_delegation = delegation(fixture)
         return awaiting_pr_replayer["awaiting-pr"]("observe_issue", issue, state, row, {
           proposal_id = PROPOSAL_ID,
           current_pr = current_pr,
-          child_state = { state = fixture.child_state, version = VERSION },
-          ["pr-delegation"] = delegation(fixture),
+          child_pr_dependency = pr_partition_contract.child_state_fact(current_pr, selected_delegation, REPO),
+          ["pr-delegation"] = selected_delegation,
         })
       end,
     }, { queue = "github-proxy.github_entity_changed", payload = issue })

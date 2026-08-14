@@ -317,6 +317,22 @@ local function capture_runtime(fixture)
   t.eq(dispatch.version, VERSION, fixture.name .. ": production-derived replay version")
   t.eq(dispatch.row_from_state, "awaiting-pr", fixture.name .. ": production awaiting-pr row")
   t.eq(dispatch.driving_queue, "devloop_observe_redrive", fixture.name .. ": production driving queue")
+  if fixture.delegation ~= false and fixture.pr_number ~= nil
+    and fixture.expected_disposition ~= "skip-stale(pr-delegation-child)" then
+    local dependency = dispatch.child_pr_dependency
+    t.eq(dependency.schema, "pr_partition_contract.child-state-fact.v2", fixture.name .. ": typed child dependency schema")
+    local expected_child_disposition = "terminal"
+    if fixture.child_marker == false then
+      expected_child_disposition = "missing"
+    elseif fixture.expected_disposition == "skip-pending(child-nonterminal)" then
+      expected_child_disposition = "in-flight"
+    elseif fixture.expected_disposition == "skip-stale(child-state-lineage)" then
+      expected_child_disposition = "stale"
+    elseif fixture.expected_disposition == "child-state-unrecognized" then
+      expected_child_disposition = "unknown"
+    end
+    t.eq(dependency.disposition, expected_child_disposition, fixture.name .. ": code-owned child disposition")
+  end
   t.eq(#dispatch.decisions, 1, fixture.name .. ": one row-local replay disposition")
   t.eq(dispatch.decisions[1].outcome, fixture.expected_disposition, fixture.name .. ": exact replay decision")
   t.eq(dispatch.decisions[1].to_state, expected_target, fixture.name .. ": exact replay target")
@@ -441,6 +457,7 @@ return {
   test_awaiting_pr_row_replay_selects_latest_same_lineage_post_fix_child_fact = function()
     for _, fixture in ipairs(POST_FIX_FIXTURES) do
       local _, _, dispatch = capture_runtime(fixture)
+      t.eq(dispatch.child_pr_dependency.schema, "pr_partition_contract.child-state-fact.v2", fixture.name .. ": schema")
       t.eq(dispatch.child_pr_dependency.raw_state, fixture.child_state, fixture.name .. ": latest child state")
       t.eq(dispatch.child_pr_dependency.version, fixture.child_version, fixture.name .. ": latest child version")
       if fixture.expected_decision_fact ~= nil then

@@ -152,10 +152,10 @@ local function child_pr(core, state, child_state, branch)
   local child_branch = branch or BRANCH
   local body = m_builders.pr_origin_marker(ISSUE_PROPOSAL, ISSUE_NUMBER, child_branch, state.version, BASE_BRANCH)
   if child_state ~= nil then
-    body = body .. "\n" .. devloop_state.state_marker(PR_PROPOSAL, child_state, state.version)
+    body = body .. "\n" .. devloop_state.state_marker(ISSUE_PROPOSAL, child_state, state.version)
   end
   if child_state == "merged" then
-    body = body .. "\n" .. m_builders.merged_marker(PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
+    body = body .. "\n" .. m_builders.merged_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)
   end
   return {
     repo = REPO,

@@ -21,6 +21,22 @@ end
 
 local rows_by_state = require("testkit_internal.values").rows_by_state
 
+local function child_pr_dependency(raw_state, disposition)
+  return {
+    schema = "pr_partition_contract.child-state-fact.v2",
+    disposition = disposition,
+    identity_valid = true,
+    observed_repo = "owner/repo",
+    observed_pr_number = 7,
+    proposal_id = "github-devloop/issue/owner/repo/1248",
+    pr_proposal_id = "github-devloop/pr/owner/repo/7",
+    pr_number = 7,
+    raw_state = raw_state,
+    state = raw_state,
+    version = "ready/1248",
+  }
+end
+
 local function joined_errors(errors)
   return table.concat(errors or {}, "\n")
 end
@@ -287,11 +303,7 @@ return {
     local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
     local version = "ready/1248"
     local facts = {
-      child_pr_dependency = {
-        identity_valid = true,
-        raw_state = "reviewing",
-        state = "reviewing",
-      },
+      child_pr_dependency = child_pr_dependency("reviewing", "in-flight"),
       proposal_id = parent_proposal_id,
       current = {
         comments = {
@@ -334,11 +346,7 @@ return {
     local child_pr_proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
     local version = "ready/1248"
     local facts = {
-      child_pr_dependency = {
-        identity_valid = true,
-        raw_state = "merged",
-        state = "merged",
-      },
+      child_pr_dependency = child_pr_dependency("merged", "terminal"),
       proposal_id = parent_proposal_id,
       current = {
         comments = {
@@ -367,6 +375,7 @@ return {
     }, facts, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z"))
     t.eq(eval.status, "actionable")
     t.eq(eval.epoch_source, "child_workflow_wait:v1")
+    t.eq(eval.reason, "child workflow disposition is terminal")
   end,
 
   test_awaiting_pr_child_workflow_wait_keeps_missing_dependency_distinct = function()
@@ -395,11 +404,7 @@ return {
       marker_created_at = "2026-06-03T09:45:00Z",
     }, {
       proposal_id = parent_proposal_id,
-      child_pr_dependency = {
-        identity_valid = true,
-        raw_state = "merged",
-        state = "merged",
-      },
+      child_pr_dependency = child_pr_dependency("merged", "terminal"),
       current = {
         comments = {
           {
@@ -435,11 +440,7 @@ return {
       marker_created_at = "2026-06-03T09:45:00Z",
     }, {
       proposal_id = parent_proposal_id,
-      child_pr_dependency = {
-        identity_valid = true,
-        raw_state = "reviewing",
-        state = "reviewing",
-      },
+      child_pr_dependency = child_pr_dependency("reviewing", "in-flight"),
       current = {
         comments = {
           {

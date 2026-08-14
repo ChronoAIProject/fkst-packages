@@ -488,6 +488,7 @@ local function run_production_trace_fixture(fixture)
   }
   local current_pr = {
     force_fresh = true,
+    repo = REPO,
     number = FROZEN_OLD_APPLY.pr_number,
     state = "MERGED",
     merged_at = FROZEN_OLD_APPLY.merged_at,

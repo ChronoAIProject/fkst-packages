@@ -5,6 +5,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local projection = require("tests.projection_outcome_helpers")
+local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
 local replay_fields = require("devloop.replay_fields")
 local testing = require("testkit_internal.testing")
 local dependency_fixtures = require("tests.dependency_cascade_helpers")
@@ -224,6 +225,7 @@ local function awaiting_pr_closed_unmerged()
   }
   local current_pr = {
     force_fresh = true,
+    repo = repo,
     number = pr_number,
     state = "CLOSED",
     comments = {
@@ -250,17 +252,18 @@ local function awaiting_pr_closed_unmerged()
   local ok, result = pcall(function()
     return testing.run_fake({
       pipeline = function()
+        local selected_delegation = {
+          proposal_id = proposal_id,
+          pr_proposal_id = child_proposal,
+          pr_number = pr_number,
+          version = awaiting_version,
+          delegation = delegation,
+        }
         return awaiting_pr_replayer["awaiting-pr"]("observe_issue", parent_issue, state, row, {
           proposal_id = proposal_id,
           current_pr = current_pr,
-          child_state = { state = "closed-unmerged", version = awaiting_version },
-          ["pr-delegation"] = {
-            proposal_id = proposal_id,
-            pr_proposal_id = child_proposal,
-            pr_number = pr_number,
-            version = awaiting_version,
-            delegation = delegation,
-          },
+          child_pr_dependency = pr_partition_contract.child_state_fact(current_pr, selected_delegation, repo),
+          ["pr-delegation"] = selected_delegation,
         })
       end,
     }, { queue = "github-proxy.github_entity_changed", payload = h.issue() })
