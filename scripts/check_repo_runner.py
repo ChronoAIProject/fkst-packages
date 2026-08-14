@@ -11,6 +11,7 @@ import check_repo_coverage
 import check_repo_dept_failure_surface
 import check_repo_dependency_cycle
 import check_repo_dead_letter
+import check_repo_dead_locals
 import check_repo_devloop_godlib
 import check_repo_devloop_decouple
 import check_repo_devloop_installer
@@ -257,6 +258,8 @@ def run_generic(
             c.add(violations, "G-NAMESPACED-QUEUE", message)
     for message in check_repo_dead_letter.repository_messages(root, c.read_text):
         c.add(violations, "G-DEAD-LETTER", message)
+    for message in check_repo_dead_locals.repository_messages(root):
+        c.add(violations, "G-DEAD-LOCALS", message)
     for message in check_repo_live_run_dispatch.repository_messages(root, allowlists, enforce_base):
         c.add(violations, "G-LIVE-RUN-DISPATCH", message)
     for message in check_repo_codex_timeout.repository_messages(root, c.package_lua_files, c.read_text, c.rel, c.strip_lua_comments_and_strings):
