@@ -30,7 +30,7 @@ return {
     t.eq(first.request.issue_number, "42")
     t.eq(first.request.source_ref.kind, "external")
     t.eq(first.request.source_ref.ref, "owner/repo#issue/42")
-    t.eq(first.request.real_write_allowed, false)
+    t.is_nil(first.request.real_write_allowed)
     t.eq(first.request.replace_marker, progress.replace_marker(proposal_id))
     t.eq(first.request.replace_marker, second.request.replace_marker)
     t.eq(first.request.replace_snapshot.run_id, running_row().run_id)
@@ -68,10 +68,5 @@ return {
     }) do
       t.is_nil(progress.project_running_row(row))
     end
-  end,
-
-  test_real_write_rollout_is_blocked_until_parent_lifecycle_lands = function()
-    t.eq(progress.publication_enabled("dry-run"), true)
-    t.eq(progress.publication_enabled("real"), false)
   end,
 }

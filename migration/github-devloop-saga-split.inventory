@@ -119,7 +119,7 @@
 {"path":"packages/github-devloop-ops/core/output_obligation_resolution.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/observability_bounds.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/state_gap.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
-{"path":"packages/github-devloop-ops/departments/codex_progress/main.lua","owner":"cross-cutting","reason":"owns the dry-run projection of running implementation facts into the GitHub proxy comment seam."}
+{"path":"packages/github-devloop-ops/departments/codex_progress/main.lua","owner":"cross-cutting","reason":"owns publication of running implementation facts through the GitHub proxy comment seam."}
 {"path":"packages/github-devloop-ops/departments/dead_letter/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/doctor/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/departments/ensure_repo/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
