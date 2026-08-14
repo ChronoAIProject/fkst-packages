@@ -55,7 +55,7 @@ class TypedUnittestRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 10, result.stderr + result.stdout)
         self.assertIn("FAILED (failures=1)", result.stderr)
 
-    def test_completed_suite_error_returns_typed_semantic_exit(self) -> None:
+    def test_completed_suite_error_remains_untyped(self) -> None:
         result = self.run_fixture(
             """
             import unittest
@@ -66,8 +66,25 @@ class TypedUnittestRunnerTest(unittest.TestCase):
             """
         )
 
-        self.assertEqual(result.returncode, 10, result.stderr + result.stdout)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
         self.assertIn("FAILED (errors=1)", result.stderr)
+
+    def test_mixed_failure_and_error_remains_untyped(self) -> None:
+        result = self.run_fixture(
+            """
+            import unittest
+
+            class FixtureTest(unittest.TestCase):
+                def test_fails(self):
+                    self.fail("deterministic repository failure")
+
+                def test_errors(self):
+                    raise RuntimeError("unattributed test error")
+            """
+        )
+
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("FAILED (failures=1, errors=1)", result.stderr)
 
     def test_import_failure_remains_untyped(self) -> None:
         result = self.run_fixture('raise RuntimeError("import failed")\n')

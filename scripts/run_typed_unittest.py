@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         return CONFIGURATION_FAILURE_EXIT
 
     result = unittest.TextTestRunner().run(suite)
+    if result.errors:
+        return 1
     return 0 if result.wasSuccessful() else SEMANTIC_FAILURE_EXIT
 
 
