@@ -1,4 +1,3 @@
-local config = require("devloop.config")
 local progress = require("core.codex_progress")
 local saga = require("workflow.saga")
 
@@ -14,10 +13,6 @@ local function done(_event)
 end
 
 local function act(_event)
-  if not progress.publication_enabled(config.write_mode()) then
-    log.info("github-devloop-ops: codex progress real-write rollout is blocked pending lifecycle convergence")
-    return
-  end
   if type(fkst) ~= "table" or type(fkst.codex_runs) ~= "function" then
     error("github-devloop-ops: codex-progress-unavailable: fkst.codex_runs is required")
   end
