@@ -38,7 +38,7 @@ end
 
 return {
   test_role_timeout_seconds_defaults_to_the_implement_attempt_budget = function()
-    t.eq(codex.role_timeout_seconds("implement"), 2 * 60 * 60)
+    t.eq(codex.role_timeout_seconds("implement"), 5 * 60 * 60)
   end,
 
   test_role_timeout_seconds_follows_the_role_env_override = function()
@@ -61,7 +61,7 @@ return {
     harvest.local_iteration_check("/tmp/fkst worktree", "abc123", { exec = exec })
 
     t.eq(#calls, 1)
-    t.eq(calls[1].timeout, 2 * 60 * 60)
+    t.eq(calls[1].timeout, 5 * 60 * 60)
   end,
 
   -- The regression #2887 reports: raising the attempt budget must raise the gate with it.
