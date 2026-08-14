@@ -121,4 +121,79 @@ Practical consequence: **an instrument that can report absence must carry a posi
 same invocation.** "Zero" is a claim about the query until something known-present proves the query
 can see.
 
+## Structural units, measured and refused (added 2026-08-14)
+
+Subtractive units were exhausted, so function-level structure was measured too. It yielded no work,
+and the reasons are worth keeping so the next pass does not re-derive them.
+
+| unit | measured | yield |
+|---|---|---|
+| function length (all functions) | `check_repo_lua.code_mask` + block-depth spans | 46 over 250 lines — **misleading, see below** |
+| function length (leaf functions only) | same, excluding any function containing another | 22 over 150 lines, 58 over 100 |
+
+**The raw count is a trap.** The longest "functions" are 700–800 lines and span nearly a whole file —
+because this repo uses the dependency-injection installer shape, `function S.install(M, restart_policy)`
+wrapping a module body with dozens of nested locals (`pr_review_replayer.lua:25-816` is 792 lines and
+entirely correct). Reporting those as extract-method candidates would propose refactoring 46 DI
+wrappers. Only **leaf** functions — those containing no nested function — are candidates.
+
+**And the leaf candidates were refused, on two distinct grounds:**
+
+- The largest cluster is `core/restart/transitions/*.lua` (242, 241, 222, 211 lines). These are
+  **declarative transition rows**: `return function(M, h)` destructuring a handler bundle, then a
+  table. Splitting one fragments a table definition and makes it less readable, not more.
+- The one genuinely imperative candidate,
+  `packages/github-devloop-pr/departments/review_result/main.lua:116-377` (a 262-line `with_lock`
+  closure), sits on the core PR-merge CAS path.
+
+The decisive point is not risk, it is **standard**: this repo sets a *file* limit (1000 hard, 900
+soft) and **no function-length rule whatsoever**. With 22 leaf functions over 150 lines, the revealed
+standard tolerates them. Refactoring core merge logic to satisfy a limit the repo has not adopted is
+speculative work against an imported aesthetic — the WORTH GATE names that as a defect in itself.
+
+**What would make this actionable:** adopting a function-length standard. That is a policy decision
+for the repo, not something a refactoring pass may assume and then enforce by hand.
+
+## Repeated string literals — measured, and the repetition is REQUIRED
+
+352 distinct literals appear in 6 or more production files (tests excluded, 591 files scanned). The
+obvious reading is "extract shared constants". Do not.
+
+| what dominates the count | why it is not extractable |
+|---|---|
+| `require` paths (`devloop.base` ×153, `contract.strings` ×127) | module names, not magic strings |
+| Lua type names (`"string"`, `"function"`, `"number"`) | idiomatic `type(x) ==` checks |
+| queue names (`github-proxy.github_issue_label_request` ×60) | **must stay literal — see below** |
+| lifecycle state names (`"blocked"` ×86, `"reviewing"` ×48) | the restart table is data; literals are how it is expressed |
+
+**The queue-name case is the trap.** A queue name hard-coded in 60 departments looks exactly like a
+missing constant. It is not: `G-SAGA-HEAD` requires each department to declare
+`local spec = { consumes, produces, ... }` at file head **"so the engine static graph contract stays
+greppable at the top of each department"**. Replacing those literals with shared constants defeats a
+CI-enforced requirement — the repetition *is* the contract. A reasonable refactor here breaks the
+build for a non-obvious reason.
+
+Method note: a scan for string literals must mask long-bracket literals first
+(`check_repo_lua.code_mask`), or fragments of template-generated code (`"):gsub("`) surface as if
+they were literals in their own right.
+
+## Running it again: `python3 scripts/refactor_survey.py`
+
+This ledger recorded the *method* in prose while the instruments lived in a scratch directory that
+does not survive the session — so the next pass would have rebuilt them and re-walked every trap
+above. `scripts/refactor_survey.py` is those measurements, with each trap written beside the unit it
+broke:
+
+- unused exports — matches the bare word across **all tracked file types**, because a name can be
+  referenced from a manifest or a doc, not only from Lua (the narrow `.name(` form called 62 live
+  functions dead)
+- unused `lib_deps` — parses the array inside the section, not the section key
+- leaf functions — excludes DI installer wrappers, which are correct at 700–800 lines
+- never-required modules — reported with an explicit false-positive warning; results under a
+  directory family are a registry, not a corpse
+
+It is **advisory and never fails a build**: reversible, low-harm drift gets detection and correction
+rather than an up-front gate. The one unit here that is genuinely gated has its own checker,
+`check_repo_dead_locals.py`, because that category regrew four times in nine days.
+
 ⟦AI:FKST⟧
