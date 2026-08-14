@@ -17,6 +17,7 @@ local pr_partition_contract = require("devloop.restart.issue.pr_partition_contra
 function S.install(M)
 local gate = require("devloop.gate")
 local m_builders = require("devloop.markers.builders")
+local markers_shared = require("devloop.markers.shared")
 local child_start_visible_gate = nil
 local pr_terminal_states = {}
 for _, state in ipairs(pr_partition_contract.pr_terminal_states()) do
@@ -273,7 +274,7 @@ local function terminal_child_matches_lineage(comments, issue_proposal_id, issue
     or tostring(origin.base_branch or "") ~= tostring(base_branch or "") then
     return false
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')

@@ -1,4 +1,4 @@
--- contract.github_devloop_pr_origin: policy-free PR-origin marker decoding.
+-- devloop.markers.pr_origin: policy-free PR-origin marker decoding.
 local C = {}
 
 local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"

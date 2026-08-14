@@ -138,16 +138,16 @@ local function observe_result(observe)
   return pcall(observe.facts)
 end
 
-local function observe_now_result(facts)
-  return pcall(core.observe_now_seconds, facts)
+local function observe_now_result(observe, facts)
+  return pcall(observe.observe_now_seconds, facts)
 end
 
-local function idle_observe_result(facts)
-  return pcall(core.is_idle_observe, facts)
+local function idle_observe_result(observe, facts)
+  return pcall(observe.is_idle_observe, facts)
 end
 
-local function require_idle(event, facts)
-  local ok_idle, idle, why = idle_observe_result(facts)
+local function require_idle(observe, event, facts)
+  local ok_idle, idle, why = idle_observe_result(observe, facts)
   if not ok_idle and fail_observe_malformed(event, idle) then
     return false
   end
@@ -263,7 +263,7 @@ local function make_department(ports)
     if not ok_observe and stop_observe_error(event, facts_or_err) then
       return
     end
-    local ok_time, observe_now_or_err = observe_now_result(facts_or_err)
+    local ok_time, observe_now_or_err = observe_now_result(observe, facts_or_err)
     if not ok_time and fail_observe_malformed(event, observe_now_or_err) then
       return
     end
@@ -277,7 +277,7 @@ local function make_department(ports)
         log_fact("warn", "audit", "SKIP", "terminal-skip", event, fresh_why, true)
         return
       end
-      if not require_idle(event, facts_or_err) then
+      if not require_idle(observe, event, facts_or_err) then
         return
       end
     elseif core.normalize_audit_tick_event(event) == nil then
@@ -306,7 +306,7 @@ local function make_department(ports)
         log_fact("warn", "audit", "SKIP", "terminal-skip", event, due_why, true)
         return
       end
-      if trigger == "stale" and not require_idle(event, facts_or_err) then
+      if trigger == "stale" and not require_idle(observe, event, facts_or_err) then
         return
       end
     end

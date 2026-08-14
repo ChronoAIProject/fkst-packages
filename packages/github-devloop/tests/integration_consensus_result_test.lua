@@ -139,7 +139,7 @@ return {
     local prompt = core.build_implement_prompt(reached().proposal_id, {
       title = "Fix parser",
       body = "Expected behavior",
-    }, "DO X ONLY", nil, nil, {
+    }, "DO X ONLY", nil, {
       implementation_version = "ready/observe-consensus-loop",
       attempt = 1,
     })

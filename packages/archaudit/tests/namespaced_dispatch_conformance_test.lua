@@ -1,5 +1,6 @@
 local conformance = require("testkit_internal.namespaced_dispatch_conformance")
 local helper = require("tests.fire_raiser_helpers")
+local observe_port = require("departments.audit.observe_port")
 local t = fkst.test
 
 local function load_department(path, module_name)
@@ -73,6 +74,8 @@ local function idle_only_departments()
       },
       observe = {
         facts = observe_facts,
+        observe_now_seconds = observe_port.observe_now_seconds,
+        is_idle_observe = observe_port.is_idle_observe,
       },
     }).pipeline,
   }

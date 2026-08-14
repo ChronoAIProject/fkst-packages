@@ -7,6 +7,7 @@ local no_revert_reopen = require("devloop.autonomy.no_revert_reopen")
 local autonomy_projection = require("devloop.autonomy.projection")
 local devloop_base = require("devloop.base")
 local restart_metadata = require("devloop.restart_metadata")
+local markers_shared = require("devloop.markers.shared")
 
 local task_classes = {
   L0 = true,
@@ -297,7 +298,7 @@ end
 
 local function collect_autonomy_terminal_events(comments, proposal_id, events, sequence)
   local terminals = {}
-  local state_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local state_pattern = markers_shared.STATE_MARKER_PATTERN
   local merged_pattern = "<!%-%- fkst:github%-devloop:merged:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     local body = parsers_misc._comment_body(comment)

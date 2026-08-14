@@ -18,7 +18,7 @@ local M = {}
 
 local retirement_receipt_pattern = "<!%-%- fkst:github%-devloop%-ops:terminal%-retirement%-receipt:v1.-%-%->"
 local result_marker_pattern = "<!%-%- fkst:github%-devloop:result:v1.-%-%->"
-local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+local state_marker_pattern = marker_shared.STATE_MARKER_PATTERN
 
 local function ineligible(reason, elapsed_minutes)
   return {
