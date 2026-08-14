@@ -83,6 +83,10 @@ function S.parse_fix_feedback_fact(fact)
   return classification.fact
 end
 
+-- The state:v1 marker grammar. Owned here beside the attribute readers so consumers
+-- project facts instead of each re-declaring the serialized form.
+S.STATE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+
 function S.marker_attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
 end

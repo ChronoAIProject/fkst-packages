@@ -2,6 +2,7 @@ local P = {}
 local entity_lib = require("devloop.entity")
 local parsers_misc = require("devloop.parsers.misc")
 local transition_version = require("contract.transition_version")
+local markers_shared = require("devloop.markers.shared")
 
 local ISSUE_STATES = {
   "thinking",
@@ -150,7 +151,7 @@ function P.child_state_fact(observed_pr, delegation, parent_repo)
   local latest = nil
   local delegation_version = tostring(delegation.version or "")
   local lineage_base = transition_version.strip_suffixes(delegation.version)
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(observed_pr.comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local proposal_id = marker_attr(marker, "proposal")

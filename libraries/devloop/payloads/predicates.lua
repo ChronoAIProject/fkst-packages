@@ -4,6 +4,7 @@ local C = {}
 local shared = require("devloop.payloads.shared")
 local devloop_base = require("devloop.base")
 local restart_metadata = require("devloop.restart_metadata")
+local markers_shared = require("devloop.markers.shared")
 
 local function stage_rank(state)
   return restart_metadata.stage_rank(state)
@@ -174,7 +175,7 @@ local function state_marker_comment_verified(repo, hand_off)
   if not parsers_misc._is_trusted_comment(comment) then
     return false, "comment-author-untrusted"
   end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   local saw_proposal_marker = false
   for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
     local marker_proposal = marker:match('proposal="([^"]+)"')
