@@ -56,6 +56,49 @@ local function timeout_attempt_body(round)
     .. "\n⟦AI:FKST⟧"
 end
 
+local progress_proposal_id = "github-devloop/issue/owner/x/42"
+local progress_replace_marker = '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="'
+  .. progress_proposal_id .. '"'
+local progress_comment_path = "/tmp/fkst-github-proxy-comment-owner_x-pr-7.md"
+
+local function progress_body(run_id, status, output)
+  return tostring(output)
+    .. "\n\n"
+    .. progress_replace_marker
+    .. ' run_id="' .. tostring(run_id)
+    .. '" status="' .. tostring(status)
+    .. '" -->'
+end
+
+local function progress_event(run_id, status, output)
+  return event({
+    body = progress_body(run_id, status, output),
+    dedup_key = table.concat({ "codex-progress", run_id, status, output }, "/"),
+    replace_marker = progress_replace_marker,
+    replace_snapshot = {
+      run_id = run_id,
+      status = status,
+    },
+  })
+end
+
+local function run_progress_replace(name, next_event, existing_body)
+  mock_write_env("1")
+  mock_bot_env()
+  mock_pr_comment_view({
+    {
+      databaseId = 123456,
+      body = existing_body,
+      author_login = "fkst-test-bot",
+    },
+  })
+  mock_comment_edit()
+  mock_pr_comment_write()
+  return t.run_department("departments/github_pr_comment/main.lua", next_event, opts(name, {
+    FKST_GITHUB_WRITE = "1",
+  }))
+end
+
 return {
   test_replace_marker_edits_existing_trusted_comment = function()
     mock_write_env("1")
@@ -188,5 +231,72 @@ return {
     t.eq(count_calls("gh api --method PATCH"), 0)
     t.eq(count_calls(pr_comment_create), 0)
     t.eq(#result.raises, 0)
+  end,
+
+  test_same_run_terminal_progress_card_rejects_late_running_replay = function()
+    for index, status in ipairs({ "done", "failed" }) do
+      local run_id = "codex-01ARZ3NDEKTSV4RRFFQ600000" .. tostring(index)
+      local terminal_output = "Terminal " .. status
+      local initial_running = progress_event(run_id, "running", "Working")
+      local terminal = progress_event(run_id, status, terminal_output)
+
+      local terminal_result = run_progress_replace(
+        "comment-progress-terminal-" .. status,
+        terminal,
+        initial_running.payload.body
+      )
+      t.eq(terminal_result.exit_code, 0)
+      local terminal_card = file.read(progress_comment_path)
+      t.is_true(terminal_card:find(terminal_output, 1, true) ~= nil)
+
+      local replay_result = run_progress_replace(
+        "comment-progress-late-running-" .. status,
+        progress_event(run_id, "running", "Stale work"),
+        terminal_card
+      )
+      t.eq(replay_result.exit_code, 0)
+      t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), index)
+      local visible_card = file.read(progress_comment_path)
+      t.is_true(visible_card:find(terminal_output, 1, true) ~= nil)
+      t.eq(visible_card:find("Stale work", 1, true), nil)
+    end
+  end,
+
+  test_same_run_running_progress_refreshes_remain_replaceable = function()
+    local run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000002"
+    local first = progress_event(run_id, "running", "Phase one")
+    local first_result = run_progress_replace(
+      "comment-progress-running-first",
+      first,
+      progress_body(run_id, "running", "Starting")
+    )
+    t.eq(first_result.exit_code, 0)
+
+    local first_card = file.read(progress_comment_path)
+    local second_result = run_progress_replace(
+      "comment-progress-running-second",
+      progress_event(run_id, "running", "Phase two"),
+      first_card
+    )
+    t.eq(second_result.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 2)
+    local visible_card = file.read(progress_comment_path)
+    t.is_true(visible_card:find("Phase two", 1, true) ~= nil)
+    t.eq(visible_card:find("Phase one", 1, true), nil)
+  end,
+
+  test_terminal_progress_for_another_run_does_not_order_running_replace = function()
+    local terminal_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000003"
+    local running_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000004"
+    local result = run_progress_replace(
+      "comment-progress-distinct-run",
+      progress_event(running_run_id, "running", "New run"),
+      progress_body(terminal_run_id, "failed", "Old run failed")
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
+    local visible_card = file.read(progress_comment_path)
+    t.is_true(visible_card:find("New run", 1, true) ~= nil)
   end,
 }

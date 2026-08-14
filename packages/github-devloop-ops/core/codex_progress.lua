@@ -35,9 +35,16 @@ local function output_block(value)
   end)
 end
 
-function M.marker(proposal_id)
+function M.replace_marker(proposal_id)
   return '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="'
-    .. tostring(proposal_id) .. '" -->'
+    .. tostring(proposal_id) .. '"'
+end
+
+function M.marker(proposal_id, run_id, status)
+  return M.replace_marker(proposal_id)
+    .. ' run_id="' .. tostring(run_id)
+    .. '" status="' .. tostring(status)
+    .. '" -->'
 end
 
 function M.publication_enabled(write_mode)
@@ -49,7 +56,7 @@ function M.project_running_row(row)
     or row.role ~= "implement"
     or row.status ~= "running"
     or type(row.run_id) ~= "string"
-    or row.run_id == "" then
+    or row.run_id:find("^[%w._-]+$") == nil then
     return nil
   end
   local target = canonical_issue(row)
@@ -65,7 +72,8 @@ function M.project_running_row(row)
     error("github-devloop-ops: codex-progress-row-invalid: matching running row lacks display fields")
   end
 
-  local marker = M.marker(row.proposal_id)
+  local marker = M.marker(row.proposal_id, row.run_id, row.status)
+  local replace_marker = M.replace_marker(row.proposal_id)
   local body = table.concat({
     "### Implementation progress",
     "",
@@ -98,7 +106,11 @@ function M.project_running_row(row)
       body = body,
       dedup_key = dedup_key,
       real_write_allowed = false,
-      replace_marker = marker,
+      replace_marker = replace_marker,
+      replace_snapshot = {
+        run_id = row.run_id,
+        status = row.status,
+      },
       source_ref = source_ref,
     },
   }
