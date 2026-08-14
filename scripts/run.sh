@@ -183,6 +183,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_integration_coverage_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intake_default_surface_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_dead_letter_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_dead_locals_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_producer_liveness_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_monotone_gate_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_test_graphql.py"'
