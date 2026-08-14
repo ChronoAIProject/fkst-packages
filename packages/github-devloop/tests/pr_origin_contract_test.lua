@@ -1,5 +1,5 @@
 local base_ids = require("devloop.base_ids")
-local contract_pr_origin = require("contract.github_devloop_pr_origin")
+local contract_pr_origin = require("devloop.markers.pr_origin")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local forge_validators = require("devloop.forge_validators")
