@@ -199,6 +199,43 @@ return {
     t.eq(count_calls(pr_comment_create), 0)
   end,
 
+  test_same_run_terminal_progress_card_rejects_late_running_after_edit_404_refresh = function()
+    local run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000000"
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view({
+      {
+        databaseId = 123456,
+        body = progress_body(run_id, "running", "Working"),
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_comment_edit_result(123456, 1, "HTTP 404: Not Found")
+    mock_pr_comment_view({
+      {
+        databaseId = 654321,
+        body = progress_body(run_id, "done", "Completed"),
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_comment_edit_result(654321)
+    mock_pr_comment_write()
+
+    local result = t.run_department(
+      "departments/github_pr_comment/main.lua",
+      progress_event(run_id, "running", "Stale work"),
+      opts("comment-progress-404-refresh-terminal", {
+        FKST_GITHUB_WRITE = "1",
+      })
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 2)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/654321 --field body=@"), 0)
+    t.eq(count_calls(pr_comment_create), 0)
+  end,
+
   test_parse_issue_comments_preserves_comment_id = function()
     local comments = core.parse_issue_comments('{"comments":[{"id":"IC_kwabc","databaseId":999,"body":"hello","author":{"login":"fkst-test-bot"}}]}')
     t.eq(comments[1].id, "999")

@@ -352,7 +352,7 @@ function M.gh_comment_edit(repo, comment_id_value, body_file, timeout)
   return M.github().comment_update(repo, comment_id_value, body_file, timeout or 30)
 end
 
-local function edit_existing_comment(M, repo, target, path, existing, replace_marker, bot_login)
+local function edit_existing_comment(M, repo, target, path, existing, replace_marker, replace_snapshot, next_body, bot_login)
   if existing == nil or existing.id == nil then
     return false, "missing-id"
   end
@@ -361,7 +361,7 @@ local function edit_existing_comment(M, repo, target, path, existing, replace_ma
     return M.gh_comment_edit(repo, existing.id, path, timeout)
   end, 30, "GitHub comment edit")
   if ok then
-    return true, nil, existing
+    return true, nil, existing, true
   end
 
   if not is_gh_not_found(err.result) then
@@ -375,12 +375,16 @@ local function edit_existing_comment(M, repo, target, path, existing, replace_ma
     log.warn("github-proxy: GitHub comment edit target is stale: error_class=" .. stale_comment_target_error_class)
     return false, stale_comment_target_error_class
   end
+  if stale_terminal_snapshot_replace(refreshed, next_body, replace_marker, replace_snapshot) then
+    log.info("github-proxy: same-run terminal replacement is absorbing; dropping running replay")
+    return true, nil, refreshed, false
+  end
 
   local refreshed_ok, refreshed_err = M.gh_exec_result(function(timeout)
     return M.gh_comment_edit(repo, refreshed.id, path, timeout)
   end, 30, "GitHub comment edit")
   if refreshed_ok then
-    return true, nil, refreshed
+    return true, nil, refreshed, true
   end
   if is_gh_not_found(refreshed_err.result) then
     log.warn("github-proxy: refreshed GitHub comment edit target is stale: error_class=" .. stale_comment_target_error_class)
@@ -496,10 +500,22 @@ function M.write_comment_request(payload, target)
     })
     local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
     file.write(path, body)
-    local edited, edit_status, edited_comment = edit_existing_comment(M, repo, target, path, existing, tostring(replace_marker or ""), bot_login)
-    if edited then
-      written_comment = edited_comment
-      M.invalidate_entity_after_write(repo, target.kind, target.number)
+    local handled, edit_status, edited_comment, did_edit = edit_existing_comment(
+      M,
+      repo,
+      target,
+      path,
+      existing,
+      tostring(replace_marker or ""),
+      replace_snapshot,
+      body,
+      bot_login
+    )
+    if handled then
+      if did_edit then
+        written_comment = edited_comment
+        M.invalidate_entity_after_write(repo, target.kind, target.number)
+      end
       return
     end
     if edit_status == stale_comment_target_error_class then
