@@ -12,20 +12,27 @@ local function done(_event)
   return false
 end
 
+local function emit(rows, project)
+  for _, row in ipairs(rows) do
+    local projected = project(row)
+    if projected ~= nil then
+      raise("github-proxy.github_issue_comment_request", projected.request)
+    end
+  end
+end
+
 local function act(_event)
   if type(fkst) ~= "table" or type(fkst.codex_runs) ~= "function" then
     error("github-devloop-ops: codex-progress-unavailable: fkst.codex_runs is required")
   end
   local observed = fkst.codex_runs()
-  if type(observed) ~= "table" or type(observed.running) ~= "table" then
-    error("github-devloop-ops: codex-progress-invalid: fkst.codex_runs returned an invalid running set")
+  if type(observed) ~= "table"
+    or type(observed.running) ~= "table"
+    or type(observed.recent) ~= "table" then
+    error("github-devloop-ops: codex-progress-invalid: fkst.codex_runs returned invalid run sets")
   end
-  for _, row in ipairs(observed.running) do
-    local projected = progress.project_running_row(row)
-    if projected ~= nil then
-      raise("github-proxy.github_issue_comment_request", projected.request)
-    end
-  end
+  emit(observed.running, progress.project_running_row)
+  emit(observed.recent, progress.project_terminal_row)
 end
 
 return saga.department(spec, {

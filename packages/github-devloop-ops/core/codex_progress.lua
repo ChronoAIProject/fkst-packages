@@ -5,6 +5,10 @@ local sha256 = require("contract.sha256")
 local strings = require("contract.strings")
 
 local M = {}
+local terminal_statuses = {
+  done = true,
+  failed = true,
+}
 
 local function canonical_issue(row)
   local target = entity.parse_entity_proposal_id(row and row.proposal_id)
@@ -47,43 +51,8 @@ function M.marker(proposal_id, run_id, status)
     .. '" -->'
 end
 
-function M.project_running_row(row)
-  if type(row) ~= "table"
-    or row.role ~= "implement"
-    or row.status ~= "running"
-    or type(row.run_id) ~= "string"
-    or row.run_id:find("^[%w._-]+$") == nil then
-    return nil
-  end
-  local target = canonical_issue(row)
-  if target == nil then
-    return nil
-  end
-
-  local elapsed_ms = tonumber(row.elapsed_ms)
-  local timeout_seconds = tonumber(row.timeout_seconds)
-  if type(row.dept) ~= "string" or row.dept == ""
-    or elapsed_ms == nil or elapsed_ms < 0
-    or timeout_seconds == nil or timeout_seconds <= 0 then
-    error("github-devloop-ops: codex-progress-row-invalid: matching running row lacks display fields")
-  end
-
-  local marker = M.marker(row.proposal_id, row.run_id, row.status)
+local function projected_request(row, target, body)
   local replace_marker = M.replace_marker(row.proposal_id)
-  local body = table.concat({
-    "### Implementation progress",
-    "",
-    "- Run: `" .. row.run_id .. "`",
-    "- Role: `" .. row.role .. "`",
-    "- Department: `" .. row.dept .. "`",
-    "- Elapsed: `" .. format_seconds(elapsed_ms) .. " / " .. tostring(timeout_seconds) .. "s`",
-    "",
-    "Output tail:",
-    "",
-    output_block(row.output_tail),
-    "",
-    marker,
-  }, "\n")
   local source_ref = entity.issue_source_ref(target.repo, target.issue_number)
   local dedup_key = base_ids.dedup_key({
     "codex-progress",
@@ -109,6 +78,94 @@ function M.project_running_row(row)
       source_ref = source_ref,
     },
   }
+end
+
+function M.project_running_row(row)
+  if type(row) ~= "table"
+    or row.role ~= "implement"
+    or row.status ~= "running"
+    or type(row.run_id) ~= "string"
+    or row.run_id:find("^[%w._-]+$") == nil then
+    return nil
+  end
+  local target = canonical_issue(row)
+  if target == nil then
+    return nil
+  end
+
+  local elapsed_ms = tonumber(row.elapsed_ms)
+  local timeout_seconds = tonumber(row.timeout_seconds)
+  if type(row.dept) ~= "string" or row.dept == ""
+    or elapsed_ms == nil or elapsed_ms < 0
+    or timeout_seconds == nil or timeout_seconds <= 0 then
+    error("github-devloop-ops: codex-progress-row-invalid: matching running row lacks display fields")
+  end
+
+  local marker = M.marker(row.proposal_id, row.run_id, row.status)
+  local body = table.concat({
+    "### Implementation progress",
+    "",
+    "- Run: `" .. row.run_id .. "`",
+    "- Role: `" .. row.role .. "`",
+    "- Department: `" .. row.dept .. "`",
+    "- Elapsed: `" .. format_seconds(elapsed_ms) .. " / " .. tostring(timeout_seconds) .. "s`",
+    "",
+    "Output tail:",
+    "",
+    output_block(row.output_tail),
+    "",
+    marker,
+  }, "\n")
+  return projected_request(row, target, body)
+end
+
+function M.project_terminal_row(row)
+  if type(row) ~= "table"
+    or row.role ~= "implement"
+    or terminal_statuses[row.status] ~= true
+    or type(row.run_id) ~= "string"
+    or row.run_id:find("^[%w._-]+$") == nil then
+    return nil
+  end
+  local target = canonical_issue(row)
+  if target == nil then
+    return nil
+  end
+
+  local elapsed_ms = tonumber(row.elapsed_ms)
+  local exit_code = row.exit_code == nil and nil or tonumber(row.exit_code)
+  if type(row.dept) ~= "string" or row.dept == ""
+    or elapsed_ms == nil or elapsed_ms < 0
+    or (row.exit_code ~= nil and exit_code == nil) then
+    error("github-devloop-ops: codex-progress-row-invalid: matching terminal row lacks display fields")
+  end
+
+  local body_lines = {
+    "### Implementation result",
+    "",
+    "- Run: `" .. row.run_id .. "`",
+    "- Role: `" .. row.role .. "`",
+    "- Department: `" .. row.dept .. "`",
+    "- Outcome: `" .. row.status .. "`",
+  }
+  if row.ended_at_ms ~= nil then
+    table.insert(body_lines, "- Duration: `" .. format_seconds(elapsed_ms) .. "`")
+  end
+  if exit_code ~= nil then
+    table.insert(body_lines, "- Exit code: `" .. tostring(exit_code) .. "`")
+  end
+  for _, line in ipairs({
+    "",
+    "Output tail:",
+    "",
+    output_block(row.output_tail),
+    "",
+    M.marker(row.proposal_id, row.run_id, row.status),
+  }) do
+    table.insert(body_lines, line)
+  end
+
+  return projected_request(row, target, table.concat(body_lines, "\n"))
 end
 
 return M
