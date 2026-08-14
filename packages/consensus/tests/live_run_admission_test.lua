@@ -295,8 +295,8 @@ return {
 
   test_workflow_dispatch_resolves_production_role_defaults = function()
     local expected = {
-      implement = 7200,
-      fix = 7200,
+      implement = 18000,
+      fix = 18000,
       ["review-meta"] = 3600,
     }
     for role, timeout in pairs(expected) do
