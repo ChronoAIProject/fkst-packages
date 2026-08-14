@@ -47,6 +47,15 @@ local function mock_comment_edit_result(comment_id, exit_code, stderr)
   })
 end
 
+local function mock_debug_stamp()
+  t.mock_command('printf %s "$FKST_DEBUG_STAMP"', { stdout = "1" })
+  t.mock_command("git rev-parse --verify HEAD", {
+    stdout = "abcdef1234567890\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function timeout_attempt_body(round)
   return "generic-workflow timeout redrive attempt: implementing " .. tostring(round)
     .. "\n\n"
@@ -122,6 +131,54 @@ return {
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 1)
     t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
     t.eq(count_calls("issues/comments/IC_kwDOSwWu288AAAABF40Vmg"), 0)
+    t.eq(count_calls(pr_comment_create), 0)
+  end,
+
+  test_identical_replacement_body_skips_second_edit = function()
+    local replacement = event()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_debug_stamp()
+    mock_pr_comment_view({
+      {
+        databaseId = 123456,
+        body = "old card\n" .. replacement.payload.replace_marker,
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_comment_edit()
+    mock_pr_comment_write()
+
+    local first = t.run_department("departments/github_pr_comment/main.lua", replacement, opts("comment-replace-identical-first", {
+      FKST_DEBUG_STAMP = "1",
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(first.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
+    local final_body = file.read(progress_comment_path)
+    t.is_true(final_body:find(core.debug_stamp_marker_prefix(), 1, true) ~= nil)
+
+    mock_write_env("1")
+    mock_bot_env()
+    mock_debug_stamp()
+    mock_pr_comment_view({
+      {
+        databaseId = 123456,
+        body = final_body,
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_comment_edit()
+    mock_pr_comment_write()
+
+    local second = t.run_department("departments/github_pr_comment/main.lua", replacement, opts("comment-replace-identical-second", {
+      FKST_DEBUG_STAMP = "1",
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(second.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
     t.eq(count_calls(pr_comment_create), 0)
   end,
 
