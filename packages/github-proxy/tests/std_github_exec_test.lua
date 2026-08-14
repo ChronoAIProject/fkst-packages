@@ -207,25 +207,6 @@ return {
     assert(seen.rate_pool == nil, "git exec must not pass rate_pool")
   end,
 
-  test_git_object_type_uses_cat_file_type_argv = function()
-    local seen
-    local handle = git.new(function(opts)
-      seen = opts
-      return { stdout = "blob\n", stderr = "", exit_code = 0 }
-    end)
-
-    local result = handle.object_type("refs/heads/proof-task", "lean-toolchain", 30)
-
-    assert_argv_equal(seen.argv, {
-      "git",
-      "cat-file",
-      "-t",
-      "refs/heads/proof-task:lean-toolchain",
-    }, "git object type")
-    assert(seen.timeout == 30, "object type timeout is forwarded")
-    assert(result.stdout == "blob\n")
-  end,
-
   test_git_exec_rejects_non_git_program = function()
     local handle = git.new(function(_opts)
       error("exec must not be called for adapter misuse")

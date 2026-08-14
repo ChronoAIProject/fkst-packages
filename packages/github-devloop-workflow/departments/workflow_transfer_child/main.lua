@@ -53,7 +53,5 @@ local M = ports_seam.install(
     bot_login_env = "FKST_GITHUB_BOT_LOGIN",
   })
 )
-M.make_department = make_department
-_G.pipeline = M.pipeline
 
 return M

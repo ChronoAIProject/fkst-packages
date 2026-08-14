@@ -10,26 +10,10 @@ local proposal_id = "github-devloop/issue/owner/repo/42"
 local proposal_version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local consensus_version = "consensus:" .. proposal_version
 local ready_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-local lean_proposal_version = "github-devloop/issue/owner/repo/42/2026-06-03T02-02-03Z"
-local lean_consensus_version = "consensus:" .. lean_proposal_version
-local lean_ready_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T02-02-03Z"
 local runtime_root = "/tmp/fkst-packages-test/github-devloop-run-graph-ready/runtime"
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
-local lean_framing = "Change `Proofs/Target.lean` only."
-local lean_checker_command = "lake env lean -E hasSorry Proofs/Target.lean"
-
-local function lean_complete_receipt()
-  return '{"schema":"github-devloop.lean-proof-result.v1"'
-    .. ',"status":"complete"'
-    .. ',"phase":"construction"'
-    .. ',"proposal_id":"' .. proposal_id .. '"'
-    .. ',"implementation_version":"' .. lean_ready_version .. '"'
-    .. ',"attempt":1'
-    .. ',"target":"Proofs/Target.lean"'
-    .. ',"declaration":"target_theorem"'
-    .. ',"checker_command":"' .. lean_checker_command .. '"}'
-end
+local accepted_framing = "Change the bounded decision recorder only."
 
 local function source_ref()
   return {
@@ -84,28 +68,6 @@ local function initial_event(payload)
 end
 
 local function mock_consensus_approval()
-  for _ = 1, 5 do
-    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-  for _ = 1, 5 do
-    t.mock_command("mkdir -p", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " ready handoff approves.\n",
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-end
-
-local function mock_consensus_lean_approval()
   local angles = {
     "teleology",
     "parsimony",
@@ -129,7 +91,7 @@ local function mock_consensus_lean_approval()
     local verdict = angle == "parsimony" and "abstain" or "approve"
     t.mock_command("codex exec", {
       stdout = verdict_label .. " " .. verdict .. "\n"
-        .. reply_label .. " " .. angle .. " Phase P1 accepts the bounded Lean source claim.\n",
+        .. reply_label .. " " .. angle .. " Phase P1 accepts the bounded recorder change.\n",
       stderr = "",
       exit_code = 0,
     })
@@ -137,19 +99,19 @@ local function mock_consensus_lean_approval()
   for _, angle in ipairs(angles) do
     local verdict = angle == "parsimony" and "abstain" or "approve"
     local stance = angle == "parsimony"
-      and "⟦FKST:STANCE⟧ update because teleology bounded Lean source claim"
+      and "⟦FKST:STANCE⟧ update because teleology bounded recorder claim"
       or "⟦FKST:STANCE⟧ defend"
     t.mock_command("codex exec", {
       stdout = stance .. "\n"
         .. verdict_label .. " " .. verdict .. "\n"
-        .. reply_label .. " " .. angle .. " Phase P2 accepts the bounded Lean source claim.\n",
+        .. reply_label .. " " .. angle .. " Phase P2 accepts the bounded recorder change.\n",
       stderr = "",
       exit_code = 0,
     })
   end
   t.mock_command("codex exec", {
-    stdout = "reached:approve " .. lean_framing .. "\n"
-      .. "verified-move: angle=parsimony phase=P2 citation=teleology bounded Lean source claim\n",
+    stdout = "reached:approve " .. accepted_framing .. "\n"
+      .. "verified-move: angle=parsimony phase=P2 citation=teleology bounded recorder claim\n",
     stderr = "",
     exit_code = 0,
   })
@@ -239,15 +201,6 @@ local function mock_label_write()
   })
 end
 
-local function mock_pr_child_adoptable(branch)
-  t.mock_command(core.gh_pr_list_head_base_cmd("owner/repo", branch, "dev"), {
-    stdout = '[{"number":7,"head":{"ref":"' .. branch
-      .. '","sha":"def456"},"base":{"ref":"dev"},"state":"open"}]\n',
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
 local function mock_consensus_result_issue_read(version)
   local selected_version = version or consensus_version
   entity_read_mocks.mock_issue_read_with_defaults(
@@ -321,6 +274,7 @@ return {
     t.eq(ready_request_index, result_index)
     t.eq(ready_request.payload.handoff.proposal_id, proposal_id)
     t.eq(ready_request.payload.handoff.marker_version, consensus_version)
+    t.eq(ready_request.payload.handoff.framing, accepted_framing)
 
     local written, _, written_index = graph.require_raise(
       trace,
@@ -332,6 +286,7 @@ return {
     )
     t.is_true(written_index > ready_request_index)
     t.is_true(written.payload.dedup_key:find("/written/", 1, true) ~= nil)
+    t.eq(written.payload.handoff.framing, accepted_framing)
 
     local ready, _, ready_index = graph.require_raise(trace, "github-devloop.devloop_ready")
     t.is_true(ready_index > written_index)
@@ -339,6 +294,7 @@ return {
     t.eq(ready.payload.proposal_id, proposal_id)
     t.eq(ready.payload.dedup_key, ready_version)
     t.eq(ready.payload.ready_hand_off.comment_id, "123456")
+    t.eq(ready.payload.framing, accepted_framing)
 
     local implement_step, implement_index = graph.require_delivery(trace, {
       queue = "github-devloop.devloop_ready",
@@ -346,110 +302,5 @@ return {
     })
     t.eq(implement_step.exit_code, 0)
     t.is_true(implement_index > ready_index)
-  end,
-
-  test_run_graph_preserves_lean_framing_and_dispatches_proof_aware_implementation = function()
-    local request = proposal({
-      title = "Complete Proofs/Target.lean",
-      dedup_key = lean_proposal_version,
-    })
-    local branch = h.deterministic_branch_for({
-      proposal_id = proposal_id,
-      dedup_key = lean_ready_version,
-    })
-    mock_runtime_and_context()
-    mock_consensus_lean_approval()
-    mock_empty_dependencies()
-    mock_empty_dependencies()
-    mock_consensus_result_issue_read(lean_consensus_version)
-    mock_github_proxy_comment_write(5, 1)
-    mock_label_write()
-    h.mock_issue_implement({ "fkst-dev:ready" }, { state_marker("ready", lean_ready_version) }, {
-      repo = "owner/repo",
-      number = 42,
-      title = "Complete Proofs/Target.lean",
-      state = "OPEN",
-    })
-    h.mock_context_bundle({
-      proposal_id = proposal_id,
-      source_ref = source_ref(),
-    })
-    h.mock_fresh_implement_worktree({
-      impl_version = lean_ready_version,
-    })
-    t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {
-      stdout = "blob\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    h.mock_implement_codex(0, lean_complete_receipt())
-    t.mock_command(lean_checker_command, {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    h.mock_git_status(" M Proofs/Target.lean\n")
-    h.mock_git_commit("def456", branch)
-    h.mock_git_push(branch)
-    mock_pr_child_adoptable(branch)
-
-    local trace = graph.require_quiescent(graph.run(initial_event(request), { max_steps = 20 }))
-
-    graph.assert_covers(trace, {
-      "github-devloop.devloop_consensus_request -> github-devloop.consensus_result",
-      "github-proxy.github_issue_comment_request -> github-proxy.github_comment",
-      "github-proxy.github_comment_written -> github-devloop.comment_handoff",
-      "github-devloop.devloop_ready -> github-devloop.implement",
-    })
-    local ready_request = graph.require_raise(
-      trace,
-      "github-proxy.github_issue_comment_request",
-      function(raised)
-        return raised.payload.handoff ~= nil
-          and raised.payload.handoff.kind == "github-devloop.ready"
-      end
-    )
-    t.eq(ready_request.payload.handoff.framing, lean_framing,
-      "result comment request preserves accepted framing")
-
-    local written = graph.require_raise(
-      trace,
-      "github-proxy.github_comment_written",
-      function(raised)
-        return raised.payload.handoff ~= nil
-          and raised.payload.handoff.kind == "github-devloop.ready"
-      end
-    )
-    t.eq(written.payload.handoff.framing, lean_framing,
-      "comment-written acknowledgment preserves accepted framing")
-
-    local ready = graph.require_raise(trace, "github-devloop.devloop_ready")
-    t.eq(ready.payload.framing, lean_framing,
-      "devloop-ready payload preserves accepted framing")
-
-    local implement_step = graph.require_delivery(trace, {
-      queue = "github-devloop.devloop_ready",
-      consumer = "github-devloop.implement",
-    })
-    t.eq(implement_step.exit_code, 0)
-    local output = graph.require_raise(
-      trace,
-      "github-proxy.github_issue_comment_request",
-      function(raised)
-        return tostring(raised.payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
-      end
-    )
-    t.is_true(output ~= nil)
-
-    local prompt = nil
-    for _, call in ipairs(t.command_calls()) do
-      if tostring(call.rendered or ""):find("codex exec", 1, true) ~= nil
-        and tostring(call.stdin or ""):find("Implementation profile: `lean-proof`", 1, true) ~= nil then
-        prompt = call.stdin
-      end
-    end
-    t.is_true(prompt ~= nil)
-    t.is_true(prompt:find("actual goal or error state before editing", 1, true) ~= nil)
-    t.eq(h.count_calls("scripts/run.sh test-affected"), 1)
   end,
 }

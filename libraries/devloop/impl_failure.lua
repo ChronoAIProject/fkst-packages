@@ -10,7 +10,6 @@ M.MAX_RETRY_ATTEMPTS = 100000
 
 local legacy_v1_retryable_reasons = {
   ["codex-failed"] = true,
-  ["lean-proof-repair-needed"] = true,
   ["non-descendant-head"] = true,
 }
 

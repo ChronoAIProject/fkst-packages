@@ -88,7 +88,7 @@ function M.is_authorized(policy, login)
   return content_filter.is_authorized(login, content_filter.policy_whitelist(policy))
 end
 
-local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+local state_marker_pattern = marker_shared.STATE_MARKER_PATTERN
 local marker_attr = marker_shared.marker_attr
 local json_array_tag = nil
 local json_object_tag = nil

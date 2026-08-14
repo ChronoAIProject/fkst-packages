@@ -3,6 +3,7 @@ local devloop_state = require("devloop.state")
 local S = {}
 local contract_time = require("contract.time")
 local issue_observation_facts = require("devloop.restart.issue_observation_facts")
+local markers_shared = require("devloop.markers.shared")
 
 function S.install(M)
 
@@ -29,7 +30,7 @@ local function parse_marker_time(comment)
 end
 
 local function append_state_markers(markers, comments, proposal_id)
-  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local marker_pattern = markers_shared.STATE_MARKER_PATTERN
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
     local created_at, created_seconds = parse_marker_time(comment)
     if created_seconds ~= nil then

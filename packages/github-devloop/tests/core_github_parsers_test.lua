@@ -290,4 +290,31 @@ return {
     t.is_true(#parsed.body > core.max_body_len())
     t.is_true(parsed.body:find("FULL_BODY_TAIL", 1, true) ~= nil)
   end,
+
+  test_pr_parsers_accept_snake_case_head_ref_oid = function()
+    -- Characterization, not aspiration. Five exported parsers read
+    -- `pr.headRefOid or pr.head_ref_oid`, and before this test NO test fed the snake_case
+    -- alias to any of them: consolidating the alias resolution would have dropped that branch
+    -- with a fully green suite. This pins the branch that is currently accepted.
+    local freshness_prs = parsers_pr.parse_pr_list_freshness(
+      '[[{"number":11,"head_ref_oid":"snake111","head_ref_name":"f/a","base_ref_name":"dev","state":"OPEN"}]]')
+    t.eq(freshness_prs[1].head_sha, "snake111")
+
+    local merged_prs = parsers_pr.parse_pr_list_recent_merged(
+      '[[{"number":12,"head_ref_oid":"snake222","merged_at":"2026-01-01T00:00:00Z","state":"MERGED"}]]')
+    t.eq(merged_prs[1].head_sha, "snake222")
+
+    local promotion_prs = parsers_pr.parse_pr_list_promotions(
+      '[[{"number":13,"head_ref_oid":"snake333","head_ref_name":"f/c","base_ref_name":"dev","state":"OPEN"}]]')
+    t.eq(promotion_prs[1].head_sha, "snake333")
+
+    -- parse_pr_view_origin takes a single PR object, not a list; the other four take list stdout.
+    local origin = parsers_pr.parse_pr_view_origin(
+      '{"number":14,"head_ref_oid":"snake444","state":"OPEN"}')
+    t.eq(origin.head_sha, "snake444")
+
+    local head_base = parsers_pr.parse_pr_list_head_base(
+      '[[{"number":15,"head_ref_oid":"snake555","head":{"ref":"f/e"},"base":{"ref":"dev"},"state":"open"}]]')
+    t.eq(head_base[1].head_sha, "snake555")
+  end,
 }

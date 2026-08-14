@@ -175,10 +175,6 @@ local function show_file_argv(ref, path)
   return { "git", "show", tostring(ref) .. ":" .. tostring(path) }
 end
 
-local function object_type_argv(ref, path)
-  return { "git", "cat-file", "-t", tostring(ref) .. ":" .. tostring(path) }
-end
-
 local function diff_name_only_argv(worktree, ref)
   if worktree == nil then
     return { "git", "diff", "--name-only", tostring(ref) }
@@ -527,10 +523,6 @@ function M.install(handle)
 
   function handle.show_file(ref, path, timeout)
     return exec_result(handle, show_file_argv(ref, path), timeout, "git show file")
-  end
-
-  function handle.object_type(ref, path, timeout)
-    return exec_result(handle, object_type_argv(ref, path), timeout, "git cat-file object type")
   end
 
   function handle.diff_name_only(worktree, ref, timeout)
