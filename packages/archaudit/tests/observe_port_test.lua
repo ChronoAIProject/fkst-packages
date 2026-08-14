@@ -94,6 +94,8 @@ return {
           observe_calls = observe_calls + 1
           return observe_idle()
         end,
+        observe_now_seconds = observe_port.observe_now_seconds,
+        is_idle_observe = observe_port.is_idle_observe,
       },
     })
 

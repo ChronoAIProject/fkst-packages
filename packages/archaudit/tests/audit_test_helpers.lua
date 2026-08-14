@@ -1,6 +1,7 @@
 local testing = require("testkit_internal.testing")
 local github_fake = require("forge.github_fake")
 local audit_main = require("departments.audit.main")
+local observe_port = require("departments.audit.observe_port")
 local t = fkst.test
 
 local function run_department_opts()
@@ -200,14 +201,18 @@ local function fake_audit_department_with_github(github, extra_ports)
   return audit_main.make_department(ports)
 end
 
-local function fake_audit_department_with_observe(observe_facts_fn)
-  return fake_audit_department("[]", {
-    observe = {
-      facts = function()
-        return observe_facts_fn()
-      end,
-    },
-  })
+local function fake_audit_department_with_observe(observe_facts_fn, observe_overrides)
+  local observe = {
+    facts = function()
+      return observe_facts_fn()
+    end,
+    observe_now_seconds = observe_port.observe_now_seconds,
+    is_idle_observe = observe_port.is_idle_observe,
+  }
+  for key, value in pairs(observe_overrides or {}) do
+    observe[key] = value
+  end
+  return fake_audit_department("[]", { observe = observe })
 end
 
 local function run_fake_at(dept, event, fixed_now_seconds)
