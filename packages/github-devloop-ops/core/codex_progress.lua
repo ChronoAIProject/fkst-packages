@@ -47,10 +47,6 @@ function M.marker(proposal_id, run_id, status)
     .. '" -->'
 end
 
-function M.publication_enabled(write_mode)
-  return write_mode == "dry-run"
-end
-
 function M.project_running_row(row)
   if type(row) ~= "table"
     or row.role ~= "implement"
@@ -105,7 +101,6 @@ function M.project_running_row(row)
       issue_number = target.issue_number,
       body = body,
       dedup_key = dedup_key,
-      real_write_allowed = false,
       replace_marker = replace_marker,
       replace_snapshot = {
         run_id = row.run_id,
