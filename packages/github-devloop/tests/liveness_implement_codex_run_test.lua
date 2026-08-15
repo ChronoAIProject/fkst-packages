@@ -33,7 +33,7 @@ local function facts_for(event, comments, now_seconds)
       labels = { "fkst-dev:enabled", "fkst-dev:implementing" },
     },
     fresh_current_state = state_for(event),
-    now_seconds = now_seconds or contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+    now_seconds = now_seconds or contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"),
   }
 end
 
@@ -139,7 +139,7 @@ return {
       assert_no_timeout_effects(run_timeout(row, state, before_budget))
     end)
 
-    local at_budget = facts_for(event, comments, contract_time.iso_timestamp_epoch_seconds("2026-06-03T02:00:00Z"))
+    local at_budget = facts_for(event, comments, contract_time.iso_timestamp_epoch_seconds("2026-06-03T10:00:00Z"))
     with_codex_runs({
       {
         run_id = "implement-live-at-budget",
@@ -147,7 +147,7 @@ return {
         proposal_id = event.proposal_id,
         dedup_key = event.dedup_key,
         status = "running",
-        started_at = "2026-06-03T01:30:00Z",
+        started_at = "2026-06-03T09:30:00Z",
         timeout_seconds = 3600,
       },
     }, function()
@@ -157,7 +157,7 @@ return {
       t.eq(receiver.signal.family, "codex_run:v1")
       local due, age = core.liveness_timeout_due_with_facts(row, state, at_budget, at_budget.now_seconds)
       t.eq(due, true)
-      t.eq(age, 120)
+      t.eq(age, 600)
     end)
   end,
 
@@ -196,7 +196,7 @@ return {
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
       core.state_marker(event.proposal_id, "implementing", timeout_version),
-    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"))
     with_codex_runs({
       {
         run_id = "implement-live-past-deadline",
@@ -227,7 +227,7 @@ return {
       )))
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local ok, err, raised = run_timeout_expecting_failure(row, state, facts)
       t.eq(ok, false)
       t.is_true(tostring(err):find("github-devloop: timeout-redrive-stuck:", 1, true) ~= nil)
@@ -274,7 +274,7 @@ return {
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
       core.state_marker(event.proposal_id, "implementing", timeout_version),
-    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"))
     with_codex_runs({}, function()
       local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, facts.now_seconds)
       t.eq(eval.status, "actionable")
@@ -283,7 +283,7 @@ return {
       t.eq(eval.indeterminate, false)
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
     end)
@@ -326,7 +326,7 @@ return {
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
       core.state_marker(event.proposal_id, "implementing", timeout_version),
-    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"))
     local original = fkst.codex_runs
     fkst.codex_runs = function()
       error("synthetic codex_runs failure")
@@ -353,7 +353,7 @@ return {
       )))
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
       local failure_ok, failure_err, raised = run_timeout_expecting_failure(row, state, facts)
@@ -417,7 +417,7 @@ return {
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
       core.state_marker(event.proposal_id, "implementing", timeout_version),
-    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
+    }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"))
     with_codex_runs({
       {
         run_id = "implement-running-missing-deadline",
@@ -448,7 +448,7 @@ return {
       )))
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
       local ok, err, raised = run_timeout_expecting_failure(row, state, facts)
