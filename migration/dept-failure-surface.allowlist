@@ -10,6 +10,4 @@
 # scripts/check_repo_dept_failure_surface.py.
 #
 # `dead_letter` and `test_*` departments are structurally exempt by role and are not listed.
-archaudit.audit|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
-github-devloop-ops.ensure_repo|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
 integration-coverage-producer.produce|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
