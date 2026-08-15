@@ -10,7 +10,7 @@ local expected_states = {
   declined = { from_state = "declined", terminal = true, driving_queue = "none", budget_minutes = nil },
   dependency_wait = { from_state = "dependency_wait", terminal = false, driving_queue = "devloop_observe_redrive", budget_minutes = 525600 },
   ["impl-failed"] = { from_state = "impl-failed", terminal = false, driving_queue = "devloop_ready", budget_minutes = 1440 },
-  implementing = { from_state = "implementing", terminal = false, driving_queue = "devloop_ready", budget_minutes = 120 },
+  implementing = { from_state = "implementing", terminal = false, driving_queue = "devloop_ready", budget_minutes = 600 },
   merged = { from_state = "merged", terminal = true, driving_queue = "none", budget_minutes = nil },
   ready = { from_state = "ready", terminal = false, driving_queue = "devloop_ready", budget_minutes = 120 },
   thinking = { from_state = "thinking", terminal = false, driving_queue = "devloop_consensus_request", budget_minutes = 150 },

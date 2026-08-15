@@ -49,11 +49,11 @@
 
 **机械动作(每次发现自己误解/受骗——无论当场自查抓到、还是事后才知——按此入账)**:
 1. **入账**(一条 memory·账本一行):`我当时相信什么 · 真值是什么(指到源头) · 什么骗了我(骗术的形状) · 我最终怎么识破的`。指不到「真值源头」就先别宣称已识破。
-2. **导出机制避免——首选修原材料的产出方(producer·natural owner),读者侧检查只是 fallback**:先问「什么原材料骗了我?能否在它的**产出方**把它做成**本身不可误读**?」——在产出方修:让 `dogfood.sh board` 把 `marker-age`/freshness 渲染进每行(stale 项就不可能看着 flowing)、让日志产出方发结构化字段(不可 grep 碰撞)、让时间戳带显式单位(`MM:SS` 不可当 `HH:MM`)、让工具在部分成功时 fail-loud 而非打印乐观的 `Updating…`。**修产出方一次 = 保护所有下游 + 该骗术构造上不可能**。**只有当产出方不归我 / 一时修不动时(`git`、GitHub API 的 stdout 等外部器),才退而在读者侧加一个可机械执行的检查**(如「判同态跨轮项前显式算 `marker-age`;存在 ≠ 新鲜」)——读者侧检查是 band-aid,能上提到产出方就上提(接 WORTH GATE「直接改根因 > band-aid」)。无论哪侧,都**不是**「下次小心」(靠记忆必漂移),**而是**一个落地的机械动作。
+2. **导出机制避免——首选修原材料的产出方(producer·natural owner),读者侧检查只是 fallback**:先问「什么原材料骗了我?能否在它的**产出方**把它做成**本身不可误读**?」——在产出方修:让 board 渲染器把 `marker-age`/freshness 渲染进每行(stale 项就不可能看着 flowing)、让日志产出方发结构化字段(不可 grep 碰撞)、让时间戳带显式单位(`MM:SS` 不可当 `HH:MM`)、让工具在部分成功时 fail-loud 而非打印乐观的 `Updating…`。**修产出方一次 = 保护所有下游 + 该骗术构造上不可能**。**只有当产出方不归我 / 一时修不动时(`git`、GitHub API 的 stdout 等外部器),才退而在读者侧加一个可机械执行的检查**(如「判同态跨轮项前显式算 `marker-age`;存在 ≠ 新鲜」)——读者侧检查是 band-aid,能上提到产出方就上提(接 WORTH GATE「直接改根因 > band-aid」)。无论哪侧,都**不是**「下次小心」(靠记忆必漂移),**而是**一个落地的机械动作。
 3. **一次性 vs 一类**:一次性 → 入账 + 记住那个具体检查动作,修了走人;一类(三次法则 / 明显可泛化)→ 升成 conformance / review 透镜 / 引擎原语,让整类骗术**构造上不可再骗**(接「Harness 的本质:唯一写法 + 机械禁旁路」)。
 
 **账本(seed·本会话 + 历史;新受骗持续追加到 memory,复发成类的把 harness 蒸馏回此处)**:
-- **stale-marker 当 fresh**:把 #2687 冻结 5.5h 的 `08:59` markers 误读为「actively re-driven」——存在的 marker 被当成新鲜的。**根**:原材料(`board` 渲染)只显示 state 不显示 marker-age,把 freshness 信号吞了。**harness 首选(修产出方)**:`dogfood.sh board` 渲染器把 `marker-age`/freshness 渲染进每行,stale 项**不可能**显示成 flowing(接 sharpen-the-tools:board 吞 `awaiting-pr` 行事故 = 同一形状——修 board 而非绕 board)。**fallback(读者侧,产出方一时没修时)**:判「同态跨轮」项前显式算 `marker-age = now − last-marker-ts`;存在 ≠ 新鲜(接 detect-live-codex 的 freshness 教训)。
+- **stale-marker 当 fresh**:把 #2687 冻结 5.5h 的 `08:59` markers 误读为「actively re-driven」——存在的 marker 被当成新鲜的。**根**:原材料(`board` 渲染)只显示 state 不显示 marker-age,把 freshness 信号吞了。**harness 首选(修产出方)**:board 渲染器把 `marker-age`/freshness 渲染进每行,stale 项**不可能**显示成 flowing(接 sharpen-the-tools:board 吞 `awaiting-pr` 行事故 = 同一形状——修 board 而非绕 board)。**fallback(读者侧,产出方一时没修时)**:判「同态跨轮」项前显式算 `marker-age = now − last-marker-ts`;存在 ≠ 新鲜(接 detect-live-codex 的 freshness 教训)。
 - **假绿/部分信号臆断成功**(本会话新增):`git pull` 打印 `Updating dccecae5..267c2abf` 却被 stale `.git/index.lock` 挡下**没真 ff**,我差点信「已更新」——`grep` 实际文件才发现没生效。**根**:`git` 的 stdout 乐观(打印意图行后才失败),原材料误导。**harness**:产出方(`git`)不归我修 → 读者侧 fallback:改文件类动作后**核实末态**(`grep`/`rev-parse HEAD`)而非信中间「意图」输出;`EXIT`/末态 > stdout 叙事(接实事求是门③「反证优先」)。
 - **plausible 前提当已核实**:先信「intake 误判 sound issue」→再信「decline 丢了 framing」,两次被合理叙事骗到差点 file/实现,均由源头核实推翻。**harness**:任何**驱动动作**(file / 实现 / 归因 / 喂下游)的前提,行动前必指到源头(fidelity/competence 门);越是推动我行动的前提,越要先核实。
 - **单位/字段误读**(历史):`MM:SS` 当 `HH:MM`、`elapsed_ms=429` 当 HTTP 429、`delivery_id` 段当 dedup。**harness**:一个值用前先验单位与含义;一个值出现 ≠ 它是我以为的那个含义。
@@ -158,7 +158,7 @@
 **做事·法自然**
 - **不以规矩，不能成方圆**——再聪明的单点不靠规矩也画不圆（第 13 条）；先立规矩后处理实例（第 18 条）；规矩随方圆生长而加固，但加固必走贵路（τ 成本），无后门（第 21 条）。〔元准则〕
 - **欲速则不达**——诚实 > 速度；打地鼠欲速反慢（第 1 条 + deferred cost 10-100×）。〔软〕
-- **工欲善其事，必先利其器**——先利器后做事（即本仓「sharpen-the-tools」：`dogfood.sh` 一器一门、本地＝CI 同一器、器坏优先修、用器看征不看愿）。〔软 + 半硬〕
+- **工欲善其事，必先利其器**——先利器后做事（即本仓「sharpen-the-tools」：各自然所有者的既有规范入口一器一门、本地＝CI 同一器、器坏优先修、用器看征不看愿）。〔软 + 半硬〕
 - **磨刀不误砍柴工**——器坏即修优先于赶路，器之 bug 是最高优先级尸检对象，修器走同一门无免费捷径（第 17/20 条）。〔软〕
 - **过犹不及**——门只设会说谎处，不过度门控、不镀金（即 WORTH GATE「贵的气味」）。〔软〕
 - **大道至简**——唯一真源、规范最简形、删无可删（第 6 条 + 程序/数据递归）。〔软 + 硬投影·G-DEDUP/单一真源 helper〕
@@ -295,23 +295,22 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 
 ## 随时可重启 supervise（crash-only restart contract）
 
-**部署即重启、随时可重启：`supervise` 必须能在任何时刻被 SIGKILL + 重启而不丢工作、不造成永久停滞。** 这是 crash-only software（Candea & Fox，见上一节）的硬契约，不是「尽量」。系统不做 drain / 优雅关停 / 在途排空；恢复靠两条既有机制：① **durable 投递**（redb at-least-once + lease/fencing + retry）让在途事件重启后续投；② **从 marker / git / 外部源回源 re-derive**（真相不在内存态）让任何中间态被重新推导、重驱。**重启只换掉 supervise 这一个进程；framework 部门进程与在途 codex 都不重启、不被杀（进程树实测，2026-08-02）。** 终止只发生在**一处**，且是 **`kill -9 <单个 pid>`**，不是 `kill -- -<pgid>`、不是进程树杀。完整调用链（2026-08-02 逐文件核实；早前本节写「`dogfood.sh` 的 `stop_one()` 执行 kill」是**错路径**，`stop_one` 只在缺 durable pidfile 时作迁移桥接跑）：
+**部署即重启、随时可重启：`supervise` 必须能在任何时刻被 SIGKILL + 重启而不丢工作、不造成永久停滞。** 这是 crash-only software（Candea & Fox，见上一节）的硬契约，不是「尽量」。系统不做 drain / 优雅关停 / 在途排空；恢复靠两条既有机制：① **durable 投递**（redb at-least-once + lease/fencing + retry）让在途事件重启后续投；② **从 marker / git / 外部源回源 re-derive**（真相不在内存态）让任何中间态被重新推导、重驱。**重启只换掉 supervise 这一个进程；framework 部门进程与在途 codex 都不重启、不被杀（进程树实测，2026-08-02）。** 终止只发生在**一处**，且是 **`kill -9 <单个 pid>`**，不是 `kill -- -<pgid>`、不是进程树杀。当前完整调用链（2026-08-15 逐文件核实）：
 
 ```
-dogfood.sh sync → restart_one(:585) → launch_with_lock_retry(…,1) → launch_one(:491)
-   args=( $PKGSRC/scripts/run.sh supervise … ) + --restart          (:498/:507)
-   → scripts/run.sh → scripts/host_run.sh  --restart ⇒ HOST_RUN_RESTART=1   (host_run.sh:371)
-       → kill -9 "$pid"      ← 唯一的终止动作，pid 取自 durable pidfile     (host_run.sh:549)
-       → 轮询至多 50 次确认它真死，再删 pidfile                              (:553)
-   → 新 supervise 等 redb 锁释放，最多 5 次退避重试                    (dogfood.sh:559)
+scripts/run.sh supervise --restart
+   → cmd_supervise → host_run_supervise_contract            (scripts/run.sh:713; host_run.sh:683)
+      → host_run_restart_prior                               (host_run.sh:698,622)
+         → host_run_kill_supervise_pid                       (host_run.sh:634,598)
+            → kill -9 "$pid"                                 (host_run.sh:606)
 ```
 
-**两道等待是刻意的**：先确认旧进程真死再删 pidfile，再让新进程等锁——所以不会出现两个 supervise 抢同一 durable root。另外每次启动都以 `os.setsid()` 让 supervise 成为自己的 session/进程组 leader 并验 `PGID == PID`（打印 `own-pgroup=yes`）：注释记载实测过它曾留在**启动者的进程组**里、会被 `kill -- -<pgid>` 这类组信号误杀——这反证了组杀确实会伤及整棵树，而当前设计刻意不用组杀。
+**等待与占位是刻意的**：先轮询确认旧进程真死再删 pidfile（`host_run.sh:610-617`），再由 `host_run_claim_supervise_slot` 在 exec 前占据 pidfile（`:726`）——所以不会出现两个 supervise 抢同一 durable root。
 
 而 supervise 之下有**四层**，实测形态：
 
 ```
-supervise                    fkst-framework supervise --project-root …      (ppid=1，session leader)
+supervise                    fkst-framework supervise --project-root …
   └─ department-child        fkst-framework run <pkg>/<dept>                ← 「framework」在跑的就是这一层
       └─ codex worker        fkst-framework __codex-worker --host-root …
           └─ codex           node …/codex exec …  → codex 原生子进程
@@ -321,7 +320,7 @@ SIGKILL 不向下传播，所以这四层里**只有第一层没了**：departme
 
 **而且这一跳丢了不要紧，这是刻意的设计而非缺陷**：raise 只承载**派生信号**（`derived-only`），`Durable intent goes through filesystem`——真正必须活下来的东西根本不走 raise，而是走文件系统 / marker / git。加上 level-triggered 从源 re-derive 与 liveness sweep 兜底，丢掉的派生信号会被重新推导出来。**所以别把「重启丢消息」当成风险去规避（不重启、攒批次）——它既罕见又已被架构吸收。** 实证（2026-08-02，#3044）：09:08 重启 orphan 了它的 implement codex，codex `exit_code=0` 跑满 63.2 分钟、worktree 完好、产物俱在，丢的只有 harvest 那一次 raise；liveness sweep 于 10:54 / 11:04 两次重驱后，同一份工作在 11:37 正常发布成 PR#3053——**丢一条派生信号，代价是几十分钟的重驱延迟，不是工作丢失。**新 supervise 从 marker re-derive、按 live-defer 心跳变陈**重驱**同血统 codex——orphan 存活 + 重驱可形成**短暂 double-spawn**（#1101 类），由 version-CAS + dedup marker 幂等收口。所有工作幂等、可重入。**纠错（2026-06-19，user-as-oracle）：「重启杀掉在途 codex」是错的——codex 不被杀，只是 orphan；以前这么说/这么写都属误判。** 重启因此是**无害的常规运营动作**（部署新代码、清运行态、换 BIN），随时可做，不需攒批次、不需等"安全窗口"。
 
-**「重启不影响 codex 执行」是已两次实证的机械事实——写任何 restart 叙事之前先逐条过这四条，不许凭感觉推翻：**① SIGKILL 只达 supervise **这一个 pid**（唯一终止点是 `scripts/host_run.sh:549` 的 `kill -9 "$pid"`，pid 取自 durable pidfile；非进程组/进程树杀）；它下面的 framework 部门进程（`fkst-framework run <pkg>/<dept>`）、codex worker、codex 及其子进程**一个都不重启、不被杀，orphan 后继续执行到完成**（进程树实测 2026-08-02；早期实证 2026-06-19）。② 新 supervise 的 liveness 探针**跨代看得见**旧 runtime root 下的活 orphan 并正确 live-defer——不误判 `codex-run-not-running`、不 double-spawn（实证 2026-07-06：重启后对该 strand 零 timeout-attempt）。③ codex 的产出 = **git push，durable**——重启永远丢不掉一个真正产出的修复；可能丢的只有 completion envelope（#1101 类），由 push 回源重导自愈。④ 因此「重启后无进展」唯一合法的问题是「**那一跑 codex 为什么没有产出 push**」，永远不是「重启影响了它」。实证（2026-07-06）：操作者再犯此归因（把 PR#1908 的 fixing 慢归咎于小时级部署重启），被用户点破；核查确认 ①②③ 全部成立，且错误叙事已污染一个 filed issue（#1918，当日更正）——这就是本清单存在的原因。
+**「重启不影响 codex 执行」是已两次实证的机械事实——写任何 restart 叙事之前先逐条过这四条，不许凭感觉推翻：**① SIGKILL 只达 supervise **这一个 pid**（唯一终止点是 `scripts/host_run.sh:606` 的 `kill -9 "$pid"`，pid 取自 durable pidfile；非进程组/进程树杀）；它下面的 framework 部门进程（`fkst-framework run <pkg>/<dept>`）、codex worker、codex 及其子进程**一个都不重启、不被杀，orphan 后继续执行到完成**（进程树实测 2026-08-02；早期实证 2026-06-19）。② 新 supervise 的 liveness 探针**跨代看得见**旧 runtime root 下的活 orphan 并正确 live-defer——不误判 `codex-run-not-running`、不 double-spawn（实证 2026-07-06：重启后对该 strand 零 timeout-attempt）。③ codex 的产出 = **git push，durable**——重启永远丢不掉一个真正产出的修复；可能丢的只有 completion envelope（#1101 类），由 push 回源重导自愈。④ 因此「重启后无进展」唯一合法的问题是「**那一跑 codex 为什么没有产出 push**」，永远不是「重启影响了它」。实证（2026-07-06）：操作者再犯此归因（把 PR#1908 的 fixing 慢归咎于小时级部署重启），被用户点破；核查确认 ①②③ 全部成立，且错误叙事已污染一个 filed issue（#1918，当日更正）——这就是本清单存在的原因。
 
 **铁律：重启永不作为问题的解释。** 看到重启后某 strand 没进展时，**默认归因不是「重启 churn 掉了它」**——这是违背本契约的偷懒归因，会掩盖真缺陷（活性盲区）。crash-only 下重启理应被 durable + re-derive 吸收；若重启**确实**导致永久丢失/停滞，那必然是一个**活性契约缺陷**（durable 没续投、re-derive 没重导、或「心跳变陈 → re-spawn」链断了），要 root-cause + 提 issue，绝不用「重启影响了它」搪塞，也绝不为「避免 churn」去不重启 / 攒批次（那让进程长跑陈旧代码，反害——见 dogfood「立即重启别攒批次」）。运营随时重启；把工作活下来是**系统的责任**，不是运营的小心翼翼。实证（2026-06-17）：误把一个 fixing-loop 停滞甩锅给「我反复 restart churn 掉 fix codex」，实查发现重启后 fix codex 已被正常 re-spawn（crash-only 生效），真信号是另一处 marker-visibility version-desync——偷懒归因差点掩盖真缺陷。
 
@@ -457,9 +456,9 @@ dogfood 中发现**运行的系统在流血**（storm / 资源耗尽 / churn / �
 
 ## 工欲善其事，必先利其器：先磨器，再做事（sharpen-the-tools·统一 harness/工具家族·非新增第 N 条）
 
-**「工欲善其事，必先利其器」（论语·卫灵公）——这条不是新加的第 N 条纪律，是本文件整个 harness / 工具家族的古典名字，也正是用户反复申明的理想的结晶：把「器」磨利，「事」才最简。** 「器」= 让工作又快又对又可重复的**工具与约束**：framework 的稳定公共层、harness / conformance ratchet、`dogfood.sh` 多用途 operator 工具、board / doctor / observe 诊断面、`check_repo*` 机械门、sshx / nyxid oracle 推理通道、整个测试系统。「事」= 真正的业务：驱 issue、修缺陷、写功能、写 Lua 行为层。用户的理想「Lua 脚本用最简单无重复的代码表达业务、框架把公共部分做好做稳定」一句话就是**利其器 → 善其事**：器越利（框架/harness 越稳越通用），事越简（业务 Lua 越薄越显然）。所以「先找 harness 再执行」「Harness 的本质：唯一写法」「信任契约·框架做稳定公共部分」「持续完善测试系统 / harness」「通用原语 > 枚举」全是这条的不同面——本节只给它们一个统一的名字与**行动姿态**。
+**「工欲善其事，必先利其器」（论语·卫灵公）——这条不是新加的第 N 条纪律，是本文件整个 harness / 工具家族的古典名字，也正是用户反复申明的理想的结晶：把「器」磨利，「事」才最简。** 「器」= 让工作又快又对又可重复的**工具与约束**：framework 的稳定公共层、harness / conformance ratchet、`scripts/run.sh` 的 repo-level check/test/supervise 规范入口、board / doctor / observe 诊断面、`check_repo*` 机械门、sshx / nyxid oracle 推理通道、整个测试系统。「事」= 真正的业务：驱 issue、修缺陷、写功能、写 Lua 行为层。用户的理想「Lua 脚本用最简单无重复的代码表达业务、框架把公共部分做好做稳定」一句话就是**利其器 → 善其事**：器越利（框架/harness 越稳越通用），事越简（业务 Lua 越薄越显然）。所以「先找 harness 再执行」「Harness 的本质：唯一写法」「信任契约·框架做稳定公共部分」「持续完善测试系统 / harness」「通用原语 > 枚举」全是这条的不同面——本节只给它们一个统一的名字与**行动姿态**。
 
-**行动姿态（这条独有、其余 harness 节没明说的那一半）：事做得钝、痛、重复、易错时，默认反应是「先停下磨这把器」，不是拿钝器硬磨。** 一个操作反复手写 ad-hoc bash、一个诊断每次靠记忆拼命令、一个失败形态肉眼 review 才抓得到、一个真相被工具静默丢掉——这些都是「器钝了」的信号，正解是**投资那把器**（把重复操作收进 `dogfood.sh` 的一个子命令、把诊断做成一次干净调用、把「只有对抗 review 抓得到的」升成 conformance / ratchet 机械门、把丢真相的渲染补成 expose-not-swallow），让**下一次以及第 N 次**都受益；而不是这一次咬牙用钝器磨过去、把痛苦留给下一次。实证（本会话 2026-07-14）：operator board 对未枚举状态静默 `return 1 + || continue`，把所有 `awaiting-pr` 行整行吞掉——一个**钝了的观察器**在一个 liveness-blind 状态之上又叠一层盲；正解不是「这次手工 `gh` 查一遍绕过」，是**磨利那把器**（board 显式渲染 awaiting-pr + 未知状态兜底为可见行），于是被它藏了 43h 的真缺陷（#2276 landed-gate）当场暴露、后续每次唤醒都自动可见。磨器一次，受益每次——这就是「必先利其器」在自驱运营里的落地。
+**行动姿态（这条独有、其余 harness 节没明说的那一半）：事做得钝、痛、重复、易错时，默认反应是「先停下磨这把器」，不是拿钝器硬磨。** 一个操作反复手写 ad-hoc bash、一个诊断每次靠记忆拼命令、一个失败形态肉眼 review 才抓得到、一个真相被工具静默丢掉——这些都是「器钝了」的信号，正解是**投资那把器**（把重复操作收进其自然所有者的既有规范入口、把诊断做成一次干净调用、把「只有对抗 review 抓得到的」升成 conformance / ratchet 机械门、把丢真相的渲染补成 expose-not-swallow），让**下一次以及第 N 次**都受益；而不是这一次咬牙用钝器磨过去、把痛苦留给下一次。实证（本会话 2026-07-14）：operator board 对未枚举状态静默 `return 1 + || continue`，把所有 `awaiting-pr` 行整行吞掉——一个**钝了的观察器**在一个 liveness-blind 状态之上又叠一层盲；正解不是「这次手工 `gh` 查一遍绕过」，是**磨利那把器**（board 显式渲染 awaiting-pr + 未知状态兜底为可见行），于是被它藏了 43h 的真缺陷（#2276 landed-gate）当场暴露、后续每次唤醒都自动可见。磨器一次，受益每次——这就是「必先利其器」在自驱运营里的落地。
 
 **边界（利其器 ≠ 镀金造器，与 WORTH GATE / 三次法则 / 模式服务当前问题一致）**：磨的是**当前的事真正需要、且钝已被证据坐实**的那把器（重复出现、痛点可指、收益可证——三次法则），不是为「以后可能」提前造投机工具、也不是把一次性小操作包装成华丽引擎。为没出现的重复造器 = gold-plating，和拿钝器硬磨同为病；器要**配得上事**（proportional-containment / 值不值）。且「磨器」本身照走全部纪律：operator 工具改动也在 worktree 里经 PR + CI 落地（不手改 pinned checkout），引擎级的器归 fkst-substrate，包级的器守包边界。⟦AI:FKST⟧
 

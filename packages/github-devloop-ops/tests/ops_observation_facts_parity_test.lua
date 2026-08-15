@@ -62,8 +62,8 @@ local over_doctor_golden = {
     suggested = "inspect devloop_ready delivery and re-run observe/liveness",
   },
   implementing = {
-    budget_minutes = 120,
-    reason = "state age 121m exceeds 120m liveness budget for devloop_ready",
+    budget_minutes = 600,
+    reason = "state age 601m exceeds 600m liveness budget for devloop_ready",
     suggested = "inspect devloop_ready delivery and re-run observe/liveness",
   },
   ready = {
@@ -91,9 +91,9 @@ local state_gap_golden = {
   { state = "impl-failed", to_state = "thinking", to_created_at = "2026-01-01T19:11:59Z", status = "within-budget", budget_seconds = 86400 },
   { state = "impl-failed", to_state = "thinking", to_created_at = "2026-01-01T19:12:00Z", status = "near-budget", budget_seconds = 86400 },
   { state = "impl-failed", to_state = "thinking", to_created_at = "2026-01-02T00:00:01Z", status = "over-budget", budget_seconds = 86400 },
-  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T01:35:59Z", status = "within-budget", budget_seconds = 7200 },
-  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T01:36:00Z", status = "near-budget", budget_seconds = 7200 },
-  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T02:00:01Z", status = "over-budget", budget_seconds = 7200 },
+  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T07:59:59Z", status = "within-budget", budget_seconds = 36000 },
+  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T08:00:00Z", status = "near-budget", budget_seconds = 36000 },
+  { state = "implementing", to_state = "thinking", to_created_at = "2026-01-01T10:00:01Z", status = "over-budget", budget_seconds = 36000 },
   { state = "ready", to_state = "thinking", to_created_at = "2026-01-01T01:35:59Z", status = "within-budget", budget_seconds = 7200 },
   { state = "ready", to_state = "thinking", to_created_at = "2026-01-01T01:36:00Z", status = "near-budget", budget_seconds = 7200 },
   { state = "ready", to_state = "thinking", to_created_at = "2026-01-01T02:00:01Z", status = "over-budget", budget_seconds = 7200 },
