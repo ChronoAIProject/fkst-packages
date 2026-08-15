@@ -395,7 +395,7 @@ return {
       eval = m_rae.actionable_epoch_resolve(core, row, state, {
         proposal_id = event.proposal_id,
         current = { comments = { attempt_comment } },
-      }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
+      }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"))
     end)
     local comments = {
       timeout_state_comment("implementing", timeout_version, "2026-06-03T00:00:00Z"),
@@ -405,7 +405,7 @@ return {
     }
 
     mock_repo()
-    mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T03:00:00Z" } })
+    mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T11:00:00Z" } })
     h.mock_issue_implement({ "fkst-dev:enabled", "fkst-dev:implementing" }, comments)
     mock_empty_pr_list()
 
@@ -452,7 +452,7 @@ return {
       source_ref = event.source_ref,
       current = { comments = comments },
       fresh_current_state = state,
-      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z"),
     }
 
     with_codex_runs(function()
@@ -461,7 +461,7 @@ return {
       end
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local eval = facts.actionable_epoch_eval
       t.eq(eval.status, "actionable")
       t.eq(eval.signal.reason, "codex-runs-unavailable")

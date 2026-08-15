@@ -1,7 +1,7 @@
 local F = {
   schema = "restart-owner-observation-facts.v1",
   owner = "github-devloop",
-  source_rows_fingerprint = "7c084b64",
+  source_rows_fingerprint = "6305b761",
   states = {
     ["awaiting-pr"] = {
       from_state = "awaiting-pr",
@@ -37,7 +37,7 @@ local F = {
       from_state = "implementing",
       terminal = false,
       driving_queue = "devloop_ready",
-      budget_minutes = 120,
+      budget_minutes = 600,
     },
     merged = {
       from_state = "merged",
