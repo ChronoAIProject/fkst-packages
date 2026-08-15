@@ -324,3 +324,48 @@ by doubting the first, the third by reading an unrelated function. Nothing about
 suggests it terminated.
 
 ⟦AI:FKST⟧
+
+## When an `install(M)` call is removable, and when the same reasoning is destructive
+
+`install_m_calls` fell 23 -> 17 by removing six `require("devloop.logging").install(M)` calls whose
+packages read none of the four symbols it binds (#3834). The identical reasoning applied to
+`require("devloop.commands").install(M)` is **unsafe**, and the difference is worth stating because
+the naive analysis cannot see it.
+
+**The discriminator is not "does this package read the symbols". It is "does any library read them
+through the injected `M`".** A library function receives whichever package's table flows into it, so
+one unguarded read there makes the install mandatory for *every* composing package, no matter what
+that package's own files reference.
+
+| module | libraries reading its symbols via injected `M` | verdict |
+|---|---|---|
+| `devloop.logging` | **0** | six installs removed |
+| `devloop.commands` | **5 files**, two of them inside `libraries/devloop` itself | **not removable** |
+
+For `commands` the readers are `libraries/devloop/liveness_scan.lua:245,253`
+(`M.gh_issue_list_observe_opts`, `M.gh_pr_list_observe_opts`),
+`libraries/devloop/hidden_state_conformance/poll_fakes.lua`, plus `libraries/forge/git.lua`,
+`libraries/consensus/init.lua` and `libraries/testkit_internal/legacy_command_renderers.lua`. None is
+nil-guarded — the value is passed straight on as an argument — so a package that drops the install
+propagates `nil` down any path that reaches those functions. Proving a given package never reaches
+them is a call-graph question, not a grep question, so four apparently-dead installs
+(`github-devloop-decompose`, `github-devloop-intake`, `github-devloop-intake-default`,
+`fkst-substrate-ref-maintainer`) stay.
+
+**Two analyser blindnesses on the way here, both of which produced the destructive answer:**
+
+- **Delegation is invisible to an export scan.** `devloop.commands` binds nothing directly; its
+  `install` loops over six sub-installers (`support`, `validators`, `issue_reads`, `observe_lists`,
+  `prs`, `git_ops`). A scan for `M.x =` reported "module exports nothing" for all eight of its call
+  sites. Resolve the delegation list **from the source**, not from the sub-modules you happen to
+  remember — two of the six were ones I had never looked at.
+- **Same-name collisions dominate this repo.** `libraries/consensus/core.lua` defines its own
+  `error_class_from_message` and `log_error_fact`; `autochrono`, `consensus` and
+  `github-devloop-workflow` never compose devloop at all. Every name-matched reader analysis here
+  must first ask whether the file's table can even contain the symbol.
+
+So `install_m_calls` is not further reducible by this method. Lowering it requires giving those
+library functions the capability directly rather than reading it off the ambient table — a design
+change, not a sweep.
+
+⟦AI:FKST⟧
