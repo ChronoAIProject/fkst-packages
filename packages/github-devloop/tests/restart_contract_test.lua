@@ -455,6 +455,9 @@ return {
     local decision = core.liveness_timeout_decision(row, state, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
     t.eq(decision.action, "redrive")
     t.eq(decision.attempt, 1)
+    t.eq(decision.budget_minutes, row.budget.minutes)
+    t.eq(decision.resolver, "none")
+    t.eq(decision.verdict, "not-declared")
     t.eq(core.version_timeout_round(decision.version, "impl-failed"), 1)
     t.eq(transition_version.strip_suffixes(decision.version), transition_version.strip_suffixes(base))
     local over = {
@@ -643,8 +646,82 @@ return {
       local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
       t.eq(decision.action, "redrive")
       t.eq(decision.attempt, 4)
+      t.eq(decision.age_minutes, 180)
+      t.eq(decision.budget_minutes, 150)
+      t.eq(decision.resolver, "fkst.codex_runs")
+      t.eq(decision.verdict, "codex-run-running")
       t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
     end)
+  end,
+
+  test_timeout_redrive_log_carries_decision_facts_without_changing_behavior = function()
+    local row = table_by_state().thinking
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/timeout/thinking/3"
+    local state = {
+      state = "thinking",
+      version = version,
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local facts = {
+      proposal_id = state.proposal_id,
+      source_ref = source_ref,
+      current = { comments = {} },
+      fresh_current_state = state,
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+    }
+    local original_replay = replayer.replay_from_table_classified
+    local original_log_raise = devloop_logging.log_raise
+    local original_info = log.info
+    local logs = {}
+    replayer.replay_from_table_classified = function()
+      return { kind = "issued" }
+    end
+    devloop_logging.log_raise = function() end
+    log.info = function(message)
+      table.insert(logs, tostring(message))
+    end
+
+    local ok, err = pcall(function()
+      with_codex_runs({}, function()
+        local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+        t.eq(decision.action, "redrive")
+        t.eq(decision.attempt, 4)
+        t.eq(decision.age_minutes, 180)
+        t.eq(decision.version, transition_version.timeout_at(state.version, "thinking", 4))
+        t.eq(decision.budget_minutes, 150)
+        t.eq(decision.resolver, "fkst.codex_runs")
+        t.eq(decision.verdict, "codex-run-not-running")
+        t.eq(core.maybe_timeout_redrive_from_table("liveness_scan", {
+          repo = "owner/repo",
+          number = 42,
+          source_ref = source_ref,
+        }, state, row, facts), true)
+      end)
+    end)
+    replayer.replay_from_table_classified = original_replay
+    devloop_logging.log_raise = original_log_raise
+    log.info = original_info
+    if not ok then error(err, 0) end
+
+    local redrive_log = nil
+    local redrive_log_count = 0
+    for _, message in ipairs(logs) do
+      if message:find("outcome=timeout-redrive", 1, true) ~= nil then
+        redrive_log = message
+        redrive_log_count = redrive_log_count + 1
+      end
+    end
+    t.eq(redrive_log_count, 1)
+    t.is_true(redrive_log ~= nil)
+    t.is_true(redrive_log:find("proposal_id=" .. state.proposal_id, 1, true) ~= nil)
+    t.is_true(redrive_log:find("current_state=thinking", 1, true) ~= nil)
+    t.is_true(redrive_log:find("age_minutes=180", 1, true) ~= nil)
+    t.is_true(redrive_log:find("budget_minutes=150", 1, true) ~= nil)
+    t.is_true(redrive_log:find("resolver=fkst.codex_runs", 1, true) ~= nil)
+    t.is_true(redrive_log:find("verdict=codex-run-not-running", 1, true) ~= nil)
+    t.is_true(redrive_log:find("attempt=4", 1, true) ~= nil)
   end,
 
   test_stale_thinking_converge_round_redrives_never_reaching_blocked = function()
