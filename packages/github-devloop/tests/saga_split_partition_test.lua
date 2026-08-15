@@ -3,7 +3,7 @@ local m_builders = require("devloop.markers.builders")
 local core = h.core
 local t = h.t
 
-local contract = core.pr_partition_contract
+local contract = require("devloop.restart.issue.pr_partition_contract")
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function marker(state, version)
