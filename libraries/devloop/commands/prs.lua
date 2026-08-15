@@ -173,7 +173,7 @@ local validators = require("devloop.commands.validators")
   end
 
 function S.install(M)
-  for _, n in ipairs({"gh_issue_comment", "gh_pr_close", "gh_pr_comment", "gh_pr_create", "gh_pr_create_body", "gh_pr_diff", "gh_pr_diff_name_only", "gh_pr_list_board_digest", "gh_pr_list_freshness", "gh_pr_list_head", "gh_pr_list_head_base", "gh_pr_list_merge_queue", "gh_pr_list_recent_merged", "gh_pr_ready", "gh_pr_view_context", "gh_pr_view_fix", "gh_pr_view_fix_precheck", "gh_pr_view_freshness", "gh_pr_view_head", "gh_pr_view_observe", "gh_pr_view_origin"}) do M[n] = C[n] end
+  for _, n in ipairs({"gh_issue_comment", "gh_pr_comment", "gh_pr_create_body"}) do M[n] = C[n] end
 end
 C.install = S.install
 
