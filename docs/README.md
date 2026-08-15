@@ -12,7 +12,7 @@ Docs are split by audience:
   - [`user/github-devloop-dogfood-topology.md`](user/github-devloop-dogfood-topology.md) —
     reproduce the per-device `github-devloop` dogfood branch topology on another machine.
   - [`user/control-planes-and-host-repo-composition.md`](user/control-planes-and-host-repo-composition.md) —
-    the three control planes (product / host-run / dogfood-operator), how a host repo composes the
+    the two control planes (product / host-run), how a host repo composes the
     platform via `.fkst-*-ref` pins + `.fkst/local-packages/`, and host-repo conformance with zero rebuild.
   - [`user/global-host-profiles.md`](user/global-host-profiles.md) — XDG-style host-local
     environment profiles for no-repo-pollution FKST runs.

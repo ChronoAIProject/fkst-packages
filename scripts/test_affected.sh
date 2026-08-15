@@ -35,7 +35,6 @@ test_affected_is_root_config() {
 test_affected_requires_full_suite() {
   local path="$1"
   case "$path" in
-    .claude/skills/dogfood-github-devloop/*) return 0 ;;
     scripts/*|.github/*) return 0 ;;
     libraries/*/*|packages/*/*) return 1 ;;
   esac

@@ -1,33 +1,16 @@
 # Control planes & host-repo composition
 
-fkst-packages holds **three kinds of code**, cleanly separated and mechanically enforced. This doc is the
+fkst-packages holds **two structurally separated control planes**. This doc is the
 map: what each plane owns, how a **host repo** (e.g. fkst-website, or fkst-substrate running its own dogfood)
 composes the platform on its own content, and how a host repo gets the same **conformance** guarantees
 without rebuilding any infrastructure.
 
-## 1. The three control planes
+## 1. The two control planes
 
 | Plane | Lives in | Owns | Must NOT own |
 |---|---|---|---|
 | **PRODUCT** | `packages/`, `libraries/` | the platform itself: agent packages (the `github-devloop` trio + the rest), exact host-facing libraries (`contract` / `workflow` / `testkit`), and private implementation libraries (`workflow_internal` / `testkit_internal` / `forge` / `devloop`), targeting the engine ABI | how a host launches; multi-host orchestration |
 | **HOST-RUN contract** | `scripts/host_run.sh` (invoked via `scripts/run.sh supervise`) | ALL launch invariants for **one** host: BIN resolve + freshness rebuild, target `fkst.workspace.toml` package selection, trusted `--platform-root` provenance, runtime-scratch, `--durable-root` (mandatory, fail-closed — never defaulted), the 3-host-shape `--package-root` wiring, `FKST_GITHUB_WRITE` posture, pidfile-based `--restart` (kill -9 + verify-dead, refuses a 2nd supervise on the same durable root) | which hosts run; product logic |
-| **DOGFOOD-OPERATOR** | `.claude/skills/dogfood-github-devloop/dogfood.sh` | coordinating **N** hosts: per-machine config, run-checkout sync, `board` / `doctor` / `sync` / `stop`, the integration topology | how **one** host supervises itself — it **delegates** that to the host-run contract |
-
-**Keystone rule**: a single host MUST be runnable without `.claude/skills`. The dogfood operator coordinates
-many hosts but must not know how one supervises itself. So `dogfood.sh start/restart` **delegate** to
-`scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>"
---durable-root <path> [--restart]`; the operator constructs no `--package-root`, sets no `FKST_RUNTIME_ROOT`,
-and invokes no BIN directly.
-
-**Mechanically enforced** (so the boundary can't rot):
-- `scripts/check_repo_dogfood_boundary.py` — the operator's launch functions must delegate via
-  `scripts/run.sh supervise` and are forbidden from constructing `--package-root`, setting
-  `FKST_RUNTIME_ROOT`, or invoking BIN directly.
-- `scripts/host_run_equivalence_test.py` — a golden-master that regenerates the delegated launch for the
-  packages/substrate/website host shapes and asserts it matches a committed, machine-independent fixture
-  (the «refactoring-is-behavior-preserving» gate).
-
-(Landed: PR #1375 extract host-run contract + #1376 hermetic equivalence test; deployed + soak-validated.)
 
 ## 2. How a host repo composes the platform
 
@@ -131,17 +114,14 @@ path as the existing `github-devloop` platform instead of creating a second sour
                     ▲ launched by             │
                     │                         │
         HOST-RUN contract (host_run.sh)       │  ← how ONE host launches (all invariants)
-                    ▲ delegated to            │
+                    ▲ used by                 │
                     │                         │
-   DOGFOOD-OPERATOR (dogfood.sh) ─ coordinates N hosts, NO launch logic (ratchet-enforced)
-                                              │
    HOST REPO (fkst-website / substrate) ──────┘  ← composes the platform via workspace external_sources + lock
                                                     + .fkst/local-packages/, gets conformance via the
                                                     shared tiers with ZERO rebuilt infrastructure
 ```
 
-The separation is **complete and ratchet-guarded**: the operator can't dribble launch logic into itself, a
-single host runs without the operator skill, and a host repo composes + conforms to the platform without
-copying any of it.
+The separation is complete: HOST-RUN owns one host's launch invariants, while a host repo composes and
+conforms to the PRODUCT platform without copying any of it.
 
 ⟦AI:FKST⟧
