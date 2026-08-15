@@ -4,6 +4,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local conv_attempts = require("devloop.convergence.attempts")
 local contract_time = require("contract.time")
 local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
+local devloop_state = require("devloop.state")
 local C = {}
 
 local function comment_created_ms(M, comment)
@@ -494,25 +495,25 @@ function C.actionable_epoch_timeout_attempt(M, row, state, facts)
     return math.max(
       current,
       conv_attempts.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0,
-      M.version_timeout_round(state and state.version, row and row.from_state) or 0
+      devloop_state.version_timeout_round(state and state.version, row and row.from_state) or 0
     )
   end
   if row and row.actionable_epoch and row.actionable_epoch.source == "codex_run:v1" then
     return math.max(
       current,
       conv_attempts.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0,
-      M.version_timeout_round(state and state.version, row and row.from_state) or 0
+      devloop_state.version_timeout_round(state and state.version, row and row.from_state) or 0
     )
   end
   if row and row.actionable_epoch and row.actionable_epoch.source == "child_workflow_wait:v1" then
     return math.max(
       current,
       conv_attempts.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0,
-      M.version_timeout_round(state and state.version, row and row.from_state) or 0
+      devloop_state.version_timeout_round(state and state.version, row and row.from_state) or 0
     )
   end
   if tostring(eval.generation_opened_by or ""):find("^state%-entry:v1:") then
-    return math.max(current, conv_attempts.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0, M.version_timeout_round(state and state.version, row and row.from_state) or 0)
+    return math.max(current, conv_attempts.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0, devloop_state.version_timeout_round(state and state.version, row and row.from_state) or 0)
   end
   return current
 end

@@ -227,9 +227,9 @@ return {
     t.eq(awaiting.marker_guard.expected.state, "awaiting-pr")
     t.eq(awaiting.marker_guard.expected.version, "awaiting-version")
 
-    t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "reviewing"), true)
-    t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "reviewing"), false)
-    t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing", "fkst-dev:pr-open" }, "reviewing"), false)
+    t.eq(devloop_state.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "reviewing"), true)
+    t.eq(devloop_state.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "reviewing"), false)
+    t.eq(devloop_state.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing", "fkst-dev:pr-open" }, "reviewing"), false)
     local reconcile = devloop_state.build_reconcile_state_label_request(
       "owner/repo",
       "42",
@@ -656,9 +656,9 @@ return {
   end,
   test_version_loop_round_extracts_loop_with_trailing_fix_suffix = function()
     local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-    t.eq(core.version_loop_round(base .. "/loop/2"), 2)
-    t.eq(core.version_loop_round(base .. "/loop/2/fix/1"), 2)
-    t.eq(core.version_loop_round(base .. "/fix/1"), 0)
+    t.eq(devloop_state.version_loop_round(base .. "/loop/2"), 2)
+    t.eq(devloop_state.version_loop_round(base .. "/loop/2/fix/1"), 2)
+    t.eq(devloop_state.version_loop_round(base .. "/fix/1"), 0)
   end,
 
   test_fixing_version_matches_link_normalized_lineage = function()

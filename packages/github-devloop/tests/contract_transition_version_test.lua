@@ -197,14 +197,14 @@ return {
   test_structured_round_getters_match_devloop_public_getters = function()
     for _, case in ipairs(version_shapes) do
       local parsed = transition_version.parse(case.value)
-      t.eq(transition_version.loop_round(parsed), core.version_loop_round(case.value))
+      t.eq(transition_version.loop_round(parsed), devloop_state.version_loop_round(case.value))
       t.eq(transition_version.fix_round(parsed), devloop_state.version_fix_round(case.value))
       t.eq(transition_version.review_loop_round(parsed), devloop_state.version_review_loop_round(case.value))
       t.eq(transition_version.review_meta_action_round(parsed), devloop_state.version_review_meta_action_round(case.value))
       t.eq(transition_version.ready_split_round(parsed), devloop_state.version_ready_split_round(case.value))
       t.eq(transition_version.reimplement_round(parsed), devloop_state.version_reimplement_round(case.value))
-      t.eq(transition_version.timeout_round(parsed, "reviewing"), core.version_timeout_round(case.value, "reviewing"))
-      t.eq(transition_version.timeout_round(parsed, "ready"), core.version_timeout_round(case.value, "ready"))
+      t.eq(transition_version.timeout_round(parsed, "reviewing"), devloop_state.version_timeout_round(case.value, "reviewing"))
+      t.eq(transition_version.timeout_round(parsed, "ready"), devloop_state.version_timeout_round(case.value, "ready"))
     end
   end,
 
@@ -229,7 +229,7 @@ return {
     t.eq(transition_version.render(parsed), version)
     t.eq(transition_version.loop_round(parsed), 2)
     t.eq(transition_version.fix_round(parsed), 1)
-    t.eq(core.version_loop_round(version), 2)
+    t.eq(devloop_state.version_loop_round(version), 2)
     t.eq(devloop_state.version_fix_round(version), 1)
   end,
 
