@@ -7,6 +7,7 @@ local m_facts = require("devloop.markers.facts")
 local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
 local m_mgw = require("devloop.merge_gate_wait")
 local m_rae = require("devloop.restart_actionable_epoch")
+local devloop_state = require("devloop.state")
 local S = {}
 local convergence_shared = require("devloop.convergence.shared")
 local forge_validators = require("devloop.forge_validators")
@@ -463,7 +464,7 @@ local function live_signal_age(M, row, state, facts, now_seconds)
   if resolver == "converge-round" then
     local source_ref = facts and facts.source_ref
     local sr_digest = convergence_shared.source_ref_digest(source_ref)
-    local base_version = M.version_loop_round(signal_version) > 0 and conv_rounds.converge_base_version(signal_version) or signal_version
+    local base_version = devloop_state.version_loop_round(signal_version) > 0 and conv_rounds.converge_base_version(signal_version) or signal_version
     return newest_matching_marker_age(M, comments, "converge-round", function(marker)
       return marker_attr(marker, "proposal") == tostring(proposal_id)
         and marker_attr(marker, "version") == tostring(base_version)

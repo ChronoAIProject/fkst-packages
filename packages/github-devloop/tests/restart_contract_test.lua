@@ -459,7 +459,7 @@ return {
     t.eq(decision.budget_minutes, row.budget.minutes)
     t.eq(decision.resolver, "none")
     t.eq(decision.verdict, "not-declared")
-    t.eq(core.version_timeout_round(decision.version, "impl-failed"), 1)
+    t.eq(devloop_state.version_timeout_round(decision.version, "impl-failed"), 1)
     t.eq(transition_version.strip_suffixes(decision.version), transition_version.strip_suffixes(base))
     local over = {
       state = "impl-failed",
@@ -474,7 +474,7 @@ return {
     local redriven = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
     t.eq(redriven.action, "redrive")
     t.eq(redriven.attempt, 4)
-    t.eq(core.version_timeout_round(redriven.version, "impl-failed"), 4)
+    t.eq(devloop_state.version_timeout_round(redriven.version, "impl-failed"), 4)
     t.eq(transition_version.strip_suffixes(redriven.version), transition_version.strip_suffixes(base))
   end,
 
@@ -651,7 +651,7 @@ return {
       t.eq(decision.budget_minutes, 150)
       t.eq(decision.resolver, "fkst.codex_runs")
       t.eq(decision.verdict, "codex-run-running")
-      t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+      t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
     end)
   end,
 
@@ -757,7 +757,7 @@ return {
     -- redrives the next round instead of dropping to blocked.
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
-    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+    t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
   test_liveness_timeout_thinking_redrives_never_escalating_to_reconcile = function()
@@ -780,7 +780,7 @@ return {
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
     t.eq(decision.attempt, 4)
-    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+    t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
   test_restart_table_matches_state_graph_and_stage_rank = function()
