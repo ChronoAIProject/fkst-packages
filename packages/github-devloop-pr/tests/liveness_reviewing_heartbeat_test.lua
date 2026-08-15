@@ -5,6 +5,7 @@ local h = require("tests.devloop_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local conv_attempts = require("devloop.convergence.attempts")
 local requests_review = require("devloop.requests.review")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
@@ -419,6 +420,6 @@ return {
     t.eq(observed.exit_code, 0)
     local reviewing = h.find_causal_raise(observed, "devloop_reviewing")
     t.is_true(reviewing ~= nil)
-    t.eq(reviewing.payload.version, core.next_review_loop_version(version))
+    t.eq(reviewing.payload.version, devloop_state.next_review_loop_version(version))
   end,
 }

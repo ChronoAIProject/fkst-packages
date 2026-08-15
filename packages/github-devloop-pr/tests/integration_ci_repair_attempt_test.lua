@@ -3,6 +3,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local config = require("devloop.config")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local m_builders = require("devloop.markers.builders")
@@ -113,7 +114,7 @@ end
 
 local function mock_speculative_predecessor_drift(event, feedback_comments)
   local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-  local merge_ready_version = core._strip_latest_fix_version_suffix(event.version)
+  local merge_ready_version = devloop_state._strip_latest_fix_version_suffix(event.version)
   mock_bot_env()
   mock_real_write_env_reads()
   mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, feedback_comments, branch, event.version)
@@ -255,7 +256,7 @@ return {
     local ci_failure_key = "head:def456/checks:digest-0000000101"
     local event = fixing_at_round(config.max_fix_rounds(), { ci_failure_key = ci_failure_key })
     t.eq(event.repair_input, "ci-failure")
-    t.eq(core.version_fix_round(event.version), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(event.version), config.max_fix_rounds())
     local result = run_speculative_refix(event, speculative_feedback_comments(event, ci_failure_key), "fix-ci-refix-at-cap")
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex"), 0)
@@ -280,7 +281,7 @@ return {
     t.is_true(handoff ~= nil)
     t.eq(handoff.payload.handoff.repair_input, "ci-failure")
     -- exactly one admitted generation, monotonically advancing to the cap
-    t.eq(core.version_fix_round(handoff.payload.handoff.version), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(handoff.payload.handoff.version), config.max_fix_rounds())
     t.is_true(handoff.payload.handoff.ci_failure_key ~= ci_failure_key)
     t.is_true(handoff.payload.handoff.ci_failure_key:find("head:def456/checks:", 1, true) == 1)
     t.eq(find_attempt_fact(result), nil)
@@ -293,7 +294,7 @@ return {
     -- which terminates at the cap.
     local event = fixing_at_round(config.max_fix_rounds() + 2) -- no ci_failure_key => review-feedback
     t.eq(event.repair_input, "review-feedback")
-    t.is_true(core.version_fix_round(event.version) > config.max_fix_rounds())
+    t.is_true(devloop_state.version_fix_round(event.version) > config.max_fix_rounds())
     local result = run_speculative_refix(event, speculative_feedback_comments(event, nil), "fix-review-refix-over-cap")
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex"), 0)
@@ -301,7 +302,7 @@ return {
     t.is_true(handoff ~= nil)
     t.eq(handoff.payload.handoff.repair_input, "review-feedback")
     -- uncapped: advances past the cap, no terminal / attempt fact.
-    t.eq(core.version_fix_round(handoff.payload.handoff.version), core.version_fix_round(event.version) + 1)
+    t.eq(devloop_state.version_fix_round(handoff.payload.handoff.version), devloop_state.version_fix_round(event.version) + 1)
     t.eq(find_attempt_fact(result), nil)
   end,
 
@@ -353,7 +354,7 @@ return {
     })
     event.work_unit_key = payloads_builders.fixing_work_unit_key(event)
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
-    local merge_ready_version = core._strip_latest_fix_version_suffix(event.version)
+    local merge_ready_version = devloop_state._strip_latest_fix_version_suffix(event.version)
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     local merge_gate_marker = m_builders.merge_gate_marker(event.proposal_id,
       event.pr_number,
@@ -442,7 +443,7 @@ return {
 
     t.is_true(fact ~= nil)
     t.eq(fact.version, event.version)
-    t.eq(fact.fix_round, core.version_fix_round(event.version))
+    t.eq(fact.fix_round, devloop_state.version_fix_round(event.version))
     t.eq(fact.comment_created_at, created_at)
     t.is_true(request.body:find('version="' .. event.version .. '"', 1, true) ~= nil)
     t.is_true(request.body:find('work_unit_key="', 1, true) == nil)

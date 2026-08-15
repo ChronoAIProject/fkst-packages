@@ -9,6 +9,7 @@ local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -24,7 +25,7 @@ end
 
 local function fixing_event(version)
   local review_version = require("contract.transition_version").safe_version_segment(
-    core._strip_latest_fix_version_suffix(version)
+    devloop_state._strip_latest_fix_version_suffix(version)
   )
   local review_proposal_id = devloop_base.pr_review_proposal_id(
     "owner/repo",
@@ -253,7 +254,7 @@ return {
       first_request, "IC_no_new_head_below_cap_1", "no-new-head-below-cap-handoff")
     local advanced = find_raise(first_handoff, "devloop_review_meta").payload
     t.eq(advanced.version, core.next_fix_version(below_cap.version))
-    t.eq(core.version_fix_round(advanced.version), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(advanced.version), config.max_fix_rounds())
 
     h.mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(advanced.proposal_id, "review-meta", advanced.version),
@@ -269,7 +270,7 @@ return {
     )
     t.eq(meta_handoff.exit_code, 0)
     local at_cap = find_raise(meta_handoff, "devloop_fixing").payload
-    t.eq(core.version_fix_round(at_cap.version), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(at_cap.version), config.max_fix_rounds())
     t.eq(at_cap.review_dedup_key, advanced.review_dedup_key)
 
     local capped = run_no_new_head(

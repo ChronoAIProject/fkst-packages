@@ -198,7 +198,7 @@ return {
     for _, case in ipairs(version_shapes) do
       local parsed = transition_version.parse(case.value)
       t.eq(transition_version.loop_round(parsed), core.version_loop_round(case.value))
-      t.eq(transition_version.fix_round(parsed), core.version_fix_round(case.value))
+      t.eq(transition_version.fix_round(parsed), devloop_state.version_fix_round(case.value))
       t.eq(transition_version.review_loop_round(parsed), devloop_state.version_review_loop_round(case.value))
       t.eq(transition_version.review_meta_action_round(parsed), devloop_state.version_review_meta_action_round(case.value))
       t.eq(transition_version.ready_split_round(parsed), devloop_state.version_ready_split_round(case.value))
@@ -230,7 +230,7 @@ return {
     t.eq(transition_version.loop_round(parsed), 2)
     t.eq(transition_version.fix_round(parsed), 1)
     t.eq(core.version_loop_round(version), 2)
-    t.eq(core.version_fix_round(version), 1)
+    t.eq(devloop_state.version_fix_round(version), 1)
   end,
 
   test_max_timeout_round_uses_devloop_ordered_timeout_states = function()
@@ -299,7 +299,7 @@ return {
     )
 
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker(proposal_id, "awaiting-pr", ordering_base),
       core.state_marker(proposal_id, "blocked", first),
     }, proposal_id)
@@ -401,7 +401,7 @@ return {
 
     t.eq(core.next_fix_version(base .. "/loop/2"), base .. "/loop/2/fix/1")
     t.eq(core.next_fix_version(base .. "/loop/2/fix/1"), base .. "/loop/2/fix/1/fix/2")
-    t.eq(core.next_review_loop_version(base .. "/fix/2"), base .. "/fix/2/review-loop/1")
-    t.eq(core.next_review_meta_action_version(base .. "/review-loop/3"), base .. "/review-loop/3/review-meta-action/1")
+    t.eq(devloop_state.next_review_loop_version(base .. "/fix/2"), base .. "/fix/2/review-loop/1")
+    t.eq(devloop_state.next_review_meta_action_version(base .. "/review-loop/3"), base .. "/review-loop/3/review-meta-action/1")
   end,
 }

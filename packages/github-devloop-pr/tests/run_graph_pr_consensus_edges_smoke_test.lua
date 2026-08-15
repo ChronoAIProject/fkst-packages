@@ -8,6 +8,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
 local context_bundle = require("devloop.context_bundle")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -412,7 +413,7 @@ return {
   end,
 
   test_run_graph_owned_gapless_reject_recovers_through_liveness_replay = function()
-    local replay_version = core.next_review_loop_version(reviewed_version)
+    local replay_version = devloop_state.next_review_loop_version(reviewed_version)
     local replay_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, replay_version, reviewed_head_sha)
     mock_consensus_premise_refuted()
     local refused_trace = graph.run(

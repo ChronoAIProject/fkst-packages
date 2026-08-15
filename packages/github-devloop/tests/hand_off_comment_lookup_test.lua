@@ -1,5 +1,6 @@
 local h = require("tests.devloop_core_helpers")
 local payloads_predicates = require("devloop.payloads.predicates")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 local author_policy = require("testkit_internal.github_author_policy")
@@ -55,7 +56,7 @@ return {
     t.eq(reason, "verified")
     t.eq(state.state, "ready")
     t.eq(state.version, event_version)
-    t.eq(core.current_state({}, proposal_id).state, nil)
+    t.eq(devloop_state.current_state({}, proposal_id).state, nil)
   end,
 
   test_reviewing_hand_off_verifies_carried_comment_id_when_comment_list_is_stale = function()
@@ -81,7 +82,7 @@ return {
     t.eq(reason, "verified")
     t.eq(state.state, "reviewing")
     t.eq(state.version, version)
-    t.eq(core.current_state({}, proposal_id).state, nil)
+    t.eq(devloop_state.current_state({}, proposal_id).state, nil)
   end,
 
   test_hand_off_rejects_comment_id_mismatch = function()

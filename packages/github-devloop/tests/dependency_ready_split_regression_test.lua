@@ -209,7 +209,7 @@ local function state_comment_request(raises, to_state, to_version)
     if type(payload.body) ~= "string" then
       return false
     end
-    local projected = core.current_state({
+    local projected = devloop_state.current_state({
       trusted_comment("IC_projected_result", payload.body),
     }, proposal_id)
     return projected.state == to_state and projected.version == to_version

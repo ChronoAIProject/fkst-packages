@@ -1,4 +1,5 @@
 local fixture = require("tests.integration_liveness_scan_helpers")
+local devloop_state = require("devloop.state")
 local base_ids = fixture.base_ids
 local h = fixture.h
 local entity_lib = fixture.entity_lib
@@ -102,7 +103,7 @@ return {
       local proposal = base_ids.proposal_id(repo, number)
       local comments = { { body = h.state_comment(proposal, state, fresh_version), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" } }
       if state == "implementing" then table.insert(comments, { body = core.implement_attempt_marker(proposal, fresh_version, 1, tostring(now() - 60)), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" }) end
-      mock_issue_state_number(number, { "fkst-dev:enabled", core.state_label(state) }, "OPEN", comments)
+      mock_issue_state_number(number, { "fkst-dev:enabled", devloop_state.state_label(state) }, "OPEN", comments)
       if row.terminal == false then
         if row.liveness_contract
           and row.liveness_contract.real_execution

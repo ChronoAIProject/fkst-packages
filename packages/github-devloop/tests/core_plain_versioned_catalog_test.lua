@@ -55,7 +55,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       h.projected_state_comment(proposal_id, "ready", version),
       core.state_marker(proposal_id, "thinking", version),
     }, proposal_id)
@@ -79,7 +79,7 @@ return {
 
     t.eq(catalog_versioned_status(current, { "thinking" }, "ready", consensus_version), "apply")
     t.eq(devloop_state.compare_state_marker_order(current, "ready", consensus_version), -1)
-    t.eq(core.current_state({
+    t.eq(devloop_state.current_state({
       core.state_marker("github-devloop/issue/owner/repo/42", "thinking", intake_version),
       h.projected_state_comment("github-devloop/issue/owner/repo/42", "ready", consensus_version),
     }, "github-devloop/issue/owner/repo/42").state, "ready")

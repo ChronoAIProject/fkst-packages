@@ -7,6 +7,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local requests_review = require("devloop.requests.review")
 local restart_edges = require("devloop.restart_edges")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -225,7 +226,7 @@ local function observe_base_unmanaged_self_heal()
   t.is_true(emitted ~= nil)
   local state = entity_lib.current_entity_state({ trusted_comment(emitted.payload.body) }, proposal_id)
   t.eq(state.state, "reviewing")
-  t.eq(state.version, core.next_review_loop_version(impl_version))
+  t.eq(state.version, devloop_state.next_review_loop_version(impl_version))
   return observed_edge(source.state, state.state, "state:v1", "current_entity_state")
 end
 

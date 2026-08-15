@@ -9,6 +9,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_attempts = require("devloop.convergence.attempts")
 local m_rae = require("devloop.restart_actionable_epoch")
 local dispatch_live_run = require("devloop.dispatch_live_run")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
@@ -203,7 +204,7 @@ local function ci_repair_hold_fixture(created_at)
   local state = fixing_state(event, nil, "2026-06-03T01:00:00Z")
   local row = restart_transition_row("fixing")
   local facts = timeout_facts(event, state, comments)
-  local delay_seconds = core.version_fix_round(state.version)
+  local delay_seconds = devloop_state.version_fix_round(state.version)
     * config.liveness_poll_cadence_seconds()
   local due_seconds = math.max(
     contract_time.iso_timestamp_epoch_seconds(state.marker_created_at),

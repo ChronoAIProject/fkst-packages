@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local transition_version = require("contract.transition_version")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -51,7 +52,7 @@ local function reject_marker(version, created_at)
       "github-devloop/issue/owner/repo/42",
       "reject",
       "consensus:" .. proposal_id .. "/review",
-      core.version_fix_round(version),
+      devloop_state.version_fix_round(version),
       "missing regression guard"
     ),
     created_at = created_at,
@@ -64,7 +65,7 @@ return {
     local event = reject_review_event(review_version)
     event.framing = "Raising bounds breaks the reliable payload proof."
     local fix_version = core.fix_version_from_review_version(review_version)
-    t.eq(core.version_fix_round(review_version), config.max_fix_rounds() - 1)
+    t.eq(devloop_state.version_fix_round(review_version), config.max_fix_rounds() - 1)
     mock_bot_env()
     mock_pr_origin({ origin_marker(reviewing().version) }, "devloop-owner-repo-42-01HY", "feedface")
     mock_issue_result({ "fkst-dev:reviewing" }, {
@@ -83,7 +84,7 @@ return {
     t.eq(find_raise(result.raises, "devloop_fix_reconcile"), nil)
     t.eq(label.payload.add_labels[1], "fkst-dev:fixing")
     t.is_true(comment.payload.body:find('state="fixing" version="' .. fix_version .. '"', 1, true) ~= nil)
-    t.is_true(comment.payload.body:find('fix_round="' .. tostring(core.version_fix_round(fix_version)) .. '"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('fix_round="' .. tostring(devloop_state.version_fix_round(fix_version)) .. '"', 1, true) ~= nil)
     t.eq(fixing.payload.version, fix_version)
     t.eq(fixing.payload.framing, event.framing)
   end,

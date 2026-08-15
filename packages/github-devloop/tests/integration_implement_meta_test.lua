@@ -1,4 +1,5 @@
 local fixture = require("tests.integration_implement_meta_helpers")
+local devloop_state = require("devloop.state")
 local entity_lib = fixture.entity_lib
 local h = fixture.h
 local forks = fixture.forks
@@ -205,7 +206,7 @@ return {
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment_raise.payload.body:find(forged, 1, true) == nil, true)
-    local current = core.current_state({ comment_raise.payload.body }, event.proposal_id)
+    local current = devloop_state.current_state({ comment_raise.payload.body }, event.proposal_id)
     t.eq(current.state, "impl-failed")
     t.eq(current.version, event.dedup_key)
   end,

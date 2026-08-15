@@ -247,7 +247,7 @@ local function fixing_payload(fixture)
   local review_proposal_id = base.review_proposal_id
   local review_dedup_key = base.review_dedup_key
   if fixture.max_fix_rounds then
-    local review_version = transition_version.safe_version_segment(core._strip_latest_fix_version_suffix(version))
+    local review_version = transition_version.safe_version_segment(devloop_state._strip_latest_fix_version_suffix(version))
     review_proposal_id = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, review_version, HEAD_SHA)
     review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
   end

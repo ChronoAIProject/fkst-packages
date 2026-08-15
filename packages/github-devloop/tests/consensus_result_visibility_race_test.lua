@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -106,7 +107,7 @@ return {
     local delivered = fold_by_engine_dedup({ applied.raises, raced.raises, acknowledged.raises })
     local labels = apply_label_requests({ "fkst-dev:thinking" }, delivered)
 
-    t.eq(core.current_state(bodies_for_comments(folded), approve.proposal_id).state, "ready")
+    t.eq(devloop_state.current_state(bodies_for_comments(folded), approve.proposal_id).state, "ready")
     t.eq(labels["fkst-dev:ready"], true)
     t.is_nil(labels["fkst-dev:declined"])
   end,

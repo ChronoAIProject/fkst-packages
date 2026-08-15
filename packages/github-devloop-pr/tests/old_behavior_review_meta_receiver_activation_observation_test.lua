@@ -151,7 +151,7 @@ local function capture(fixture)
   end
   if fixture.result_marker then
     table.insert(comments, m_builders.review_meta_marker(PROPOSAL_ID, event.payload.dedup_key, "block",
-      core.next_review_meta_action_version(event.payload.version)))
+      devloop_state.next_review_meta_action_version(event.payload.version)))
   end
   function ports.github.pr_cli_view(repo, number, fields, timeout)
     ra.record_write(ports.github_model, "pr_view", { repo = repo, number = number, fields = fields, timeout = timeout })
