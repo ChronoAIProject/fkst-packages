@@ -13,6 +13,7 @@
 -- (field 'is_state_label')` because install_state omitted is_state_label. This
 -- test guards the whole class of board-field omissions on the workflow core.
 local core = require("core")
+local devloop_state = require("devloop.state")
 local t = fkst.test
 
 -- Fields board.lua's board_digest_block calls on M. Keep in sync with the M.<field>
@@ -43,12 +44,12 @@ return {
   end,
 
   -- Exercise the exact crash path: board.lua's state_label() calls
-  -- core.is_state_label(label) to pick the lifecycle state label from an issue's
+  -- devloop_state.is_state_label(label) to pick the lifecycle state label from an issue's
   -- labels. It must classify a real state label and reject a non-state label.
   test_is_state_label_classifies_state_labels_on_workflow_core = function()
-    t.is_true(core.is_state_label("fkst-dev:thinking"))
-    t.is_true(core.is_state_label("fkst-dev:ready"))
-    t.is_true(not core.is_state_label("fkst-class:standard"))
-    t.is_true(not core.is_state_label("some-unrelated-label"))
+    t.is_true(devloop_state.is_state_label("fkst-dev:thinking"))
+    t.is_true(devloop_state.is_state_label("fkst-dev:ready"))
+    t.is_true(not devloop_state.is_state_label("fkst-class:standard"))
+    t.is_true(not devloop_state.is_state_label("some-unrelated-label"))
   end,
 }
