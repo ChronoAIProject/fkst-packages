@@ -198,7 +198,7 @@ return {
       proposal_id = event.proposal_id,
       marker_created_at = "2026-06-03T00:00:00Z",
     }
-    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     local pr_proposal = entity_lib.pr_proposal_id(repo, 7)
     local source_ref = entity_lib.issue_source_ref(repo, 42)
@@ -274,7 +274,7 @@ return {
       proposal_id = event.proposal_id,
       marker_created_at = "2026-06-03T00:00:00Z",
     }
-    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z")
     local pr_proposal = entity_lib.pr_proposal_id(repo, 7)
     local invalid_cases = {
       {
@@ -317,14 +317,14 @@ return {
           proposal_id = event.proposal_id,
           dedup_key = event.dedup_key,
           status = "running",
-          started_at = "2026-06-03T02:30:00Z",
+          started_at = "2026-06-03T10:30:00Z",
           timeout_seconds = 3600,
         },
       }, function()
         local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
         t.eq(receiver.action, "stuck", case.name)
         t.eq(receiver.reason, "row-budget-absolute-cap", case.name)
-        t.eq(receiver.age_minutes, 180, case.name)
+        t.eq(receiver.age_minutes, 660, case.name)
         local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, now_seconds)
         for round = 1, 2 do
           table.insert(comments, issue_comment(conv_attempts.timeout_attempt_v2_marker(

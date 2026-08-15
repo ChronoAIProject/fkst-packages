@@ -350,7 +350,7 @@ return {
       thinking = { mode = "live-defer", codex_run = true, role = "consensus", budget = 150 },
       dependency_wait = { mode = "live-defer", family = "dependency-wait", resolver = "dependency-hold", max_age = 525600, budget = 525600 },
       ready = { mode = "row-budget-bounds-receiver", receiver = 15, external = 0, budget = 120 },
-      implementing = { mode = "live-defer", codex_run = true, role = "implement", budget = 120 },
+      implementing = { mode = "live-defer", codex_run = true, role = "implement", budget = 600 },
       ["awaiting-pr"] = { mode = "live-defer", fact_dependency = "child-pr-dependency", budget = 259200 },
       ["impl-failed"] = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
       blocked = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },

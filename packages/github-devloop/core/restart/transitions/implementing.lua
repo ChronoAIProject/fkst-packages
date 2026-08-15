@@ -36,7 +36,16 @@ return function(M, h)
     liveness_class_id = "implementing.active",
     watchdog = {
       mode = "live-defer",
-      budget_ms = 120 * 60 * 1000,
+      -- The budget must cover a whole attempt, not just its codex. A live codex defers this row,
+      -- but the harvest verification that runs after the codex exits is not a codex run, so
+      -- fkst.codex_runs cannot see it and the row becomes actionable while the attempt is still
+      -- working. At 120 the budget expired mid-attempt and redrove, and because the worktree path
+      -- is deterministic per (repo, issue, impl_version) every redrive re-entered the SAME
+      -- directory: 16 implement passes and 26 concurrent suites were observed against 1 codex.
+      -- 600 = the implement codex timeout (300 minutes) plus one harvest verification, which is
+      -- bounded by that same role timeout. The red path that adds base probes can still exceed it;
+      -- redriving there is correct, and a timeout redrives rather than terminates.
+      budget_ms = 600 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
       },
@@ -63,11 +72,11 @@ return function(M, h)
         body = {
           actionable_epoch_source = "codex_run:v1",
           resolver = "fkst.codex_runs",
-          budget_minutes = 120,
+          budget_minutes = 600,
         },
       },
     },
-    budget = budget(120, "A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
+    budget = budget(600, "Covers one whole attempt: the implement codex plus the harvest verification that follows it, which is not a codex run and is therefore invisible to fkst.codex_runs. A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
     liveness_contract = liveness({
       mode = "live-defer",
       real_execution = {
