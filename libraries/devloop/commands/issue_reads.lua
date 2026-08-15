@@ -156,7 +156,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"gh_issue_list_decompose_children", "gh_issue_view", "gh_issue_view_implement"}) do M[n] = C[n] end
+  for _, n in ipairs({"gh_issue_list_decompose_children"}) do M[n] = C[n] end
 end
 C.install = S.install
 

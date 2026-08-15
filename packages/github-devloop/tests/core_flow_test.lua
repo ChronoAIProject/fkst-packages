@@ -13,6 +13,7 @@ local v_ready = require("devloop.validators.ready")
 local v_fixing = require("devloop.validators.fixing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
+local devloop_git_ops = require("devloop.commands.git_ops")
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
@@ -485,23 +486,23 @@ return {
     t.is_true(core.git_worktree_add_remote_branch_cmd(worktree_path, "origin", deterministic_branch, true):find("git worktree add --force -B", 1, true) ~= nil)
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
-    t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
-    local branch_worktrees = core.find_worktrees_for_branch(list, deterministic_branch)
+    t.eq(devloop_git_ops.find_worktree_for_branch(list, deterministic_branch), worktree_path)
+    local branch_worktrees = devloop_git_ops.find_worktrees_for_branch(list, deterministic_branch)
     t.eq(#branch_worktrees, 1)
     t.eq(branch_worktrees[1], worktree_path)
-    t.is_nil(core.find_worktree_for_branch(list, deterministic_branch .. "-other"))
+    t.is_nil(devloop_git_ops.find_worktree_for_branch(list, deterministic_branch .. "-other"))
     local stale_worktree_path = "/tmp/fkst-rt-old/worktrees/devloop-owner-repo-42-01HY"
     local stale_worktree_path_two = "/tmp/fkst-rt-old-two/worktrees/devloop-owner-repo-42-01HY"
     local current_root_list = "worktree " .. stale_worktree_path .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
       .. "worktree " .. stale_worktree_path_two .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
-    local all_branch_worktrees = core.find_worktrees_for_branch(current_root_list, deterministic_branch)
+    local all_branch_worktrees = devloop_git_ops.find_worktrees_for_branch(current_root_list, deterministic_branch)
     t.eq(#all_branch_worktrees, 3)
     t.eq(all_branch_worktrees[1], stale_worktree_path)
     t.eq(all_branch_worktrees[2], stale_worktree_path_two)
     t.eq(all_branch_worktrees[3], worktree_path)
-    t.eq(core.find_worktree_for_branch_under_root(current_root_list, deterministic_branch, implementation_root), worktree_path)
-    t.is_nil(core.find_worktree_for_branch_under_root(
+    t.eq(devloop_git_ops.find_worktree_for_branch_under_root(current_root_list, deterministic_branch, implementation_root), worktree_path)
+    t.is_nil(devloop_git_ops.find_worktree_for_branch_under_root(
       "worktree " .. stale_worktree_path .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n",
       deterministic_branch,
       implementation_root

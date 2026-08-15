@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_core_helpers")
+local devloop_state = require("devloop.state")
 local core = h.core
 local contract_time = require("contract.time")
 local devloop_logging = require("devloop.logging")
@@ -127,8 +128,8 @@ return {
         t.eq(has_value(row.to_states, "awaiting-pr"), row.from_state == "implementing", row.from_state)
       end
     end
-    t.eq(has_value(core.state_successors("implementing"), "awaiting-pr"), true)
-    t.eq(has_value(core.state_successors("implementing"), "pr-open"), false)
+    t.eq(has_value(devloop_state.state_successors("implementing"), "awaiting-pr"), true)
+    t.eq(has_value(devloop_state.state_successors("implementing"), "pr-open"), false)
   end,
 
   test_awaiting_pr_timeout_without_delegation_fails_loud_without_receipt = function()

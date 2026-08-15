@@ -1,4 +1,6 @@
 local h = require("tests.devloop_core_helpers")
+local devloop_git_ops = require("devloop.commands.git_ops")
+local devloop_issue_reads = require("devloop.commands.issue_reads")
 local core = h.core
 local t = h.t
 local sweep_bounds = require("devloop.sweep_bounds")
@@ -217,10 +219,10 @@ return {
 
   test_commands_helpers_execute_github_via_argv_adapter = function()
     local calls = with_exec_argv(function()
-      core.gh_issue_view_implement("owner/repo", 42, 31)
-      core.gh_issue_view("owner/repo", 43, "meta", 34)
-      core.gh_issue_view("owner/repo", 44, "title,state", 35)
-      core.gh_issue_view("owner/repo", 45, "state", 36)
+      devloop_issue_reads.gh_issue_view_implement("owner/repo", 42, 31)
+      devloop_issue_reads.gh_issue_view("owner/repo", 43, "meta", 34)
+      devloop_issue_reads.gh_issue_view("owner/repo", 44, "title,state", 35)
+      devloop_issue_reads.gh_issue_view("owner/repo", 45, "state", 36)
       github("commands_adapter_contract_test").gh_pr_merge("owner/repo", 7, "def456", 32)
       github("commands_adapter_contract_test").gh_check_run_rerequest("owner/repo", 123, 33)
     end)
@@ -298,10 +300,10 @@ return {
 
   test_commands_helpers_execute_git_via_argv_adapter = function()
     local calls = with_exec_argv(function()
-      core.git_status("/tmp/wt", 41)
-      core.git_branch_ahead_count("abc123", "feature/a", 42)
+      devloop_git_ops.git_status("/tmp/wt", 41)
+      devloop_git_ops.git_branch_ahead_count("abc123", "feature/a", 42)
       t.mock_command(core.mkdir_p_cmd("/tmp"), { stdout = "", stderr = "", exit_code = 0 })
-      core.git_worktree_add_remote_branch("/tmp/wt", "origin", "feature/a", true, 43)
+      devloop_git_ops.git_worktree_add_remote_branch("/tmp/wt", "origin", "feature/a", true, 43)
       core.git_push_branch("feature/a", 44)
     end)
 

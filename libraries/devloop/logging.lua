@@ -242,8 +242,6 @@ function S.install(M)
   M.wrap_pipeline_failure = C.wrap_pipeline_failure
   M.log_line = C.log_line
   M.log_entry = C.log_entry
-  M.payload_field = C.payload_field
-  M.log_codex_result = C.log_codex_result
 end
 
 C.install = S.install
