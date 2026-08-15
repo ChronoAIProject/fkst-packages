@@ -278,3 +278,49 @@ worktree in the mutated state once; committing from there would have shipped a m
 refactor.
 
 ⟦AI:FKST⟧
+
+## Correction: "the precondition is complete" was wrong, and the way it was wrong is the finding
+
+The sentence above — **"The precondition is complete and the extraction may begin"** — does not
+hold. It is corrected here rather than edited in place, because the shape of the error is worth
+more than the conclusion was.
+
+Two axes had been measured before that sentence was written. Both survived re-measurement:
+
+| axis | witness |
+|---|---|
+| input alias acceptance (`headRefOid` / `head_ref_oid`) | was zero, now four characterization tests |
+| output projection shape | already strong: deleting six `base_ref_name = ...` output lines reddens 42 tests |
+
+The second of those was measured *after* the claim, as a check on it, and it confirmed the claim.
+That is the trap: a claim that survives one additional check feels like a claim that has been
+verified, when all that happened is that the checker and the claimant enumerated the same list.
+
+A third axis exists, and it was found only by looking at a different function for an unrelated
+reason. `libraries/devloop/parsers/pr.lua` and `libraries/forge/github_view.lua` both normalize a
+repository name, and they disagree about **precedence**:
+
+- `forge.repo_name_with_owner` tries `full_name`, then `nameWithOwner`, then `owner.login/name`.
+- devloop's `repository_name_with_owner` tries `nameWithOwner`, then `name_with_owner`, then
+  `full_name`, and additionally accepts a bare string and a separate owner argument.
+
+Unifying them therefore requires choosing one order. Reordering devloop's to match forge's —
+exactly the edit a unification would make — leaves **2157 tests passing and none red**. Precedence
+has no witness at all. A unification would go green, look correct, and silently change which field
+wins whenever a payload carries more than one of them.
+
+So the extraction is not blocked by a missing test on the two axes that were measured; it is
+blocked by an axis that was never enumerated. The corrected statement is narrower and does not
+claim completeness:
+
+> Two axes are measured and guarded. A third, alias precedence, is measured and **unguarded**.
+> The size of the axis set is unknown.
+
+**The general lesson is about the form of the claim, not about parsers.** Declaring a precondition
+complete over a list of axes one enumerated oneself is not a measurement — it is a statement about
+one's own imagination, wearing the grammar of a result. The honest form names the axes checked and
+declines to bound the set. Every axis here was found by accident: the first by mutation, the second
+by doubting the first, the third by reading an unrelated function. Nothing about that sequence
+suggests it terminated.
+
+⟦AI:FKST⟧
