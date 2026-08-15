@@ -192,6 +192,7 @@ local function fire_raiser_child(body)
   return [=[
 local t = fkst.test
 local core = require("core")
+local devloop_state = require("devloop.state")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 gh_argv.install(t, core)
@@ -241,8 +242,8 @@ end
 local function mock_observability_empty_reads()
   t.mock_command(observe_issue_list_command(core._enabled_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
   t.mock_command(observe_issue_list_command(core._hold_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
-  for _, state in ipairs(core.lifecycle_state_order()) do
-    t.mock_command(observe_issue_list_command(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
+    t.mock_command(observe_issue_list_command(devloop_state.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command(core.gh_pr_list_observe_cmd("owner/repo", 1, true), { stdout = "[]\n", stderr = "", exit_code = 0 })
   t.mock_command(core.gh_pr_list_recent_merged_cmd("owner/repo", core.observability_limits().entity_cap), { stdout = "[]\n", stderr = "", exit_code = 0 })
