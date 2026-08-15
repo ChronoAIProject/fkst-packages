@@ -71,7 +71,7 @@ local function parse_timeout_seconds(env_name, raw)
 end
 
 local function resolved_role_timeout(role, dispatch_opts)
-  local default = role_timeout_defaults[role]
+  local default = M.default_role_timeout_seconds(role)
   if default == nil then
     error("workflow_internal.codex: timeout-role-unknown: unknown timeout role: " .. tostring(role))
   end
@@ -84,6 +84,10 @@ local function resolved_role_timeout(role, dispatch_opts)
     return parse_timeout_seconds(env_name, raw)
   end
   return default
+end
+
+function M.default_role_timeout_seconds(role)
+  return role_timeout_defaults[role]
 end
 
 -- The attempt budget for a role, for callers that must stay inside the same budget as the
