@@ -3,6 +3,7 @@ local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_core_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
+local devloop_logging = require("devloop.logging")
 local core = h.core
 local error_facts = require("contract.error_facts")
 local github_risk = require("devloop.github_risk")
@@ -194,7 +195,7 @@ return {
       end,
     }
 
-    core.log_codex_result(
+    devloop_logging.log_codex_result(
       "implement",
       "github-devloop/issue/owner/repo/42",
       "implement",

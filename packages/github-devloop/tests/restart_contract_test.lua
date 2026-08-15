@@ -796,7 +796,7 @@ return {
     }
     for state in pairs(devloop_state.lifecycle_state_set()) do
       if expected[state] then
-        local next_states = core.state_successors(state)
+        local next_states = devloop_state.state_successors(state)
         local row = by_state[state]
         t.is_true(row ~= nil)
         for _, next_state in ipairs(row.to_states) do

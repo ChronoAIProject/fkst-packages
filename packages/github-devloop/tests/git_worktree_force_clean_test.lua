@@ -1,4 +1,5 @@
 local h = require("tests.devloop_core_helpers")
+local devloop_git_ops = require("devloop.commands.git_ops")
 local core = h.core
 local t = h.t
 
@@ -67,7 +68,7 @@ return {
       remove_result = result(128, "fatal: not a working tree"),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     t.eq(actual.exit_code, 0)
     t.eq(count_calls("rm -rf --"), 1)
@@ -79,7 +80,7 @@ return {
       remove_result = result(128, "fatal: is not a working tree"),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     t.eq(actual.exit_code, 0)
     t.eq(count_calls("rm -rf --"), 1)
@@ -88,7 +89,7 @@ return {
   test_force_clean_removes_a_registered_worktree = function()
     mock_force_clean()
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     t.eq(actual.exit_code, 0)
     t.eq(count_calls("git worktree remove --force"), 1)
@@ -102,7 +103,7 @@ return {
       directory_result = result(1, "permission denied"),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     assert_failure(actual, "directory-remove", "permission denied")
     t.is_true(actual.stderr:find("git metadata is busy", 1, true) ~= nil)
@@ -115,7 +116,7 @@ return {
       prune_result = result(1, "prune lock failed"),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     assert_failure(actual, "prune", "prune lock failed")
     t.is_true(actual.stderr:find("git metadata is busy", 1, true) ~= nil)
@@ -126,7 +127,7 @@ return {
       path_result = result(0),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     assert_failure(actual, "postcondition", "path still exists")
     t.eq(count_calls("[ -L "), 1)
@@ -137,7 +138,7 @@ return {
       list_result = result(128, "worktree list lock failed"),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     assert_failure(actual, "registration-check", "worktree list lock failed")
   end,
@@ -148,7 +149,7 @@ return {
       list_result = result(0, "", worktree_list(worktree)),
     })
 
-    local actual = core.git_worktree_force_clean(worktree, 60)
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60)
 
     assert_failure(actual, "postcondition", "worktree is still registered")
     t.is_true(actual.stderr:find("git metadata is busy", 1, true) ~= nil)

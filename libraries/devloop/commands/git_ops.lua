@@ -449,7 +449,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_branch_ahead_count", "git_push_branch", "git_show_ref_branch", "git_status", "git_worktree_add_remote_branch", "git_worktree_force_clean", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
+  for _, n in ipairs({"git_push_branch", "git_show_ref_branch", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
 end
 C.install = S.install
 
