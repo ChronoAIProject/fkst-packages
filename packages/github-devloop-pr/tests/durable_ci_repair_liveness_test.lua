@@ -59,7 +59,7 @@ end
 
 return {
   test_legitimate_completion_after_fix_watchdog_is_not_poisoned = function()
-    local completed_at = "2026-06-03T03:30:00Z"
+    local completed_at = "2026-06-03T11:30:00Z"
     local state, row, facts, _, delay_seconds = hold_fixture(completed_at)
     local completed_seconds = contract_time.iso_timestamp_epoch_seconds(completed_at)
     local state_entry_seconds = math.max(
