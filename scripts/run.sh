@@ -178,6 +178,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_bot_login_mediation_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fanout_only_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_coverage_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_devloop_decouple_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_devloop_godlib_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_devloop_installer_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_integration_coverage_test.py"'
