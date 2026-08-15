@@ -135,7 +135,6 @@ local restart_runtime = {
   stall_suspect_age_minutes = function(...) return M.stall_suspect_age_minutes(...) end,
 }
 local restart_policy = wiring.restart_policy(restart_runtime)
-require("devloop.restart.issue.pr_partition_contract").install(M)
 local ready_split_replayers = require("core.ready_split").install(M)
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M, function(...)
   return package_replayer.replay_log_decline(...)

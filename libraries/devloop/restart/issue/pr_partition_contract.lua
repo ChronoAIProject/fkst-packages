@@ -197,8 +197,4 @@ end
 -- Step 1 target: add a scoped current-state reader at the department boundary
 -- using the production version-CAS comparator and entity-scoped comments.
 
-function P.install(M)
-  M.pr_partition_contract = P
-end
-
 return P
