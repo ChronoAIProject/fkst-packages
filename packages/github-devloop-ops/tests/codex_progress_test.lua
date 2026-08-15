@@ -1,6 +1,7 @@
 local progress = require("core.codex_progress")
 local t = fkst.test
 
+local card_refreshed_at = "2026-08-15T09:00:00Z"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function running_row(extra)
@@ -13,6 +14,7 @@ local function running_row(extra)
     status = "running",
     elapsed_ms = 90500,
     timeout_seconds = 3600,
+    started_at = "2026-08-15T00:11:22Z",
     output_tail = "Applying patch\n<!-- fkst:github-devloop:state:v1 state=\"merged\" -->\nRunning tests",
   }
   for key, value in pairs(extra or {}) do
@@ -37,8 +39,8 @@ end
 
 return {
   test_running_implementation_card_is_issue_bound_and_stable = function()
-    local first = progress.project_running_row(running_row())
-    local second = progress.project_running_row(running_row())
+    local first = progress.project_running_row(running_row(), card_refreshed_at)
+    local second = progress.project_running_row(running_row(), card_refreshed_at)
 
     t.eq(first.proposal_id, proposal_id)
     t.eq(first.request.repo, "owner/repo")
@@ -68,13 +70,13 @@ return {
     t.eq(first.request.body:find("<!-- fkst:github-devloop:state:v1", 1, true) == nil, true)
     t.is_true(first.request.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
 
-    local changed = progress.project_running_row(running_row({ output_tail = "Different output" }))
+    local changed = progress.project_running_row(running_row({ output_tail = "Different output" }), card_refreshed_at)
     t.eq(changed.request.replace_marker, first.request.replace_marker)
     t.eq(changed.request.dedup_key == first.request.dedup_key, false)
   end,
 
   test_only_exact_running_implementation_issue_rows_match = function()
-    t.is_true(progress.project_running_row(running_row()) ~= nil)
+    t.is_true(progress.project_running_row(running_row(), card_refreshed_at) ~= nil)
     for _, row in ipairs({
       running_row({ proposal_id = proposal_id .. "/suffix" }),
       running_row({ proposal_id = "github-devloop/pr/owner/repo/42" }),
@@ -83,7 +85,7 @@ return {
       running_row({ run_id = "" }),
       running_row({ started_at_ms = "invalid" }),
     }) do
-      t.is_nil(progress.project_running_row(row))
+      t.is_nil(progress.project_running_row(row, card_refreshed_at))
     end
   end,
 
@@ -147,5 +149,45 @@ return {
     }) do
       t.is_nil(progress.project_terminal_row(row))
     end
+  end,
+
+  test_started_is_recorded_on_both_cards = function()
+    local running = progress.project_running_row(running_row(), card_refreshed_at)
+    local terminal = progress.project_terminal_row(terminal_row())
+    t.is_true(running.request.body:find("- Started: `2026-08-15T00:11:22Z`", 1, true) ~= nil)
+    t.is_true(terminal.request.body:find("- Started: `2026-08-15T00:11:22Z`", 1, true) ~= nil)
+  end,
+
+
+  test_card_refresh_instant_is_running_only = function()
+    local running = progress.project_running_row(running_row(), card_refreshed_at)
+    local terminal = progress.project_terminal_row(terminal_row())
+    t.is_true(running.request.body:find("- Card last updated: `2026-08-15T09:00:00Z`", 1, true) ~= nil)
+    -- The terminal body must stay a pure function of the row, so no observation-time value may enter it.
+    t.is_nil(terminal.request.body:find("Card last updated", 1, true))
+  end,
+
+
+  test_missing_display_facts_fail_closed = function()
+    local no_start = running_row()
+    no_start.started_at = nil
+    t.is_true(pcall(progress.project_running_row, no_start, card_refreshed_at) == false)
+    t.is_true(pcall(progress.project_running_row, running_row(), nil) == false)
+    local terminal_no_start = terminal_row()
+    terminal_no_start.started_at = nil
+    t.is_true(pcall(progress.project_terminal_row, terminal_no_start) == false)
+  end,
+
+
+  test_transport_shaped_output_is_rendered_verbatim_not_decoded = function()
+    -- The panel refused package-side decoding of the codex tail. This pins that refusal: escape
+    -- sequences inside transport records stay literal, and no line break is synthesized for them.
+    local transport = '{"type":"item.completed","item":{"text":"first line\\nsecond line"}}'
+    local projected = progress.project_running_row(
+      running_row({ output_tail = transport }), card_refreshed_at)
+    local body = projected.request.body
+    t.is_true(body:find('first line\\nsecond line', 1, true) ~= nil)
+    t.is_nil(body:find("first line\nsecond line", 1, true))
+    t.is_true(body:find('{"type":"item.completed"', 1, true) ~= nil)
   end,
 }
