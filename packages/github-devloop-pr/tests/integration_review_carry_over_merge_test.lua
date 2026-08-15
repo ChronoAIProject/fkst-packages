@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -154,7 +155,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_review_loop_version(event.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, devloop_state.next_review_loop_version(event.version))
     t.eq(count_calls("git merge-tree --write-tree"), 0)
     t.eq(count_calls("gh pr merge"), 0)
   end,
@@ -173,7 +174,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_review_loop_version(event.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, devloop_state.next_review_loop_version(event.version))
     t.eq(count_calls("git merge-tree --write-tree"), 1)
     t.eq(count_calls("gh pr merge"), 0)
   end,

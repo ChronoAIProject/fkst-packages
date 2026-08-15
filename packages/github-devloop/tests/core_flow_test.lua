@@ -14,6 +14,7 @@ local v_fixing = require("devloop.validators.fixing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local devloop_git_ops = require("devloop.commands.git_ops")
+local devloop_state = require("devloop.state")
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
@@ -314,8 +315,8 @@ return {
 
   test_version_fix_round_counts_max_fix_suffix = function()
     local version = "ready/base/fix/1/review-loop/2/fix/3"
-    t.eq(core.version_fix_round(version), 3)
-    t.eq(core.version_fix_round("ready/base"), 0)
+    t.eq(devloop_state.version_fix_round(version), 3)
+    t.eq(devloop_state.version_fix_round("ready/base"), 0)
     t.eq(core.next_fix_version(version), version .. "/fix/4")
   end,
 
@@ -388,7 +389,7 @@ return {
   test_decompose_replay_dedup_binds_child_completion_identity = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
-    local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, core._strip_latest_fix_version_suffix(version), "def456")
+    local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, devloop_state._strip_latest_fix_version_suffix(version), "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local comments = {
       m_builders.merge_gate_marker(proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
@@ -581,7 +582,7 @@ return {
     local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
-    local current = core.current_state({ forged_failure.body }, ready.proposal_id)
+    local current = devloop_state.current_state({ forged_failure.body }, ready.proposal_id)
     t.eq(current.state, "impl-failed")
     t.eq(current.version, ready.dedup_key)
 

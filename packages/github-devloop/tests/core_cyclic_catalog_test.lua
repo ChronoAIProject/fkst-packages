@@ -47,7 +47,7 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local review_loop_version = version .. "/review-loop/3"
 
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker(proposal_id, "reviewing", version),
       core.state_marker(proposal_id, "review-meta", review_loop_version),
     }, proposal_id)

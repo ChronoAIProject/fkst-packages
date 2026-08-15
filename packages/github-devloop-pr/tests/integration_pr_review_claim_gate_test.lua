@@ -2,6 +2,7 @@ local m_claims = require("devloop.claims")
 local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -346,12 +347,12 @@ return {
       return payload.handoff ~= nil and payload.handoff.kind == "github-devloop.reviewing"
     end)
     t.is_true(reviewing_comment ~= nil)
-    t.eq(reviewing_comment.payload.handoff.version, core.next_review_loop_version(impl_version))
-    t.is_true(reviewing_comment.payload.body:find(core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", core.next_review_loop_version(impl_version)), 1, true) ~= nil)
+    t.eq(reviewing_comment.payload.handoff.version, devloop_state.next_review_loop_version(impl_version))
+    t.is_true(reviewing_comment.payload.body:find(core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", devloop_state.next_review_loop_version(impl_version)), 1, true) ~= nil)
 
     local reviewing_raise = h.find_causal_raise(second, "devloop_reviewing")
     t.is_true(reviewing_raise ~= nil)
-    t.eq(reviewing_raise.payload.version, core.next_review_loop_version(impl_version))
+    t.eq(reviewing_raise.payload.version, devloop_state.next_review_loop_version(impl_version))
   end,
 
   test_observe_pr_directly_self_heals_stranded_pr_base_unmanaged_block_with_cas_fact = function()
@@ -392,13 +393,13 @@ return {
       return payload.handoff ~= nil and payload.handoff.kind == "github-devloop.reviewing"
     end)
     t.is_true(reviewing_comment ~= nil)
-    t.eq(reviewing_comment.payload.handoff.version, core.next_review_loop_version(impl_version))
-    t.is_true(reviewing_comment.payload.body:find(core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", core.next_review_loop_version(impl_version)), 1, true) ~= nil)
+    t.eq(reviewing_comment.payload.handoff.version, devloop_state.next_review_loop_version(impl_version))
+    t.is_true(reviewing_comment.payload.body:find(core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", devloop_state.next_review_loop_version(impl_version)), 1, true) ~= nil)
     t.is_nil(reviewing_comment.payload.body:find("operator command accepted: rereview", 1, true))
 
     local reviewing_raise = h.find_causal_raise(result, "devloop_reviewing")
     t.is_true(reviewing_raise ~= nil)
-    t.eq(reviewing_raise.payload.version, core.next_review_loop_version(impl_version))
+    t.eq(reviewing_raise.payload.version, devloop_state.next_review_loop_version(impl_version))
   end,
 
   test_observe_pr_logs_stranded_pr_base_unmanaged_block_claim_skip_before_return = function()

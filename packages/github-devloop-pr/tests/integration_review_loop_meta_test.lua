@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local requests_review = require("devloop.requests.review")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -338,7 +339,7 @@ return {
 
   test_review_meta_fix_becomes_canonical_and_fix_uses_meta_feedback = function()
     local event = review_meta_event()
-    local meta_exit_version = core.next_review_meta_action_version(event.version)
+    local meta_exit_version = devloop_state.next_review_meta_action_version(event.version)
     mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(event.proposal_id, "review-meta", event.version),
     })
@@ -348,7 +349,7 @@ return {
     t.eq(meta_result.exit_code, 0)
     t.eq(#meta_result.raises, 2)
     local meta_comment = find_raise(meta_result.raises, "github-proxy.github_pr_comment_request").payload.body
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker(event.proposal_id, "review-meta", event.version),
       meta_comment,
     }, event.proposal_id)

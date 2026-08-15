@@ -6,6 +6,7 @@ local config = require("devloop.config")
 local contract_time = require("contract.time")
 local devloop_logging = require("devloop.logging")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -263,7 +264,7 @@ return {
     local fixing = h.find_causal_raise(result, "devloop_fixing")
     t.is_true(fixing ~= nil)
     t.eq(fixing.payload.version, version_at(3))
-    t.eq(core.version_fix_round(fixing.payload.version), 3)
+    t.eq(devloop_state.version_fix_round(fixing.payload.version), 3)
     t.eq(fixing.payload.repair_input, "ci-failure")
     t.eq(state_comment(result, "blocked"), nil)
   end,
@@ -496,7 +497,7 @@ return {
     t.is_true(fixing ~= nil)
     t.eq(fixing.payload.version, version_at(4))
     t.is_true(fixing.payload.ci_failure_key ~= old_key)
-    t.eq(core.version_fix_round(fixing.payload.version), 4)
+    t.eq(devloop_state.version_fix_round(fixing.payload.version), 4)
   end,
 
   test_same_head_green_routes_to_bumped_reviewing_without_repair_codex = function()

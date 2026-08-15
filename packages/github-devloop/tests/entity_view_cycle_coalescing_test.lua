@@ -3,6 +3,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local codex_status = require("tests.codex_status_helpers")
 local devloop_base = require("devloop.base")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 
@@ -147,7 +148,7 @@ return {
         title = "Coalesced issue " .. tostring(number),
         state = "OPEN",
         updated_at = updated_at,
-        labels = { "fkst-dev:enabled", core.state_label(state) },
+        labels = { "fkst-dev:enabled", devloop_state.state_label(state) },
         comments = issue_comments,
         assignees = { "fkst-test-bot" },
         times = 2,

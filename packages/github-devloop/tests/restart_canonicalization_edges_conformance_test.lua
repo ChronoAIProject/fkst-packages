@@ -7,6 +7,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local restart_edges = require("devloop.restart_edges")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -219,7 +220,7 @@ local function observe_ready_split(target)
     mock_blocked_by_failure(issue_number)
   end
 
-  local source = core.current_state(comments, proposal_id)
+  local source = devloop_state.current_state(comments, proposal_id)
   t.eq(source.state, "ready")
   local result = run_issue_observe("restart-canonicalization-ready-to-" .. target)
   assert_department_ok(result, "ready-to-" .. target)
@@ -229,7 +230,7 @@ local function observe_ready_split(target)
   local fact = core.ready_split_canonicalized_fact(emitted_comments, proposal_id, source.version)
   t.is_true(fact ~= nil)
   t.eq(fact.derived_state, target)
-  local state = core.current_state(emitted_comments, proposal_id)
+  local state = devloop_state.current_state(emitted_comments, proposal_id)
   t.eq(state.state, target)
   t.eq(state.version, fact.to_version)
   return observed_edge(source.state, state.state,
@@ -286,7 +287,7 @@ local function observe_implementing_merged_child()
     exit_code = 0,
   })
   local comments = mock_merged_child_reads()
-  local source = core.current_state(comments, proposal_id)
+  local source = devloop_state.current_state(comments, proposal_id)
   t.eq(source.state, "implementing")
   local result = run_issue_observe("restart-canonicalization-implementing-awaiting-pr", {
     schema = "github-proxy.v1",
@@ -305,7 +306,7 @@ local function observe_implementing_merged_child()
   local delegation = m_facts.pr_delegation_fact(emitted_comments, proposal_id, source.version)
   t.is_true(delegation ~= nil)
   t.eq(delegation.pr_proposal_id, pr_proposal_id)
-  local state = core.current_state(emitted_comments, proposal_id)
+  local state = devloop_state.current_state(emitted_comments, proposal_id)
   t.eq(state.state, "awaiting-pr")
   return observed_edge(source.state, state.state, "pr-delegation:v1", "pr_delegation_fact")
 end
@@ -329,7 +330,7 @@ local function observe_legacy_pr_open()
     state = "OPEN",
   }, entity_read_mocks.pr_origin_selector)
 
-  local source = core.current_state(comments, proposal_id)
+  local source = devloop_state.current_state(comments, proposal_id)
   t.eq(source.state, "pr-open")
   local result = h.run_observe(
     h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:pr-open" } }),
@@ -342,7 +343,7 @@ local function observe_legacy_pr_open()
   local delegation = m_facts.pr_delegation_fact(emitted_comments, proposal_id, source.version)
   t.is_true(delegation ~= nil)
   t.eq(delegation.pr_proposal_id, pr_proposal_id)
-  local state = core.current_state(emitted_comments, proposal_id)
+  local state = devloop_state.current_state(emitted_comments, proposal_id)
   t.eq(state.state, "awaiting-pr")
   return observed_edge(source.state, state.state, "pr-delegation:v1", "pr_delegation_fact")
 end

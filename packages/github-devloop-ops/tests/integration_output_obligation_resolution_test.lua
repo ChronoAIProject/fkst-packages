@@ -1,4 +1,5 @@
 local h = require("tests.devloop_ops_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
@@ -236,8 +237,8 @@ local function mock_census(comments, opts)
   else
     t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   end
-  for _, state in ipairs(core.lifecycle_state_order()) do
-    t.mock_command(core.gh_issue_list_observe_cmd(repo, core.state_label(state), 1, true), empty)
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
+    t.mock_command(core.gh_issue_list_observe_cmd(repo, devloop_state.state_label(state), 1, true), empty)
   end
   entity_read_mocks.mock_issue_list_command(
     t,

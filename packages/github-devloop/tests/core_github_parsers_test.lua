@@ -204,7 +204,7 @@ return {
   test_observe_list_read_coalesce_opts_share_timeout = function()
     local specs = {
       core.gh_exec_opts(core.gh_issue_list_observe_opts("owner/repo", core._enabled_label, 1, true), 30),
-      core.gh_exec_opts(core.gh_issue_list_observe_opts("owner/repo", core.state_label("ready"), 1, true), 60),
+      core.gh_exec_opts(core.gh_issue_list_observe_opts("owner/repo", devloop_state.state_label("ready"), 1, true), 60),
       core.gh_exec_opts(core.gh_issue_list_observe_opts("owner/repo", nil, 1, true), 90),
       core.gh_exec_opts(core.gh_issue_list_observe_opts("owner/repo", core._enabled_label, 2), 30),
       core.gh_exec_opts(core.gh_pr_list_observe_opts("owner/repo", 1, true), 30),

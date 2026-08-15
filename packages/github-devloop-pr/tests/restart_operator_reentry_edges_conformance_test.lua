@@ -7,6 +7,7 @@ local operator_commands = require("devloop.operator_commands")
 local operator_reentry_inventory = require("core.restart.operator_reentry_inventory")
 local restart_edges = require("devloop.restart_edges")
 local transition_version = require("contract.transition_version")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
@@ -147,7 +148,7 @@ local function observe_rereview(source_state, state_version, id, extra_comments)
   end
   table.insert(comments, trusted_command(id))
 
-  local source = core.current_state(comments, proposal_id)
+  local source = devloop_state.current_state(comments, proposal_id)
   t.eq(source.state, source_state)
   h.mock_pr_origin(comments, branch, head_sha)
   local result = h.run_observe_pr(pr_event(), h.opts("restart-operator-reentry-" .. source_state))
@@ -155,7 +156,7 @@ local function observe_rereview(source_state, state_version, id, extra_comments)
 
   local response = find_accepted_response(result.raises)
   t.is_true(response ~= nil)
-  local emitted = core.current_state({ trusted_comment(response.payload.body) }, proposal_id)
+  local emitted = devloop_state.current_state({ trusted_comment(response.payload.body) }, proposal_id)
   t.eq(emitted.state, "reviewing")
   t.eq(emitted.version, operator_commands.operator_rereview_version(source.version, head_sha))
   t.is_true(emitted.version ~= source.version)
@@ -293,7 +294,7 @@ local function assert_active_reviewing_is_not_accepted()
   t.is_true(response ~= nil)
   t.is_true(tostring(response.payload.body):find('outcome="refused"', 1, true) ~= nil)
   t.eq(tostring(response.payload.body):find('outcome="applied"', 1, true), nil)
-  t.eq(core.current_state({ trusted_comment(response.payload.body) }, proposal_id).state, nil)
+  t.eq(devloop_state.current_state({ trusted_comment(response.payload.body) }, proposal_id).state, nil)
 end
 
 local function assert_observed_inventory_edge(index, observed)
