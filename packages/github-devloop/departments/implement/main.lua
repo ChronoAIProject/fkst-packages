@@ -812,79 +812,76 @@ local function process_ready_event(event)
       bridge_marker = external_pr_bridge.detect(current, repo, managed),
     }
   end)
-  if attempt_plan == nil then return end
-  if attempt_plan.completed_result ~= nil then
-    completed_result_recovery.run({
-      with_lock = with_lock, transition_lock_key = lock_key,
-      proposal_id = attempt_plan.marker_ready.proposal_id,
-      implementation_version = attempt_plan.marker_ready.dedup_key,
-      admit = function()
-        local state, current, snapshot, decision = precheck_implementation_write_gate(repo, issue_number,
-          lock_key, attempt_plan.marker_ready, attempt_plan.expected_from_states, attempt_plan.accepted_ready_hand_off)
-        if state == nil then return nil end
-        return { state = state, current = current, snapshot = snapshot, decision = decision }
-      end,
-      prepare = function(admission)
-        if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "implement",
-          attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key,
-          { state = admission.state, current = admission.current,
-            proposal_id = attempt_plan.marker_ready.proposal_id, now_seconds = now() }) then return nil end
-        attempt_plan.base_head = attempt_plan.base_head or worktree_lifecycle.prepare_base(attempt_plan.branches)
-        local worktree, started_at, exec_ref, authorization, completed_result = prepare_attempt(
-          repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches, attempt_plan.branch,
-          attempt_plan.base_head, attempt_plan.attempt,
-          attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result,
-          admission.state, admission.snapshot, admission.decision, lock_key)
-        return { worktree = worktree, started_at = started_at, exec_ref = exec_ref,
-          authorization = authorization, completed_result = completed_result, current = admission.current }
-      end,
-      verify = function(prepared)
-        return run_attempt(repo, issue_number, attempt_plan.marker_ready,
-          prepared.current, attempt_plan.branches, attempt_plan.branch, attempt_plan.base_head,
-          prepared.worktree, prepared.started_at, prepared.exec_ref, prepared.authorization,
-          attempt_plan.attempt, event.ts, event.queue, prepared.completed_result)
-      end,
-      publish = function(outcome) publish_attempt_outcome_if_current(
-        repo, issue_number, lock_key, attempt_plan, outcome) end,
-    })
+  if attempt_plan == nil then
     return
   end
-  local prepared_attempt = nil
-  with_lock(lock_key, function()
-    local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision =
-      precheck_implementation_write_gate(repo, issue_number, lock_key, attempt_plan.marker_ready,
-        attempt_plan.expected_from_states, attempt_plan.accepted_ready_hand_off)
-    if pre_spawn_state == nil then return nil end
-    if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "implement",
-        attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key,
-        { state = pre_spawn_state, current = pre_spawn_current,
-          proposal_id = attempt_plan.marker_ready.proposal_id, now_seconds = now() }) then
+
+  local prepared_attempt, recovered = completed_result_recovery.run(with_lock, lock_key,
+    function()
+      local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision = precheck_implementation_write_gate(
+        repo,
+        issue_number,
+        lock_key,
+        attempt_plan.marker_ready,
+        attempt_plan.expected_from_states,
+        attempt_plan.accepted_ready_hand_off
+      )
+      if pre_spawn_state == nil then
+        return nil
+      end
+      if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "implement", attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key, {
+        state = pre_spawn_state,
+        current = pre_spawn_current,
+        proposal_id = attempt_plan.marker_ready.proposal_id,
+        now_seconds = now(),
+      }) then
         devloop_logging.log_cas_decision(
-          "implement", attempt_plan.marker_ready.proposal_id,
+          "implement",
+          attempt_plan.marker_ready.proposal_id,
           { state = "ready", version = attempt_plan.marker_ready.dedup_key, stage_rank = devloop_state.stage_rank("ready") },
-          "ready", "implementing", "skip-idempotent(live-exec-ref)",
-          "matching implementation codex run is still live")
-      return nil
-    end
-    attempt_plan.base_head = attempt_plan.base_head or worktree_lifecycle.prepare_base(attempt_plan.branches)
-    local worktree, started_at, exec_ref, authorization
-    worktree, started_at, exec_ref, authorization, attempt_plan.completed_result = prepare_attempt(
-      repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches, attempt_plan.branch,
-      attempt_plan.base_head, attempt_plan.attempt, attempt_plan.bridge_marker, attempt_plan.checkpoint,
-      attempt_plan.completed_result, pre_spawn_state, activation_snapshot, activation_decision, lock_key)
-    prepared_attempt = { worktree = worktree, started_at = started_at, exec_ref = exec_ref,
-      authorization = authorization, completed_result = attempt_plan.completed_result }
-  end)
-  if prepared_attempt == nil then return end
-  local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready, attempt_plan.current,
-    attempt_plan.branches, attempt_plan.branch, attempt_plan.base_head, prepared_attempt.worktree,
-    prepared_attempt.started_at, prepared_attempt.exec_ref, prepared_attempt.authorization,
+          "ready",
+          "implementing",
+          "skip-idempotent(live-exec-ref)",
+          "matching implementation codex run is still live"
+        )
+        return nil
+      end
+      if attempt_plan.base_head == nil then
+        attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
+      end
+      local worktree, codex_started_at, exec_ref, receiver_authorization
+      worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result = prepare_attempt(
+        repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
+        attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
+        attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
+        activation_snapshot, activation_decision, lock_key)
+      return worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result
+    end,
+    function(prepared)
+      local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
+        attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
+        attempt_plan.base_head, prepared.worktree, prepared.started_at, prepared.exec_ref,
+        prepared.authorization, attempt_plan.attempt, event.ts, event.queue,
+        prepared.completed_result)
+      if outcome ~= nil then
+        publish_attempt_outcome_if_current(repo, issue_number, lock_key, attempt_plan, outcome)
+      end
+    end)
+  if prepared_attempt == nil or recovered then
+    return
+  end
+
+  local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
+    attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
+    attempt_plan.base_head, prepared_attempt.worktree, prepared_attempt.started_at,
+    prepared_attempt.exec_ref, prepared_attempt.authorization,
     attempt_plan.attempt, event.ts, event.queue, prepared_attempt.completed_result)
   if outcome == nil then return end
   with_lock(lock_key, function()
     publish_attempt_outcome_if_current(repo, issue_number, lock_key, attempt_plan, outcome)
   end)
 end
+
 local function act_implement(event)
   queue.dispatch_consumed_queue("implement", spec, event, {
     devloop_ready = process_ready_event,
