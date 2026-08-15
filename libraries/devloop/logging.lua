@@ -240,8 +240,6 @@ function S.install(M)
   M.error_class_from_message = C.error_class_from_message
   M.log_error_fact = C.log_error_fact
   M.wrap_pipeline_failure = C.wrap_pipeline_failure
-  M.log_line = C.log_line
-  M.log_entry = C.log_entry
 end
 
 C.install = S.install
