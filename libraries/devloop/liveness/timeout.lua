@@ -106,14 +106,44 @@ end
 -- synthesis + frozen timeout-reconcile parity corpus stay byte-exact (conservative
 -- extension), but the live watchdog never produces an `escalate` decision, so those
 -- terminal edges are no longer traversed at runtime.
+local function redrive_resolver_diagnostics(row, facts)
+  local eval = facts and facts.actionable_epoch_eval
+  local observed = type(eval) == "table" and eval.signal or nil
+  local contract = row and row.liveness_contract
+  local declared_signal = type(contract) == "table" and contract.signal or nil
+  local resolver = type(observed) == "table" and observed.resolver
+    or type(contract) == "table" and type(contract.real_execution) == "table" and contract.real_execution.primitive
+    or type(declared_signal) == "table" and (declared_signal.resolver or declared_signal.family)
+    or (row and type(row.child_dependency) == "table" and row.child_dependency.predicate or nil)
+  if resolver == nil then
+    return "none", "not-declared"
+  end
+  local verdict = type(observed) == "table" and observed.reason
+    or type(eval) == "table" and eval.reason
+    or type(observed) == "table" and observed.state
+  if verdict == nil and type(observed) == "table" and observed.live ~= nil then
+    verdict = observed.live and "live" or "not-live"
+  end
+  return tostring(resolver), tostring(verdict or "not-reported")
+end
+
+local function with_redrive_diagnostics(row, facts, decision)
+  if type(decision) ~= "table" or decision.action ~= "redrive" then
+    return decision
+  end
+  decision.budget_minutes = row and row.budget and tonumber(row.budget.minutes) or nil
+  decision.resolver, decision.verdict = redrive_resolver_diagnostics(row, facts)
+  return decision
+end
+
 local function timeout_escalation(row, state, age, facts)
   local attempt = K.liveness_timeout_attempt(row, state, facts)
-  return {
+  return with_redrive_diagnostics(row, facts, {
     action = "redrive",
     attempt = attempt + 1,
     age_minutes = age,
     version = K.next_liveness_timeout_version(row, state, facts),
-  }
+  })
 end
 
 local function build_timeout_reconcile(row, entity, state, facts, decision)
@@ -142,11 +172,11 @@ function K.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
   local due, age = K.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
   local heartbeat = m_rae.actionable_epoch_heartbeat_decision(policy, row, state, facts, due, age, limit)
-  if heartbeat ~= nil then return heartbeat end
+  if heartbeat ~= nil then return with_redrive_diagnostics(row, facts, heartbeat) end
   local codex_run = m_rae.actionable_epoch_codex_run_decision(policy, row, state, facts, due, age)
-  if codex_run ~= nil then return codex_run end
+  if codex_run ~= nil then return with_redrive_diagnostics(row, facts, codex_run) end
   local child_workflow = m_rae.actionable_epoch_child_workflow_decision(row, state, facts, due, age)
-  if child_workflow ~= nil then return child_workflow end
+  if child_workflow ~= nil then return with_redrive_diagnostics(row, facts, child_workflow) end
   if not due then
     return { action = "wait", age_minutes = age }
   end
@@ -261,7 +291,17 @@ function K.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
   if decision.action == "wait" then
     return false
   end
-  devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-" .. decision.action, "state output obligation exceeded budget")
+  local decision_facts = nil
+  if decision.action == "redrive" then
+    decision_facts = {
+      { name = "age_minutes", values = { decision.age_minutes or "" } },
+      { name = "budget_minutes", values = { decision.budget_minutes or "" } },
+      { name = "resolver", values = { decision.resolver or "none" } },
+      { name = "verdict", values = { decision.verdict or "not-reported" } },
+      { name = "attempt", values = { decision.attempt or "" } },
+    }
+  end
+  devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-" .. decision.action, "state output obligation exceeded budget", decision_facts)
   if decision.action == "escalate" then
     if row.from_state == "blocked" then
       return emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, decision.attempt)

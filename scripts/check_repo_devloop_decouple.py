@@ -48,17 +48,27 @@ def kernel_allowlist(root: Path) -> set[str]:
 
 def reader_calls_through_m(root: Path, symbols: set[str]) -> int:
     """Count `(core|M).<symbol>(` reader call-sites in production code (excl. the wrapper
-    definitions in */core.lua and excl. tests)."""
+    definitions in */core.lua, excl. definition headers anywhere, and excl. tests).
+
+    A `function M.<symbol>(...)` header is a DEFINITION, not a reader call. The `*/core.lua`
+    exclusion skips the assembler only; the modules it assembles live in `*/core/*.lua` and
+    define the same names, so without this a package is charged for SUPPLYING a symbol as if
+    it consumed one. Such sites cannot be removed by any decoupling work, which gave the
+    ratchet a floor no refactor could lower. Only the header is stripped, not the line, so a
+    one-line `function M.a() return M.b() end` still counts its reader call.
+    """
     if not symbols:
         return 0
     alt = "|".join(re.escape(s) for s in sorted(symbols, key=len, reverse=True))
     pattern = re.compile(rf"\b(?:core|M)\.(?:{alt})\s*\(")
+    definition = re.compile(rf"^\s*(?:local\s+)?function\s+(?:core|M)\.(?:{alt})\s*\(")
     total = 0
     for lua in root.glob("packages/**/*.lua"):
         rel = lua.as_posix()
         if rel.endswith("/core.lua") or "/tests/" in rel:
             continue
-        total += len(pattern.findall(lua.read_text(encoding="utf-8")))
+        for line in lua.read_text(encoding="utf-8").splitlines():
+            total += len(pattern.findall(definition.sub("", line, count=1)))
     return total
 
 
