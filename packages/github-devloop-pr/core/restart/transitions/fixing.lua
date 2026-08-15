@@ -26,7 +26,12 @@ return function(M, h)
     liveness_class_id = "fixing.actionable",
     watchdog = {
       mode = "live-defer",
-      budget_ms = 120 * 60 * 1000,
+      -- The budget must cover a whole attempt, not just its codex. A live fix codex defers this
+      -- row, but the verification that runs after the codex exits is not a codex run, so
+      -- fkst.codex_runs cannot see it and the row becomes actionable while the attempt is still
+      -- working. 600 = the fix codex timeout (300 minutes) plus one verification, which is bounded
+      -- by that same role timeout.
+      budget_ms = 600 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
       },
@@ -53,11 +58,11 @@ return function(M, h)
         body = {
           actionable_epoch_source = "codex_run_with_durable_hold:v1",
           resolver = "fkst.codex_runs",
-          budget_minutes = 120,
+          budget_minutes = 600,
         },
       },
     },
-    budget = budget(120, "A live or indeterminate fixing codex defers; after a completed own-CI repair attempt, the trusted attempt fact defers until its version-derived due time and opens a new due-time generation before the fixing watchdog can accrue timeout attempts."),
+    budget = budget(600, "Covers one whole attempt: the fix codex plus the verification that follows it, which is not a codex run and is therefore invisible to fkst.codex_runs. A live or indeterminate fixing codex defers; after a completed own-CI repair attempt, the trusted attempt fact defers until its version-derived due time and opens a new due-time generation before the fixing watchdog can accrue timeout attempts."),
     liveness_contract = liveness({
       mode = "live-defer",
       real_execution = {

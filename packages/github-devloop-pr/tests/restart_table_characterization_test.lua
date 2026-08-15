@@ -15,6 +15,6 @@ return {
 
   test_restart_transition_table_bytes_are_frozen = function()
     local bytes = observation.canonical_json(core.restart_transition_table())
-    t.eq(sha256.hex(bytes), "c39d206fa7adc2288511db477c44fe65d2e8633f0b7ab790f61f0d30c6856bb1")
+    t.eq(sha256.hex(bytes), "bf0ed6c5f50c00740d40186dd8ffff5e4c8551e5b316571cf6050e0483b06090")
   end,
 }
