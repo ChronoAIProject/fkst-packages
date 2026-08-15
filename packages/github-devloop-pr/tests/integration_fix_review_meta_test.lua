@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local requests_review = require("devloop.requests.review")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -138,7 +139,7 @@ return {
 	    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
 	    t.is_true(has_value(label_raise.payload.remove_labels, "fkst-dev:fixing"))
 	    t.is_true(comment_raise.payload.body:find(m_builders.fix_marker(event.proposal_id, event.review_proposal_id, event.review_dedup_key, "def456", "feedface"), 1, true) ~= nil)
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker(event.proposal_id, "fixing", event.version),
       comment_raise.payload.body,
     }, event.proposal_id)
@@ -381,7 +382,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
-    t.eq(core.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
+    t.eq(devloop_state.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
     t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
     t.eq(count_calls("codex exec"), 0)
     t.eq(count_calls("git push origin"), 0)
@@ -489,7 +490,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
-    t.eq(core.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
+    t.eq(devloop_state.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
     t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
     t.eq(count_calls("add -A"), 0)
     t.eq(count_calls("commit -m"), 0)

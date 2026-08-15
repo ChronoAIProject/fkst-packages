@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -77,7 +78,7 @@ return {
     t.is_true(comment_raise.payload.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("state=\"merge-ready\"", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('state="merge-ready" version="' .. impl_version .. '"', 1, true) ~= nil)
-    t.eq(core.current_state({ comment_raise.payload.body }, "github-devloop/issue/owner/repo/42").version, impl_version)
+    t.eq(devloop_state.current_state({ comment_raise.payload.body }, "github-devloop/issue/owner/repo/42").version, impl_version)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:review-result:v1", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-ready:v1", 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
@@ -252,7 +253,7 @@ return {
     local audit = find_raise(absorbed.raises, "github-proxy.github_pr_comment_request")
     t.is_true(audit.payload.body:find("fkst:github-devloop:result-divergence:v1", 1, true) ~= nil)
     t.eq(find_raise(absorbed.raises, "github-proxy.github_issue_label_request"), nil)
-    t.eq(core.current_state({ approved_fact }, "github-devloop/issue/owner/repo/42").state, "merge-ready")
+    t.eq(devloop_state.current_state({ approved_fact }, "github-devloop/issue/owner/repo/42").state, "merge-ready")
 
   end,
 
@@ -301,7 +302,7 @@ return {
     t.eq(comment_raise.payload.handoff.version, fix_round_version)
     t.eq(comment_raise.payload.handoff.reviewed_head_sha, "feedface")
     t.eq(comment_raise.payload.handoff.current_head_sha, "feedface")
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", fix_round_version),
       comment_raise.payload.body,
     }, "github-devloop/issue/owner/repo/42")

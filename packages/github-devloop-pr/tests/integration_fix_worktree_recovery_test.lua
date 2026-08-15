@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local requests_review = require("devloop.requests.review")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -122,7 +123,7 @@ return {
 
   test_fix_uses_immutable_pr_origin_version_for_canonical_worktree = function()
     local event = fixing()
-    local origin_impl_version = core._strip_latest_fix_version_suffix(event.version)
+    local origin_impl_version = devloop_state._strip_latest_fix_version_suffix(event.version)
     t.is_true(origin_impl_version ~= event.version)
     local branch = devloop_base.implement_branch("owner/repo", "42", origin_impl_version)
     local reject_comment = build_reject_comment(event)

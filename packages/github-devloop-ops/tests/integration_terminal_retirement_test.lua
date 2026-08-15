@@ -1,4 +1,5 @@
 local h = require("tests.devloop_ops_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local testing = require("testkit_internal.testing")
@@ -104,22 +105,22 @@ local function mock_census(comments, state, state_name)
   local empty = { stdout = "[]\n", stderr = "", exit_code = 0 }
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   t.mock_command(core.gh_issue_list_observe_cmd(repo, core._hold_label, 1, true), empty)
-  for _, state_name in ipairs(core.lifecycle_state_order()) do
+  for _, state_name in ipairs(devloop_state.lifecycle_state_order()) do
     if state_name == terminal_state then
       entity_read_mocks.mock_issue_list_command(
         t,
-        core.gh_issue_list_observe_cmd(repo, core.state_label(state_name), 1, true),
+        core.gh_issue_list_observe_cmd(repo, devloop_state.state_label(state_name), 1, true),
         {
           {
             number = issue_number,
             state = state or "OPEN",
-            labels = { core.state_label(terminal_state) },
+            labels = { devloop_state.state_label(terminal_state) },
             author_login = "alice",
           },
         }
       )
     else
-      t.mock_command(core.gh_issue_list_observe_cmd(repo, core.state_label(state_name), 1, true), empty)
+      t.mock_command(core.gh_issue_list_observe_cmd(repo, devloop_state.state_label(state_name), 1, true), empty)
     end
   end
   t.mock_command(core.gh_pr_list_observe_cmd(repo, 1, true), empty)
@@ -129,7 +130,7 @@ local function mock_census(comments, state, state_name)
     title = "Terminal proposal",
     body = "Proposal body",
     state = state or "OPEN",
-    labels = { core.state_label(terminal_state) },
+    labels = { devloop_state.state_label(terminal_state) },
     comments = comments,
     author_login = "alice",
     assignees = {},
@@ -190,7 +191,7 @@ local function fake_department(comments, state, state_name)
         title = "Terminal proposal",
         body = "Proposal body",
         comments = comments,
-        labels = { core.state_label(terminal_state) },
+        labels = { devloop_state.state_label(terminal_state) },
         author_login = "alice",
         assignees = {},
       },

@@ -240,16 +240,6 @@ function S.install(M)
   M.error_class_from_message = C.error_class_from_message
   M.log_error_fact = C.log_error_fact
   M.wrap_pipeline_failure = C.wrap_pipeline_failure
-  M.log_line = C.log_line
-  M.log_entry = C.log_entry
-  M.payload_field = C.payload_field
-  M.log_cas_decision = C.log_cas_decision
-  M.log_apply = C.log_apply
-  M.log_outbound = C.log_outbound
-  M.log_raise = C.log_raise
-  M.log_codex_start = C.log_codex_start
-  M.log_codex_result = C.log_codex_result
-  M.log_forged_markers = C.log_forged_markers
 end
 
 C.install = S.install

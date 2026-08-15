@@ -11,6 +11,7 @@ local operator_reentry_inventory = require("core.restart.operator_reentry_invent
 local payloads_builders = require("devloop.payloads.builders")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local restart_edges = require("devloop.restart_edges")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -191,7 +192,7 @@ local function mock_linked_pr_state(comments, state)
 end
 
 local function run_reimplement_case(case)
-  local source = core.current_state(case.comments, proposal_id)
+  local source = devloop_state.current_state(case.comments, proposal_id)
   t.eq(source.state, case.source_state)
   h.mock_issue_state(case.labels, "OPEN", case.comments)
   if case.before_run ~= nil then
@@ -335,7 +336,7 @@ local function observe_blocked_dependency_hold_reready()
       .. core.dependency_unresolvable_marker(proposal_id, blocked_version, { 43 }),
     trusted_command("reready", "IC_reready_blocked_dependency_hold"),
   }
-  local source = core.current_state(comments, proposal_id)
+  local source = devloop_state.current_state(comments, proposal_id)
   local origin = core.dependency_hold_fact(comments, proposal_id)
   t.eq(source.state, "blocked")
   t.eq(origin.version, source.version)
@@ -494,7 +495,7 @@ end
 local function observe_rereview_row_replay()
   local event = h.issue()
   local comments = thinking_converge_comments(event, trusted_command("rereview", "IC_negative_rereview"))
-  local before = core.current_state(comments, proposal_id)
+  local before = devloop_state.current_state(comments, proposal_id)
   h.mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", comments)
   local result = h.run_observe(event, h.opts("restart-operator-negative-rereview"))
   assert_department_ok(result, "negative-rereview")
@@ -506,7 +507,7 @@ local function observe_rereview_row_replay()
   t.eq(tostring(response.payload.body):find("fkst:github-devloop:state:v1", 1, true), nil)
   applied_cause_evidence(comments, "rereview", response.payload.body)
 
-  local after = core.current_state(append_comment(comments, trusted_comment(response.payload.body)), proposal_id)
+  local after = devloop_state.current_state(append_comment(comments, trusted_comment(response.payload.body)), proposal_id)
   t.eq(after.state, "thinking")
   t.eq(after.version, before.version)
   return { kind = "row-replay", command = "rereview", source_state = "thinking" }
@@ -556,7 +557,7 @@ local function observe_dependency_wait_reready_row_replay()
   t.is_true(response ~= nil, "negative dependency_wait reready: applied response was not emitted")
   t.is_true(ready_comment ~= nil, "negative dependency_wait reready: ready marker was not emitted")
   applied_cause_evidence(comments, "reready", response.payload.body)
-  local emitted = core.current_state({ trusted_comment(ready_comment.payload.body) }, proposal_id)
+  local emitted = devloop_state.current_state({ trusted_comment(ready_comment.payload.body) }, proposal_id)
   t.eq(emitted.state, "ready")
   assert_existing_typed_edge("guard_boundary", "dependency_wait", "ready")
   return { kind = "row-replay", command = "reready", source_state = "dependency_wait" }

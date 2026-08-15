@@ -1,6 +1,7 @@
 local h = require("tests.devloop_core_helpers")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -46,12 +47,12 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local review_loop_version = version .. "/review-loop/3"
 
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       core.state_marker(proposal_id, "reviewing", version),
       core.state_marker(proposal_id, "review-meta", review_loop_version),
     }, proposal_id)
 
-    t.eq(core.version_review_loop_round(review_loop_version), 3)
+    t.eq(devloop_state.version_review_loop_round(review_loop_version), 3)
     t.eq(current.state, "review-meta")
     t.eq(current.version, review_loop_version)
     t.eq(catalog_cyclic_status(current, { "reviewing" }, "review-meta", version), "stale")

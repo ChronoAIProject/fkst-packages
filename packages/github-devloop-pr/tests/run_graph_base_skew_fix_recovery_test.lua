@@ -8,6 +8,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local payloads_builders = require("devloop.payloads.builders")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -71,7 +72,7 @@ end
 
 local function current_pr_comments(event, canonical)
   local branch = branch_for(event)
-  local merge_ready_version = core._strip_latest_fix_version_suffix(event.version)
+  local merge_ready_version = devloop_state._strip_latest_fix_version_suffix(event.version)
   return {
     m_builders.pr_origin_marker(event.proposal_id, tostring(issue_number), branch, event.version, "dev"),
     core.state_marker(event.proposal_id, "merge-ready", merge_ready_version),

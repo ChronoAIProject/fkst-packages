@@ -1,6 +1,7 @@
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_facts = require("devloop.markers.facts")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -287,7 +288,7 @@ return {
     local reviewing = find_causal_raise(carry, "devloop_reviewing")
     t.is_true(reviewing ~= nil)
     t.eq(reviewing.payload.reviewed_head_sha, nil)
-    t.eq(reviewing.payload.version, core.next_review_loop_version(event.version))
+    t.eq(reviewing.payload.version, devloop_state.next_review_loop_version(event.version))
     t.eq(count_calls("gh pr merge"), 0)
   end,
 }

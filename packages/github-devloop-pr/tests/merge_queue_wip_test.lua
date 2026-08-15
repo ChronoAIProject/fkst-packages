@@ -1,4 +1,5 @@
 local fixture = require("tests.merge_queue_wip_helpers")
+local devloop_state = require("devloop.state")
 local entity_lib = fixture.entity_lib
 local devloop_base = fixture.devloop_base
 local base_ids = fixture.base_ids
@@ -364,8 +365,8 @@ return {
     current.review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", current.pr_number, current.version, current.reviewed_head_sha)
     current.review_dedup_key = "consensus:" .. current.review_proposal_id .. "/review"
     current.dedup_key = "merge-ready/" .. current.proposal_id .. "/" .. current.version
-    local fix_version = core._strip_latest_fix_version_suffix(current.version)
-    local old_review_version = core._strip_latest_fix_version_suffix(fix_version)
+    local fix_version = devloop_state._strip_latest_fix_version_suffix(current.version)
+    local old_review_version = devloop_state._strip_latest_fix_version_suffix(fix_version)
     local old_review_proposal = devloop_base.pr_review_proposal_id("owner/repo", current.pr_number, old_review_version, "cccccccccccccccccccccccccccccccccccccccc")
     local old_review_dedup = "consensus:" .. old_review_proposal .. "/review"
     local predecessor_set = predecessor_set_for(predecessor)

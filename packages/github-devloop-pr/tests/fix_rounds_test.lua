@@ -2,6 +2,7 @@ local config = require("devloop.config")
 local fix_rounds = require("core.fix_rounds")
 local ci_verdict = require("core.ci_verdict")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 
@@ -64,7 +65,7 @@ return {
   test_predecessor_set_churn_cannot_reset_or_unbound_the_fix_round_budget = function()
     local max_rounds = config.max_fix_rounds()
     local version = core.next_fix_version(base_version) -- fix_round 1
-    t.eq(core.version_fix_round(version), 1)
+    t.eq(devloop_state.version_fix_round(version), 1)
     local predecessor_sets = { "A", "B" }
     local admitted = 0
     local previous_round = 0
@@ -74,7 +75,7 @@ return {
     for i = 1, max_rounds * 5 do
       local _churn_key = predecessor_sets[(i % 2) + 1]
       assert(_churn_key ~= nil)
-      local round = core.version_fix_round(version)
+      local round = devloop_state.version_fix_round(version)
       local decision
       capture_raises(function()
         decision = own_ci_admission({ state = "fixing", version = version })
@@ -87,9 +88,9 @@ return {
       end
       t.eq(decision.kind, "admit")
       -- exactly one generation per admission, strictly increasing (never reset)
-      t.eq(core.version_fix_round(decision.version), round + 1)
-      t.is_true(core.version_fix_round(decision.version) > previous_round)
-      previous_round = core.version_fix_round(decision.version)
+      t.eq(devloop_state.version_fix_round(decision.version), round + 1)
+      t.is_true(devloop_state.version_fix_round(decision.version) > previous_round)
+      previous_round = devloop_state.version_fix_round(decision.version)
       admitted = admitted + 1
       version = decision.version
     end
@@ -105,7 +106,7 @@ return {
       admit_full = own_ci_admission({ state = "fixing", version = under })
     end)
     t.eq(admit_full.kind, "admit")
-    t.eq(core.version_fix_round(admit_full.version), 2)
+    t.eq(devloop_state.version_fix_round(admit_full.version), 2)
     t.eq(admit_full.bound_head_sha, current_pr.head_sha)
     t.eq(#admit_raises, 0) -- admit never raises a terminal
 
@@ -113,7 +114,7 @@ return {
     for _ = 1, config.max_fix_rounds() do
       at_cap = core.next_fix_version(at_cap)
     end
-    t.eq(core.version_fix_round(at_cap), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(at_cap), config.max_fix_rounds())
 
     local decision
     local terminal_raises = capture_raises(function()

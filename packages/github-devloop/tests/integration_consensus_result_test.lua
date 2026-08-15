@@ -1,4 +1,5 @@
 local fixture = require("tests.integration_observe_consensus_helpers")
+local devloop_state = require("devloop.state")
 local convergence_shared = fixture.convergence_shared
 local h = fixture.h
 local conv_rounds = fixture.conv_rounds
@@ -166,7 +167,7 @@ return {
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment_raise.payload.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment_raise.payload.body:find(forged, 1, true) == nil, true)
-    local current = core.current_state({ comment_raise.payload.body }, event.proposal_id)
+    local current = devloop_state.current_state({ comment_raise.payload.body }, event.proposal_id)
     t.eq(current.state, "ready")
     t.eq(current.version, event.dedup_key)
   end,
@@ -195,7 +196,7 @@ return {
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.is_true(comment.payload.body:find("decline: premise-refuted", 1, true) ~= nil)
-    local declined_state = core.current_state({ comment.payload.body }, event.proposal_id)
+    local declined_state = devloop_state.current_state({ comment.payload.body }, event.proposal_id)
     t.eq(declined_state.state, "declined")
     t.eq(declined_state.version, event.dedup_key)
     t.is_true(comment.payload.body:find(m_builders.result_marker(event.proposal_id, "reject", event.dedup_key, "premise-refuted", nil, event.framing), 1, true) ~= nil)

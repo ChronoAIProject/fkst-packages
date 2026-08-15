@@ -5,6 +5,7 @@ local execution_start = require("devloop.execution_start")
 local h = require("tests.devloop_helpers")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local restart_edges = require("devloop.restart_edges")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -188,11 +189,11 @@ local function emitted_trusted_state(result, proposal_id)
     author_login = "fkst-test-bot",
     created_at = "2026-06-03T01:02:05Z",
   }
-  local emitted = core.current_state({ authored }, proposal_id)
+  local emitted = devloop_state.current_state({ authored }, proposal_id)
   t.eq(emitted.state, "thinking")
 
   authored.author_login = "untrusted-user"
-  t.eq(core.current_state({ authored }, proposal_id).state, nil)
+  t.eq(devloop_state.current_state({ authored }, proposal_id).state, nil)
   return emitted.state
 end
 
@@ -210,7 +211,7 @@ local function observe_unmanaged_issue_entry()
   local payload = h.issue()
   local proposal_id = base_ids.proposal_id(payload.repo, payload.number)
 
-  t.eq(core.current_state({}, proposal_id).state, nil)
+  t.eq(devloop_state.current_state({}, proposal_id).state, nil)
   h.mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {})
   mock_empty_dependencies()
   h.mock_context_bundle(payload)

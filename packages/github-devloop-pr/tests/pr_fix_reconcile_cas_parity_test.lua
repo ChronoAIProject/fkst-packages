@@ -101,7 +101,7 @@ end
 local function fix_reconcile_event(incoming_version, variant)
   local event = h.fix_reconcile()
   event.issue_version = incoming_version
-  event.round = core.version_fix_round(incoming_version)
+  event.round = devloop_state.version_fix_round(incoming_version)
   if variant == BOUNDED_FIX_VARIANT then
     event.schema = fix_rounds.MERGE_GATE_SCHEMA
     event.reason_class = fix_rounds.FIX_LOOP_MAX_ROUNDS

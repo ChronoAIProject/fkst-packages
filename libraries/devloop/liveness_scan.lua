@@ -6,6 +6,7 @@ local parsers_issue = require("devloop.parsers.issue")
 local C, replay_fields, sweep_bounds = {}, require("devloop.replay_fields"), require("devloop.sweep_bounds")
 local entity_list_cache = require("devloop.entity_list_cache")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 
 local LIVENESS_SCAN_MAX_PER_TICK = 100
 local LIVENESS_SCAN_CALL_TIMEOUT = 10
@@ -152,7 +153,7 @@ function C.liveness_scan_should_reinject_state(M, proposal_id, state, labels)
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-no-state", "no current restart state marker")
     return false
   end
-  if type(labels) == "table" and not M.state_label_hint_matches(labels, state.state) then
+  if type(labels) == "table" and not devloop_state.state_label_hint_matches(labels, state.state) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "reinject-label-projection", "current issue state label does not match the canonical state marker")
     return true, "label-projection-mismatch"
   end

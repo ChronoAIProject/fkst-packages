@@ -7,6 +7,7 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local config = require("devloop.config")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 
@@ -49,7 +50,7 @@ local function hold_fixture(completed_at)
     link = { pr_number = event.pr_number },
     snapshot = { comments = comments },
   }
-  local delay_seconds = core.version_fix_round(state.version)
+  local delay_seconds = devloop_state.version_fix_round(state.version)
     * config.liveness_poll_cadence_seconds()
   local lineage_seconds = contract_time.iso_timestamp_epoch_seconds(
     transition_version.updated_at(state.version)
