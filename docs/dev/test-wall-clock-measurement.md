@@ -1207,10 +1207,12 @@ A temporary probe wrapped every function in that table, emitting `os.clock()` de
 probe is not merged; the tree was restored and verified clean.
 
 It had to be run by invoking the engine directly on a constructed root rather than through
-`scripts/run.sh test github-devloop`: the probe edits `libraries/`, and
-`host_run_equivalence_test.py` compares a **committed golden** for the delegated launch, so any
-library edit reddens the check phase before the package phase starts. Worth knowing before anyone
-tries the same thing.
+`scripts/run.sh test github-devloop`: the probe edits `libraries/`, and at the time of this
+measurement `host_run_equivalence_test.py` compared a **committed golden** for the delegated launch,
+so any library edit reddened the check phase before the package phase started. That test has since
+been removed along with the dogfood operator skill, so this particular obstacle no longer applies;
+the general lesson — check-phase goldens can redden before the package phase is reached — is what to
+carry forward.
 
 ### Result: 90% of fixture-attributable Lua CPU is 328 department drives
 

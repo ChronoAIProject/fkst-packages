@@ -37,7 +37,7 @@ warn_if_substrate_behind() {
   if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
     echo "warning: fkst-substrate checkout '$substrate' is $behind commit(s) behind its origin/dev;" >&2
     echo "         the BIN may be stale (missing newer engine primitives). scripts/run.sh builds from the" >&2
-    echo "         CURRENT checkout and does NOT git-pull — run 'dogfood.sh sync' (or git pull + rebuild) to refresh." >&2
+    echo "         CURRENT checkout and does NOT git-pull — run 'git pull' in that checkout, then rebuild to refresh." >&2
   fi
 }
 
