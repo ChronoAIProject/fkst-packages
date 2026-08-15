@@ -1,5 +1,6 @@
 local S = {}
 local contract_time = require("contract.time")
+local workflow_codex = require("workflow_internal.codex")
 local liveness_shared = require("workflow_internal.liveness.shared")
 local Ports = require("workflow_internal.ports")
 local installed = setmetatable({}, { __mode = "k" })
@@ -183,6 +184,19 @@ local function validate_watchdog(row, errors)
   local budget_minutes = tonumber(row and row.budget and row.budget.minutes)
   if budget_minutes ~= nil and budget_ms ~= nil and budget_ms ~= budget_minutes * 60 * 1000 then
     table.insert(errors, state .. ": watchdog.budget_ms must match budget.minutes")
+  end
+  local real_execution = row and row.liveness_contract and row.liveness_contract.real_execution or nil
+  local match = type(real_execution) == "table" and real_execution.match or nil
+  local role = type(match) == "table" and match.role or nil
+  if non_empty_string(role) then
+    local default_timeout_seconds = workflow_codex.default_role_timeout_seconds(role)
+    if default_timeout_seconds == nil then
+      table.insert(errors, state .. ": real_execution role has no default timeout: " .. role)
+    elseif budget_ms ~= nil and budget_ms < default_timeout_seconds * 1000 then
+      table.insert(errors, state .. ": watchdog.budget_ms " .. budget_ms
+        .. " is below real_execution role " .. role
+        .. " default timeout " .. (default_timeout_seconds * 1000) .. " ms")
+    end
   end
   return watchdog
 end
