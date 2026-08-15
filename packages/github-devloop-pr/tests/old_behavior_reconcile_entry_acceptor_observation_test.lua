@@ -228,11 +228,11 @@ local function capture(fixture)
       ra.replace(conv_reconcile, "has_timeout_reconcile_marker", function() return true end, restorations)
     end
   end
-  ra.replace(restart_policy, "liveness_timeout_due_with_facts", function() return not fixture.not_due, 181 end, restorations)
+  ra.replace(restart_policy, "liveness_timeout_due_with_facts", function() return not fixture.not_due, 661 end, restorations)
   ra.replace(restart_policy, "liveness_timeout_decision_with_facts", function()
     return fixture.not_due and { action = "wait", attempt = 2 } or { action = "escalate", attempt = 3 }
   end, restorations)
-  ra.replace(restart_policy, "restart_row_liveness_signal", function() return { age_minutes = 181 } end, restorations)
+  ra.replace(restart_policy, "restart_row_liveness_signal", function() return { age_minutes = 661 } end, restorations)
   ra.replace(core, "dependency_gate", function()
     return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
   end, restorations)

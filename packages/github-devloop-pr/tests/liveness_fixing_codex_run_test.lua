@@ -219,10 +219,11 @@ return {
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
+    facts.now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z")
     with_codex_runs({}, function()
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(age, 660)
       local raised = capture_raises(function()
         local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {
           repo = repo,
@@ -257,7 +258,8 @@ return {
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
-    assert_live_run_over_row_budget_caps(event, row, state, facts, "fix", event.work_unit_key)
+    facts.now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T11:00:00Z")
+    assert_live_run_over_row_budget_caps(event, row, state, facts, "fix", event.work_unit_key, 660)
   end,
 
   test_liveness_scan_fixing_live_codex_run_drops_redrive = function()
