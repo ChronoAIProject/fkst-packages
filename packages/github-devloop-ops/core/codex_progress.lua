@@ -10,6 +10,14 @@ local terminal_statuses = {
   failed = true,
 }
 
+local function valid_started_at_ms(value)
+  return type(value) == "number"
+    and value == value
+    and value >= 0
+    and value < math.huge
+    and value % 1 == 0
+end
+
 local function canonical_issue(row)
   local target = entity.parse_entity_proposal_id(row and row.proposal_id)
   if target == nil or target.kind ~= "issue" then
@@ -44,9 +52,10 @@ function M.replace_marker(proposal_id)
     .. tostring(proposal_id) .. '"'
 end
 
-function M.marker(proposal_id, run_id, status)
+function M.marker(proposal_id, started_at_ms, run_id, status)
   return M.replace_marker(proposal_id)
-    .. ' run_id="' .. tostring(run_id)
+    .. ' started_at_ms="' .. tostring(started_at_ms)
+    .. '" run_id="' .. tostring(run_id)
     .. '" status="' .. tostring(status)
     .. '" -->'
 end
@@ -72,7 +81,10 @@ local function projected_request(row, target, body)
       dedup_key = dedup_key,
       replace_marker = replace_marker,
       replace_snapshot = {
-        run_id = row.run_id,
+        run_generation = {
+          started_at_ms = row.started_at_ms,
+          run_id = row.run_id,
+        },
         status = row.status,
       },
       source_ref = source_ref,
@@ -85,7 +97,8 @@ function M.project_running_row(row)
     or row.role ~= "implement"
     or row.status ~= "running"
     or type(row.run_id) ~= "string"
-    or row.run_id:find("^[%w._-]+$") == nil then
+    or row.run_id:find("^[%w._-]+$") == nil
+    or not valid_started_at_ms(row.started_at_ms) then
     return nil
   end
   local target = canonical_issue(row)
@@ -101,7 +114,7 @@ function M.project_running_row(row)
     error("github-devloop-ops: codex-progress-row-invalid: matching running row lacks display fields")
   end
 
-  local marker = M.marker(row.proposal_id, row.run_id, row.status)
+  local marker = M.marker(row.proposal_id, row.started_at_ms, row.run_id, row.status)
   local body = table.concat({
     "### Implementation progress",
     "",
@@ -124,7 +137,8 @@ function M.project_terminal_row(row)
     or row.role ~= "implement"
     or terminal_statuses[row.status] ~= true
     or type(row.run_id) ~= "string"
-    or row.run_id:find("^[%w._-]+$") == nil then
+    or row.run_id:find("^[%w._-]+$") == nil
+    or not valid_started_at_ms(row.started_at_ms) then
     return nil
   end
   local target = canonical_issue(row)
@@ -160,7 +174,7 @@ function M.project_terminal_row(row)
     "",
     output_block(row.output_tail),
     "",
-    M.marker(row.proposal_id, row.run_id, row.status),
+    M.marker(row.proposal_id, row.started_at_ms, row.run_id, row.status),
   }) do
     table.insert(body_lines, line)
   end

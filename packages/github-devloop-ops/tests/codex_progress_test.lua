@@ -6,6 +6,7 @@ local proposal_id = "github-devloop/issue/owner/repo/42"
 local function running_row(extra)
   local row = {
     run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000001",
+    started_at_ms = 1786000000000,
     role = "implement",
     dept = "implement",
     proposal_id = proposal_id,
@@ -47,7 +48,8 @@ return {
     t.is_nil(first.request.real_write_allowed)
     t.eq(first.request.replace_marker, progress.replace_marker(proposal_id))
     t.eq(first.request.replace_marker, second.request.replace_marker)
-    t.eq(first.request.replace_snapshot.run_id, running_row().run_id)
+    t.eq(first.request.replace_snapshot.run_generation.started_at_ms, running_row().started_at_ms)
+    t.eq(first.request.replace_snapshot.run_generation.run_id, running_row().run_id)
     t.eq(first.request.replace_snapshot.status, "running")
     t.eq(first.request.dedup_key, second.request.dedup_key)
     t.eq(first.request.body, second.request.body)
@@ -59,7 +61,7 @@ return {
       "Elapsed: `90.5s / 3600s`",
       "Applying patch",
       "Running tests",
-      progress.marker(proposal_id, running_row().run_id, "running"),
+      progress.marker(proposal_id, running_row().started_at_ms, running_row().run_id, "running"),
     }) do
       t.is_true(first.request.body:find(fragment, 1, true) ~= nil, "missing card fragment: " .. fragment)
     end
@@ -79,6 +81,7 @@ return {
       running_row({ role = "fix" }),
       running_row({ status = "done" }),
       running_row({ run_id = "" }),
+      running_row({ started_at_ms = "invalid" }),
     }) do
       t.is_nil(progress.project_running_row(row))
     end
@@ -95,7 +98,8 @@ return {
     t.eq(first.request.source_ref.ref, "owner/repo#issue/42")
     t.eq(first.request.replace_marker, progress.replace_marker(proposal_id))
     t.eq(first.request.replace_marker, second.request.replace_marker)
-    t.eq(first.request.replace_snapshot.run_id, terminal_row().run_id)
+    t.eq(first.request.replace_snapshot.run_generation.started_at_ms, terminal_row().started_at_ms)
+    t.eq(first.request.replace_snapshot.run_generation.run_id, terminal_row().run_id)
     t.eq(first.request.replace_snapshot.status, "done")
     t.eq(first.request.dedup_key, second.request.dedup_key)
     t.eq(first.request.body, second.request.body)
@@ -110,7 +114,7 @@ return {
       "Exit code: `0`",
       "Implementation complete",
       "All tests passed",
-      progress.marker(proposal_id, terminal_row().run_id, "done"),
+      progress.marker(proposal_id, terminal_row().started_at_ms, terminal_row().run_id, "done"),
     }) do
       t.is_true(first.request.body:find(fragment, 1, true) ~= nil, "missing terminal fragment: " .. fragment)
     end
@@ -139,6 +143,7 @@ return {
       terminal_row({ status = "running" }),
       terminal_row({ status = "completed" }),
       terminal_row({ run_id = "" }),
+      terminal_row({ started_at_ms = "invalid" }),
     }) do
       t.is_nil(progress.project_terminal_row(row))
     end

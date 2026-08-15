@@ -70,22 +70,26 @@ local progress_replace_marker = '<!-- fkst:github-devloop-ops:codex-progress:v1 
   .. progress_proposal_id .. '"'
 local progress_comment_path = "/tmp/fkst-github-proxy-comment-owner_x-pr-7.md"
 
-local function progress_body(run_id, status, output)
+local function progress_body(started_at_ms, run_id, status, output)
   return tostring(output)
     .. "\n\n"
     .. progress_replace_marker
-    .. ' run_id="' .. tostring(run_id)
+    .. ' started_at_ms="' .. tostring(started_at_ms)
+    .. '" run_id="' .. tostring(run_id)
     .. '" status="' .. tostring(status)
     .. '" -->'
 end
 
-local function progress_event(run_id, status, output)
+local function progress_event(started_at_ms, run_id, status, output)
   return event({
-    body = progress_body(run_id, status, output),
+    body = progress_body(started_at_ms, run_id, status, output),
     dedup_key = table.concat({ "codex-progress", run_id, status, output }, "/"),
     replace_marker = progress_replace_marker,
     replace_snapshot = {
-      run_id = run_id,
+      run_generation = {
+        started_at_ms = started_at_ms,
+        run_id = run_id,
+      },
       status = status,
     },
   })
@@ -256,14 +260,15 @@ return {
     t.eq(count_calls(pr_comment_create), 0)
   end,
 
-  test_same_run_terminal_progress_card_rejects_late_running_after_edit_404_refresh = function()
+  test_same_generation_terminal_progress_card_rejects_late_running_after_edit_404_refresh = function()
+    local started_at_ms = 1786000000000
     local run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000000"
     mock_write_env("1")
     mock_bot_env()
     mock_pr_comment_view({
       {
         databaseId = 123456,
-        body = progress_body(run_id, "running", "Working"),
+        body = progress_body(started_at_ms, run_id, "running", "Working"),
         author_login = "fkst-test-bot",
       },
     })
@@ -271,7 +276,7 @@ return {
     mock_pr_comment_view({
       {
         databaseId = 654321,
-        body = progress_body(run_id, "done", "Completed"),
+        body = progress_body(started_at_ms, run_id, "done", "Completed"),
         author_login = "fkst-test-bot",
       },
     })
@@ -280,7 +285,7 @@ return {
 
     local result = t.run_department(
       "departments/github_pr_comment/main.lua",
-      progress_event(run_id, "running", "Stale work"),
+      progress_event(started_at_ms, run_id, "running", "Stale work"),
       opts("comment-progress-404-refresh-terminal", {
         FKST_GITHUB_WRITE = "1",
       })
@@ -327,12 +332,13 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_same_run_terminal_progress_card_rejects_late_running_replay = function()
+  test_same_generation_terminal_progress_card_rejects_late_running_replay = function()
     for index, status in ipairs({ "done", "failed" }) do
+      local started_at_ms = 1786000000000 + index
       local run_id = "codex-01ARZ3NDEKTSV4RRFFQ600000" .. tostring(index)
       local terminal_output = "Terminal " .. status
-      local initial_running = progress_event(run_id, "running", "Working")
-      local terminal = progress_event(run_id, status, terminal_output)
+      local initial_running = progress_event(started_at_ms, run_id, "running", "Working")
+      local terminal = progress_event(started_at_ms, run_id, status, terminal_output)
 
       local terminal_result = run_progress_replace(
         "comment-progress-terminal-" .. status,
@@ -345,7 +351,7 @@ return {
 
       local replay_result = run_progress_replace(
         "comment-progress-late-running-" .. status,
-        progress_event(run_id, "running", "Stale work"),
+        progress_event(started_at_ms, run_id, "running", "Stale work"),
         terminal_card
       )
       t.eq(replay_result.exit_code, 0)
@@ -357,19 +363,20 @@ return {
   end,
 
   test_same_run_running_progress_refreshes_remain_replaceable = function()
+    local started_at_ms = 1786000000002
     local run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000002"
-    local first = progress_event(run_id, "running", "Phase one")
+    local first = progress_event(started_at_ms, run_id, "running", "Phase one")
     local first_result = run_progress_replace(
       "comment-progress-running-first",
       first,
-      progress_body(run_id, "running", "Starting")
+      progress_body(started_at_ms, run_id, "running", "Starting")
     )
     t.eq(first_result.exit_code, 0)
 
     local first_card = file.read(progress_comment_path)
     local second_result = run_progress_replace(
       "comment-progress-running-second",
-      progress_event(run_id, "running", "Phase two"),
+      progress_event(started_at_ms, run_id, "running", "Phase two"),
       first_card
     )
     t.eq(second_result.exit_code, 0)
@@ -379,18 +386,44 @@ return {
     t.eq(visible_card:find("Phase one", 1, true), nil)
   end,
 
-  test_terminal_progress_for_another_run_does_not_order_running_replace = function()
-    local terminal_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000003"
-    local running_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000004"
+  test_cross_run_progress_card_converges_when_delivery_is_reversed = function()
+    local older_started_at_ms = 1786000000003
+    local newer_started_at_ms = 1786000000004
+    local older_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000003"
+    local newer_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000004"
+    local newer = progress_event(newer_started_at_ms, newer_run_id, "running", "New run")
+    local forward_result = run_progress_replace(
+      "comment-progress-cross-run-forward",
+      newer,
+      progress_body(older_started_at_ms, older_run_id, "failed", "Old run failed")
+    )
+
+    t.eq(forward_result.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
+    local newer_card = file.read(progress_comment_path)
+    t.is_true(newer_card:find("New run", 1, true) ~= nil)
+    t.eq(newer_card:find("Old run failed", 1, true), nil)
+
+    local reversed_result = run_progress_replace(
+      "comment-progress-cross-run-reversed",
+      progress_event(older_started_at_ms, older_run_id, "failed", "Old run failed"),
+      newer_card
+    )
+    t.eq(reversed_result.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
+  end,
+
+  test_run_generation_uses_run_id_to_break_equal_start_time = function()
+    local started_at_ms = 1786000000005
+    local older_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000005"
+    local newer_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000006"
     local result = run_progress_replace(
-      "comment-progress-distinct-run",
-      progress_event(running_run_id, "running", "New run"),
-      progress_body(terminal_run_id, "failed", "Old run failed")
+      "comment-progress-cross-run-tiebreak",
+      progress_event(started_at_ms, older_run_id, "failed", "Older tie"),
+      progress_body(started_at_ms, newer_run_id, "running", "Newer tie")
     )
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
-    local visible_card = file.read(progress_comment_path)
-    t.is_true(visible_card:find("New run", 1, true) ~= nil)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 0)
   end,
 }

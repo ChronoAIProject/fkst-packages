@@ -208,10 +208,21 @@ local function marker_attr(marker, name)
   return tostring(marker or ""):match(name .. '="([^"]*)"')
 end
 
+local function valid_run_generation(generation)
+  local started_at_ms = type(generation) == "table" and generation.started_at_ms or nil
+  return type(generation) == "table"
+    and type(started_at_ms) == "number"
+    and started_at_ms == started_at_ms
+    and started_at_ms >= 0
+    and started_at_ms < math.huge
+    and started_at_ms % 1 == 0
+    and type(generation.run_id) == "string"
+    and generation.run_id:find("^[%w._-]+$") ~= nil
+end
+
 local function valid_replace_snapshot(snapshot)
   return type(snapshot) == "table"
-    and type(snapshot.run_id) == "string"
-    and snapshot.run_id:find("^[%w._-]+$") ~= nil
+    and valid_run_generation(snapshot.run_generation)
     and replace_snapshot_statuses[snapshot.status] == true
 end
 
@@ -220,10 +231,13 @@ local function normalize_replace_snapshot(snapshot)
     return nil
   end
   if not valid_replace_snapshot(snapshot) then
-    error("github-proxy: replace-snapshot-invalid: run_id and status are required")
+    error("github-proxy: replace-snapshot-invalid: run_generation and status are required")
   end
   return {
-    run_id = snapshot.run_id,
+    run_generation = {
+      started_at_ms = snapshot.run_generation.started_at_ms,
+      run_id = snapshot.run_generation.run_id,
+    },
     status = snapshot.status,
   }
 end
@@ -235,7 +249,10 @@ local function marker_replace_snapshot(body, replace_marker)
   for marker in tostring(body or ""):gmatch("<!%-%-%s*.-%-%->") do
     if marker:find(tostring(replace_marker), 1, true) ~= nil then
       local snapshot = {
-        run_id = marker_attr(marker, "run_id"),
+        run_generation = {
+          started_at_ms = tonumber(marker_attr(marker, "started_at_ms")),
+          run_id = marker_attr(marker, "run_id"),
+        },
         status = marker_attr(marker, "status"),
       }
       if valid_replace_snapshot(snapshot) then
@@ -246,23 +263,37 @@ local function marker_replace_snapshot(body, replace_marker)
   return nil
 end
 
-local function stale_terminal_snapshot_replace(existing, next_body, replace_marker, next_snapshot)
+local function compare_run_generations(left, right)
+  if left.started_at_ms ~= right.started_at_ms then
+    return left.started_at_ms < right.started_at_ms and -1 or 1
+  end
+  if left.run_id == right.run_id then
+    return 0
+  end
+  return left.run_id < right.run_id and -1 or 1
+end
+
+local function stale_progress_snapshot_replace(existing, next_body, replace_marker, next_snapshot)
   if next_snapshot == nil then
     return false
   end
   local body_snapshot = marker_replace_snapshot(next_body, replace_marker)
   if body_snapshot == nil
-    or body_snapshot.run_id ~= next_snapshot.run_id
+    or body_snapshot.run_generation.started_at_ms ~= next_snapshot.run_generation.started_at_ms
+    or body_snapshot.run_generation.run_id ~= next_snapshot.run_generation.run_id
     or body_snapshot.status ~= next_snapshot.status then
     error("github-proxy: replace-snapshot-marker-mismatch: body must carry the typed replacement snapshot")
   end
-  if existing == nil or next_snapshot.status ~= "running" then
+  if existing == nil then
     return false
   end
   local current = marker_replace_snapshot(M._comment_body(existing), replace_marker)
-  return current ~= nil
-    and current.run_id == next_snapshot.run_id
-    and current.status ~= "running"
+  if current == nil then
+    return false
+  end
+  local generation_order = compare_run_generations(current.run_generation, next_snapshot.run_generation)
+  return generation_order > 0
+    or (generation_order == 0 and next_snapshot.status == "running" and current.status ~= "running")
 end
 
 local function marker_name(marker)
@@ -375,8 +406,8 @@ local function edit_existing_comment(M, repo, target, path, existing, replace_ma
     log.warn("github-proxy: GitHub comment edit target is stale: error_class=" .. stale_comment_target_error_class)
     return false, stale_comment_target_error_class
   end
-  if stale_terminal_snapshot_replace(refreshed, next_body, replace_marker, replace_snapshot) then
-    log.info("github-proxy: same-run terminal replacement is absorbing; dropping running replay")
+  if stale_progress_snapshot_replace(refreshed, next_body, replace_marker, replace_snapshot) then
+    log.info("github-proxy: progress replacement is stale; keeping monotonic visible snapshot")
     return true, nil, refreshed, false
   end
 
@@ -485,8 +516,8 @@ function M.write_comment_request(payload, target)
     end
 
     local body = tostring(guarded_body or payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
-    if stale_terminal_snapshot_replace(existing, body, replace_marker, replace_snapshot) then
-      log.info("github-proxy: same-run terminal replacement is absorbing; dropping running replay")
+    if stale_progress_snapshot_replace(existing, body, replace_marker, replace_snapshot) then
+      log.info("github-proxy: progress replacement is stale; keeping monotonic visible snapshot")
       return
     end
     if stale_round_marker_replace(existing, body, replace_marker) then

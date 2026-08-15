@@ -156,6 +156,7 @@ return {
   test_running_codex_progress_raiser_reaches_real_proxy_consumer_in_dry_run = function()
     local log_root = top_level_log_root()
     local tail_path = log_root .. "/codex/progress-card.tail"
+    local started_at_ms = now() * 1000 - 90000
     local release = testing.seed_running_codex_status({
       env = { FKST_RUNTIME_LOG_DIR = log_root },
     }, {
@@ -165,7 +166,7 @@ return {
       dedup_key = "implementation-owner-repo-42",
       status = "running",
       started_at = "2026-08-13T12:00:00Z",
-      started_at_ms = now() * 1000 - 90000,
+      started_at_ms = started_at_ms,
       timeout_seconds = 3600,
       output_tail_path = tail_path,
     })
@@ -187,13 +188,15 @@ return {
     t.eq(raised.payload.issue_number, "42")
     t.eq(raised.payload.source_ref.kind, "external")
     t.eq(raised.payload.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(raised.payload.replace_snapshot.run_id:find("^codex%-") ~= nil)
+    t.eq(raised.payload.replace_snapshot.run_generation.started_at_ms, started_at_ms)
+    t.is_true(raised.payload.replace_snapshot.run_generation.run_id:find("^codex%-") ~= nil)
     t.eq(raised.payload.replace_snapshot.status, "running")
     t.eq(raised.payload.replace_marker,
       '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="' .. proposal_id .. '"')
     t.is_true(raised.payload.body:find("Implementing card", 1, true) ~= nil)
     t.is_true(raised.payload.body:find(
-      'run_id="' .. raised.payload.replace_snapshot.run_id .. '" status="running"',
+      'started_at_ms="' .. tostring(raised.payload.replace_snapshot.run_generation.started_at_ms)
+        .. '" run_id="' .. raised.payload.replace_snapshot.run_generation.run_id .. '" status="running"',
       1,
       true
     ) ~= nil)
@@ -310,7 +313,7 @@ return {
     write_file(tail_path, "Implementation stopped\nFinal diagnostics preserved\n")
     append_terminal_codex_status(
       log_root,
-      running.payload.replace_snapshot.run_id,
+      running.payload.replace_snapshot.run_generation.run_id,
       tail_path,
       started_at_ms
     )
@@ -318,12 +321,19 @@ return {
     local observed_terminal = fkst.codex_runs()
     t.eq(#observed_terminal.running, 0)
     t.eq(#observed_terminal.recent, 1)
-    t.eq(observed_terminal.recent[1].run_id, running.payload.replace_snapshot.run_id)
+    t.eq(observed_terminal.recent[1].run_id, running.payload.replace_snapshot.run_generation.run_id)
     t.eq(observed_terminal.recent[1].status, "done")
 
     local terminal_trace = t.fire_raiser("codex_progress_poll")
     local terminal = progress_raise(terminal_trace)
-    t.eq(terminal.payload.replace_snapshot.run_id, running.payload.replace_snapshot.run_id)
+    t.eq(
+      terminal.payload.replace_snapshot.run_generation.started_at_ms,
+      running.payload.replace_snapshot.run_generation.started_at_ms
+    )
+    t.eq(
+      terminal.payload.replace_snapshot.run_generation.run_id,
+      running.payload.replace_snapshot.run_generation.run_id
+    )
     t.eq(terminal.payload.replace_snapshot.status, "done")
     t.eq(terminal.payload.repo, running.payload.repo)
     t.eq(terminal.payload.issue_number, running.payload.issue_number)
