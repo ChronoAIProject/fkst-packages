@@ -240,4 +240,41 @@ snake_case aliases**, not the extraction. `head_ref_oid` is the specific one to 
   library. Widening a visibility list to remove one literal is a boundary-owner decision, not a
   refactoring one. That duplication is the correct outcome of an intentional boundary.
 
+## N2 is unblocked: three of the four consumers were already guarded (2026-08-15)
+
+The earlier entry said the alias-consolidation precondition was characterization fixtures for
+every consumer, and implied all four needed them. Measured by mutation — removing each file's
+snake_case fallbacks and running its package — that was wrong:
+
+| consumer | fallbacks removed | tests reddened | verdict |
+|---|---|---|---|
+| `libraries/devloop/parsers/pr.lua` | 14 | **0** | the only gap |
+| `packages/github-proxy/core.lua` | 11 | 29 | already guarded |
+| `libraries/forge/github_view.lua` | 13 | 182 | already guarded |
+| `packages/github-external-pr-intake/core.lua` | 10 | 5 | already guarded |
+
+Four characterization tests were added for the devloop parser (#3802, #3803, #3805, #3807);
+the same aggregate mutation there now reddens three tests instead of zero. **The precondition is
+complete and the extraction may begin.** Writing fixtures for the other three would have been
+three increments of pure waste, each of which would have gone green and looked necessary.
+
+The lesson generalises past this task: `devloop/parsers/pr.lua` was an outlier, not the norm, and
+one sample was mistaken for the shape of the whole area. An unstated assumption is the hardest to
+catch, because it never appears in a sentence that would require evidence — it only shows up in
+the order of the work.
+
+### Mutation-harness notes, so this is repeatable
+
+Removing ` or x.y` tokens by text needs four boundary conditions, each of which produced a
+syntax error rather than a result when missing: a word boundary (else camelCase identifiers are
+cut mid-word), exclusion of a following `.` (else `pr.head.ref` truncates), a substitution that
+respects the same boundary used to *find* the tokens (`str.replace` does not, so a shorter token
+matches inside a longer one), and exclusion of a following `(` (else a method call leaves orphan
+parentheses). Bespoke structural guards caught two of the four. **`luac -p` catches all of them**,
+turns a wasted three-minute test run into a one-second abort, and is what the harness uses.
+
+Also: restore must run on a trap, not as a line after the command. A timed-out mutation left a
+worktree in the mutated state once; committing from there would have shipped a mutation as a
+refactor.
+
 ⟦AI:FKST⟧
