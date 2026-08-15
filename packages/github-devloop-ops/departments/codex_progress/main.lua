@@ -31,7 +31,11 @@ local function act(_event)
     or type(observed.recent) ~= "table" then
     error("github-devloop-ops: codex-progress-invalid: fkst.codex_runs returned invalid run sets")
   end
-  emit(observed.running, progress.project_running_row)
+  -- One observation instant per tick, shared by every running card in this pass.
+  local card_refreshed_at = os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(now()) or os.time())
+  emit(observed.running, function(row)
+    return progress.project_running_row(row, card_refreshed_at)
+  end)
   emit(observed.recent, progress.project_terminal_row)
 end
 
