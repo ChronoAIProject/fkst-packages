@@ -146,9 +146,57 @@ def never_required_modules(root: Path) -> list[str]:
     return sorted(out)
 
 
+def ambient_exports_without_readers(root: Path) -> list[str]:
+    """devloop symbols bound onto the composed package table that nothing actually reads.
+
+    TRAP 1 -- a definition is not a read. `function M.has_label(labels, expected)` matches
+    `M.has_label` and was counted as a reader of devloop's `has_label`. This is the same defect
+    that `check_repo_devloop_decouple.py` carried until #3823; it was then re-derived by hand in an
+    ad-hoc script four rounds later (#3832), which is why the logic lives here now instead of being
+    rewritten each time.
+
+    TRAP 2 -- membership before matching. A package that never calls
+    `require("devloop.<mod>").install(M)` cannot have devloop symbols on its table at all, so every
+    same-named function it defines is noise. `log_line` showed 13 "readers", all of them in three
+    packages that do not compose devloop and each own an unrelated `log_line`.
+    """
+    composing = set()
+    for f in tracked(root, "packages/**/*.lua"):
+        if re.search(r'require\(\s*"devloop\.[\w.]+"\s*\)\s*\.install\(', (root / f).read_text(encoding="utf-8", errors="ignore")):
+            composing.add(f.split("/")[1])
+    installers = [f for f in tracked(root, "libraries/devloop/**/*.lua")
+                  if ".install(M)" in (root / f).read_text(encoding="utf-8", errors="ignore")]
+    readers = {f: (root / f).read_text(encoding="utf-8", errors="ignore")
+               for f in tracked(root, "packages/**/*.lua", "libraries/**/*.lua")
+               if not f.startswith("libraries/devloop/commands")}
+    dead = []
+    for inst in installers:
+        body = (root / inst).read_text(encoding="utf-8", errors="ignore")
+        body = body[body.find(".install(M)"):]
+        names = set(re.findall(r"M\.([A-Za-z_]\w*)\s*=", body))
+        for listed in re.findall(r"ipairs\(\s*\{([^}]*)\}\s*\)\s*do\s*M\[", body):
+            names |= set(re.findall(r'"([A-Za-z_]\w*)"', listed))
+        for name in sorted(names):
+            read = re.compile(rf"(?<![.\w])(?:core|M)\.{re.escape(name)}\b")
+            define = re.compile(rf"^\s*(?:local\s+)?function\s+(?:core|M)\.{re.escape(name)}\s*\(")
+            live = False
+            for f, text in readers.items():
+                if f == inst:
+                    continue
+                if f.startswith("packages/") and f.split("/")[1] not in composing:
+                    continue
+                if any(read.search(define.sub("", line, count=1)) for line in text.splitlines()):
+                    live = True
+                    break
+            if not live:
+                dead.append(f"{inst}: {name}")
+    return sorted(dead)
+
+
 UNITS = [
     ("exported library functions with no consumer", unused_exports),
     ("declared-but-unused lib_deps", unused_lib_deps),
+    ("ambient devloop exports with no real reader", ambient_exports_without_readers),
     ("source files >= 900 lines", oversized_files),
     ("leaf functions > 150 lines (informational; repo has no function-length rule)",
      long_leaf_functions),
