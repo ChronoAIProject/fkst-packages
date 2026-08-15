@@ -89,7 +89,6 @@ require("forge.merge").install(M, {
   end,
   pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
-require("devloop.logging").install(M)
 require("devloop.state").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(base._max_dedup_len, ...) end
