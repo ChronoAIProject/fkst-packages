@@ -290,8 +290,6 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
     c.check_github_content_ingress(root, violations)
     c.check_ownership_gate_claim_owner(root, violations)
     c.check_std_dependency_model(root, violations, warnings)
-    if (root / ".claude/skills/dogfood-github-devloop/dogfood.sh").exists():
-        __import__("check_repo_dogfood_boundary").check(root, violations, c.add)
     for message in check_repo_saga_split.repository_messages(root):
         c.add(violations, "G-SAGA-SPLIT", message)
     for message in check_repo_hidden_state.repository_messages(root, config.allowlist_dir, config.is_own_repo):

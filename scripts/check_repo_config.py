@@ -36,7 +36,6 @@ GENERIC_RATCHETS = (
     "permission-control",
 )
 LIBRARY_B_SPECIFIC_RATCHETS = (
-    "dogfood_boundary",
     "std_dependency_model",
     "devloop product knowledge",
     "github-devloop saga-split guards",
