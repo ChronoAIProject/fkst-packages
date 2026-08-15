@@ -371,7 +371,7 @@ local function run_liveness_scan(name, run_opts, now_seconds)
 end
 
 
-local function assert_live_run_over_row_budget_caps(event, row, state, facts, role, dedup_key)
+local function assert_live_run_over_row_budget_caps(event, row, state, facts, role, dedup_key, expected_age)
   with_codex_runs({
     {
       run_id = role .. "-live-over-row-budget",
@@ -387,7 +387,7 @@ local function assert_live_run_over_row_budget_caps(event, row, state, facts, ro
     t.eq(receiver.reason, "row-budget-absolute-cap")
     local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
     t.eq(due, true)
-    t.eq(age, 180)
+    t.eq(age, expected_age or 180)
   end)
 end
 

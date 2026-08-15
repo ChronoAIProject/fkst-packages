@@ -504,6 +504,17 @@ return {
     assert_codex_run_row(by_state.implementing, "implement", "implementing")
   end,
 
+  test_real_execution_role_rejects_budget_below_default_timeout = function()
+    local row = copy_value(rows_by_state(core.restart_transition_table()).implementing)
+    row.from_state = "synthetic-underbudget"
+    row.watchdog.budget_ms = 299 * 60 * 1000
+    row.budget.minutes = 299
+    local errors = core.strict_restart_liveness_contract_errors({ row })
+    t.is_true(contains_error(errors,
+      "synthetic-underbudget: watchdog.budget_ms 17940000 is below real_execution role implement default timeout 18000000 ms"),
+      joined_errors(errors))
+  end,
+
   test_codex_run_defer_rejects_age_based_signal = function()
     local row = copy_value(rows_by_state(core.restart_transition_table()).implementing)
     row.liveness_contract.signal = {
