@@ -374,4 +374,35 @@ return {
       '[[{"number":15,"head_ref_oid":"snake555","head":{"ref":"f/e"},"base":{"ref":"dev"},"state":"open"}]]')
     t.eq(head_base[1].head_sha, "snake555")
   end,
+
+  test_repository_name_precedence_differs_between_devloop_and_forge_by_design = function()
+    -- Characterization of a DISAGREEMENT, not of a shared rule.
+    --
+    -- Two helpers normalise a repository name and resolve the SAME payload differently:
+    --   forge.github_view.repo_name_with_owner   tries full_name     before nameWithOwner
+    --   devloop.parsers.pr (file-local helper)   tries nameWithOwner before full_name
+    --
+    -- Each is right for the source it reads. forge is fed REST-shaped `head.repo`, which carries
+    -- full_name; devloop is fed GraphQL-shaped `headRepository`, which carries nameWithOwner.
+    -- libraries/devloop uses BOTH -- github_proxy_entity_view.lua:16 imports forge's, while
+    -- parsers/pr.lua keeps its own -- so they look like duplicates and are not.
+    --
+    -- Reordering devloop's to match forge's, the exact edit an "extract the shared normaliser"
+    -- refactor makes, left 2157 tests passing and none red. The divergence had no witness, so
+    -- that refactor would have gone green while silently changing which field wins on any
+    -- payload carrying both keys. This test exists to make it fail loudly instead.
+    local both_keys = '{"number":21,"state":"OPEN","headRefOid":"sha21",'
+      .. '"headRepository":{"nameWithOwner":"graphql/owner-repo","full_name":"rest/owner-repo"}}'
+
+    local origin = parsers_pr.parse_pr_view_origin(both_keys)
+    t.eq(origin.head_repository, "graphql/owner-repo")
+
+    t.eq(
+      github_view.repo_name_with_owner({
+        nameWithOwner = "graphql/owner-repo",
+        full_name = "rest/owner-repo",
+      }),
+      "rest/owner-repo"
+    )
+  end,
 }
