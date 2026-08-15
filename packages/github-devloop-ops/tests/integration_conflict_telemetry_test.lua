@@ -1,4 +1,5 @@
 local h = require("tests.devloop_ops_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local gh_argv = require("testkit_internal.gh_argv_mock")
@@ -74,7 +75,7 @@ local function mock_empty_observe_lists()
     stderr = "",
     exit_code = 0,
   })
-  for _, state in ipairs(core.state_order()) do
+  for _, state in ipairs(devloop_state.state_order()) do
     t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", core.state_label(state), 1, true), {
       stdout = "[]\n",
       stderr = "",

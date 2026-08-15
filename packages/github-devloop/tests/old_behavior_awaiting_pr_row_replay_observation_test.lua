@@ -119,7 +119,7 @@ local function child_comments(fixture)
   end
   if fixture.child_marker ~= false then
     local marker
-    if core.is_state(fixture.child_state) then
+    if devloop_state.is_state(fixture.child_state) then
       marker = core.state_marker(PROPOSAL_ID, fixture.child_state, fixture.child_version or VERSION)
     else
       marker = '<!-- fkst:github-devloop:state:v1 proposal="' .. PROPOSAL_ID

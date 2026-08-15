@@ -106,6 +106,7 @@ local function capture_raises(fn)
 end
 
 local with_codex_runs = require("testkit_internal.testing").with_codex_runs
+local devloop_state = require("devloop.state")
 
 local function synthetic_heartbeat_row()
   local row = copy_rows(core.restart_transition_table())[1]
@@ -793,7 +794,7 @@ return {
       declined = true,
       blocked = true, merged = true,
     }
-    for state in pairs(core.lifecycle_state_set()) do
+    for state in pairs(devloop_state.lifecycle_state_set()) do
       if expected[state] then
         local next_states = core.state_successors(state)
         local row = by_state[state]

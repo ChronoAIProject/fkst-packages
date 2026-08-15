@@ -4,6 +4,7 @@ local parsers_issue = require("devloop.parsers.issue")
 local h = require("tests.devloop_core_helpers")
 local m_builders = require("devloop.markers.builders")
 local github_view = require("forge.github_view")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
@@ -169,8 +170,8 @@ return {
         .. m_builders.result_marker(proposal_id, decision, dedup_key):gsub('"', '\\"')
         .. '","author":{"login":"fkst-test-bot"}}]}'
     )
-    t.eq(core.has_terminal_label(result.labels), true)
-    t.eq(core.has_result_marker(result.comments, proposal_id, decision, dedup_key), true)
+    t.eq(devloop_state.has_terminal_label(result.labels), true)
+    t.eq(devloop_state.has_result_marker(result.comments, proposal_id, decision, dedup_key), true)
   end,
   test_observe_list_read_coalesce_keys_are_injective_for_scope_segments = function()
     local keys = {

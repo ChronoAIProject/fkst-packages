@@ -1,6 +1,7 @@
 local h = require("tests.devloop_core_helpers")
 local transition_version = require("contract.transition_version")
 local devloop_base = require("devloop.base")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
@@ -198,10 +199,10 @@ return {
       local parsed = transition_version.parse(case.value)
       t.eq(transition_version.loop_round(parsed), core.version_loop_round(case.value))
       t.eq(transition_version.fix_round(parsed), core.version_fix_round(case.value))
-      t.eq(transition_version.review_loop_round(parsed), core.version_review_loop_round(case.value))
-      t.eq(transition_version.review_meta_action_round(parsed), core.version_review_meta_action_round(case.value))
-      t.eq(transition_version.ready_split_round(parsed), core.version_ready_split_round(case.value))
-      t.eq(transition_version.reimplement_round(parsed), core.version_reimplement_round(case.value))
+      t.eq(transition_version.review_loop_round(parsed), devloop_state.version_review_loop_round(case.value))
+      t.eq(transition_version.review_meta_action_round(parsed), devloop_state.version_review_meta_action_round(case.value))
+      t.eq(transition_version.ready_split_round(parsed), devloop_state.version_ready_split_round(case.value))
+      t.eq(transition_version.reimplement_round(parsed), devloop_state.version_reimplement_round(case.value))
       t.eq(transition_version.timeout_round(parsed, "reviewing"), core.version_timeout_round(case.value, "reviewing"))
       t.eq(transition_version.timeout_round(parsed, "ready"), core.version_timeout_round(case.value, "ready"))
     end

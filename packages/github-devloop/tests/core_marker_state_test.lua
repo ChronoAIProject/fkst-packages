@@ -10,6 +10,7 @@ local transition_version = require("contract.transition_version")
 local t = h.t
 local gate = require("devloop.gate")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local reached = h.reached
 local unresolved = h.unresolved
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
@@ -25,7 +26,7 @@ end
 
 local function guard_order_value(attrs, key)
   if key == "version_order_key" then
-    return core.version_order_key(attrs.version)
+    return devloop_state.version_order_key(attrs.version)
   end
   return attrs[key]
 end
@@ -50,8 +51,8 @@ local function compare_guard_token(left, right)
 end
 
 local function compare_marker_order_key(left, right)
-  local left_key = core.marker_order_key(left.version, left.state)
-  local right_key = core.marker_order_key(right.version, right.state)
+  local left_key = devloop_state.marker_order_key(left.version, left.state)
+  local right_key = devloop_state.marker_order_key(right.version, right.state)
   if left_key == right_key then
     return 0
   end
@@ -87,12 +88,12 @@ local function guard_attrs_current(comments, proposal_id)
 end
 
 local function assert_marker_order_pair(left, right)
-  local canonical = core.compare_state_marker_order({
+  local canonical = devloop_state.compare_state_marker_order({
     state = left.state,
     version = left.version,
   }, right.state, right.version)
   t.eq(compare_marker_order_key(left, right), canonical)
-  local reverse_canonical = core.compare_state_marker_order({
+  local reverse_canonical = devloop_state.compare_state_marker_order({
     state = right.state,
     version = right.version,
   }, left.state, left.version)
@@ -126,7 +127,7 @@ end
 return {
   test_version_order_key_public_surface_delegates_to_std_contract = function()
     t.eq(
-      core.version_order_key("ready/consensus-2026-06-17T22:18:19Z/loop/12"),
+      devloop_state.version_order_key("ready/consensus-2026-06-17T22:18:19Z/loop/12"),
       "2026-06-17T22-18-19Z/loop/000000000012"
     )
   end,
@@ -175,11 +176,11 @@ return {
     t.eq(current.state, "ready")
     t.eq(current.version, "v2")
     local review_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-05T01-02-03Z"
-    t.eq(core.compare_state_marker_order({ state = "pr-open", version = review_version }, "reviewing", review_version), -1)
-    t.eq(core.compare_state_marker_order({ state = "reviewing", version = review_version }, "reviewing", review_version), 0)
-    t.eq(core.compare_state_marker_order({ state = "merge-ready", version = review_version }, "reviewing", review_version), 1)
-    t.eq(core.compare_state_marker_order({ state = "merge-ready", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z" }, "reviewing", review_version), -1)
-    t.eq(core.compare_state_marker_order({ state = "pr-open", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-06T01-02-03Z" }, "reviewing", review_version), 1)
+    t.eq(devloop_state.compare_state_marker_order({ state = "pr-open", version = review_version }, "reviewing", review_version), -1)
+    t.eq(devloop_state.compare_state_marker_order({ state = "reviewing", version = review_version }, "reviewing", review_version), 0)
+    t.eq(devloop_state.compare_state_marker_order({ state = "merge-ready", version = review_version }, "reviewing", review_version), 1)
+    t.eq(devloop_state.compare_state_marker_order({ state = "merge-ready", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z" }, "reviewing", review_version), -1)
+    t.eq(devloop_state.compare_state_marker_order({ state = "pr-open", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-06T01-02-03Z" }, "reviewing", review_version), 1)
 
     local marker = m_builders.result_marker(proposal_id,
       "approve",
@@ -229,7 +230,7 @@ return {
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "reviewing"), true)
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "reviewing"), false)
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing", "fkst-dev:pr-open" }, "reviewing"), false)
-    local reconcile = core.build_reconcile_state_label_request(
+    local reconcile = devloop_state.build_reconcile_state_label_request(
       "owner/repo",
       "42",
       proposal_id,
@@ -296,8 +297,8 @@ return {
     local incoming = "consensus:github-devloop/issue/owner/repo/42/v1"
     local current = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
-    t.eq(core._compare_transition_versions(incoming, current) < 0, true)
-    t.eq(core._compare_transition_versions(current, incoming) > 0, true)
+    t.eq(devloop_state._compare_transition_versions(incoming, current) < 0, true)
+    t.eq(devloop_state._compare_transition_versions(current, incoming) > 0, true)
   end,
   test_current_state_prefers_timestamped_marker_over_timestampless_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -319,7 +320,7 @@ return {
     }
 
     t.eq(core.current_state(comments, proposal_id).state, "reviewing")
-    t.eq(core.reached(comments, proposal_id, "pr-open", {
+    t.eq(devloop_state.reached(comments, proposal_id, "pr-open", {
       domain = "github-devloop-pr",
       lineage_base = impl_version,
     }), true)
@@ -331,7 +332,7 @@ return {
       core.state_marker("github-devloop/issue/owner/repo/99", "reviewing", impl_version),
     }
 
-    t.eq(core.reached(comments, proposal_id, "pr-open", {
+    t.eq(devloop_state.reached(comments, proposal_id, "pr-open", {
       domain = "github-devloop-pr",
       lineage_base = impl_version,
     }), false)
@@ -346,11 +347,11 @@ return {
       core.state_marker(proposal_id, "reviewing", newer_version),
     }
 
-    t.eq(core.reached(comments, proposal_id, "pr-open", {
+    t.eq(devloop_state.reached(comments, proposal_id, "pr-open", {
       domain = "github-devloop-pr",
       lineage_base = impl_version,
     }), true)
-    t.eq(core.reached(comments, proposal_id, "pr-open", {
+    t.eq(devloop_state.reached(comments, proposal_id, "pr-open", {
       domain = "github-devloop-pr",
       lineage_base = "ready/consensus-github-devloop/issue/owner/repo/99/2026-06-04T01-02-03Z",
     }), false)
@@ -615,8 +616,8 @@ return {
       core.state_marker(proposal_id, "fixing", canonical_winner),
     }, proposal_id)
 
-    t.is_true(core.version_order_key(generic_would_win) > core.version_order_key(canonical_winner))
-    t.eq(core.compare_state_marker_order({ state = "review-meta", version = generic_would_win }, "fixing", canonical_winner), -1)
+    t.is_true(devloop_state.version_order_key(generic_would_win) > devloop_state.version_order_key(canonical_winner))
+    t.eq(devloop_state.compare_state_marker_order({ state = "review-meta", version = generic_would_win }, "fixing", canonical_winner), -1)
     t.eq(current.state, "fixing")
     t.eq(current.version, canonical_winner)
   end,
@@ -696,7 +697,7 @@ return {
     }, proposal_id)
 
     t.eq(core.stage_rank("review-meta") > core.stage_rank("fixing"), true)
-    t.eq(core.version_review_meta_action_round(exit_version), core.version_review_meta_action_round(version) + 1)
+    t.eq(devloop_state.version_review_meta_action_round(exit_version), devloop_state.version_review_meta_action_round(version) + 1)
     t.eq(current.state, "fixing")
     t.eq(current.version, exit_version)
   end,
@@ -770,14 +771,14 @@ return {
       state = "blocked",
     }
 
-    local routed = core.route_current(comments, proposal_id, {
+    local routed = devloop_state.route_current(comments, proposal_id, {
       blocked = blocked_route,
     })
     t.eq(routed.route, blocked_route)
     t.eq(routed.version, version)
     t.is_nil(routed.state)
 
-    local unmatched = core.route_current(comments, proposal_id, {})
+    local unmatched = devloop_state.route_current(comments, proposal_id, {})
     t.is_nil(unmatched.route)
     t.eq(unmatched.version, version)
   end,

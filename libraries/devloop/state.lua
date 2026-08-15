@@ -386,7 +386,7 @@ function C.build_projected_state_comment_request(args)
 end
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_label", "has_result_marker", "has_terminal_label", "is_state", "is_state_label", "lifecycle_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_hint_matches", "state_marker", "state_order", "state_successors", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round"}) do M[n] = C[n] end
+  for _, n in ipairs({"_strip_latest_fix_version_suffix", "current_state", "fix_version_from_review_version", "has_label", "lifecycle_state_order", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "stage_rank", "state_label", "state_label_hint_matches", "state_marker", "state_successors", "version_fix_round", "version_loop_round", "version_timeout_round"}) do M[n] = C[n] end
 end
 C.install = S.install
 
