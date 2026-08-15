@@ -1,4 +1,5 @@
 local h = require("tests.devloop_core_helpers")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
@@ -82,7 +83,7 @@ return {
       t.eq(edge.failure, nil)
       t.eq(edge.terminal, true)
       t.eq(edge.monotonic, true)
-      t.eq(core.state_successors(expected.state)[expected.exit], "blocked")
+      t.eq(devloop_state.state_successors(expected.state)[expected.exit], "blocked")
     end
     t.eq(#core.strict_restart_responsibility_contract_errors(core.restart_transition_table()), 0)
   end,
@@ -155,7 +156,7 @@ return {
     t.eq(signature.successors[3].state, "blocked")
     t.eq(signature.successors[3].output_variant, "fix_budget_exhausted")
     t.eq(signature.successors[3].terminal, true)
-    t.eq(core.state_successors("fixing")[3], "blocked")
+    t.eq(devloop_state.state_successors("fixing")[3], "blocked")
     -- the fixing->blocked budget-exhaustion escape is terminal (not a second failure family);
     -- the row must have zero strict restart-responsibility contract errors.
     t.eq(#core.strict_restart_responsibility_contract_errors(core.restart_transition_table()), 0)

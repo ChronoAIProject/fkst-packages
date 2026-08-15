@@ -1,4 +1,5 @@
 local h = require("tests.devloop_core_helpers")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 local content_filter = require("forge.github.content_filter")
@@ -31,7 +32,7 @@ local function comments_from_json(stdout)
 end
 
 local function fact_summary(comments)
-  local current = core.current_state(comments, proposal_id)
+  local current = devloop_state.current_state(comments, proposal_id)
   local review = m_facts.review_result_fact(comments, proposal_id, version, "approve")
   local merge_ready = m_facts.merge_ready_fact(comments, proposal_id, version, pr_number, head_sha)
   local dependency_hold = core.dependency_hold_fact(comments, proposal_id)

@@ -2,6 +2,7 @@ local h = require("tests.devloop_core_helpers")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -54,7 +55,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
-    local current = core.current_state({
+    local current = devloop_state.current_state({
       h.projected_state_comment(proposal_id, "ready", version),
       core.state_marker(proposal_id, "thinking", version),
     }, proposal_id)
@@ -65,7 +66,7 @@ return {
 
     local transition = catalog_versioned_status(current, { "ready" }, "implementing", version)
     t.eq(transition, "apply")
-    t.eq(core.cas_outcome(current, transition, version), "applied")
+    t.eq(devloop_state.cas_outcome(current, transition, version), "applied")
   end,
 
   test_consensus_loop_result_orders_after_answered_intake_marker = function()
@@ -77,8 +78,8 @@ return {
     }
 
     t.eq(catalog_versioned_status(current, { "thinking" }, "ready", consensus_version), "apply")
-    t.eq(core.compare_state_marker_order(current, "ready", consensus_version), -1)
-    t.eq(core.current_state({
+    t.eq(devloop_state.compare_state_marker_order(current, "ready", consensus_version), -1)
+    t.eq(devloop_state.current_state({
       core.state_marker("github-devloop/issue/owner/repo/42", "thinking", intake_version),
       h.projected_state_comment("github-devloop/issue/owner/repo/42", "ready", consensus_version),
     }, "github-devloop/issue/owner/repo/42").state, "ready")

@@ -4,6 +4,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local canonical_json = require("testkit_internal.old_behavior_observation_support").canonical_json
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local action_label = h.action_label
@@ -102,7 +103,7 @@ return {
     t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
     local fix_raise = find_causal_raise(result, "devloop_fixing")
-    local exit_version = core.next_review_meta_action_version(event.version)
+    local exit_version = devloop_state.next_review_meta_action_version(event.version)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(fix_raise.payload.blocking_gap, "missing regression guard")
     t.is_true(comment:find("fkst:github-devloop:fix-reflection:v1", 1, true) ~= nil)
@@ -113,7 +114,7 @@ return {
 
   test_fix_reflection_replay_fact_restores_blocking_gap = function()
     local issue_version = core.fix_version_from_review_version(reflection_review_version())
-    local review_version = core._strip_latest_fix_version_suffix(issue_version)
+    local review_version = devloop_state._strip_latest_fix_version_suffix(issue_version)
     local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, review_version, "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local fresh_payload = payloads_builders.build_devloop_fix_reflection_payload({

@@ -1,4 +1,5 @@
 local fixtures = require("tests.observability_test_helpers")
+local devloop_state = require("devloop.state")
 local h = fixtures.h
 local t = fixtures.t
 local core = fixtures.core
@@ -153,7 +154,7 @@ return {
 
     t.is_true(summary ~= nil)
     t.is_true(summary:find("total=1", 1, true) ~= nil)
-    for _, state in ipairs(core.lifecycle_state_order()) do
+    for _, state in ipairs(devloop_state.lifecycle_state_order()) do
       local expected = state == "ready" and 1 or 0
       t.is_true(summary:find(state .. "=" .. tostring(expected), 1, true) ~= nil)
     end

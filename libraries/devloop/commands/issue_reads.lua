@@ -156,7 +156,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"gh_issue_close", "gh_issue_comment_get", "gh_issue_list_board_digest", "gh_issue_list_decompose_children", "gh_issue_list_intake", "gh_issue_list_recent_closed", "gh_issue_list_wip", "gh_issue_view", "gh_issue_view_claim", "gh_issue_view_commit_subject", "gh_issue_view_decompose", "gh_issue_view_fix", "gh_issue_view_implement", "gh_issue_view_intake_judge", "gh_issue_view_loop", "gh_issue_view_merge", "gh_issue_view_meta", "gh_issue_view_observe", "gh_issue_view_open_pr", "gh_issue_view_result", "gh_issue_view_review", "gh_issue_view_review_loop", "gh_issue_view_reviewing", "gh_issue_view_state"}) do M[n] = C[n] end
+  for _, n in ipairs({"gh_issue_list_decompose_children"}) do M[n] = C[n] end
 end
 C.install = S.install
 

@@ -277,7 +277,7 @@ local function assert_catalog_matches_observed_decision(fixture)
       event.proposal_id,
       event.dedup_key,
       "block",
-      core.next_review_meta_action_version(event.version)
+      devloop_state.next_review_meta_action_version(event.version)
     ))
   end
   h.mock_issue_review_meta({}, comments)

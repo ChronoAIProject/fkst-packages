@@ -5,6 +5,7 @@ local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local restart_cas_catalog = require("devloop.restart_cas_catalog")
 local restart_edges = require("devloop.restart_edges")
+local devloop_state = require("devloop.state")
 
 local core = h.core
 local t = h.t
@@ -57,11 +58,11 @@ local function trusted_state_from_body(body, expected_state)
     author_login = "fkst-test-bot",
     created_at = "2026-06-03T01:02:05Z",
   }
-  local emitted = core.current_state({ authored }, proposal_id)
+  local emitted = devloop_state.current_state({ authored }, proposal_id)
   t.eq(emitted.state, expected_state)
 
   authored.author_login = "untrusted-user"
-  t.eq(core.current_state({ authored }, proposal_id).state, nil)
+  t.eq(devloop_state.current_state({ authored }, proposal_id).state, nil)
   return emitted.state
 end
 
@@ -86,7 +87,7 @@ local function observe_first_seen_pr_entry()
   local department = require("departments.observe_pr.main")
   local queue_name = consumed_queue(department.spec, "github-proxy.github_entity_changed")
 
-  t.eq(core.current_state({ origin_marker() }, proposal_id).state, nil)
+  t.eq(devloop_state.current_state({ origin_marker() }, proposal_id).state, nil)
   h.mock_bot_env()
   h.mock_default_issue_claim("owner/repo", 42)
   entity_read_mocks.mock_pr_view_selector(t, {

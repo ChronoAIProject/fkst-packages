@@ -1,9 +1,10 @@
 local h = require("tests.devloop_core_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
-local contract = core.pr_partition_contract
+local contract = require("devloop.restart.issue.pr_partition_contract")
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function marker(state, version)
@@ -80,7 +81,7 @@ return {
         created_at = "2026-06-03T01:03:03Z",
       },
     }
-    local current = core.current_state(comments, proposal_id)
+    local current = devloop_state.current_state(comments, proposal_id)
     t.eq(current.state, "merge-ready")
   end,
 
@@ -101,7 +102,7 @@ return {
     -- Step 1 target: legacy issue pr-open plus PR merge-ready should project to
     -- parent awaiting-pr while automation continues from PR authority. The Lua
     -- runner has no pending/xfail support, so Step 0 asserts the current behavior.
-    local current = core.current_state(comments, proposal_id)
+    local current = devloop_state.current_state(comments, proposal_id)
     t.eq(current.state, "merge-ready")
   end,
 

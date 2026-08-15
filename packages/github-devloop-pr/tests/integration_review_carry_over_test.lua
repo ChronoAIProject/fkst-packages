@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -100,19 +101,19 @@ return {
     local event = h.merge_ready()
     local tied = merge_comments(event)
     table.insert(tied, core.state_marker(event.proposal_id, "reviewing", event.version))
-    t.eq(core.current_state(tied, event.proposal_id).state, "merge-ready")
+    t.eq(devloop_state.current_state(tied, event.proposal_id).state, "merge-ready")
 
-    local next_review_version = core.next_review_loop_version(event.version)
+    local next_review_version = devloop_state.next_review_loop_version(event.version)
     t.eq(next_review_version, event.version .. "/review-loop/1")
     local advanced = merge_comments(event)
     table.insert(advanced, core.state_marker(event.proposal_id, "reviewing", next_review_version))
-    t.eq(core.current_state(advanced, event.proposal_id).state, "reviewing")
+    t.eq(devloop_state.current_state(advanced, event.proposal_id).state, "reviewing")
 
     local stale = {
       core.state_marker(event.proposal_id, "reviewing", next_review_version),
-      core.state_marker(event.proposal_id, "merge-ready", core.next_review_loop_version(next_review_version)),
+      core.state_marker(event.proposal_id, "merge-ready", devloop_state.next_review_loop_version(next_review_version)),
     }
-    t.eq(core.current_state(stale, event.proposal_id).state, "merge-ready")
+    t.eq(devloop_state.current_state(stale, event.proposal_id).state, "merge-ready")
   end,
 
   test_observe_pr_carries_over_approved_head_for_empty_resolution_delta = function()
@@ -213,7 +214,7 @@ return {
     local event = h.merge_ready()
     local new_head = "feedface"
     local origin = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
-    local review_version = core.next_review_loop_version(event.version)
+    local review_version = devloop_state.next_review_loop_version(event.version)
     local comments = merge_comments(event)
     table.insert(comments, core.state_marker(event.proposal_id, "reviewing", review_version))
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
@@ -242,7 +243,7 @@ return {
     t.eq(reviewing_raise.payload.version, review_version)
     t.eq(count_calls("git merge-tree --write-tree"), 1)
 
-    local current = core.current_state(comments, event.proposal_id)
+    local current = devloop_state.current_state(comments, event.proposal_id)
     t.eq(current.state, "reviewing")
     t.eq(current.version, review_version)
 

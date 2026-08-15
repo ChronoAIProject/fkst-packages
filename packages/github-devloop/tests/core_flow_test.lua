@@ -13,6 +13,8 @@ local v_ready = require("devloop.validators.ready")
 local v_fixing = require("devloop.validators.fixing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
+local devloop_git_ops = require("devloop.commands.git_ops")
+local devloop_state = require("devloop.state")
 local core = h.core
 local restart_policy = assert(rawget(core, "restart_policy"))
 local t = h.t
@@ -313,8 +315,8 @@ return {
 
   test_version_fix_round_counts_max_fix_suffix = function()
     local version = "ready/base/fix/1/review-loop/2/fix/3"
-    t.eq(core.version_fix_round(version), 3)
-    t.eq(core.version_fix_round("ready/base"), 0)
+    t.eq(devloop_state.version_fix_round(version), 3)
+    t.eq(devloop_state.version_fix_round("ready/base"), 0)
     t.eq(core.next_fix_version(version), version .. "/fix/4")
   end,
 
@@ -387,7 +389,7 @@ return {
   test_decompose_replay_dedup_binds_child_completion_identity = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
-    local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, core._strip_latest_fix_version_suffix(version), "def456")
+    local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, devloop_state._strip_latest_fix_version_suffix(version), "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local comments = {
       m_builders.merge_gate_marker(proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
@@ -485,23 +487,23 @@ return {
     t.is_true(core.git_worktree_add_remote_branch_cmd(worktree_path, "origin", deterministic_branch, true):find("git worktree add --force -B", 1, true) ~= nil)
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
-    t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
-    local branch_worktrees = core.find_worktrees_for_branch(list, deterministic_branch)
+    t.eq(devloop_git_ops.find_worktree_for_branch(list, deterministic_branch), worktree_path)
+    local branch_worktrees = devloop_git_ops.find_worktrees_for_branch(list, deterministic_branch)
     t.eq(#branch_worktrees, 1)
     t.eq(branch_worktrees[1], worktree_path)
-    t.is_nil(core.find_worktree_for_branch(list, deterministic_branch .. "-other"))
+    t.is_nil(devloop_git_ops.find_worktree_for_branch(list, deterministic_branch .. "-other"))
     local stale_worktree_path = "/tmp/fkst-rt-old/worktrees/devloop-owner-repo-42-01HY"
     local stale_worktree_path_two = "/tmp/fkst-rt-old-two/worktrees/devloop-owner-repo-42-01HY"
     local current_root_list = "worktree " .. stale_worktree_path .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
       .. "worktree " .. stale_worktree_path_two .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
-    local all_branch_worktrees = core.find_worktrees_for_branch(current_root_list, deterministic_branch)
+    local all_branch_worktrees = devloop_git_ops.find_worktrees_for_branch(current_root_list, deterministic_branch)
     t.eq(#all_branch_worktrees, 3)
     t.eq(all_branch_worktrees[1], stale_worktree_path)
     t.eq(all_branch_worktrees[2], stale_worktree_path_two)
     t.eq(all_branch_worktrees[3], worktree_path)
-    t.eq(core.find_worktree_for_branch_under_root(current_root_list, deterministic_branch, implementation_root), worktree_path)
-    t.is_nil(core.find_worktree_for_branch_under_root(
+    t.eq(devloop_git_ops.find_worktree_for_branch_under_root(current_root_list, deterministic_branch, implementation_root), worktree_path)
+    t.is_nil(devloop_git_ops.find_worktree_for_branch_under_root(
       "worktree " .. stale_worktree_path .. "\nHEAD abc123\nbranch refs/heads/" .. deterministic_branch .. "\n\n",
       deterministic_branch,
       implementation_root
@@ -580,7 +582,7 @@ return {
     local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core.impl_failure_marker, core.output_language, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged, nil, "UNKNOWN", true)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
-    local current = core.current_state({ forged_failure.body }, ready.proposal_id)
+    local current = devloop_state.current_state({ forged_failure.body }, ready.proposal_id)
     t.eq(current.state, "impl-failed")
     t.eq(current.version, ready.dedup_key)
 

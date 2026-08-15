@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local devloop_logging = require("devloop.logging")
 local t = fkst.test
 local core = require("core")
 local execution_start = require("devloop.execution_start")
@@ -415,7 +416,7 @@ return {
 
   test_payload_field_returns_nil_for_userdata = function()
     local userdata_payload = assert(io.tmpfile())
-    t.eq(core.payload_field(userdata_payload, "dedup_key"), nil)
+    t.eq(devloop_logging.payload_field(userdata_payload, "dedup_key"), nil)
     userdata_payload:close()
   end,
 }

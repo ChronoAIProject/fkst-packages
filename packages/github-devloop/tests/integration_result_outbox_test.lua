@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -107,7 +108,7 @@ return {
     local audit = find_raise(absorbed.raises, "github-proxy.github_issue_comment_request")
     t.is_true(audit.payload.body:find("fkst:github-devloop:result-divergence:v1", 1, true) ~= nil)
     t.eq(find_raise(absorbed.raises, "github-proxy.github_issue_label_request"), nil)
-    t.eq(core.current_state({ approved_fact }, approve.proposal_id).state, "ready")
+    t.eq(devloop_state.current_state({ approved_fact }, approve.proposal_id).state, "ready")
 
     local fresh_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local fresh_reject = reached({

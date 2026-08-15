@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -125,7 +126,7 @@ return {
     t.is_true(reviewing_request ~= nil)
     t.eq(reviewing_request.payload.handoff.kind, "github-devloop.reviewing")
     local fresh_version = reviewing_request.payload.handoff.version
-    t.eq(fresh_version, core.next_review_loop_version(initial_version))
+    t.eq(fresh_version, devloop_state.next_review_loop_version(initial_version))
 
     local handoff = h.run_comment_handoff_from_request(
       reviewing_request.payload,

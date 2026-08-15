@@ -4,6 +4,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local replay_fields = require("devloop.replay_fields")
+local devloop_state = require("devloop.state")
 local replayer
 local t = h.t
 local core = h.core
@@ -68,7 +69,7 @@ return {
 
   test_no_actionable_gap_returns_to_reviewing_before_review_result_can_make_merge_ready = function()
     local event = h.review_meta_event()
-    local exit_version = core.next_review_meta_action_version(event.version)
+    local exit_version = devloop_state.next_review_meta_action_version(event.version)
     h.mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(event.proposal_id, "review-meta", event.version),
     })
@@ -137,7 +138,7 @@ return {
   test_no_actionable_gap_replay_restores_only_canonical_reviewing = function()
     h.mock_bot_env()
     local event = h.review_meta_event()
-    local exit_version = core.next_review_meta_action_version(event.version)
+    local exit_version = devloop_state.next_review_meta_action_version(event.version)
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local comments = {
       {

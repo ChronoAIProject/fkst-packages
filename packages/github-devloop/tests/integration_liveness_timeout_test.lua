@@ -1,4 +1,5 @@
 local fixture = require("tests.integration_liveness_scan_helpers")
+local devloop_state = require("devloop.state")
 local base_ids = fixture.base_ids
 local h = fixture.h
 local entity_lib = fixture.entity_lib
@@ -121,7 +122,7 @@ return {
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.proposal_id, proposal_id)
-    t.eq(core.version_timeout_round(proposal.payload.dedup_key, "thinking"), 0)
+    t.eq(devloop_state.version_timeout_round(proposal.payload.dedup_key, "thinking"), 0)
     t.is_true(proposal.payload.effect_version == version and proposal.payload.dedup_key ~= version)
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
@@ -142,7 +143,7 @@ return {
     local changed = find_raise(result.raises, ISSUE_REDRIVE_QUEUE)
     t.is_true(changed ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.eq(core.version_timeout_round(changed.payload.dedup_key, "ready"), 0)
+    t.eq(devloop_state.version_timeout_round(changed.payload.dedup_key, "ready"), 0)
   end,
 
   test_liveness_scan_over_budget_blocked_redrives_decompose = function()
@@ -220,7 +221,7 @@ return {
         t.is_true(ready_raise ~= nil)
         t.is_true(ready_raise.payload.dedup_key:find("/redrive/ready/" .. tostring(sweep), 1, true) ~= nil)
         t.eq(ready_raise.payload.ready_hand_off.comment_id, "IC_ready_timeout_sweep")
-        t.eq(core.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
+        t.eq(devloop_state.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
         local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
         t.is_true(attempt ~= nil)
         t.is_true(attempt.payload.body:find('round="' .. tostring(sweep) .. '"', 1, true) ~= nil)
@@ -233,7 +234,7 @@ return {
         local ready_raise = find_raise(result.raises, "devloop_ready")
         t.is_true(ready_raise ~= nil)
         t.is_true(ready_raise.payload.dedup_key:find("/redrive/ready/" .. tostring(sweep), 1, true) ~= nil)
-        t.eq(core.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
+        t.eq(devloop_state.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
         local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
         t.is_true(attempt ~= nil)
         t.is_true(attempt.payload.body:find('round="' .. tostring(sweep) .. '"', 1, true) ~= nil)

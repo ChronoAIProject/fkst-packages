@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -14,7 +15,7 @@ return {
 
     h.mock_issue_result({ "fkst-dev:ready" }, comments)
     local result = h.run_result(reached, h.opts("consensus-projection-rootcause"))
-    local authoritative = core.current_state(comments, reached.proposal_id)
+    local authoritative = devloop_state.current_state(comments, reached.proposal_id)
 
     if result.exit_code == 0
       and #result.raises == 0

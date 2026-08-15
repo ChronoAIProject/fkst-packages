@@ -11,6 +11,7 @@ local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local observation = require("testkit_internal.old_behavior_observation_support")
 local sha256 = require("contract.sha256")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
@@ -243,8 +244,8 @@ return {
       },
     }
 
-    t.eq(core.current_state(issue_comments, issue_proposal_id).state, "ready")
-    t.eq(core.has_result_marker(issue_comments, issue_proposal_id, "approve", "consensus:v1"), true)
+    t.eq(devloop_state.current_state(issue_comments, issue_proposal_id).state, "ready")
+    t.eq(devloop_state.has_result_marker(issue_comments, issue_proposal_id, "approve", "consensus:v1"), true)
     t.eq(core.dependency_hold_fact(issue_comments, issue_proposal_id).marker_kind, "dependency-wait")
     t.eq(core.dependency_waiver_fact({
       {

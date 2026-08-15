@@ -1,4 +1,5 @@
 local h = require("tests.devloop_ops_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 require("departments.observability.main")
@@ -117,8 +118,8 @@ local function mock_all_issue_lists(items)
       exit_code = 0,
     })
   end
-  for _, state in ipairs(core.lifecycle_state_order()) do
-    t.mock_command(observe_issue_list_first_command(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
+  for _, state in ipairs(devloop_state.lifecycle_state_order()) do
+    t.mock_command(observe_issue_list_first_command(devloop_state.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
 end
 

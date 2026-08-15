@@ -7,6 +7,7 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local m_builders = require("devloop.markers.builders")
 local operator_reentry_inventory = require("core.restart.operator_reentry_inventory")
 local observe_issue_department = require("departments.observe_issue.main")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -158,7 +159,7 @@ end
 
 local function find_projected_state_raise(raises, proposal_id, expected_state)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
-    local projected = core.current_state({ payload.body }, proposal_id)
+    local projected = devloop_state.current_state({ payload.body }, proposal_id)
     return projected.state == expected_state
   end)
 end

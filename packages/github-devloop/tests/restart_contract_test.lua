@@ -106,6 +106,7 @@ local function capture_raises(fn)
 end
 
 local with_codex_runs = require("testkit_internal.testing").with_codex_runs
+local devloop_state = require("devloop.state")
 
 local function synthetic_heartbeat_row()
   local row = copy_rows(core.restart_transition_table())[1]
@@ -458,7 +459,7 @@ return {
     t.eq(decision.budget_minutes, row.budget.minutes)
     t.eq(decision.resolver, "none")
     t.eq(decision.verdict, "not-declared")
-    t.eq(core.version_timeout_round(decision.version, "impl-failed"), 1)
+    t.eq(devloop_state.version_timeout_round(decision.version, "impl-failed"), 1)
     t.eq(transition_version.strip_suffixes(decision.version), transition_version.strip_suffixes(base))
     local over = {
       state = "impl-failed",
@@ -473,7 +474,7 @@ return {
     local redriven = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
     t.eq(redriven.action, "redrive")
     t.eq(redriven.attempt, 4)
-    t.eq(core.version_timeout_round(redriven.version, "impl-failed"), 4)
+    t.eq(devloop_state.version_timeout_round(redriven.version, "impl-failed"), 4)
     t.eq(transition_version.strip_suffixes(redriven.version), transition_version.strip_suffixes(base))
   end,
 
@@ -650,7 +651,7 @@ return {
       t.eq(decision.budget_minutes, 150)
       t.eq(decision.resolver, "fkst.codex_runs")
       t.eq(decision.verdict, "codex-run-running")
-      t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+      t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
     end)
   end,
 
@@ -756,7 +757,7 @@ return {
     -- redrives the next round instead of dropping to blocked.
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
-    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+    t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
   test_liveness_timeout_thinking_redrives_never_escalating_to_reconcile = function()
@@ -779,7 +780,7 @@ return {
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
     t.eq(decision.attempt, 4)
-    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+    t.eq(devloop_state.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
   test_restart_table_matches_state_graph_and_stage_rank = function()
@@ -793,9 +794,9 @@ return {
       declined = true,
       blocked = true, merged = true,
     }
-    for state in pairs(core.lifecycle_state_set()) do
+    for state in pairs(devloop_state.lifecycle_state_set()) do
       if expected[state] then
-        local next_states = core.state_successors(state)
+        local next_states = devloop_state.state_successors(state)
         local row = by_state[state]
         t.is_true(row ~= nil)
         for _, next_state in ipairs(row.to_states) do

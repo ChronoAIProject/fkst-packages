@@ -865,6 +865,6 @@ return {
     -- advancing the attempt/version lineage so the parent keeps polling the child PR.
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
-    t.eq(core.version_timeout_round(decision.version, "awaiting-pr"), 3)
+    t.eq(devloop_state.version_timeout_round(decision.version, "awaiting-pr"), 3)
   end,
 }

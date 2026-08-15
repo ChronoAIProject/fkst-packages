@@ -4,6 +4,7 @@ local fix_rounds = require("core.fix_rounds")
 local replay_fields = require("devloop.replay_fields")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -240,7 +241,7 @@ return {
     local handoff = fixing_handoff(result)
     t.is_true(handoff ~= nil)
     t.eq(handoff.payload.handoff.version, version_at(2))
-    t.eq(core.version_fix_round(handoff.payload.handoff.version), 2)
+    t.eq(devloop_state.version_fix_round(handoff.payload.handoff.version), 2)
     t.eq(h.find_raise(result.raises, "devloop_fix_reconcile"), nil)
   end,
 
@@ -267,7 +268,7 @@ return {
       t.is_true(handoff ~= nil)
       admitted_generations = admitted_generations + 1
       local fixing_version = handoff.payload.handoff.version
-      t.eq(core.version_fix_round(fixing_version), core.version_fix_round(version) + 1)
+      t.eq(devloop_state.version_fix_round(fixing_version), devloop_state.version_fix_round(version) + 1)
 
       -- Production's successful fixing exit pushes a new head and performs its load-bearing
       -- fixing -> reviewing bump. The approved review preserves that version into merging,
@@ -277,7 +278,7 @@ return {
     end
     t.eq(terminated, true)
     t.is_true(admitted_generations <= config.max_fix_rounds())
-    t.eq(core.version_fix_round(version), config.max_fix_rounds())
+    t.eq(devloop_state.version_fix_round(version), config.max_fix_rounds())
     t.eq(owner_calls, admitted_generations + 1)
   end,
 }

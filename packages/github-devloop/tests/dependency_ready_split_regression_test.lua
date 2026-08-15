@@ -209,7 +209,7 @@ local function state_comment_request(raises, to_state, to_version)
     if type(payload.body) ~= "string" then
       return false
     end
-    local projected = core.current_state({
+    local projected = devloop_state.current_state({
       trusted_comment("IC_projected_result", payload.body),
     }, proposal_id)
     return projected.state == to_state and projected.version == to_version
@@ -361,17 +361,17 @@ return {
 
   test_ready_hand_off_comment_id_requires_trusted_visible_ready_marker = function()
     local marker = h.projected_state_comment(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
-    t.eq(core.ready_hand_off_comment_id({
+    t.eq(devloop_state.ready_hand_off_comment_id({
       trusted_comment("IC_ready_1", marker),
     }, proposal_id, version), "IC_ready_1")
-    t.eq(core.ready_hand_off_comment_id({
+    t.eq(devloop_state.ready_hand_off_comment_id({
       {
         id = "IC_forged",
         body = marker,
         author = { login = "not-the-bot" },
       },
     }, proposal_id, version), nil)
-    t.eq(core.ready_hand_off_comment_id({
+    t.eq(devloop_state.ready_hand_off_comment_id({
       trusted_comment("IC_missing_effects", h.projected_state_comment(proposal_id, "ready", version)),
     }, proposal_id, version), nil)
   end,

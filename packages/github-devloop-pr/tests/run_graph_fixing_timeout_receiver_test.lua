@@ -10,6 +10,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local payloads_shared = require("devloop.payloads.shared")
 local requests_review = require("devloop.requests.review")
 local v_fixing = require("devloop.validators.fixing")
+local devloop_state = require("devloop.state")
 
 local t = h.t
 local core = h.core
@@ -189,7 +190,7 @@ local function mock_frozen_pr(fixing, feedback_body, fields)
       fixing.proposal_id,
       tostring(selected_issue_number),
       selected_branch,
-      core._strip_latest_fix_version_suffix(fixing.version),
+      devloop_state._strip_latest_fix_version_suffix(fixing.version),
       "dev"
     )),
     trusted_comment(feedback_body),

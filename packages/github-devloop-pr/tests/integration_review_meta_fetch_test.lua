@@ -4,6 +4,7 @@ local strings = require("contract.strings")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -155,7 +156,7 @@ return {
     local event = review_meta_event()
     mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(event.proposal_id, "review-meta", event.version),
-      m_builders.review_meta_marker(event.proposal_id, event.dedup_key, "spec-amendment", core.next_review_meta_action_version(event.version)),
+      m_builders.review_meta_marker(event.proposal_id, event.dedup_key, "spec-amendment", devloop_state.next_review_meta_action_version(event.version)),
     })
     local replay = run_review_meta(event, opts("review-meta-spec-amendment-replay"))
     t.eq(replay.exit_code, 0)
@@ -179,7 +180,7 @@ return {
         "consensus:" .. review_proposal_id .. "/review/loop/3/review-meta",
       }),
     })
-    local exit_version = core.next_review_meta_action_version(review_meta.version)
+    local exit_version = devloop_state.next_review_meta_action_version(review_meta.version)
     t.is_true(#table.concat({
       "review-meta",
       "comment",

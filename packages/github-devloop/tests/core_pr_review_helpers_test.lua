@@ -6,6 +6,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local core = h.core
 local t = h.t
 
@@ -57,7 +58,7 @@ return {
     local reject_marker = m_builders.review_result_marker(review_v1, issue_proposal_id, "reject", "consensus:" .. review_v1 .. "/review", 1, "missing regression guard")
     t.is_true(reject_marker:find('fix_round="1"', 1, true) ~= nil)
     t.is_true(reject_marker:find('gap="missing regression guard"', 1, true) ~= nil)
-    local action_version = core.next_review_meta_action_version(version)
+    local action_version = devloop_state.next_review_meta_action_version(version)
     local meta_review_proposal = devloop_base.pr_review_proposal_id(repo, 7, version, head_sha)
     local meta_review_dedup = devloop_base.pr_review_consensus_dedup_key(meta_review_proposal)
     local meta_comment = "github-devloop review-meta action: fix\n\nReason:\nRun another fix pass."

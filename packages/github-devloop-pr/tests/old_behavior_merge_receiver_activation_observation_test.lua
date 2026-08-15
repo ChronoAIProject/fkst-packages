@@ -270,7 +270,7 @@ local function capture(fixture)
       fixture.speculative_old_head or HEAD_SHA, HEAD_SHA))
   end
   if fixture.reviewing_marker then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, "reviewing", core.next_review_loop_version(VERSION)))
+    table.insert(comments, core.state_marker(PROPOSAL_ID, "reviewing", devloop_state.next_review_loop_version(VERSION)))
   end
   local merged = false
   local draft = fixture.draft == true
