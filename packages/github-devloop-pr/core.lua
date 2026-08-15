@@ -94,7 +94,6 @@ require("forge.merge").install(M, {
   pr_view_projection = parsers_pr.parse_pr_view_merge,
 })
 require("core.review_carry_over").install(M)
-require("devloop.logging").install(M)
 require("devloop.state").install(M)
 local package_replayer
 local restart_runtime = {
