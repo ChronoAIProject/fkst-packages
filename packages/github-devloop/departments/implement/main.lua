@@ -21,7 +21,6 @@ local cache_preparation = require("departments.implement.cache_preparation")
 local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
 local attempt_runner = require("departments.implement.attempt")
-local completed_result_recovery = require("departments.implement.completed_result_recovery")
 local branch_progress = require("departments.implement.branch_progress")
 local result_checkpoint = require("departments.implement.result_checkpoint")
 local dispatch_live_run = require("devloop.dispatch_live_run")
@@ -500,23 +499,6 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
   return state, current, snapshot, decision
 end
 
-local function publish_attempt_outcome_if_current(repo, issue_number, lock_key, attempt_plan, outcome)
-  local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,
-    attempt_plan.marker_ready, attempt_plan.expected_from_states,
-    attempt_plan.accepted_ready_hand_off, true)
-  if not write_gate_ok then
-    return
-  end
-  local publish_authorization = nil
-  if outcome.kind == "implementing" or outcome.kind == "implement-checkpoint" then
-    publish_authorization = restart_sink_grants.implementation_publish(implement_caps, {
-      repo = repo, issue_number = issue_number, ready = attempt_plan.marker_ready,
-      publish_state = publish_state, outcome_kind = outcome.kind, lock_key = lock_key,
-    })
-  end
-  raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
-end
-
 local function checkpoint_matches_progress(checkpoint, progress)
   return checkpoint ~= nil
     and progress ~= nil
@@ -816,19 +798,17 @@ local function process_ready_event(event)
     return
   end
 
-  local prepared_attempt, recovered = completed_result_recovery.run(with_lock, lock_key,
-    function()
-      local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision = precheck_implementation_write_gate(
-        repo,
-        issue_number,
-        lock_key,
-        attempt_plan.marker_ready,
-        attempt_plan.expected_from_states,
-        attempt_plan.accepted_ready_hand_off
-      )
-      if pre_spawn_state == nil then
-        return nil
-      end
+  local worktree, codex_started_at, exec_ref, receiver_authorization
+  with_lock(lock_key, function()
+    local pre_spawn_state, pre_spawn_current, activation_snapshot, activation_decision = precheck_implementation_write_gate(
+      repo,
+      issue_number,
+      lock_key,
+      attempt_plan.marker_ready,
+      attempt_plan.expected_from_states,
+      attempt_plan.accepted_ready_hand_off
+    )
+    if pre_spawn_state ~= nil then
       if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "implement", attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key, {
         state = pre_spawn_state,
         current = pre_spawn_current,
@@ -844,41 +824,42 @@ local function process_ready_event(event)
           "skip-idempotent(live-exec-ref)",
           "matching implementation codex run is still live"
         )
-        return nil
+        return
       end
       if attempt_plan.base_head == nil then
         attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
       end
-      local worktree, codex_started_at, exec_ref, receiver_authorization
       worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
-      return worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result
-    end,
-    function(prepared)
-      local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
-        attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
-        attempt_plan.base_head, prepared.worktree, prepared.started_at, prepared.exec_ref,
-        prepared.authorization, attempt_plan.attempt, event.ts, event.queue,
-        prepared.completed_result)
-      if outcome ~= nil then
-        publish_attempt_outcome_if_current(repo, issue_number, lock_key, attempt_plan, outcome)
-      end
-    end)
-  if prepared_attempt == nil or recovered then
+    end
+  end)
+  if worktree == nil then
     return
   end
 
   local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
     attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
-    attempt_plan.base_head, prepared_attempt.worktree, prepared_attempt.started_at,
-    prepared_attempt.exec_ref, prepared_attempt.authorization,
-    attempt_plan.attempt, event.ts, event.queue, prepared_attempt.completed_result)
+    attempt_plan.base_head, worktree, codex_started_at, exec_ref,
+    receiver_authorization, attempt_plan.attempt, event.ts, event.queue,
+    attempt_plan.completed_result)
   if outcome == nil then return end
   with_lock(lock_key, function()
-    publish_attempt_outcome_if_current(repo, issue_number, lock_key, attempt_plan, outcome)
+    local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,
+      attempt_plan.marker_ready, attempt_plan.expected_from_states,
+      attempt_plan.accepted_ready_hand_off, true)
+    if write_gate_ok then
+      local publish_authorization = nil
+      if outcome.kind == "implementing" or outcome.kind == "implement-checkpoint" then
+        publish_authorization = restart_sink_grants.implementation_publish(implement_caps, {
+          repo = repo, issue_number = issue_number, ready = attempt_plan.marker_ready,
+          publish_state = publish_state, outcome_kind = outcome.kind, lock_key = lock_key,
+        })
+      end
+      raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
+    end
   end)
 end
 
