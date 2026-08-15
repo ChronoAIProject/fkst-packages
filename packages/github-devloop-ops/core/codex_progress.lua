@@ -80,7 +80,7 @@ local function projected_request(row, target, body)
   }
 end
 
-function M.project_running_row(row)
+function M.project_running_row(row, card_refreshed_at)
   if type(row) ~= "table"
     or row.role ~= "implement"
     or row.status ~= "running"
@@ -97,7 +97,9 @@ function M.project_running_row(row)
   local timeout_seconds = tonumber(row.timeout_seconds)
   if type(row.dept) ~= "string" or row.dept == ""
     or elapsed_ms == nil or elapsed_ms < 0
-    or timeout_seconds == nil or timeout_seconds <= 0 then
+    or timeout_seconds == nil or timeout_seconds <= 0
+    or type(row.started_at) ~= "string" or row.started_at == ""
+    or type(card_refreshed_at) ~= "string" or card_refreshed_at == "" then
     error("github-devloop-ops: codex-progress-row-invalid: matching running row lacks display fields")
   end
 
@@ -109,6 +111,10 @@ function M.project_running_row(row)
     "- Role: `" .. row.role .. "`",
     "- Department: `" .. row.dept .. "`",
     "- Elapsed: `" .. format_seconds(elapsed_ms) .. " / " .. tostring(timeout_seconds) .. "s`",
+    "- Started: `" .. row.started_at .. "`",
+    -- Names the card's own refresh instant, never codex activity: no engine field records when
+    -- codex last wrote, so any such claim would be an observation-time proxy wearing codex's name.
+    "- Card last updated: `" .. card_refreshed_at .. "`",
     "",
     "Output tail:",
     "",
@@ -136,6 +142,7 @@ function M.project_terminal_row(row)
   local exit_code = row.exit_code == nil and nil or tonumber(row.exit_code)
   if type(row.dept) ~= "string" or row.dept == ""
     or elapsed_ms == nil or elapsed_ms < 0
+    or type(row.started_at) ~= "string" or row.started_at == ""
     or (row.exit_code ~= nil and exit_code == nil) then
     error("github-devloop-ops: codex-progress-row-invalid: matching terminal row lacks display fields")
   end
@@ -147,6 +154,7 @@ function M.project_terminal_row(row)
     "- Role: `" .. row.role .. "`",
     "- Department: `" .. row.dept .. "`",
     "- Outcome: `" .. row.status .. "`",
+    "- Started: `" .. row.started_at .. "`",
   }
   if row.ended_at_ms ~= nil then
     table.insert(body_lines, "- Duration: `" .. format_seconds(elapsed_ms) .. "`")
