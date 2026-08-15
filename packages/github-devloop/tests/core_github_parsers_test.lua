@@ -292,6 +292,28 @@ return {
     t.is_true(parsed.body:find("FULL_BODY_TAIL", 1, true) ~= nil)
   end,
 
+  test_pr_view_origin_accepts_a_fully_snake_case_record = function()
+    -- Aggregate characterization. Removing all 14 unpinned snake_case fallbacks from
+    -- devloop.parsers.pr reddened only two tests, both written moments earlier: roughly a
+    -- dozen `decoded.*` aliases were accepted by the code and guarded by nothing. This feeds
+    -- one snake_case-only record and pins the whole projection at once.
+    local o = parsers_pr.parse_pr_view_origin(table.concat({
+      '{"number":41,"state":"OPEN"',
+      ',"head_ref_oid":"c1","head_ref_name":"f/x"',
+      ',"base_ref_name":"dev","base_ref_oid":"c0"',
+      ',"updated_at":"2026-01-02T00:00:00Z","merged_at":"2026-01-03T00:00:00Z"',
+      ',"head_repository":{"name":"repo"},"head_repository_owner":{"login":"owner"}',
+      '}',
+    }))
+    t.eq(o.head_sha, "c1")
+    t.eq(o.head_ref_name, "f/x")
+    t.eq(o.base_ref_name, "dev")
+    t.eq(o.base_ref_oid, "c0")
+    t.eq(o.updated_at, "2026-01-02T00:00:00Z")
+    t.eq(o.merged_at, "2026-01-03T00:00:00Z")
+    t.eq(o.head_repository, "owner/repo")
+  end,
+
   test_pr_parsers_accept_snake_case_base_ref_name = function()
     -- Third unguarded alias branch, found by mutation rather than by counting: removing all
     -- three `or pr.base_ref_name` fallbacks left the whole suite green (1421 passed, 0 failed).
