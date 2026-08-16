@@ -2,6 +2,7 @@ local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local consensus_core = require("consensus.core")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local t = h.t
 local core = h.core
@@ -90,8 +91,8 @@ local function mock_consensus_approval()
   for _, angle in ipairs(angles) do
     local verdict = angle == "parsimony" and "abstain" or "approve"
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " " .. verdict .. "\n"
-        .. reply_label .. " " .. angle .. " Phase P1 accepts the bounded recorder change.\n",
+      stdout = codex_jsonl.final_message(verdict_label .. " " .. verdict .. "\n"
+        .. reply_label .. " " .. angle .. " Phase P1 accepts the bounded recorder change.\n"),
       stderr = "",
       exit_code = 0,
     })
@@ -102,16 +103,16 @@ local function mock_consensus_approval()
       and "⟦FKST:STANCE⟧ update because teleology bounded recorder claim"
       or "⟦FKST:STANCE⟧ defend"
     t.mock_command("codex exec", {
-      stdout = stance .. "\n"
+      stdout = codex_jsonl.final_message(stance .. "\n"
         .. verdict_label .. " " .. verdict .. "\n"
-        .. reply_label .. " " .. angle .. " Phase P2 accepts the bounded recorder change.\n",
+        .. reply_label .. " " .. angle .. " Phase P2 accepts the bounded recorder change.\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   t.mock_command("codex exec", {
-    stdout = "reached:approve " .. accepted_framing .. "\n"
-      .. "verified-move: angle=parsimony phase=P2 citation=teleology bounded recorder claim\n",
+    stdout = codex_jsonl.final_message("reached:approve " .. accepted_framing .. "\n"
+      .. "verified-move: angle=parsimony phase=P2 citation=teleology bounded recorder claim\n"),
     stderr = "",
     exit_code = 0,
   })

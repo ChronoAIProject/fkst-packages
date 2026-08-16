@@ -1,4 +1,5 @@
 local author_policy = require("testkit_internal.github_author_policy")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local devloop_base = require("devloop.base")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
@@ -141,7 +142,8 @@ local function mock_intake_codex(run_opts, candidate)
   end
   t.mock_command("mkdir -p", ok)
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation.",
+    stdout = codex_jsonl.final_message(
+      "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation."),
     stderr = "",
     exit_code = 0,
   })

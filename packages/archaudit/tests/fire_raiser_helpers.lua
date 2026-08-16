@@ -177,11 +177,14 @@ local function mock_production_github(search_stdout, label_stdout)
   })
 end
 
+local codex_jsonl = require("testkit_internal.codex_jsonl")
+
 local function mock_codex_findings(stdout, exit_code)
+  local resolved_exit_code = exit_code or 0
   t.mock_command("codex exec", {
-    stdout = stdout,
-    stderr = exit_code == 0 and "" or "codex timeout",
-    exit_code = exit_code or 0,
+    stdout = resolved_exit_code == 0 and codex_jsonl.final_message(stdout) or stdout,
+    stderr = resolved_exit_code == 0 and "" or "codex timeout",
+    exit_code = resolved_exit_code,
   })
 end
 

@@ -1,4 +1,5 @@
 local consensus = require("consensus")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 
 local function proposal(extra)
@@ -33,7 +34,8 @@ local function mock_reached()
     exit_code = 0,
   })
   t.mock_command("consensus-angle-teleology", {
-    stdout = "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The synchronous contract is sound.\n",
+    stdout = codex_jsonl.final_message(
+      "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The synchronous contract is sound.\n"),
     stderr = "",
     exit_code = 0,
   })

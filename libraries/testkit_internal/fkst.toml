@@ -20,6 +20,7 @@ exact = true
 public = [
   "testkit_internal.cas_shadow",
   "testkit_internal.command_calls",
+  "testkit_internal.codex_jsonl",
   "testkit_internal.devloop_core_fixtures",
   "testkit_internal.devloop_fixtures",
   "testkit_internal.devloop_fixtures.mocks",
