@@ -5,7 +5,7 @@
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -47,9 +47,7 @@ local function mock_meta_codex(stdout)
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl(stdout),
-    stderr = "",
-    exit_code = 0,
+    stdout = codex_jsonl.final_message(stdout), stderr = "", exit_code = 0,
   })
 end
 

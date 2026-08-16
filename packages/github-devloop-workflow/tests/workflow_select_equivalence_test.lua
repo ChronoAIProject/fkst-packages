@@ -3,6 +3,7 @@ local devloop_base = require("devloop.base")
 local marker_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
@@ -194,7 +195,7 @@ end
 local function mock_codex(stdout, current, payload)
   mock_context_bundle(current, payload)
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl(stdout),
+    stdout = codex_jsonl.final_message(stdout),
     stderr = "",
     exit_code = 0,
   })
@@ -212,7 +213,7 @@ local function mock_workflow_none()
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl("⟦FKST:WORKFLOW_SELECT⟧ none"),
+    stdout = codex_jsonl.final_message("⟦FKST:WORKFLOW_SELECT⟧ none"),
     stderr = "",
     exit_code = 0,
   })

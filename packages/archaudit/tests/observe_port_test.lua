@@ -1,4 +1,5 @@
 local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local github_fake = require("forge.github_fake")
 local audit_main = require("departments.audit.main")
 local observe_port = require("departments.audit.observe_port")
@@ -75,9 +76,7 @@ return {
   test_audit_department_consumes_injected_observe_port = function()
     mock_env()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("[]"),
-      stderr = "",
-      exit_code = 0,
+      stdout = codex_jsonl.final_message("[]"), stderr = "", exit_code = 0,
     })
 
     local model = github_fake.model()

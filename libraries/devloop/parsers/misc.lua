@@ -5,6 +5,7 @@ local forge_strings = require("forge.strings")
 local shared = require("devloop.parsers.shared")
 local C = {
   canonical_login = forge_strings.canonical_login,
+  is_canonical_login = forge_strings.is_canonical_login,
 }
 local trusted_bot_login_current = nil
 

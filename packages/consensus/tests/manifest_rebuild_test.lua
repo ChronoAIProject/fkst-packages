@@ -1,7 +1,7 @@
 local reach_test_helper = require("tests.reach_test_helpers")
 local context_bundle_identity = require("contract.context_bundle_identity")
 local context_manifest_module = require("consensus.context_manifest")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -86,9 +86,8 @@ local function mock_unanimous_approval()
   for _, angle in ipairs({ "teleology", "parsimony", "fidelity" }) do
     t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("consensus-angle-" .. angle, {
-      stdout = testing.codex_agent_message_jsonl(
-        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"
-      ),
+      stdout = codex_jsonl.final_message(
+        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"),
       stderr = "",
       exit_code = 0,
     })

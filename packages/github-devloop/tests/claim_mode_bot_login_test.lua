@@ -13,7 +13,7 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 -- consumed by one matching read (queued FIFO), mirroring claim_contract_test.lua's
 -- mock_bot, which re-registers FKST_GITHUB_WRITE write_reads times. We register a
 -- generous count so a whole claim flow's repeated env reads stay answered.
-local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed_bot_logins)
+local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed_bot_logins, suffix)
   local n = reads or 12
   for _ = 1, n do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -28,6 +28,11 @@ local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed
     })
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
       stdout = exclusive or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
+      stdout = suffix or "",
       stderr = "",
       exit_code = 0,
     })
@@ -109,7 +114,7 @@ local function ownership_json(logins, author_login, labels)
 end
 
 local bare_claimed_label = "fkst-dev:claimed"
-local derived_claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
 local derived_claimed_label = derived_claim_spec.name
 local peer_claimed_label = claim_carriers.derived_label("peer-bot")
 
@@ -332,6 +337,41 @@ return {
     t.eq(count_adapter_calls("--remove-label", derived_claimed_label), 0)
     -- Assignee-mode commands are never issued in label-mode.
     t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 0)
+  end,
+
+  test_label_mode_claim_uses_declared_label_suffix = function()
+    local claim_label = "fkst-dev:claimed:macstudio-4"
+    local description = "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
+    mock_env("fkst-test-bot", "label", "1", 12, "", nil, "macstudio-4")
+    for _ = 1, 2 do
+      t.mock_command("gh api repos/owner/repo/labels/" .. claim_label, {
+        stdout = '{"name":"' .. claim_label .. '","description":"' .. description .. '"}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claim_label .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "fkst-test-bot", { claim_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local ok = m_claims.claim_issue_for_management(
+      "claim_mode",
+      "owner/repo",
+      42,
+      { assignees = {}, labels = {}, author_login = "fkst-test-bot", comments = {} },
+      "github-devloop/issue/owner/repo/42"
+    )
+
+    t.eq(ok, true)
+    t.eq(count_adapter_calls("--add-label", claim_label), 1)
+    t.eq(count_adapter_calls("--add-label", derived_claimed_label), 0)
   end,
 
   test_label_mode_claim_fails_closed_before_add_when_derived_label_is_bound_to_another_owner = function()

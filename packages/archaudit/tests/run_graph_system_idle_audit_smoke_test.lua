@@ -1,5 +1,5 @@
 local graph = require("testkit.graph")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 
 local function observe_facts()
@@ -58,7 +58,7 @@ end
 
 local function mock_audit_codex()
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl("[]"),
+    stdout = codex_jsonl.final_message("[]"),
     stderr = "",
     exit_code = 0,
   })
