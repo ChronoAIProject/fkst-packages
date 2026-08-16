@@ -291,6 +291,7 @@ return {
       base_head = advanced_base_head,
       branch = branch,
       ahead_count = "1",
+      attempt = 2,
       merge = { stdout = "Merge made by the 'ort' strategy.\n" },
     })
     mock_branch_diff_paths("packages/github-devloop/core.lua\n",
@@ -379,6 +380,7 @@ return {
       base_head = advanced_base_head,
       branch = branch,
       ahead_count = "1",
+      attempt = 2,
       merge = {
         stderr = "CONFLICT (content): merge conflict in packages/github-devloop/core.lua\n",
         exit_code = 1,
@@ -626,7 +628,11 @@ return {
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
     mock_missing_remote_branch(branch)
-    mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    mock_existing_empty_implement_worktree_reuse({
+      branch = branch,
+      ahead_count = "1",
+      attempt = 3,
+    })
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",

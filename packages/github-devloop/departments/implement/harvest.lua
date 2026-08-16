@@ -111,7 +111,7 @@ local function worktree_unavailable_outcome(ready, worktree, reason, attempt, st
   }
 end
 
-local function worktree_unavailable_reason(worktree, branch)
+local function worktree_unavailable_reason(worktree)
   local result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(worktree), timeout = 30 })
   if result.exit_code ~= 0 and result.exit_code ~= 1 then
     error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
@@ -125,14 +125,14 @@ local function worktree_unavailable_reason(worktree, branch)
     error("github-devloop: worktree-list-failed: implementation worktree registration check failed: "
       .. tostring(list.stderr))
   end
-  if not devloop_commands.worktree_registered_for_branch(list.stdout, worktree, branch) then
+  if not devloop_commands.worktree_registered(list.stdout, worktree) then
     return "worktree-unregistered"
   end
   return nil
 end
 
-function M.worktree_unavailable_outcome(ready, worktree, branch, attempt, started_at, exec_ref, base_sha)
-  local reason = worktree_unavailable_reason(worktree, branch)
+function M.worktree_unavailable_outcome(ready, worktree, attempt, started_at, exec_ref, base_sha)
+  local reason = worktree_unavailable_reason(worktree)
   if reason == nil then
     return nil
   end
@@ -435,9 +435,9 @@ local function base_probe_detail(probe)
   return table.concat(fields, "\n")
 end
 
-function M.clean_branch_head(base_head, branch)
-  local head_sha = branch_progress.implemented_branch_head(base_head, branch)
-  if head_sha == nil or substrate_pin.is_only_pin_delta(base_head, branch) then
+function M.clean_worktree_head(base_head, worktree)
+  local head_sha = branch_progress.implemented_worktree_head(base_head, worktree)
+  if head_sha == nil or substrate_pin.is_only_pin_delta(base_head, head_sha, worktree) then
     return nil
   end
   return head_sha
@@ -457,14 +457,6 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
     error("github-devloop: git-commit-failed: git commit failed: " .. tostring(commit_result.stderr))
   end
 
-  local branch_result = devloop_commands.git_current_branch(worktree, 30)
-  if branch_result.exit_code ~= 0 then
-    error("github-devloop: branch-fact-read-failed: git branch fact failed: " .. tostring(branch_result.stderr))
-  end
-  local actual_branch = tostring(branch_result.stdout or ""):gsub("%s+$", "")
-  if actual_branch ~= branch then
-    error("github-devloop: branch-mismatch: deterministic implementing branch mismatch")
-  end
   if not require("devloop.pr_safety").is_safe_branch(branch) then
     error("github-devloop: unsafe-branch: unsafe implementing branch")
   end
@@ -489,7 +481,7 @@ end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
   local unavailable = M.worktree_unavailable_outcome(
-    ready, worktree, branch, attempt, started_at, exec_ref, base_head)
+    ready, worktree, attempt, started_at, exec_ref, base_head)
   if unavailable ~= nil then
     return unavailable
   end
@@ -565,7 +557,7 @@ end
 
 function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)
   local unavailable = M.worktree_unavailable_outcome(
-    ready, worktree, branch, attempt, started_at, exec_ref, base_head)
+    ready, worktree, attempt, started_at, exec_ref, base_head)
   if unavailable ~= nil then
     return unavailable
   end
@@ -574,7 +566,7 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
     error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
   end
   local dirty = tostring(status.stdout or "") ~= ""
-  local existing_head = M.clean_branch_head(base_head, branch)
+  local existing_head = M.clean_worktree_head(base_head, worktree)
   local progress_head = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
     or existing_head
   local green = false

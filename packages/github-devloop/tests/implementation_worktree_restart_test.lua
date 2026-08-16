@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
+local impl_failure = require("devloop.impl_failure")
 local harvest = require("departments.implement.harvest")
 local result_checkpoint = require("departments.implement.result_checkpoint")
 local worktree_lifecycle = require("departments.implement.worktree")
@@ -50,6 +51,15 @@ local function implementation_worktree_path(durable_root, event)
     42,
     event.dedup_key
   )
+end
+
+local function implementation_attempt_worktree_path(durable_root, event, attempt, suffix)
+  local implementation_root = devloop_base.implementation_worktree_root(durable_root)
+  local version = impl_failure.implementation_branch_version(
+    event.dedup_key, event.impl_retry_attempt)
+  return worktree_lifecycle.attempt_worktree_template(
+    implementation_root, "owner/repo", 42, version, attempt):gsub(
+      "XXXXXX$", suffix or "AAAAAA")
 end
 
 local function worktree_outcome(worktree)
@@ -157,80 +167,26 @@ return {
     end, "invalid FKST_DURABLE_ROOT")
   end,
 
-  test_retry_reuses_first_attempt_registered_worktree = function()
+  test_retry_allocates_a_detached_worktree_without_reclaiming_the_first_attempt = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/retry-lineage-durable"
     local event = h.ready()
-    local retry = {}
-    for key, value in pairs(event) do
-      retry[key] = value
-    end
-    retry.dedup_key = event.dedup_key .. "/reimplement/2"
-    retry.impl_retry_attempt = 2
     local branch = h.deterministic_branch_for(event)
-    local first_attempt_worktree = implementation_worktree_path(durable_root, event)
+    local first_attempt_worktree = implementation_attempt_worktree_path(
+      durable_root, event, 1, "AAAAAA")
+    local second_attempt_worktree = implementation_attempt_worktree_path(
+      durable_root, event, 2, "BBBBBB")
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
-      stdout = durable_root,
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. first_attempt_worktree
-        .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("reset --hard", {
-      stdout = "HEAD is now at abc123 implementation branch\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("clean -fd", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-
-    local worktree = worktree_lifecycle.prepare_worktree(
-      "owner/repo", 42, retry, branch, "abc123", nil)
-
-    t.eq(worktree, first_attempt_worktree)
-    t.eq(h.count_calls("git worktree remove --force"), 0)
-    t.eq(h.count_calls("git worktree add"), 0)
-  end,
-
-  test_prepare_fails_closed_when_canonical_path_belongs_to_another_branch = function()
-    local durable_root = "/tmp/fkst-packages-test/github-devloop/path-conflict-durable"
-    local event = h.ready()
-    local branch = h.deterministic_branch_for(event)
-    local worktree = implementation_worktree_path(durable_root, event)
-    t.mock_command("show-ref --verify --quiet", {
-      stdout = "",
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "abc123\n",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree
-        .. "\nHEAD abc123\nbranch refs/heads/unrelated\n\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -239,27 +195,26 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree add", {
-      stdout = "",
+    t.mock_command("mktemp -d", {
+      stdout = second_attempt_worktree .. "\n",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("reset --hard", {
-      stdout = "HEAD is now at abc123 implementation branch\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("clean -fd", {
+    t.mock_command("git worktree add --detach", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
 
-    assert_error_contains(function()
-      worktree_lifecycle.prepare_worktree(
-        "owner/repo", 42, event, branch, "abc123", nil)
-    end, "worktree-registration-conflict")
+    local worktree = worktree_lifecycle.prepare_worktree(
+      "owner/repo", 42, event, branch, "abc123", nil, 2)
+
+    t.eq(worktree, second_attempt_worktree)
+    t.is_true(worktree ~= first_attempt_worktree)
     t.eq(h.count_calls("git worktree remove --force"), 0)
+    t.eq(h.count_calls("git worktree add --detach"), 1)
+    t.eq(h.count_calls("reset --hard"), 0)
+    t.eq(h.count_calls("clean -fd"), 0)
   end,
 
   test_implementation_worktree_survives_runtime_scratch_replacement_and_harvest = function()
@@ -274,12 +229,8 @@ return {
       local implementation_root = devloop_base.implementation_worktree_root(durable_root)
       local event = h.ready()
       local branch = h.deterministic_branch_for(event)
-      local worktree = devloop_base.implement_worktree_path(
-        implementation_root,
-        "owner/repo",
-        42,
-        event.dedup_key
-      )
+      local worktree = implementation_attempt_worktree_path(
+        durable_root, event, 1, "AAAAAA")
 
       run_command("git init -b main " .. shell_quote(repo))
       run_command("git -C " .. shell_quote(repo) .. " config user.name " .. shell_quote("FKST Test"))
@@ -290,8 +241,8 @@ return {
       local base_head = read_command("git -C " .. shell_quote(repo) .. " rev-parse HEAD"):gsub("%s+$", "")
       run_command("mkdir -p " .. shell_quote(runtime_before))
       run_command("mkdir -p " .. shell_quote(implementation_root .. "/worktrees"))
-      run_command("git -C " .. shell_quote(repo) .. " worktree add -b "
-        .. shell_quote(branch) .. " " .. shell_quote(worktree) .. " HEAD")
+      run_command("git -C " .. shell_quote(repo) .. " worktree add --detach "
+        .. shell_quote(worktree) .. " HEAD")
 
       run_command("rmdir " .. shell_quote(runtime_before))
       run_command("git -C " .. shell_quote(repo) .. " worktree prune")
@@ -437,7 +388,7 @@ return {
     })
     t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "tests passed\n",
-      stderr = "",
+      stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
       exit_code = 0,
     })
 
@@ -449,43 +400,39 @@ return {
     t.eq(h.count_calls("scripts/run.sh test-affected"), 0)
   end,
 
-  test_worktree_registered_to_wrong_branch_is_typed_and_nonterminal = function()
-    local worktree = "/tmp/fkst-packages-test/github-devloop/wrong-branch-worktree"
+  test_exact_detached_worktree_registration_is_accepted = function()
+    local worktree = "/tmp/fkst-packages-test/github-devloop/detached-attempt-worktree"
     t.mock_command("[ -d " .. shell_quote(worktree) .. " ]", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree
-        .. "\nHEAD abc123\nbranch refs/heads/devloop/issue/owner/repo/42/wrong-version\n\n",
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\ndetached\n\n",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "tests passed\n",
-      stderr = "",
+      stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
       exit_code = 0,
     })
 
     local outcome = worktree_outcome(worktree)
-    t.eq(outcome.kind, "worktree-unregistered")
-    t.eq(outcome.reason, "worktree-unregistered")
-    t.eq(outcome.terminal, false)
-    t.eq(h.count_calls("scripts/run.sh test-affected"), 0)
+    t.eq(outcome.kind, "implementing")
+    t.eq(outcome.worktree, worktree)
+    t.eq(h.count_calls("scripts/run.sh test-affected"), 1)
   end,
 
   test_worktree_lost_at_cd_boundary_is_typed_and_nonterminal = function()
     local worktree = "/tmp/fkst-packages-test/github-devloop/cd-race-worktree"
-    local event = h.ready()
-    local branch = h.deterministic_branch_for(event)
     t.mock_command("[ -d " .. shell_quote(worktree) .. " ]", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\ndetached\n\n",
       stderr = "",
       exit_code = 0,
     })
@@ -509,15 +456,13 @@ return {
 
   test_candidate_output_cannot_spoof_worktree_missing = function()
     local worktree = "/tmp/fkst-packages-test/github-devloop/spoofed-worktree-marker"
-    local event = h.ready()
-    local branch = h.deterministic_branch_for(event)
     t.mock_command("[ -d " .. shell_quote(worktree) .. " ]", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("git worktree list --porcelain", {
-      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\ndetached\n\n",
       stderr = "",
       exit_code = 0,
     })

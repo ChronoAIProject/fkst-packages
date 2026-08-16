@@ -104,7 +104,6 @@ local function run_attempt(args)
   local unavailable = harvest.worktree_unavailable_outcome(
     args.ready,
     args.worktree,
-    args.branch,
     args.attempt,
     args.codex_started_at,
     args.exec_ref,
@@ -120,12 +119,13 @@ local function run_attempt(args)
   end
 
   if tostring(status.stdout or "") == "" then
-    local head_sha = branch_progress.implemented_branch_head(args.base_head, args.branch)
-    if head_sha ~= nil and not substrate_pin.is_only_pin_delta(args.base_head, args.branch) then
+    local head_sha = branch_progress.implemented_worktree_head(args.base_head, args.worktree)
+    if head_sha ~= nil and not substrate_pin.is_only_pin_delta(
+      args.base_head, head_sha, args.worktree) then
       devloop_logging.log_line("info", "implement", args.ready.proposal_id, "IMPLEMENT", {
         "branch=" .. tostring(args.branch),
         "head_sha=" .. tostring(head_sha),
-        "reason=reusing clean ahead implementation branch",
+        "reason=clean implementation attempt worktree contains progress",
       })
     else
       local receipt, receipt_err = implementation_result.decode(result.stdout, {

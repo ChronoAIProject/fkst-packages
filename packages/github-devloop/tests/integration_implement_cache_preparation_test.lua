@@ -139,7 +139,7 @@ return {
     t.is_true(tostring(result.error):find("cache-preparation-failed", 1, true) ~= nil)
   end,
 
-  test_cache_preparation_runs_for_reused_worktree_cache = function()
+  test_cache_preparation_runs_for_attempt_started_from_existing_branch = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
@@ -160,10 +160,10 @@ return {
       exit_code = 0,
     })
 
-    local result = run_implement(event, opts("implement-reused-worktree-cache-preparation"))
+    local result = run_implement(event, opts("implement-existing-branch-cache-preparation"))
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("git worktree add"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls(cache_command), 1)
     t.eq(count_calls("codex exec"), 1)
     t.is_true(command_index(cache_command) < command_index("codex exec"))

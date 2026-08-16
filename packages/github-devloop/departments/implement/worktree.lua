@@ -3,6 +3,7 @@ local impl_failure = require("devloop.impl_failure")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
+local git = require("forge.git").production_handle("github-devloop")
 local M = {}
 
 local function implementation_root()
@@ -19,20 +20,6 @@ local function implementation_root()
   return devloop_base.implementation_worktree_root(durable_root)
 end
 
-local function assert_canonical_registration(porcelain, branch, worktree)
-  for _, registered in ipairs(devloop_commands.find_worktrees_for_branch(porcelain, branch)) do
-    if registered ~= worktree then
-      error("github-devloop: worktree-registration-conflict: deterministic branch is registered at "
-        .. tostring(registered))
-    end
-  end
-  if devloop_commands.worktree_registered(porcelain, worktree)
-    and not devloop_commands.worktree_registered_for_branch(porcelain, worktree, branch) then
-    error("github-devloop: worktree-registration-conflict: deterministic worktree is registered to another branch at "
-      .. tostring(worktree))
-  end
-end
-
 function M.prepare_base(branches)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branches.integration, 60)
   if fetch_result.exit_code ~= 0 then
@@ -47,17 +34,6 @@ function M.prepare_base(branches)
     error("github-devloop: unsafe-head-sha: unsafe base head")
   end
   return base_head
-end
-
-function M.reconcile_worktree_to_branch(worktree, branch)
-  local reset_result = devloop_commands.git_worktree_reset_hard(worktree, branch, 60)
-  if reset_result.exit_code ~= 0 then
-    error("github-devloop: worktree-reset-failed: git worktree reset failed: " .. tostring(reset_result.stderr))
-  end
-  local clean_result = devloop_commands.git_worktree_clean(worktree, 60)
-  if clean_result.exit_code ~= 0 then
-    error("github-devloop: worktree-clean-failed: git worktree clean failed: " .. tostring(clean_result.stderr))
-  end
 end
 
 function M.merge_integration(git, worktree, integration_branch, base_head)
@@ -92,7 +68,7 @@ local function checkpoint_head_for_branch(checkpoint, branch)
   return head_sha
 end
 
-local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
+local function verify_remote_checkpoint(branch, checkpoint_head)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branch, 60)
   if fetch_result.exit_code ~= 0 then
     error("github-devloop: checkpoint-branch-fetch-failed: git checkpoint branch fetch failed: " .. tostring(fetch_result.stderr))
@@ -105,89 +81,90 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   if remote_head ~= checkpoint_head then
     error("github-devloop: checkpoint-head-mismatch: remote checkpoint head does not match marker fact")
   end
-  local worktree_result = devloop_commands.git_worktree_add_remote_branch(worktree, "origin", branch, true, 60)
-  if worktree_result.exit_code ~= 0 then
-    error("github-devloop: git-worktree-add-failed: git worktree add remote checkpoint failed: " .. tostring(worktree_result.stderr))
-  end
+  return checkpoint_head
 end
 
-local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, branch)
+function M.attempt_worktree_template(implementation_worktree_root, repo, issue_number, version, attempt)
+  local attempt_number = tonumber(attempt)
+  if attempt_number == nil or attempt_number < 1 or attempt_number % 1 ~= 0 then
+    error("github-devloop: implementation-attempt-invalid: implementation attempt must be a positive integer")
+  end
+  local prefix = devloop_base.implement_worktree_path(
+    implementation_worktree_root, repo, issue_number, version)
+  return prefix .. "-attempt-" .. tostring(attempt_number) .. "-XXXXXX"
+end
+
+local function allocate_attempt_worktree(repo, issue_number, ready, attempt)
   local stable_root = implementation_root()
-  local worktree_version = impl_failure.implementation_branch_version(dedup_key, retry_attempt)
-  local worktree = devloop_base.implement_worktree_path(
-    stable_root, repo, issue_number, worktree_version)
-  local list_result = devloop_commands.git_worktree_list(30)
-  if list_result.exit_code ~= 0 then
-    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
+  local worktree_version = impl_failure.implementation_branch_version(
+    ready.dedup_key, ready.impl_retry_attempt)
+  local template = M.attempt_worktree_template(
+    stable_root, repo, issue_number, worktree_version, attempt)
+  local parent = template:match("^(.*)/[^/]+$") or "."
+  local mkdir_result = exec_sync({ cmd = devloop_commands.mkdir_p_cmd(parent), timeout = 30 })
+  if type(mkdir_result) ~= "table" or mkdir_result.exit_code ~= 0 then
+    error("github-devloop: worktree-parent-create-failed: implementation worktree parent creation failed: "
+      .. tostring(type(mkdir_result) == "table" and mkdir_result.stderr or "missing command result"))
   end
-  assert_canonical_registration(list_result.stdout, branch, worktree)
-  return worktree, list_result.stdout
-end
-
-function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
-  local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
-  local branch_exists = branch_ref.exit_code == 0
-  local checkpoint_head = checkpoint_head_for_branch(checkpoint, branch)
-  if branch_ref.exit_code ~= 0 and branch_ref.exit_code ~= 1 then
-    error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
+  local create_result = exec_sync({
+    cmd = "mktemp -d " .. devloop_base._shell_single_quote(template),
+    timeout = 30,
+  })
+  if type(create_result) ~= "table" or create_result.exit_code ~= 0 then
+    error("github-devloop: worktree-allocation-failed: implementation worktree allocation failed: "
+      .. tostring(type(create_result) == "table" and create_result.stderr or "missing command result"))
   end
-
-  local worktree, worktree_list = canonical_worktree(
-    repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
-  if checkpoint_head ~= nil then
-    local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
-    if clean_result.exit_code ~= 0 then
-      error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
-    end
-    restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
-  elseif branch_exists then
-    local existing_worktree = devloop_commands.worktree_registered_for_branch(
-      worktree_list,
-      worktree,
-      branch
-    ) and worktree or nil
-    if existing_worktree ~= nil then
-      worktree = existing_worktree
-      devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-        "branch=" .. tostring(branch),
-        "worktree=" .. tostring(worktree),
-        "reason=reusing canonical deterministic worktree",
-      })
-    else
-      local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
-      if clean_result.exit_code ~= 0 then
-        error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
-      end
-      local worktree_result = devloop_commands.git_worktree_add_existing_branch(worktree, branch, 60)
-      if worktree_result.exit_code ~= 0 then
-        error("github-devloop: git-worktree-add-failed: git worktree add failed: " .. tostring(worktree_result.stderr))
-      end
-    end
-  else
-    local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
-    if clean_result.exit_code ~= 0 then
-      error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
-    end
-    local worktree_result = devloop_commands.git_worktree_add_new_branch(worktree, branch, base_head, 60)
-    if worktree_result.exit_code ~= 0 then
-      error("github-devloop: git-worktree-add-failed: git worktree add failed: " .. tostring(worktree_result.stderr))
-    end
+  local worktree = tostring(create_result.stdout or ""):gsub("%s+$", "")
+  local prefix = template:sub(1, -7)
+  local suffix = worktree:sub(#prefix + 1)
+  if worktree:sub(1, #prefix) ~= prefix or suffix == "" or suffix:find("/", 1, true) ~= nil
+    or suffix:find("[\r\n]") ~= nil
+    or not devloop_base.path_under_root(stable_root, worktree) then
+    error("github-devloop: worktree-allocation-invalid: mktemp returned an invalid implementation worktree path")
   end
-  M.reconcile_worktree_to_branch(worktree, branch)
   return worktree
 end
 
-function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-  local worktree = canonical_worktree(repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
-  local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
-  if clean_result.exit_code ~= 0 then
-    error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
+local function add_detached_attempt(repo, issue_number, ready, attempt, head)
+  if not pr_safety.is_safe_head_sha(head) then
+    error("github-devloop: unsafe-head-sha: unsafe implementation attempt head")
   end
-  local worktree_result = devloop_commands.git_worktree_add_reset_branch(worktree, branch, base_head, 60)
+  local worktree = allocate_attempt_worktree(repo, issue_number, ready, attempt)
+  local worktree_result = git.git_worktree_add_detached(worktree, head, 60)
   if worktree_result.exit_code ~= 0 then
-    error("github-devloop: git-worktree-add-failed: git worktree reset add failed: " .. tostring(worktree_result.stderr))
+    error("github-devloop: git-worktree-add-failed: git detached implementation worktree add failed: "
+      .. tostring(worktree_result.stderr))
   end
   return worktree
+end
+
+function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint, attempt)
+  local checkpoint_head = checkpoint_head_for_branch(checkpoint, branch)
+  local start_head = checkpoint_head ~= nil and verify_remote_checkpoint(branch, checkpoint_head) or nil
+  if start_head == nil then
+    local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
+    if branch_ref.exit_code ~= 0 and branch_ref.exit_code ~= 1 then
+      error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
+    end
+    if branch_ref.exit_code == 0 then
+      local head_result = devloop_commands.git_branch_head(branch, 30)
+      if head_result.exit_code ~= 0 then
+        error("github-devloop: git-head-read-failed: git implementation branch head failed: "
+          .. tostring(head_result.stderr))
+      end
+      start_head = tostring(head_result.stdout or ""):gsub("%s+$", "")
+    else
+      start_head = base_head
+    end
+  end
+  return add_detached_attempt(repo, issue_number, ready, attempt, start_head)
+end
+
+function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head, attempt)
+  if not pr_safety.is_safe_branch(branch) then
+    error("github-devloop: unsafe-branch: unsafe implementing branch")
+  end
+  return add_detached_attempt(repo, issue_number, ready, attempt, base_head)
 end
 
 return M

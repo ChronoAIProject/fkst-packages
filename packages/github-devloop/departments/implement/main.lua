@@ -244,8 +244,10 @@ end
 
 local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key)
   local worktree = bridge_marker ~= nil and completed_result == nil
-    and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-    or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
+    and worktree_lifecycle.prepare_worktree_from_base(
+      repo, issue_number, ready, branch, base_head, attempt)
+    or worktree_lifecycle.prepare_worktree(
+      repo, issue_number, ready, branch, base_head, checkpoint, attempt)
   local codex_started_at, exec_ref = now(), core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
   local merge_clean = worktree_lifecycle.merge_integration(
     implement_caps.git_handle, worktree, branches.integration, base_head)
@@ -253,7 +255,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
     and result_checkpoint.reseal(implement_caps.git_handle, worktree, completed_result, ready.dedup_key) or nil
   if completed_result ~= nil then return worktree, codex_started_at, exec_ref, nil, completed_result end
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
-  substrate_pin.refresh(worktree, branch, base_head, merge_clean)
+  substrate_pin.refresh(worktree, base_head, merge_clean)
   cache_preparation.run(worktree)
 
   raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration,

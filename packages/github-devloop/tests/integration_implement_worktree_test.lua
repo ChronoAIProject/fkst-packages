@@ -6,7 +6,6 @@ local payloads_builders = fixture.payloads_builders
 local m_facts = fixture.m_facts
 local t = fixture.t
 local core = fixture.core
-local gh_argv = fixture.gh_argv
 local action_label = fixture.action_label
 local reason_label = fixture.reason_label
 local has_value = fixture.has_value
@@ -92,7 +91,7 @@ local assert_worktree_ready_state = fixture.assert_worktree_ready_state
 local mock_no_implemented_branch_ahead = fixture.mock_no_implemented_branch_ahead
 
 return {
-  test_implement_crash_before_marker_reuses_existing_branch_commit = function()
+  test_implement_crash_before_marker_starts_detached_attempt_from_existing_branch_commit = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
@@ -129,7 +128,7 @@ return {
     local fact = m_facts.implementing_fact({ comment }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
-    t.eq(count_calls("git worktree add"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("merge --no-edit 'abc123'"), 1)
     t.eq(count_calls("status --porcelain"), 1)
@@ -248,7 +247,7 @@ return {
     t.eq(count_calls("codex exec"), 1)
   end,
 
-  test_implement_existing_empty_worktree_reuses_and_converges_when_codex_commits = function()
+  test_implement_existing_branch_progress_starts_detached_attempt_and_converges = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
@@ -279,16 +278,16 @@ return {
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
     t.is_true(comment:find(worktree, 1, true) ~= nil)
-    t.eq(count_calls("git worktree list --porcelain"), 3)
-    t.eq(count_calls("git worktree add"), 0)
+    t.eq(count_calls("git worktree list --porcelain"), 2)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("codex exec"), 1)
   end,
 
-  test_implement_reused_worktree_is_reset_and_cleaned_before_merge = function()
+  test_implement_does_not_reset_or_clean_an_existing_attempt_worktree = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
-    local worktree = mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
+    mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
@@ -309,19 +308,9 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("reset --hard"), 1)
-    t.eq(count_calls("clean -fd"), 1)
+    t.eq(count_calls("reset --hard"), 0)
+    t.eq(count_calls("clean -fd"), 0)
     t.eq(count_calls("merge --no-edit 'abc123'"), 1)
-
-    local reset_before_merge = false
-    local reset_seen = false
-    for _, call in ipairs(t.command_calls()) do
-      if gh_argv.argv_contains(call, { "git", "-C", worktree, "reset", "--hard" }) then
-        reset_seen = true
-      elseif gh_argv.argv_contains(call, { "git", "-C", worktree, "merge", "--no-edit", "abc123" }) then
-        reset_before_merge = reset_seen
-      end
-    end
-    t.eq(reset_before_merge, true)
+    t.eq(count_calls("git worktree add --detach"), 1)
   end,
 }

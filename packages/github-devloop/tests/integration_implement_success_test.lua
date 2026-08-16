@@ -71,6 +71,9 @@ local function substrate_pin_git(files)
     end
     return { stdout = tostring(value), stderr = "", exit_code = 0 }
   end
+  handle.git_head_sha = function()
+    return { stdout = "def456\n", stderr = "", exit_code = 0 }
+  end
   return handle, model
 end
 
@@ -176,7 +179,8 @@ end
 return {
   test_substrate_pin_refresh_skips_missing_base_pin_with_git_fake = function()
     local git = substrate_pin_git({})
-    substrate_pin.refresh("/tmp/fkst-packages-test/github-devloop/no-pin-worktree", "devloop-owner-repo-42-01HY", "abc123", true, { git = git })
+    substrate_pin.refresh(
+      "/tmp/fkst-packages-test/github-devloop/no-pin-worktree", "abc123", true, { git = git })
 
     t.eq(#git._model.writes, 1)
     t.eq(git._model.writes[1].kind, "show_file")
@@ -190,7 +194,8 @@ return {
     })
 
     local ok, err = pcall(function()
-      substrate_pin.refresh("/tmp/fkst-packages-test/github-devloop/git-error-pin-worktree", "devloop-owner-repo-42-01HY", "abc123", true, { git = git })
+      substrate_pin.refresh(
+        "/tmp/fkst-packages-test/github-devloop/git-error-pin-worktree", "abc123", true, { git = git })
     end)
 
     t.eq(ok, false)
@@ -202,10 +207,9 @@ return {
   test_substrate_pin_refresh_keeps_pinned_repo_behavior_with_git_fake = function()
     local worktree = "/tmp/fkst-packages-test/github-devloop/pinned-worktree"
     ensure_dir(worktree .. "/.fkst")
-    local branch = "devloop-owner-repo-42-01HY"
     local git = substrate_pin_git({
       abc123 = { [".fkst/substrate-ref"] = current_base_pin .. "\n" },
-      [branch] = { [".fkst/substrate-ref"] = stale_queue_pin .. "\n" },
+      def456 = { [".fkst/substrate-ref"] = stale_queue_pin .. "\n" },
     })
     t.mock_command("add -A", {
       stdout = "",
@@ -218,12 +222,12 @@ return {
       exit_code = 0,
     })
 
-    substrate_pin.refresh(worktree, branch, "abc123", true, { git = git })
+    substrate_pin.refresh(worktree, "abc123", true, { git = git })
 
     t.eq(file.read(worktree .. "/.fkst/substrate-ref"), current_base_pin .. "\n")
     t.eq(#git._model.writes, 2)
     t.eq(git._model.writes[1].ref, "abc123")
-    t.eq(git._model.writes[2].ref, branch)
+    t.eq(git._model.writes[2].ref, "def456")
     t.eq(count_calls("commit -m 'chore: refresh fkst-substrate pin'"), 1)
   end,
 
@@ -233,7 +237,8 @@ return {
     })
 
     local ok, err = pcall(function()
-      substrate_pin.refresh("/tmp/fkst-packages-test/github-devloop/malformed-pin-worktree", "devloop-owner-repo-42-01HY", "abc123", true, { git = git })
+      substrate_pin.refresh(
+        "/tmp/fkst-packages-test/github-devloop/malformed-pin-worktree", "abc123", true, { git = git })
     end)
 
     t.eq(ok, false)
@@ -288,13 +293,13 @@ return {
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
     t.eq(count_calls("git -C"), 12)
-    t.eq(count_calls("git worktree add -b"), 1)
+    t.eq(count_calls("git worktree add -b"), 0)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
     local verification_calls = local_iteration_calls()
     t.eq(#verification_calls, 1)
     t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
-    t.eq(count_calls("git worktree add --detach"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
     t.eq(count_calls("commit -m"), 2)
@@ -325,7 +330,7 @@ return {
     t.is_true(verification_calls[1].rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.eq(verification_calls[2].rendered:find("export BASE=", 1, true), nil)
     t.is_true(verification_calls[2].rendered:find("-base-probe-", 1, true) ~= nil)
-    t.eq(count_calls("git worktree add --detach"), 1)
+    t.eq(count_calls("git worktree add --detach"), 2)
     t.eq(count_calls("commit -m"), 2)
     local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
     t.is_true(failure.payload.body:find("FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md", 1, true) ~= nil)
@@ -361,7 +366,7 @@ return {
     t.is_true(checkpoint.payload.body:find("candidate_result_reason=missing-declaration", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
-    t.eq(count_calls("git worktree add --detach"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("git worktree add -B"), 0)
     for _, call in ipairs(t.command_calls()) do
       if call.rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then
@@ -397,7 +402,7 @@ return {
     t.is_true(checkpoint.payload.body:find("second untyped nonzero", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
-    t.eq(count_calls("git worktree add --detach"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
   end,
 
   test_implement_local_gate_configuration_failure_has_explicit_disposition = function()
@@ -419,7 +424,7 @@ return {
     local failure = assert_impl_failure_without_publication(result, "local-iteration-configuration-failed")
     t.is_true(failure.payload.body:find("no packages matched for 'missing-package'", 1, true) ~= nil)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
-    t.eq(count_calls("git worktree add --detach"), 0)
+    t.eq(count_calls("git worktree add --detach"), 1)
   end,
 
   test_implement_local_gate_typed_base_configuration_failure_has_explicit_disposition = function()
@@ -485,7 +490,7 @@ return {
     local failure = assert_impl_failure_without_publication(result, "base-local-iteration-toolchain-failed")
     t.is_true(failure.payload.body:find("fkst-framework BIN is not executable", 1, true) ~= nil)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
-    t.eq(count_calls("git worktree add --detach"), 1)
+    t.eq(count_calls("git worktree add --detach"), 2)
   end,
 
   test_implement_local_gate_unknown_base_probe_recovers_without_rerunning_codex = function()
@@ -512,7 +517,7 @@ return {
     t.is_true(failure.payload.body:find("candidate failed", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 3)
-    t.eq(count_calls("git worktree add --detach"), 2)
+    t.eq(count_calls("git worktree add --detach"), 3)
   end,
 
   test_implement_local_gate_probe_checkout_failure_is_indeterminate = function()
@@ -535,7 +540,7 @@ return {
 
     local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
     t.is_true(checkpoint.payload.body:find("probe_status=checkout-failed", 1, true) ~= nil)
-    t.eq(count_calls("git worktree add --detach"), 2)
+    t.eq(count_calls("git worktree add --detach"), 3)
   end,
 
   test_implement_local_gate_untyped_exit_two_probe_exhausts_indeterminate = function()
@@ -593,7 +598,7 @@ return {
     local checkpoint = assert_checkpoint_without_verified_handoff(result, event, "def456")
     t.is_true(checkpoint.payload.body:find("probe_status=head-mismatch", 1, true) ~= nil)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
-    t.eq(count_calls("git worktree add --detach"), 2)
+    t.eq(count_calls("git worktree add --detach"), 3)
   end,
 
   test_implement_missing_substrate_ref_still_spawns_codex = function()

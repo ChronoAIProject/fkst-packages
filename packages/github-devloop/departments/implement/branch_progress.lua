@@ -26,6 +26,20 @@ function M.implemented_branch_head(base_head, branch)
   return head_sha
 end
 
+function M.implemented_worktree_head(base_head, worktree)
+  local head_result = require("forge.git").production_handle("github-devloop").git_head_sha(worktree, 30)
+  if head_result.exit_code ~= 0 then
+    error("github-devloop: git-head-read-failed: git implementation worktree head failed: "
+      .. tostring(head_result.stderr))
+  end
+  local head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
+  if not pr_safety.is_safe_head_sha(head_sha) then
+    error("github-devloop: unsafe-head-sha: unsafe implementing worktree head")
+  end
+  if head_sha == base_head then return nil end
+  return head_sha
+end
+
 function M.remote_branch_fact(core_git, branch, base_branch, source_fact)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branch, 60)
   if fetch_result.exit_code ~= 0 then
@@ -67,7 +81,7 @@ function M.local_branch_fact(base_head, branch, base_branch, dedup_key)
     error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
   end
   local head_sha = M.implemented_branch_head(base_head, branch)
-  if head_sha == nil or substrate_pin.is_only_pin_delta(base_head, branch) then
+  if head_sha == nil or substrate_pin.is_only_pin_delta(base_head, head_sha, nil) then
     return nil
   end
   return {

@@ -199,7 +199,7 @@ return {
       stderr = "",
       exit_code = 1,
     })
-    mock_fresh_implement_worktree()
+    mock_fresh_implement_worktree({ attempt = 2 })
     mock_implement_codex(0, "implemented after retry")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
@@ -400,7 +400,11 @@ return {
     })
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
     mock_missing_remote_branch(branch)
-    mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    mock_existing_empty_implement_worktree_reuse({
+      branch = branch,
+      ahead_count = "1",
+      attempt = 2,
+    })
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -556,7 +560,7 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, rerun)
     mock_missing_remote_branch(branch)
     t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
-    mock_fresh_implement_worktree()
+    mock_fresh_implement_worktree({ attempt = 2 })
     mock_implement_codex(0, "implemented after liveness re-drive")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)

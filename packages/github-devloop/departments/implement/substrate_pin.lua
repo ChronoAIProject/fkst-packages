@@ -60,12 +60,9 @@ local function write_pin(worktree, pin)
   file.write(root .. "/" .. substrate_ref_path, tostring(pin) .. "\n")
 end
 
-function M.refresh(worktree, branch, base_head, merge_clean, opts)
+function M.refresh(worktree, base_head, merge_clean, opts)
   if not require("devloop.pr_safety").is_safe_head_sha(base_head) then
     error("github-devloop: implement-substrate-pin-base-unsafe: unsafe implementation base head")
-  end
-  if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: implement-substrate-pin-branch-unsafe: unsafe implementation branch")
   end
   local base_pin = show_pin(base_head, { missing_ok = true, git = opts and opts.git })
   if base_pin == nil then
@@ -75,8 +72,17 @@ function M.refresh(worktree, branch, base_head, merge_clean, opts)
     })
     return
   end
-  local branch_pin = show_pin(branch, { missing_ok = true, git = opts and opts.git })
-  if branch_pin == base_pin then
+  local head_result = git(opts).git_head_sha(worktree, 30)
+  if type(head_result) ~= "table" or head_result.exit_code ~= 0 then
+    error("github-devloop: implement-substrate-pin-head-read-failed: "
+      .. tostring(type(head_result) == "table" and head_result.stderr or "missing git result"))
+  end
+  local head_sha = contract_strings.trim_end(head_result.stdout)
+  if not forge_validators.is_git_sha(head_sha) then
+    error("github-devloop: implement-substrate-pin-head-invalid: invalid implementation worktree head")
+  end
+  local head_pin = show_pin(head_sha, { missing_ok = true, git = opts and opts.git })
+  if head_pin == base_pin then
     return
   end
 
@@ -95,14 +101,15 @@ function M.refresh(worktree, branch, base_head, merge_clean, opts)
   end
 end
 
-function M.is_only_pin_delta(base_head, branch)
+function M.is_only_pin_delta(base_head, head_sha, worktree)
   if not require("devloop.pr_safety").is_safe_head_sha(base_head) then
     error("github-devloop: implement-substrate-pin-base-unsafe: unsafe implementation base head")
   end
-  if not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: implement-substrate-pin-branch-unsafe: unsafe implementation branch")
+  if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
+    error("github-devloop: implement-substrate-pin-head-unsafe: unsafe implementation head")
   end
-  local diff = git().diff_name_only(nil, tostring(base_head) .. "..refs/heads/" .. tostring(branch), 30)
+  local diff = git().diff_name_only(
+    worktree, tostring(base_head) .. ".." .. tostring(head_sha), 30)
   if diff.exit_code ~= 0 then
     error("github-devloop: implement-substrate-pin-diff-failed: " .. tostring(diff.stderr))
   end
