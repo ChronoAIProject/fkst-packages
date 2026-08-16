@@ -208,6 +208,7 @@ return M
   file.write(package_root .. "/tests/redrive_delivery_graph_test.lua", [[
 local consensus_core = require("consensus.core")
 local graph = require("testkit.graph")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -226,7 +227,8 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " delivery reached the receiver.\n",
+      stdout = codex_jsonl.final_message(
+        verdict_label .. " approve\n" .. reply_label .. " delivery reached the receiver.\n"),
       stderr = "",
       exit_code = 0,
     })
