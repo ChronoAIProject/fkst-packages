@@ -3,8 +3,11 @@ local impl_failure = require("devloop.impl_failure")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
-local git = require("forge.git").production_handle("github-devloop")
 local M = {}
+
+local function git()
+  return require("forge.git").production_handle("github-devloop")
+end
 
 local function implementation_root()
   local durable_root
@@ -130,7 +133,7 @@ local function add_detached_attempt(repo, issue_number, ready, attempt, head)
     error("github-devloop: unsafe-head-sha: unsafe implementation attempt head")
   end
   local worktree = allocate_attempt_worktree(repo, issue_number, ready, attempt)
-  local worktree_result = git.git_worktree_add_detached(worktree, head, 60)
+  local worktree_result = git().git_worktree_add_detached(worktree, head, 60)
   if worktree_result.exit_code ~= 0 then
     error("github-devloop: git-worktree-add-failed: git detached implementation worktree add failed: "
       .. tostring(worktree_result.stderr))

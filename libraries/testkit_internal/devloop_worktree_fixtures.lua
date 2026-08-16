@@ -186,6 +186,8 @@ function M.new(deps)
     t.mock_command("add -A", command_result(0))
     t.mock_command("commit -m 'chore: refresh fkst-substrate pin'",
       command_result(0, "", "[devloop-owner-repo-42-01HY 9999999] chore: refresh fkst-substrate pin\n"))
+    t.mock_command("diff --name-only", command_result(
+      0, "", ".fkst/substrate-ref\n"))
   end
 
   local function mock_attempt_worktree_head(head_sha)

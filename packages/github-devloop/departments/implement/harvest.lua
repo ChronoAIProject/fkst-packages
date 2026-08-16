@@ -566,9 +566,9 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
     error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
   end
   local dirty = tostring(status.stdout or "") ~= ""
-  local existing_head = M.clean_worktree_head(base_head, worktree)
-  local progress_head = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
-    or existing_head
+  local progress_head = dirty
+    and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+    or M.clean_worktree_head(base_head, worktree)
   local green = false
   local verify_detail = ""
   if progress_head ~= nil then
