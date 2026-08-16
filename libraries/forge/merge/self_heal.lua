@@ -15,11 +15,17 @@ local invalidate_pr_after_write = opts.invalidate_pr_after_write
 local pr_rollup_green = check_runs.pr_rollup_green
 
 local function merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local runtime_result = exec_sync({ cmd = read_runtime_root_cmd(), timeout = 30 })
-  if runtime_result.exit_code ~= 0 then
-    error("forge.merge: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
+  local runtime_root
+  if type(env_read) == "function" then
+    runtime_root = env_read("FKST_RUNTIME_ROOT")
+  else
+    local result = exec_sync({ cmd = read_runtime_root_cmd(), timeout = 30 })
+    if result.exit_code ~= 0 then
+      error("forge.merge: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(result.stderr))
+    end
+    runtime_root = result.stdout
   end
-  local runtime_root = strings.trim(runtime_result.stdout)
+  runtime_root = strings.trim(runtime_root)
   if runtime_root == "" or runtime_root:find("[\r\n]") ~= nil then
     error("forge.merge: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end

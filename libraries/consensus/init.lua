@@ -16,6 +16,9 @@ local result_deferred = workflow_sweep.result_deferred
 local M = {}
 
 local function read_runtime_root()
+  if type(env_read) == "function" then
+    return env_read("FKST_RUNTIME_ROOT")
+  end
   local result = exec_sync({ cmd = core.read_runtime_root_cmd(), timeout = 30 })
   if result.exit_code ~= 0 then
     error("consensus: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(result.stderr))

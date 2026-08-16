@@ -183,23 +183,36 @@ local function run_unresolved(model, github, conflict, remaining_unmerged, upstr
 end
 
 local function with_runtime(model, fn)
+  local previous_env_read = env_read
   local previous_exec_sync = exec_sync
   local previous_spawn_codex_sync = spawn_codex_sync
   local previous_with_lock = with_lock
 
+  local function read_test_env(name)
+    if name == "FKST_RUNTIME_ROOT" then
+      return "/tmp/fkst-sync-conflict-restart-" .. tostring(model.codex_calls) .. "\n"
+    end
+    if name == "FKST_GITHUB_WRITE" then
+      return "1"
+    end
+    if name == "FKST_GITHUB_BOT_LOGIN" then
+      return "fkst-test-bot"
+    end
+    if name == "FKST_CODEX_TIMEOUT_SYNC_CONFLICT" then
+      return ""
+    end
+    error("unexpected env_read name: " .. tostring(name))
+  end
+  if type(previous_env_read) == "function" then
+    env_read = read_test_env
+  end
   exec_sync = function(spec)
     local command = type(spec) == "table" and tostring(spec.cmd or "") or tostring(spec or "")
-    if command:find("FKST_RUNTIME_ROOT", 1, true) ~= nil then
-      return success("/tmp/fkst-sync-conflict-restart-" .. tostring(model.codex_calls) .. "\n")
-    end
-    if command:find("FKST_GITHUB_WRITE", 1, true) ~= nil then
-      return success("1")
-    end
-    if command:find("FKST_GITHUB_BOT_LOGIN", 1, true) ~= nil then
-      return success("fkst-test-bot")
-    end
-    if command:find("FKST_CODEX_TIMEOUT_SYNC_CONFLICT", 1, true) ~= nil then
-      return success("")
+    if type(previous_env_read) ~= "function" then
+      local env_name = command:match('^printf %%s "%$([A-Z0-9_]+)"$')
+      if env_name ~= nil then
+        return success(read_test_env(env_name))
+      end
     end
     if command:find("mkdir -p", 1, true) ~= nil then
       return success()
@@ -220,6 +233,7 @@ local function with_runtime(model, fn)
   end
 
   local ok, err = pcall(fn)
+  env_read = previous_env_read
   exec_sync = previous_exec_sync
   spawn_codex_sync = previous_spawn_codex_sync
   with_lock = previous_with_lock

@@ -8,6 +8,7 @@ local base_ids = require("devloop.base_ids")
 local devloop_logging = require("devloop.logging")
 local content_filter = require("forge.github.content_filter")
 local devloop_commands = require("devloop.commands")
+local env = require("workflow_internal.env")
 
 -- Resolve the codex-bundle authored-content whitelist from host env. Bot login is
 -- required (fail-closed); the additive optional entries are read under pcall so an
@@ -47,13 +48,16 @@ local notice_file_name = "UNTRUSTED-NOTICE.txt"
 local risk_file_name = "risk.txt"
 local stale_generation_context_error_class = "stale_generation_context"
 
+local read_runtime_root = env.read_env(devloop_base.read_runtime_root_cmd)
+
 local function runtime_root(exec)
-  local run = exec or exec_sync
-  local result = run({ cmd = devloop_base.read_runtime_root_cmd(), timeout = 30 })
-  if type(result) ~= "table" or result.exit_code ~= 0 then
-    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(result and result.stderr or "nil result"))
+  local run = exec
+  if run ~= nil then
+    run = function(command)
+      return exec({ cmd = command, timeout = 30 })
+    end
   end
-  local root = strings.trim(result.stdout)
+  local root = strings.trim(read_runtime_root("FKST_RUNTIME_ROOT", run) or "")
   if root == "" or root:find("[\r\n]") ~= nil then
     error("github-devloop: runtime-root-invalid: invalid FKST_RUNTIME_ROOT")
   end

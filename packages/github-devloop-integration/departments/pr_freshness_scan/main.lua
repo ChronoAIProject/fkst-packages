@@ -352,7 +352,7 @@ local function process_pr(repo, branches, listed_pr, pr, origin, issue)
       return
     end
 
-    local runtime = git_mechanics.runtime_root_with_exec(exec_sync)
+    local runtime = git_mechanics.runtime_root()
     with_temp_worktree(runtime, repo, pr.head_ref_name, branches.integration, branch_sha, function(worktree)
       local merge_result = git_mechanics.git_merge_no_ff(core.git, worktree, integration_sha, 120)
       if merge_result.exit_code == 0 then
