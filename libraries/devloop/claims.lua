@@ -73,7 +73,7 @@ function C.assert_current_claim_label_binding(repo, github_handle)
   if desired.owner == nil then
     return
   end
-  local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
+  local response = (github_handle or github()).label_rest_get(repo, desired.name, 30)
   local existing = json.decode(response.stdout or "{}")
   if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
     error("github-devloop: claim-label-binding-missing: claim label binding is absent")
