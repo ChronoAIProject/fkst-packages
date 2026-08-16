@@ -91,4 +91,19 @@ return {
     github_view.append_comments(empty, github_view.decode_comments_json(""))
     t.eq(#empty, 0)
   end,
+  -- Characterization of a DIVERGENCE, not of a shared rule.
+  --
+  -- `forge.github_view.json_string` and `contract.strings.json_string` are two separate
+  -- implementations of the same escaping, and they disagree on one thing: the case of the
+  -- \uXXXX hex for C0 control characters. forge emits UPPERCASE, contract emits lowercase
+  -- (pinned by std_strings_test.lua::test_json_string_escapes_c0_control_characters).
+  --
+  -- Before this test the asymmetry was total: changing contract's case reddens one test,
+  -- changing forge's case reddens NOTHING -- the whole 22-package suite stays green. So
+  -- "unify the two escapers onto contract's" was a green, silent change to what forge emits.
+  -- JSON parsers treat the two spellings as equal; byte comparisons do not, and forge's output
+  -- feeds payload construction where digests and dedup keys are compared as bytes.
+  test_json_string_escapes_control_characters_with_uppercase_hex = function()
+    t.eq(github_view.json_string("x\0\31y"), "\"x\\u0000\\u001Fy\"")
+  end,
 }
