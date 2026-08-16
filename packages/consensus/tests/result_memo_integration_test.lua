@@ -2,6 +2,7 @@ local consensus = require("consensus")
 local core = require("consensus.core")
 local result_memo = require("consensus.result_memo")
 local reach_test_helper = require("tests.reach_test_helpers")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -76,11 +77,12 @@ local function mock_angle(angle, verdict, reply)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("consensus-angle-" .. tostring(angle), {
-    stdout = verdict_label .. " " .. verdict
+  local stdout = verdict_label .. " " .. verdict
       .. "\n" .. reply_label .. " " .. reply
       .. (verdict == "reject" and "\n" .. gap_label .. " " .. reply or "")
-      .. "\n",
+      .. "\n"
+  t.mock_command("consensus-angle-" .. tostring(angle), {
+    stdout = codex_jsonl.final_message(stdout),
     stderr = "",
     exit_code = 0,
   })
@@ -105,9 +107,9 @@ local function mock_converge(prefix)
       exit_code = 0,
     })
     t.mock_command("consensus-rebuttal-" .. tostring(angle), {
-      stdout = stance_label .. " defend"
+      stdout = codex_jsonl.final_message(stance_label .. " defend"
         .. "\n" .. verdict_label .. " abstain"
-        .. "\n" .. reply_label .. " " .. prefix .. " rebuttal " .. angle .. ".\n",
+        .. "\n" .. reply_label .. " " .. prefix .. " rebuttal " .. angle .. ".\n"),
       stderr = "",
       exit_code = 0,
     })
@@ -118,8 +120,9 @@ local function mock_converge(prefix)
     exit_code = 0,
   })
   t.mock_command("consensus-synthesis-proposal", {
-    stdout = "converge: concurrent loser remains unresolved + inspect the loser evidence"
-      .. "\nopen: inspect the concurrent loser evidence\n",
+    stdout = codex_jsonl.final_message(
+      "converge: concurrent loser remains unresolved + inspect the loser evidence"
+        .. "\nopen: inspect the concurrent loser evidence\n"),
     stderr = "",
     exit_code = 0,
   })
@@ -139,14 +142,15 @@ local function mock_gate_synthesis_reject(gap)
   for _, angle in ipairs(angles) do
     t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("consensus-rebuttal-" .. angle, {
-      stdout = stance_label .. " defend\n" .. rebuttals[angle] .. "\n",
+      stdout = codex_jsonl.final_message(stance_label .. " defend\n" .. rebuttals[angle] .. "\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("consensus-synthesis-proposal", {
-    stdout = "reached:reject reject until the named gap is fixed\n" .. gap_label .. " " .. gap .. "\n",
+    stdout = codex_jsonl.final_message(
+      "reached:reject reject until the named gap is fixed\n" .. gap_label .. " " .. gap .. "\n"),
     stderr = "",
     exit_code = 0,
   })

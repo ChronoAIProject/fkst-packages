@@ -7,6 +7,7 @@ local liveness_scan = require("devloop.liveness_scan")
 local payloads_builders = require("devloop.payloads.builders")
 local replay_thinking = require("devloop.replay_thinking_convergence")
 local validate_proposal = require("devloop.validators.validate_proposal")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local t = h.t
 local core = h.core
@@ -184,23 +185,25 @@ local function mock_consensus_convergence(root)
   end
   for _ = 1, 5 do
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " abstain\n" .. reply_label .. " More evidence is required.\n",
+      stdout = codex_jsonl.final_message(
+        verdict_label .. " abstain\n" .. reply_label .. " More evidence is required.\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   for _ = 1, 5 do
     t.mock_command("codex exec", {
-      stdout = stance_label .. " defend\n"
+      stdout = codex_jsonl.final_message(stance_label .. " defend\n"
         .. verdict_label .. " abstain\n"
-        .. reply_label .. " The evidence gap remains.\n",
+        .. reply_label .. " The evidence gap remains.\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   t.mock_command("codex exec", {
-    stdout = "converge: generation context is readable + inspect the remaining evidence\n"
-      .. "open: remaining evidence is unresolved\n",
+    stdout = codex_jsonl.final_message(
+      "converge: generation context is readable + inspect the remaining evidence\n"
+        .. "open: remaining evidence is unresolved\n"),
     stderr = "",
     exit_code = 0,
   })

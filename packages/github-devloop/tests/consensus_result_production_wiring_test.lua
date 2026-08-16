@@ -1,4 +1,5 @@
 local consensus_core = require("consensus.core")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
@@ -27,7 +28,8 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ managed author is admissible.\n",
+      stdout = codex_jsonl.final_message(
+        "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ managed author is admissible.\n"),
       stderr = "",
       exit_code = 0,
     })

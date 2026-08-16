@@ -1,5 +1,6 @@
 local t = fkst.test
 local reach_test_helper = require("tests.reach_test_helpers")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -92,7 +93,7 @@ local function mock_full_debate()
     synthesis_stdout("converge: retry ownership remains unresolved + inspect the retry owner record"),
   }) do
     t.mock_command("codex exec", {
-      stdout = stdout,
+      stdout = codex_jsonl.final_message(stdout),
       stderr = "",
       exit_code = 0,
     })

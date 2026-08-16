@@ -12,6 +12,7 @@ local graph = require("testkit.graph")
 local marker = require("core.marker")
 local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
@@ -186,6 +187,7 @@ local function mock_issue_views(...)
 end
 
 local function mock_workflow_codex(stdout, exit_code)
+  local resolved_exit_code = exit_code or 0
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop-workflow/workflow-select-runtime",
     stderr = "",
@@ -193,9 +195,9 @@ local function mock_workflow_codex(stdout, exit_code)
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = resolved_exit_code == 0 and codex_jsonl.final_message(stdout) or stdout,
     stderr = "",
-    exit_code = exit_code or 0,
+    exit_code = resolved_exit_code,
   })
 end
 
@@ -259,7 +261,8 @@ local function mock_default_codex(stdout, current, authorized_logins)
   })
   mock_default_context_bundle(current, authorized_logins)
   t.mock_command("codex exec", {
-    stdout = stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded implementation task.",
+    stdout = codex_jsonl.final_message(
+      stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded implementation task."),
     stderr = "",
     exit_code = 0,
   })
