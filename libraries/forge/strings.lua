@@ -25,6 +25,10 @@ function S.canonical_login(login)
   return value
 end
 
+function S.is_canonical_login(login)
+  return type(login) == "string" and S.canonical_login(login) == login
+end
+
 function S.split_repo(repo)
   local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
   if owner == nil or owner == "" or name == nil or name == "" then
