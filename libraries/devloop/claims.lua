@@ -61,7 +61,7 @@ function C.claimed_label()
 end
 
 function C.claimed_label_spec()
-  return claim_carriers.active_label_spec(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label_spec(config.claim_label_naming(), C.claim_owner())
 end
 
 function C.assert_claim_label_binding(existing, desired)
@@ -76,7 +76,7 @@ function C.assert_current_claim_label_binding(repo, github_handle)
   local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
   local existing = json.decode(response.stdout or "{}")
   if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
-    error("github-devloop: claim-label-binding-missing: derived claim label binding is absent")
+    error("github-devloop: claim-label-binding-missing: claim label binding is absent")
   end
   C.assert_claim_label_binding(existing, desired)
 end
