@@ -3,16 +3,20 @@ local impl_failure = require("devloop.impl_failure")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
-local exec_sync = exec_sync
-
 local M = {}
 
 local function implementation_root()
-  local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
-  if durable_result.exit_code ~= 0 then
-    error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
+  local durable_root
+  if type(env_read) == "function" then
+    durable_root = env_read("FKST_DURABLE_ROOT")
+  else
+    local result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
+    if result.exit_code ~= 0 then
+      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(result.stderr))
+    end
+    durable_root = result.stdout
   end
-  return devloop_base.implementation_worktree_root(durable_result.stdout)
+  return devloop_base.implementation_worktree_root(durable_root)
 end
 
 local function assert_canonical_registration(porcelain, branch, worktree)

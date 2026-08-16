@@ -634,18 +634,18 @@ return {
       "owner/repo", 42, impl_version, branch), worktree)
   end,
 
-  test_review_worktree_lookup_surfaces_durable_root_read_failure = function()
+  test_review_worktree_lookup_surfaces_empty_durable_root = function()
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = "",
-      stderr = "durable unavailable",
-      exit_code = 1,
+      stderr = "",
+      exit_code = 0,
     })
 
     assert_error_contains(function()
       local event = h.ready()
       devloop_commands.existing_implementation_worktree(
         "owner/repo", 42, event.dedup_key, h.deterministic_branch_for(event))
-    end, "durable-root-read-failed")
+    end, "durable-root-invalid")
   end,
 
   test_review_worktree_lookup_surfaces_registration_probe_failure = function()

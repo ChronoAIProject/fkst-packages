@@ -117,6 +117,27 @@ return {
     t.is_true(tostring(err):find("runtime context manifest file is unreadable", 1, true) == nil)
   end,
 
+  test_invalid_runtime_root_uses_invalid_input_classification = function()
+    local manifest = context_manifest_module.new({
+      file = {
+        read = function() return "" end,
+        list = function() return {} end,
+      },
+      cache_get = function() return nil end,
+      cache_set = function() end,
+    })
+    local ok, err = pcall(
+      manifest.resolve,
+      "runtime-cache:" .. manifest_prefix .. "github-devloop/issue/owner/repo/408/v1",
+      "",
+      200
+    )
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("runtime-root-invalid", 1, true) ~= nil)
+    t.is_nil(tostring(err):find("runtime-root-read-failed", 1, true))
+  end,
+
   test_cache_miss_rebuilds_and_repopulates_readable_context_manifest = function()
     local proposal_id = "github-devloop/issue/owner/repo/398"
     local version = "intake-4145248277"
