@@ -472,31 +472,34 @@ what its design doc specified in the first place.
 
 ⟦AI:FKST⟧
 
-## Can completed migration work sit unprotected anywhere? No -- checked, both mechanisms
+## Coverage of completed migration work
 
 `core-param` was found sitting on 211 points of someone else's finished migration with nothing
 preventing a climb back (#3851). That prompted the obvious question: where else can that happen?
 
-There are two mechanisms, and every ledger in the repository is covered by one of them:
+Two mechanisms were measured:
 
 **Counted ratchets** compare a measured `current` against a committed `baseline`, and the gap between
 them is unguarded until someone tightens it. All six are now at zero slack, and
 `refactor_survey.py`'s `ratchets_with_unlocked_slack` unit watches for the gap reopening (#3853).
 
-**Line and JSONL ledgers** cannot accumulate the same way, because their checkers reject a *stale*
-entry as a violation exactly as they reject a missing one. Verified individually rather than
-assumed -- `dept-failure-surface`, `library-error-class`, `lock-scope`, `monotone-gate`,
-`producer-liveness`, `version-suffix`, `gh-handle-construction`, `devloop-forge-imports`,
-`github-devloop-saga-split`, and `bot-login-mediation` (`check_repo_bot_login_mediation.py:501`,
-"no longer matches bot-login mediation debt; prune the stale entry"). The single exception,
-`gh-egress`, has one entry that its checker *requires* to be present, so staleness cannot apply.
+**Line and JSONL ledgers** had stale-entry rejection in nine of the ten measured checkers:
+`dept-failure-surface`, `lock-scope`, `monotone-gate`, `producer-liveness`, `version-suffix`,
+`gh-handle-construction`, `devloop-forge-imports`, `github-devloop-saga-split`, and
+`bot-login-mediation`. `library-error-class` was the sole exception. The earlier all-ten claim was a
+generalisation from the other checkers. `scripts/check_repo_error_class.py:199` computes
+`current - allowlist`; `library_ratchet_messages` at `:217-236` iterates only `sorted(current)` and
+never computes `allowlist - current`. In contrast,
+`scripts/check_repo_dept_failure_surface.py:107-110` computes `allowlist - current` and emits a
+stale-entry violation. `gh-egress` is separate: its checker requires its one sanctioned entry, so
+staleness does not apply.
 
 ### The caveat that matters for reading the new survey unit
 
 `ratchets_with_unlocked_slack` reports **44 checkers as UNEVALUATED**, because they are modules
 imported by the runner rather than CLIs and print nothing when run directly. That number is not 44
-blind spots. Those checkers guard line and JSONL ledgers, which are covered by stale-entry rejection
--- a mechanism the unit cannot observe and does not need to.
+blind spots. The unit cannot observe module-owned stale-entry behavior; direct source inspection
+found it in nine of the ten checkers above and found the `library-error-class` exception.
 
 Two traps were hit while establishing this, both from a filter of mine rather than from the repo:
 a first pass skipped `devloop-forge-imports` and `github-devloop-saga-split` because their first line
@@ -506,11 +509,10 @@ writing it literally. Neither absence was real.
 
 ⟦AI:FKST⟧
 
-## The caps migration's first step is building, not migrating
+## The caps migration's capability projector was built and deleted
 
 The ledger says what remains on `service-locator` is "the full `make_department(caps)` migration".
-That is true and incomplete in a way that matters for scheduling: **the infrastructure that migration
-targets does not exist yet.**
+That infrastructure is absent from the current tree, but it was not left unbuilt.
 
 `docs/superpowers/specs/2026-07-02-di-refactor-retire-ambient-m-design.md` specifies a department
 returning `{ spec = ..., cap_deps = spec.caps.requires, make_department = make_department }`, with
@@ -525,6 +527,11 @@ Measured against the tree:
 | a department returning `cap_deps` | **0 repo-wide** |
 | a caps provider or role taxonomy in `libraries/` | **none** |
 | what the "migrated" departments actually use | `ports_lib.install(make_department, options)` — a handle bundle, not declared role caps |
+
+Commit `b13d297b7` deliberately deleted 340 lines: `capdefs.lua`, `providers.lua`, and
+`select_caps.lua`; two dedicated tests; and three public exports. No production consumer outside the
+projector required any of the three modules. The current absence records that deletion; it is not
+evidence that the shape was never built.
 
 So the first slice is not a department. It is a shared-library capability surface plus whatever
 loader support the `{spec, cap_deps, make_department}` return shape needs — a framework decision at

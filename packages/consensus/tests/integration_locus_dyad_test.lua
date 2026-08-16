@@ -1,6 +1,6 @@
 local t = fkst.test
 local reach_test_helper = require("tests.reach_test_helpers")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -66,9 +66,8 @@ end
 local function mock_angle(angle)
   mock_judgment_dir()
   t.mock_command("consensus-angle-" .. tostring(angle), {
-    stdout = testing.codex_agent_message_jsonl(
-      verdict_label .. " approve\n" .. reply_label .. " " .. tostring(angle) .. " approves.\n"
-    ),
+    stdout = codex_jsonl.final_message(
+      verdict_label .. " approve\n" .. reply_label .. " " .. tostring(angle) .. " approves.\n"),
     stderr = "",
     exit_code = 0,
   })

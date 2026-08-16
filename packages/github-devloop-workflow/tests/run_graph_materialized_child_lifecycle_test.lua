@@ -6,8 +6,8 @@ local gh_argv = require("testkit_internal.gh_argv_mock")
 local github_commands = require("forge.github").new(function() end)
 local projected_state_comment = require("testkit_internal.projected_state_fixture").bind(require("devloop.state"))
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local fixtures = require("tests.run_graph_materialization_helpers")
-local testing = require("testkit_internal.testing")
 gh_argv.install(t, core)
 
 local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
@@ -146,9 +146,8 @@ local function mock_child_materialization(created_issue, child_dedup)
     t.mock_command("gh issue list", { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl(
-      '{"title":"Workflow child","body":"Materialized workflow child fixture."}'
-    ),
+    stdout = codex_jsonl.final_message(
+      '{"title":"Workflow child","body":"Materialized workflow child fixture."}'),
     stderr = "",
     exit_code = 0,
   })

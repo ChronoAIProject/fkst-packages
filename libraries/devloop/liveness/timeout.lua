@@ -32,7 +32,7 @@ end
 function K.liveness_timeout_attempt(row, state, facts)
   local eval = facts and facts.actionable_epoch_eval
   if m_rae.restart_row_has_registered_actionable_epoch(policy, row) then
-    return m_rae.actionable_epoch_timeout_attempt(policy, row, state, facts)
+    return m_rae.actionable_epoch_timeout_attempt(row, state, facts)
   end
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local comments = facts and facts.current and facts.current.comments or nil

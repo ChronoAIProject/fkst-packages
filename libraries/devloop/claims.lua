@@ -61,22 +61,54 @@ function C.claimed_label()
 end
 
 function C.claimed_label_spec()
-  return claim_carriers.active_label_spec(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label_spec(config.claim_label_naming(), C.claim_owner())
+end
+
+local function resolve_explicit_label_claim(claim, source_ref)
+  if claim == nil then
+    return nil
+  end
+  local normalized_source_ref = source_ref and base_ids.normalize_source_ref(source_ref) or nil
+  local normalized, reason = claim_carriers.validate_label_contract(claim, {
+    owner = C.claim_owner(),
+    naming = config.claim_label_naming(),
+    source_ref = normalized_source_ref,
+  })
+  if normalized == nil then
+    error("github-devloop: claim-contract-invalid: reason=" .. tostring(reason))
+  end
+  return normalized
+end
+
+function C.new_label_claim_contract(source_ref)
+  local normalized = base_ids.normalize_source_ref(source_ref)
+  local repo, issue_number = devloop_base.parse_issue_source_ref(normalized)
+  if repo == nil or issue_number == nil then
+    error("github-devloop: claim-contract-source-ref-invalid: label claim contract requires an issue source_ref")
+  end
+  return claim_carriers.new_label_contract(
+    config.claim_label_naming(),
+    C.claim_owner(),
+    normalized
+  )
 end
 
 function C.assert_claim_label_binding(existing, desired)
   claim_carriers.assert_owner_binding(existing, desired)
 end
 
-function C.assert_current_claim_label_binding(repo, github_handle)
-  local desired = C.claimed_label_spec()
+function C.assert_current_claim_label_binding(repo, github_handle, claim)
+  local explicit = resolve_explicit_label_claim(claim)
+  local desired = explicit ~= nil
+    and claim_carriers.active_label_spec(config.claim_label_naming(), explicit.owner)
+    or C.claimed_label_spec()
   if desired.owner == nil then
     return
   end
   local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
   local existing = json.decode(response.stdout or "{}")
   if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
-    error("github-devloop: claim-label-binding-missing: derived claim label binding is absent")
+    error("github-devloop: claim-label-binding-missing: claim label binding is absent")
   end
   C.assert_claim_label_binding(existing, desired)
 end
@@ -103,23 +135,25 @@ function C.claim_mode_active()
   return config.claim_mode()
 end
 
-function C.issue_claim_state(assignees, owner, labels)
-  local mode = config.claim_mode()
+function C.issue_claim_state(assignees, owner, labels, claim)
+  local explicit = resolve_explicit_label_claim(claim)
+  local mode = explicit ~= nil and "label" or config.claim_mode()
+  local claim_owner = explicit ~= nil and explicit.owner or owner
   return claim_carriers.classify(
     mode,
     C.assignee_logins(assignees),
-    owner,
+    claim_owner,
     labels,
-    mode == "label" and C.claimed_label() or nil,
+    mode == "label" and (explicit and explicit.label or C.claimed_label()) or nil,
     mode == "label" and C.managed_bot_logins() or nil
   )
 end
 
-local function issue_ownership_decision(ownership, owner)
+local function issue_ownership_decision(ownership, owner, claim)
   if type(ownership) ~= "table" then
     return { owned = false, claim_state = nil }
   end
-  local claim_state = C.issue_claim_state(ownership.assignees, owner, ownership.labels)
+  local claim_state = C.issue_claim_state(ownership.assignees, owner, ownership.labels, claim)
   if claim_state == "self" then
     return { owned = true, claim_state = claim_state }
   end
@@ -137,8 +171,8 @@ local function issue_ownership_decision(ownership, owner)
   }
 end
 
-function C.is_self_owned_issue(ownership, owner)
-  return issue_ownership_decision(ownership, owner).owned
+function C.is_self_owned_issue(ownership, owner, claim)
+  return issue_ownership_decision(ownership, owner, claim).owned
 end
 
 local function issue_labels(decoded)
@@ -159,11 +193,17 @@ function C.read_current_issue_ownership(repo, issue_number)
   }
 end
 
-function C.verify_issue_claim(repo, issue_number, owner)
+function C.verify_issue_claim(repo, issue_number, owner, claim)
+  local explicit = resolve_explicit_label_claim(claim, base_ids.issue_source_ref(repo, issue_number))
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  local held = C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
-  if held and config.claim_mode() == "label" then
-    C.assert_current_claim_label_binding(repo)
+  local held = C.issue_claim_state(
+    ownership and ownership.assignees,
+    owner,
+    ownership and ownership.labels,
+    explicit
+  ) == "self"
+  if held and (explicit ~= nil or config.claim_mode() == "label") then
+    C.assert_current_claim_label_binding(repo, nil, explicit)
   end
   return held
 end
@@ -192,14 +232,15 @@ local function issue_source_ref(repo, issue_number)
   }
 end
 
-function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id)
+function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id, claim)
   if issue_number == nil then
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is absent")
     return { owned = false, claim_state = nil }
   end
-  local owner = C.claim_owner()
+  local explicit = resolve_explicit_label_claim(claim, issue_source_ref(repo, issue_number))
+  local owner = explicit ~= nil and explicit.owner or C.claim_owner()
   local ownership = nil
-  local mode = config.claim_mode()
+  local mode = explicit ~= nil and "label" or config.claim_mode()
   local current_usable = type(current_issue) == "table"
     and type(current_issue.assignees) == "table"
     and type(current_issue.labels) == "table"
@@ -211,10 +252,10 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   else
     ownership = C.read_current_issue_ownership(repo, issue_number)
   end
-  local decision = issue_ownership_decision(ownership, owner)
+  local decision = issue_ownership_decision(ownership, owner, explicit)
   if decision.owned then
     if mode == "label" then
-      C.assert_current_claim_label_binding(repo)
+      C.assert_current_claim_label_binding(repo, nil, explicit)
     end
     return decision
   end
@@ -226,8 +267,8 @@ function C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issu
   return decision
 end
 
-function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue, proposal_id)
-  return C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id).owned
+function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue, proposal_id, claim)
+  return C.pr_review_issue_claim_decision(dept, repo, issue_number, current_issue, proposal_id, claim).owned
 end
 
 local function fork_grace_seconds(exec)
@@ -266,10 +307,14 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
   return true, "fork-grace-elapsed", age_seconds
 end
 
-function C.claim_admission_inputs(current, repo, poll_key)
+function C.claim_admission_inputs(current, repo, poll_key, claim)
+  local explicit = resolve_explicit_label_claim(claim)
   local owner = parsers_misc.canonical_login(C.claim_owner())
-  local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
-  local claim_mode = config.claim_mode()
+  if explicit ~= nil then
+    owner = parsers_misc.canonical_login(explicit.owner)
+  end
+  local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels, explicit)
+  local claim_mode = explicit ~= nil and "label" or config.claim_mode()
   local assignee_logins = C.assignee_logins(current and current.assignees)
   local claim_labels = observed_claim_labels(current and current.labels)
   if status == "other" then
@@ -280,6 +325,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
       repo = repo,
       assignee_logins = assignee_logins,
       claim_labels = claim_labels,
+      claim_contract = explicit,
     }
   end
 
@@ -333,6 +379,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
     repo = repo,
     assignee_logins = assignee_logins,
     claim_labels = claim_labels,
+    claim_contract = explicit,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
@@ -398,6 +445,7 @@ function C.claim_admission_precheck(current, inputs)
     managed = inputs.managed,
     assignee_logins = inputs.assignee_logins,
     claim_labels = inputs.claim_labels,
+    claim_contract = inputs.claim_contract,
     peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
   local function settle(decision, action, reason)
@@ -409,7 +457,7 @@ function C.claim_admission_precheck(current, inputs)
     if inputs.repo == nil or tostring(inputs.repo) == "" then
       error("github-devloop: claim-label-binding-repo-missing: claim admission requires a repository")
     end
-    C.assert_current_claim_label_binding(inputs.repo)
+    C.assert_current_claim_label_binding(inputs.repo, nil, inputs.claim_contract)
   end
   if inputs.status == "other" then
     return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
@@ -453,10 +501,11 @@ function C.log_claim_admission_skip(dept, proposal_id, detail)
   log_claim(dept, proposal_id, detail.action, detail.reason)
 end
 
-function C.claim_issue_for_management(dept, repo, issue_number, current, proposal_id, admission, detail)
+function C.claim_issue_for_management(dept, repo, issue_number, current, proposal_id, admission, detail, claim)
   if admission == nil then
-    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
+    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo, nil, claim))
   end
+  local explicit = resolve_explicit_label_claim(claim or detail.claim_contract, issue_source_ref(repo, issue_number))
   if admission == "held" then
     return true
   end
@@ -471,8 +520,8 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     return false
   end
-  local owner = detail.owner
-  local claim_mode = detail.claim_mode
+  local owner = explicit ~= nil and explicit.owner or detail.owner
+  local claim_mode = explicit ~= nil and "label" or detail.claim_mode
   local author = detail.author
   local managed = detail.managed
   -- Fork-and-block isolation (grace + fork of other-authored issues) is an
@@ -518,7 +567,7 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
   end
 
   if claim_mode == "label" then
-    C.assert_current_claim_label_binding(repo)
+    C.assert_current_claim_label_binding(repo, nil, explicit)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
@@ -531,11 +580,11 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
     return false
   end
 
-  if config.claim_mode() == "label" then
-    local active_label = C.claimed_label()
+  if claim_mode == "label" then
+    local active_label = explicit ~= nil and explicit.label or C.claimed_label()
     github().issue_add_label(repo, issue_number, active_label, 30)
     github_proxy_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
-    if C.verify_issue_claim(repo, issue_number, owner) then
+    if C.verify_issue_claim(repo, issue_number, owner, explicit) then
       log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
       return true
     end
@@ -570,10 +619,15 @@ function C.claim_issue_for_management(dept, repo, issue_number, current, proposa
   return false
 end
 
-function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id, reason)
-  local owner = C.claim_owner()
+function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id, reason, claim)
+  local explicit = resolve_explicit_label_claim(claim, issue_source_ref(repo, issue_number))
+  local owner = explicit ~= nil and explicit.owner or C.claim_owner()
   local ownership = C.read_current_issue_ownership(repo, issue_number)
-  local active_label = config.claim_mode() == "label" and C.claimed_label() or nil
+  local active_label = explicit ~= nil
+      and explicit.label
+    or config.claim_mode() == "label"
+      and C.claimed_label()
+    or nil
   local claim_is_self = active_label ~= nil
     and restart_metadata.has_label(ownership and ownership.labels, active_label)
     or active_label == nil
@@ -583,7 +637,7 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
     return false
   end
   if active_label ~= nil then
-    C.assert_current_claim_label_binding(repo)
+    C.assert_current_claim_label_binding(repo, nil, explicit)
   end
 
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
@@ -601,27 +655,31 @@ function C.release_issue_claim_if_self(_M, dept, repo, issue_number, proposal_id
   return true
 end
 
-local function claim_required_payload(source_ref)
+local function claim_required_payload(source_ref, claim)
   local normalized = base_ids.normalize_source_ref(source_ref)
   local repo, issue_number = devloop_base.parse_issue_source_ref(normalized)
   if repo == nil or issue_number == nil then
     return nil
   end
-  local claim = {
+  local explicit = resolve_explicit_label_claim(claim, normalized)
+  if explicit ~= nil then
+    return explicit
+  end
+  local legacy_claim = {
     owner = C.claim_owner(),
     source_ref = normalized,
   }
   if config.claim_mode() == "label" then
-    claim.label = C.claimed_label()
+    legacy_claim.label = C.claimed_label()
   end
-  return claim
+  return legacy_claim
 end
 
-function C.attach_issue_claim(payload, source_ref)
+function C.attach_issue_claim(payload, source_ref, claim)
   if type(payload) ~= "table" then
     return payload
   end
-  payload.claim = claim_required_payload(source_ref or payload.source_ref)
+  payload.claim = claim_required_payload(source_ref or payload.source_ref, claim)
   return payload
 end
 

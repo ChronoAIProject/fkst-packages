@@ -11,10 +11,14 @@ local function claim_carriers()
   return claim_carriers_or_error
 end
 
-local function env_value(value)
+local function env_values(values)
   return function(command)
-    t.eq(command, 'printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"')
-    return { stdout = value, stderr = "", exit_code = 0 }
+    for name, value in pairs(values or {}) do
+      if command == 'printf %s "$' .. name .. '"' then
+        return { stdout = value, stderr = "", exit_code = 0 }
+      end
+    end
+    return { stdout = "", stderr = "", exit_code = 0 }
   end
 end
 
@@ -37,15 +41,42 @@ return {
 
   test_derived_claim_label_spec_binds_the_full_canonical_owner = function()
     local labels = claim_carriers()
-    local spec = labels.active_label_spec(false, "ELONSG[bot]")
+    local spec = labels.active_label_spec({ kind = "derived" }, "ELONSG[bot]")
     t.eq(spec.name, "fkst-dev:claimed:d39deb1f090c9c42f9f67a4f4ca4ae30")
     t.eq(spec.description, "fkst-dev-label-mode-ownership-claim owner=elonsg")
     t.eq(spec.owner, "elonsg")
   end,
 
+  test_declared_claim_label_suffix_is_appended_verbatim = function()
+    local labels = claim_carriers()
+    local spec = labels.active_label_spec({
+      kind = "declared_suffix",
+      suffix = "MacStudio-4",
+    }, "MACSTUDIO-4[bot]")
+    t.eq(spec.name, "fkst-dev:claimed:MacStudio-4")
+    t.eq(spec.description, "fkst-dev-label-mode-ownership-claim owner=macstudio-4")
+    t.eq(spec.owner, "macstudio-4")
+  end,
+
+  test_declared_claim_label_suffix_honors_complete_name_length_boundary = function()
+    local labels = claim_carriers()
+    local boundary = labels.active_label_spec({
+      kind = "declared_suffix",
+      suffix = string.rep("x", 33),
+    }, "fkst-test-bot")
+    t.eq(#boundary.name, 50)
+
+    local ok, err = pcall(labels.active_label_spec, {
+      kind = "declared_suffix",
+      suffix = string.rep("x", 34),
+    }, "fkst-test-bot")
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-name-invalid", 1, true) ~= nil, tostring(err))
+  end,
+
   test_derived_claim_label_binding_fails_closed_on_a_forced_collision = function()
     local labels = claim_carriers()
-    local spec = labels.active_label_spec(false, "elonsg")
+    local spec = labels.active_label_spec({ kind = "derived" }, "elonsg")
     labels.assert_owner_binding(nil, spec)
     labels.assert_owner_binding({
       name = spec.name,
@@ -58,6 +89,99 @@ return {
     }, spec)
     t.eq(ok, false)
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
+  end,
+
+  test_label_claim_contract_is_versioned_canonical_and_source_bound = function()
+    local labels = claim_carriers()
+    local source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    }
+    local contract = labels.new_label_contract({ kind = "derived" }, "APP/ElonSG", source_ref)
+
+    t.eq(contract.schema, "github-devloop.claim-label.v1")
+    t.eq(contract.owner, "elonsg")
+    t.eq(contract.label, labels.derived_label("elonsg"))
+    t.eq(contract.source_ref.kind, "external")
+    t.eq(contract.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(contract.source_ref ~= source_ref)
+  end,
+
+  test_label_claim_contract_validator_returns_narrow_rejection_reasons = function()
+    local labels = claim_carriers()
+    local source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    }
+    local expected = {
+      owner = "elonsg",
+      naming = { kind = "derived" },
+      source_ref = source_ref,
+    }
+    local valid = labels.new_label_contract({ kind = "derived" }, "elonsg", source_ref)
+    local normalized, reason = labels.validate_label_contract(valid, expected)
+    t.eq(reason, nil)
+    t.eq(normalized.owner, "elonsg")
+
+    local cases = {
+      {
+        claim = { schema = "github-devloop.claim-label.v2" },
+        reason = "claim-contract-version-unknown",
+      },
+      {
+        claim = { schema = labels.label_contract_schema },
+        reason = "claim-contract-owner-missing",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "APP/ElonSG",
+          label = valid.label,
+          source_ref = source_ref,
+        },
+        reason = "claim-contract-owner-noncanonical",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "peer-bot",
+          label = labels.derived_label("peer-bot"),
+          source_ref = source_ref,
+        },
+        reason = "claim-owner-mismatch",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = labels.derived_label("peer-bot"),
+          source_ref = source_ref,
+        },
+        reason = "claim-label-mismatch",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = valid.label,
+        },
+        reason = "claim-contract-source-ref-missing",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = valid.label,
+          source_ref = { kind = "external", ref = "owner/repo#issue/43" },
+        },
+        reason = "source-ref-mismatch",
+      },
+    }
+    for _, case in ipairs(cases) do
+      local rejected, rejection_reason = labels.validate_label_contract(case.claim, expected)
+      t.eq(rejected, nil)
+      t.eq(rejection_reason, case.reason)
+    end
   end,
 
   test_claim_label_family_requires_exact_colon_boundary_and_suffix = function()
@@ -81,7 +205,7 @@ return {
 
   test_claim_label_classifier_covers_exclusive_posture_and_foreign_wins = function()
     local labels = claim_carriers()
-    local active = labels.active_label(true, "ElonSG")
+    local active = labels.active_label({ kind = "exclusive" }, "ElonSG")
     t.eq(active, "fkst-dev:claimed")
     t.eq(labels.classify_labels({}, active), "unassigned")
     t.eq(labels.classify_labels({ active }, active), "self")
@@ -89,9 +213,28 @@ return {
     t.eq(labels.classify_labels({ active, "fkst-dev:claimed:Peer" }, active), "other")
   end,
 
-  test_claim_label_exclusive_config_is_trimmed_strict_opt_in = function()
-    t.eq(config.claim_label_exclusive(env_value(" 1 \n")), true)
-    t.eq(config.claim_label_exclusive(env_value("true")), false)
-    t.eq(config.claim_label_exclusive(env_value("")), false)
+  test_claim_label_naming_config_represents_each_posture = function()
+    local derived = config.claim_label_naming(env_values())
+    t.eq(derived.kind, "derived")
+
+    local exclusive = config.claim_label_naming(env_values({
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = " 1 \n",
+    }))
+    t.eq(exclusive.kind, "exclusive")
+
+    local declared = config.claim_label_naming(env_values({
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = "MacStudio-4",
+    }))
+    t.eq(declared.kind, "declared_suffix")
+    t.eq(declared.suffix, "MacStudio-4")
+  end,
+
+  test_claim_label_naming_config_rejects_suffix_with_exclusive = function()
+    local ok, err = pcall(config.claim_label_naming, env_values({
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "1",
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = "macstudio-4",
+    }))
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-naming-conflict", 1, true) ~= nil, tostring(err))
   end,
 }

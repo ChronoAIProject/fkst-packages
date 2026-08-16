@@ -75,6 +75,13 @@ class HostProfileScaffoldTest(unittest.TestCase):
         self.assertIn("FKST_DEVLOOP_LOCAL_TEST_COMMAND", scaffold)
         self.assertIn("make preflight", scaffold)
 
+    def test_claim_label_suffix_is_a_supported_host_declaration(self) -> None:
+        doc = self.read("docs/user/global-host-profiles.md")
+        scaffold = self.read("docs/user/host-profile.env.example")
+
+        self.assertIn("`FKST_GITHUB_CLAIM_LABEL_SUFFIX`", doc)
+        self.assertIn("FKST_GITHUB_CLAIM_LABEL_SUFFIX=macstudio-4", scaffold)
+
     def test_devloop_cache_preparation_is_documented_as_an_optional_host_contract(self) -> None:
         doc = self.read("docs/user/global-host-profiles.md")
         scaffold = self.read("docs/user/host-profile.env.example")

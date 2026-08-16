@@ -3,7 +3,7 @@ local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local transition_version = require("contract.transition_version")
 local payloads_builders = require("devloop.payloads.builders")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = h.t
 local core = h.core
 local replay_fields = require("devloop.replay_fields")
@@ -227,7 +227,7 @@ return {
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl(
+      stdout = codex_jsonl.final_message(
         action_label .. " fix\n" .. reason_label .. " Run another fix pass."
       ),
       stderr = "",
@@ -250,7 +250,7 @@ return {
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
     t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl(
+      stdout = codex_jsonl.final_message(
         action_label .. " spec-amendment\n" .. reason_label .. " The agreed framing is defective.\ngarbage"
       ),
       stderr = "",

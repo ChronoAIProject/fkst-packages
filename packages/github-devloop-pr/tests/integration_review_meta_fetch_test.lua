@@ -4,7 +4,6 @@ local strings = require("contract.strings")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
 local m_builders = require("devloop.markers.builders")
-local testing = require("testkit_internal.testing")
 local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
@@ -21,6 +20,7 @@ local action_label = h.action_label
 local reason_label = h.reason_label
 
 local find_raise = require("testkit_internal.raises").find
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -34,7 +34,7 @@ local function mock_meta_codex(stdout)
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl(stdout),
+    stdout = codex_jsonl.final_message(stdout),
     stderr = "",
     exit_code = 0,
   })

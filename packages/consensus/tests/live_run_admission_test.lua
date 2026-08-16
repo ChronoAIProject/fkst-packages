@@ -2,6 +2,7 @@ local identity = require("contract.convergence_identity")
 local consensus = require("consensus")
 local workflow_codex = require("workflow_internal.codex")
 local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = fkst.test
 local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
@@ -98,9 +99,8 @@ end
 local function mock_angle(angle, verdict, reply)
   mock_judgment_dir()
   t.mock_command("consensus-angle-" .. tostring(angle), {
-    stdout = testing.codex_agent_message_jsonl(
-      "⟦FKST:VERDICT⟧ " .. verdict .. "\n⟦FKST:REPLY⟧ " .. reply .. "\n"
-    ),
+    stdout = codex_jsonl.final_message(
+      "⟦FKST:VERDICT⟧ " .. verdict .. "\n⟦FKST:REPLY⟧ " .. reply .. "\n"),
     stderr = "",
     exit_code = 0,
   })
