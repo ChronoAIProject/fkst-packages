@@ -439,3 +439,35 @@ strings, so `require("core.doctor")` counts as a member read. Migrating a depart
 Progress on that axis shows only under the full `caps` migration, not the intermediate step.
 
 ⟦AI:FKST⟧
+
+### Correction: "not an installer" is not the redirectability test
+
+The check published in the section above -- `grep -q 'function S.install(M)'` -- is **not
+sufficient**, and applying it to the whole repo proved so immediately.
+
+The real question is not whether a `core/*` submodule has an installer. It is whether the function is
+defined on **the same table the module returns**:
+
+```sh
+# reachable via require only if these two names match
+grep -oE '^function ([A-Z])\.<symbol>' packages/<pkg>/core/<mod>.lua   # defines on ...
+grep -oE '^return ([A-Z])$'            packages/<pkg>/core/<mod>.lua   # ... returns
+```
+
+Sweeping every department read against plain (non-installer) submodules produced three candidates.
+Two of them -- `github-proxy/core/blocked_by.lua` and `github-proxy/core/issue_create.lua` -- have
+**no** `install(M)` and so pass the published check, yet define onto `M` while returning `S`.
+`require("core.issue_create").write_issue_create_request` is nil, exactly the runtime failure the
+criterion was written to prevent.
+
+The third, `github-devloop/departments/implement` reading `core.ready_split_version` from
+`core/dependencies.lua`, does pass the identity test -- and is still not worth doing: that department
+reads **13** core symbols, so redirecting one neither removes its `require("core")` nor lowers
+`department_core_member_reads` (the freed read is replaced by `core.dependencies` inside the new
+require string, which the ratchet counts).
+
+**So the intermediate "redirect a read to its owning submodule" path is exhausted: zero viable sites
+repo-wide.** What remains on this ratchet is the full `make_department(caps)` migration, which is
+what its design doc specified in the first place.
+
+⟦AI:FKST⟧
