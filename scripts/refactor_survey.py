@@ -124,13 +124,21 @@ def long_leaf_functions(root: Path, limit: int = 150) -> list[str]:
 
 
 def never_required_modules(root: Path) -> list[str]:
-    """Reported for completeness. EXPECT FALSE POSITIVES -- read the trap before acting.
+    """Modules no literal require reaches and no sibling index registers.
 
-    TRAP: `core/restart/{transitions,marker_fields,liveness_signal_producers}/*.lua` are loaded by a
+    TRAP, now resolved rather than only warned about:
+    `core/restart/{transitions,marker_fields,liveness_signal_producers}/*.lua` are loaded by a
     registry -- `devloop_wiring.lua` calls `load_entries("core.restart.transitions", index)` and
-    requires each entry by a COMPUTED name. A scan for literal `require("...")` reports all 30 as
-    dead, and all 30 are live. Any result under a directory family like that is a registry, not a
-    corpse.
+    requires each entry by a COMPUTED name. A scan for literal `require("...")` reported all 30 as
+    dead, and all 30 are live.
+
+    The static evidence a computed require leaves behind is the sibling `index.lua` that names the
+    module, so this unit reads it. That turned a permanent 30-line false-positive block -- which
+    made the unit unreadable, and therefore useless -- into a real signal.
+
+    Verified both ways rather than assumed: an orphan module in a directory with no index IS
+    reported; adding an index that names it removes it. A unit that only ever prints 0 would prove
+    nothing.
     """
     files = {f: (root / f).read_text(errors="ignore") for f in tracked(root, "*.lua")}
     out = []
@@ -141,8 +149,16 @@ def never_required_modules(root: Path) -> list[str]:
             continue
         tail = f.rsplit("/", 1)[-1][:-4]
         pat = re.compile(r"""require\(\s*['"][\w.]*""" + re.escape(tail) + r"""['"]""")
-        if not any(pat.search(t) for g, t in files.items() if g != f):
-            out.append(f)
+        if any(pat.search(t) for g, t in files.items() if g != f):
+            continue
+        # A sibling index.lua that NAMES this module is the registry that loads it. The require is
+        # built by concatenation elsewhere, so no literal-require scan can see it; the index entry
+        # is the only static evidence, and it is enough.
+        index = f.rsplit("/", 1)[0] + "/index.lua"
+        entry = re.compile(r"""(?:module\s*=\s*)?['"]""" + re.escape(tail) + r"""['"]""")
+        if index in files and entry.search(files[index]):
+            continue
+        out.append(f)
     return sorted(out)
 
 
@@ -200,8 +216,7 @@ UNITS = [
     ("source files >= 900 lines", oversized_files),
     ("leaf functions > 150 lines (informational; repo has no function-length rule)",
      long_leaf_functions),
-    ("modules never required (EXPECT FALSE POSITIVES -- registry loading)",
-     never_required_modules),
+    ("modules no require reaches and no index registers", never_required_modules),
 ]
 
 
