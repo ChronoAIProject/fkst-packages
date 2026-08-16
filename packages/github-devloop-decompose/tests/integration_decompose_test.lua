@@ -16,6 +16,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local decompose_lib = require("devloop.decompose")
 local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local blocked_comments
 
@@ -195,7 +196,7 @@ local function mock_decompose_codex(event, stdout)
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = codex_jsonl.final_message(stdout),
     stderr = "",
     exit_code = 0,
   })

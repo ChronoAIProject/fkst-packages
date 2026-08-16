@@ -2,6 +2,7 @@ local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local rollup_health = require("core.rollup_health")
 local zh_summary = string.char(228, 184, 173, 230, 150, 135, 230, 145, 152, 232, 166, 129)
 
@@ -186,7 +187,8 @@ local function mock_release_notes(body)
   t.mock_command("codex exec", command_result(
     0,
     "",
-    body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    codex_jsonl.final_message(
+      body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel))
   ))
 end
 

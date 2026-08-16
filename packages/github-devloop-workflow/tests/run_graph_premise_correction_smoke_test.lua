@@ -2,6 +2,7 @@ local author_policy = require("testkit_internal.github_author_policy")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local graph = require("testkit.graph")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local marker_builders = require("devloop.markers.builders")
 local premise_correction = require("devloop.premise_correction")
 local t = fkst.test
@@ -181,13 +182,14 @@ end
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:WORKFLOW_SELECT⟧ none",
+    stdout = codex_jsonl.final_message("⟦FKST:WORKFLOW_SELECT⟧ none"),
     stderr = "",
     exit_code = 0,
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation.",
+    stdout = codex_jsonl.final_message(
+      "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation."),
     stderr = "",
     exit_code = 0,
   })

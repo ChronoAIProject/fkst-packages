@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local devloop_logging = require("devloop.logging")
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
@@ -22,7 +23,7 @@ local function mock_meta_codex(stdout)
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = codex_jsonl.final_message(stdout),
     stderr = "",
     exit_code = 0,
   })
