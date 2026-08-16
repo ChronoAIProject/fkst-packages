@@ -115,8 +115,14 @@ local forge_validators = require("devloop.forge_validators")
     error("github-devloop: git-command-failed: " .. error_class .. " failed: " .. tostring(result.stderr))
   end
 
-  function C.runtime_root_with_exec(exec_sync_fn)
-    local result = C.run_required(exec_sync_fn({ cmd = require("devloop.base").read_runtime_root_cmd(), timeout = 30 }), "FKST_RUNTIME_ROOT read")
+  function C.runtime_root()
+    if type(env_read) == "function" then
+      return env_read("FKST_RUNTIME_ROOT")
+    end
+    local result = C.run_required(
+      exec_sync({ cmd = require("devloop.base").read_runtime_root_cmd(), timeout = 30 }),
+      "FKST_RUNTIME_ROOT read"
+    )
     return result.stdout
   end
 

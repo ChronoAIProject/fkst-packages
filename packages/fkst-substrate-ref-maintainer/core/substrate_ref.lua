@@ -90,10 +90,16 @@ local function run_gh(fn, label)
 end
 
 local function read_runtime_root()
-  local result = run_cmd(function()
-    return exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-  end, "runtime root read")
-  local root = strings.trim(result.stdout)
+  local root
+  if type(env_read) == "function" then
+    root = env_read("FKST_RUNTIME_ROOT")
+  else
+    local result = run_cmd(function()
+      return exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
+    end, "runtime root read")
+    root = result.stdout
+  end
+  root = strings.trim(root)
   if root == "" or root:find("[\r\n]") ~= nil then
     error("github-devloop: config-missing: FKST_RUNTIME_ROOT is required for substrate-ref bump")
   end

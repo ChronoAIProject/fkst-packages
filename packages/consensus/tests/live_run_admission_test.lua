@@ -131,22 +131,36 @@ local role_timeout_env = {
   ["sync-conflict"] = "FKST_CODEX_TIMEOUT_SYNC_CONFLICT",
 }
 
+local allowed_dispatch_env = {
+  FKST_CODEX_REPOSITORY_ROOTS = true,
+}
+for _, env_name in pairs(role_timeout_env) do
+  allowed_dispatch_env[env_name] = true
+end
+
 local function with_timeout_env(env_values, fn)
+  local original_env_read = env_read
   local original_exec_sync = exec_sync
   if type(env_values) ~= "table" then
     env_values = { FKST_CODEX_TIMEOUT_CONSENSUS = env_values }
   end
-  exec_sync = function(cmd)
-    local env_name = tostring(cmd):match('^printf %%s "%$([A-Z0-9_]+)"$')
-    t.is_true(env_name ~= nil, "unexpected env command: " .. tostring(cmd))
-    return {
-      stdout = env_values[env_name] or "",
-      stderr = "",
-      exit_code = 0,
-    }
+  local function read_test_env(env_name)
+    t.is_true(allowed_dispatch_env[env_name] == true,
+      "unexpected env read: " .. tostring(env_name))
+    return env_values[env_name] or ""
+  end
+  if type(original_env_read) == "function" then
+    _G.env_read = read_test_env
+  else
+    _G.exec_sync = function(command)
+      local env_name = tostring(command):match('^printf %%s "%$([A-Z0-9_]+)"$')
+      t.is_true(env_name ~= nil, "unexpected env command: " .. tostring(command))
+      return { stdout = read_test_env(env_name), stderr = "", exit_code = 0 }
+    end
   end
   local ok, err = pcall(fn)
-  exec_sync = original_exec_sync
+  _G.env_read = original_env_read
+  _G.exec_sync = original_exec_sync
   if not ok then
     error(err)
   end

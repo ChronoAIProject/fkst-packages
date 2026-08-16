@@ -79,7 +79,7 @@ local function resolved_role_timeout(role, dispatch_opts)
     return dispatch_opts.timeout
   end
   local env_name = role_timeout_env[role]
-  local raw = env_name and read_timeout_env(env_name, exec_sync) or nil
+  local raw = env_name and read_timeout_env(env_name) or nil
   if raw ~= nil then
     return parse_timeout_seconds(env_name, raw)
   end
@@ -244,7 +244,7 @@ with_repository_context = function(opts)
   if opts.prompt == nil then
     return opts
   end
-  local roots = parse_repository_roots(read_repository_roots_env(repository_roots_env, exec_sync))
+  local roots = parse_repository_roots(read_repository_roots_env(repository_roots_env))
   local lines = { "Repository locations resolved by the launcher:" }
   local worktree = trim(opts.worktree)
   if worktree ~= "" then

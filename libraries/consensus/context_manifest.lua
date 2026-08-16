@@ -166,7 +166,7 @@ local function rebuild_content_manifest(key, runtime_root, read_file, list_files
   end
   local root = trim(runtime_root):gsub("/+$", "")
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("consensus: runtime-root-read-failed: FKST_RUNTIME_ROOT is invalid")
+    error("consensus: runtime-root-invalid: FKST_RUNTIME_ROOT is invalid")
   end
 
   local matches, files_by_generation, proposal_segment = matching_context_generations(

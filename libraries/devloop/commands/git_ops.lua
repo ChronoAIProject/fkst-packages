@@ -340,12 +340,18 @@ end
     if issue_number == nil or impl_version == nil then
       return nil
     end
-    local durable = exec_sync({ cmd = C.read_durable_root_cmd(), timeout = 30 })
-    if type(durable) ~= "table" or durable.exit_code ~= 0 then
-      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: "
-        .. tostring(type(durable) == "table" and durable.stderr or "missing command result"))
+    local durable
+    if type(env_read) == "function" then
+      durable = env_read("FKST_DURABLE_ROOT")
+    else
+      local result = exec_sync({ cmd = C.read_durable_root_cmd(), timeout = 30 })
+      if type(result) ~= "table" or result.exit_code ~= 0 then
+        error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: "
+          .. tostring(type(result) == "table" and result.stderr or "missing command result"))
+      end
+      durable = result.stdout
     end
-    local implementation_root = devloop_base.implementation_worktree_root(durable.stdout)
+    local implementation_root = devloop_base.implementation_worktree_root(durable)
     local worktree_version = impl_failure.implementation_branch_version(impl_version, nil)
     local worktree = devloop_base.implement_worktree_path(
       implementation_root, repo, issue_number, worktree_version)

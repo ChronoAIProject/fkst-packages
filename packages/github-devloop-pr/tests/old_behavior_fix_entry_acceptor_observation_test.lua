@@ -414,8 +414,17 @@ local function capture(fixture)
   ra.replace(config, "write_mode", function() return fixture.dry_run and "dry-run" or "real" end, restorations)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function() return true end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
+  local has_env_read = type(_G.env_read) == "function"
+  if has_env_read then
+    ra.replace(_G, "env_read", function(name)
+      if name ~= "FKST_DURABLE_ROOT" then
+        error("unexpected env_read name: " .. tostring(name))
+      end
+      return "/tmp/fkst-observe/durable"
+    end, restorations)
+  end
   ra.replace(_G, "exec_sync", function(opts)
-    if tostring(opts.cmd):find("FKST_DURABLE_ROOT", 1, true) then
+    if not has_env_read and tostring(opts.cmd) == devloop_base.read_durable_root_cmd() then
       return { stdout = "/tmp/fkst-observe/durable", stderr = "", exit_code = 0 }
     end
     return { stdout = "", stderr = "", exit_code = 0 }

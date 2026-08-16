@@ -25,11 +25,17 @@ function M.make(core)
       error("github-devloop: git-pr-head-branch-mismatch: fetched PR branch does not match reviewed head")
     end
 
-    local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
-    if durable_result.exit_code ~= 0 then
-      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
+    local durable_root
+    if type(env_read) == "function" then
+      durable_root = env_read("FKST_DURABLE_ROOT")
+    else
+      local result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
+      if result.exit_code ~= 0 then
+        error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(result.stderr))
+      end
+      durable_root = result.stdout
     end
-    local stable_root = devloop_base.implementation_worktree_root(durable_result.stdout)
+    local stable_root = devloop_base.implementation_worktree_root(durable_root)
     local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, version)
     local list_result = devloop_commands.git_worktree_list(30)
     if list_result.exit_code ~= 0 then
