@@ -436,7 +436,7 @@ return {
     t.eq(count_calls("name=" .. claim_label), 0)
   end,
 
-  test_label_mode_rejects_invalid_declared_label_before_write = function()
+  test_label_mode_rejects_overlength_declared_label_before_write = function()
     mock_env("1")
     mock_claim_label_env("", string.rep("x", 34))
     mock_labels(canonical_labels_with_dashboard())
@@ -448,6 +448,26 @@ return {
     }))
 
     t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh api --method POST"), 0)
+    t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
+  test_label_mode_rejects_invalid_utf8_declared_label_before_write = function()
+    local invalid_utf8_suffix = string.char(0xff)
+    local config = require("devloop.config")
+    local original_claim_label_naming = config.claim_label_naming
+    mock_env("1")
+    mock_claim_label_env("", "")
+    mock_labels(canonical_labels_with_dashboard())
+    config.claim_label_naming = function()
+      return { kind = "declared_suffix", suffix = invalid_utf8_suffix }
+    end
+
+    local ok, err = pcall(core.ensure_repo)
+    config.claim_label_naming = original_claim_label_naming
+
+    t.eq(ok, false)
+    t.is_true(tostring(err or ""):find("claim-label-name-invalid", 1, true) ~= nil, tostring(err))
     t.eq(count_calls("gh api --method POST"), 0)
     t.eq(count_calls("gh api --method PATCH"), 0)
   end,
