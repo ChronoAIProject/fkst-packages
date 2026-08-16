@@ -23,25 +23,52 @@ local function env_values(values)
 end
 
 return {
-  test_claim_label_derivation_is_fixed_width_and_canonical = function()
+  test_claim_label_derivation_defaults_are_fixed_width_and_canonical = function()
     local labels = claim_carriers()
     t.eq(labels.bare_label, "fkst-dev:claimed")
     local expected = "fkst-dev:claimed:d39deb1f090c9c42f9f67a4f4ca4ae30"
-    t.eq(labels.derived_label("ElonSG"), expected)
-    t.eq(labels.derived_label("ELONSG[bot]"), expected)
+    t.eq(labels.derived_label("ElonSG", 32), expected)
+    t.eq(labels.derived_label("ELONSG[bot]", 32), expected)
 
     local long_owner = "fkst-loning-s-chrono-macbook-pro-extra"
     t.eq(
-      labels.derived_label(long_owner),
+      labels.derived_label(long_owner, 32),
       "fkst-dev:claimed:ab1bac99f4ac1ae521f6635fd8055357"
     )
-    t.eq(#labels.derived_label(long_owner), 49)
-    t.eq(#labels.derived_label(string.rep("x", 1000)), 49)
+    t.eq(#labels.derived_label(long_owner, 32), 49)
+    t.eq(#labels.derived_label(string.rep("x", 1000), 32), 49)
+    t.eq(config.claim_label_owner_digest_hex_length(env_values()), 32)
+    t.eq(config.claim_label_owner_digest_hex_length(env_values({
+      FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH = "",
+    })), 32)
+  end,
+
+  test_claim_label_owner_digest_width_accepts_trimmed_decimal_integer = function()
+    t.eq(config.claim_label_owner_digest_hex_length(env_values({
+      FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH = " \n8\t ",
+    })), 8)
+    t.eq(
+      claim_carriers().derived_label("elonsg", 8),
+      "fkst-dev:claimed:d39deb1f"
+    )
+  end,
+
+  test_claim_label_owner_digest_width_rejects_invalid_values = function()
+    for _, value in ipairs({ "0", "33", "1.5", "eight" }) do
+      local ok, err = pcall(config.claim_label_owner_digest_hex_length, env_values({
+        FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH = value,
+      }))
+      t.eq(ok, false)
+      t.is_true(
+        tostring(err):find("claim-label-owner-digest-hex-length-invalid", 1, true) ~= nil,
+        tostring(err)
+      )
+    end
   end,
 
   test_derived_claim_label_spec_binds_the_full_canonical_owner = function()
     local labels = claim_carriers()
-    local spec = labels.active_label_spec({ kind = "derived" }, "ELONSG[bot]")
+    local spec = labels.active_label_spec({ kind = "derived" }, "ELONSG[bot]", 32)
     t.eq(spec.name, "fkst-dev:claimed:d39deb1f090c9c42f9f67a4f4ca4ae30")
     t.eq(spec.description, "fkst-dev-label-mode-ownership-claim owner=elonsg")
     t.eq(spec.owner, "elonsg")
@@ -76,7 +103,7 @@ return {
 
   test_derived_claim_label_binding_fails_closed_on_a_forced_collision = function()
     local labels = claim_carriers()
-    local spec = labels.active_label_spec({ kind = "derived" }, "elonsg")
+    local spec = labels.active_label_spec({ kind = "derived" }, "elonsg", 32)
     labels.assert_owner_binding(nil, spec)
     labels.assert_owner_binding({
       name = spec.name,
@@ -87,6 +114,21 @@ return {
       name = spec.name,
       description = "fkst-dev-label-mode-ownership-claim owner=peer-bot",
     }, spec)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
+  end,
+
+  test_short_derived_claim_label_binding_rejects_a_shared_name_for_another_owner = function()
+    local labels = claim_carriers()
+    local alpha = labels.active_label_spec({ kind = "derived" }, "alpha", 1)
+    local test_bot = labels.active_label_spec({ kind = "derived" }, "fkst-test-bot", 1)
+    t.eq(alpha.name, "fkst-dev:claimed:8")
+    t.eq(test_bot.name, alpha.name)
+
+    local ok, err = pcall(labels.assert_owner_binding, {
+      name = alpha.name,
+      description = alpha.description,
+    }, test_bot)
     t.eq(ok, false)
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
   end,
@@ -102,7 +144,7 @@ return {
 
   test_claim_label_classifier_covers_derived_posture_and_foreign_wins = function()
     local labels = claim_carriers()
-    local active = labels.derived_label("ElonSG")
+    local active = labels.derived_label("ElonSG", 32)
     t.eq(labels.classify_labels({}, active), "unassigned")
     t.eq(labels.classify_labels({ active }, active), "self")
     t.eq(labels.classify_labels({ "fkst-dev:claimed:Peer" }, active), "other")

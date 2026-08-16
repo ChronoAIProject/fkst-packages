@@ -7,8 +7,6 @@ local C = {}
 C.bare_label = "fkst-dev:claimed"
 
 local claim_description = "fkst-dev-label-mode-ownership-claim"
--- A 128-bit SHA-256 prefix keeps the complete label at 49 characters.
-local owner_digest_hex_length = 32
 
 local function canonical_owner(owner)
   local canonical = parsers_misc.canonical_login(owner)
@@ -18,12 +16,12 @@ local function canonical_owner(owner)
   return canonical
 end
 
-function C.derived_label(owner)
+function C.derived_label(owner, owner_digest_hex_length)
   local digest = sha256.hex(canonical_owner(owner))
   return C.bare_label .. ":" .. digest:sub(1, owner_digest_hex_length)
 end
 
-function C.active_label_spec(naming, owner)
+function C.active_label_spec(naming, owner, owner_digest_hex_length)
   if type(naming) ~= "table" then
     error("devloop.claim_carriers: claim-label-naming-invalid: claim label naming posture is invalid")
   end
@@ -33,7 +31,7 @@ function C.active_label_spec(naming, owner)
     name = C.bare_label
   elseif naming.kind == "derived" then
     bound_owner = canonical_owner(owner)
-    name = C.derived_label(bound_owner)
+    name = C.derived_label(bound_owner, owner_digest_hex_length)
   elseif naming.kind == "declared_suffix" and type(naming.suffix) == "string" then
     bound_owner = canonical_owner(owner)
     name = C.bare_label .. ":" .. naming.suffix
@@ -65,8 +63,8 @@ function C.assert_owner_binding(existing, desired)
   end
 end
 
-function C.active_label(naming, owner)
-  return C.active_label_spec(naming, owner).name
+function C.active_label(naming, owner, owner_digest_hex_length)
+  return C.active_label_spec(naming, owner, owner_digest_hex_length).name
 end
 
 function C.is_claim_family(name)

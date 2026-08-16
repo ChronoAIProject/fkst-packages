@@ -136,7 +136,7 @@ return {
     mock_repo_env("label")
     mock_admission_view({ author_login = "drive-by" })
     cache_set(entity_highwater.key("github-devloop-intake/admission", source_ref()), "")
-    local claim_label = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local claim_label = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     t.mock_command("gh api repos/owner/repo/labels/" .. claim_label.name, {
       stdout = '{"name":"' .. claim_label.name .. '","description":"' .. claim_label.description .. '"}\n',
       stderr = "",

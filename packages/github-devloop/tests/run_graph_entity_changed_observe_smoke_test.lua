@@ -82,7 +82,7 @@ local function mock_runtime_and_context(claim_mode)
 end
 
 local function mock_claim_label_collision()
-  local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+  local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
   t.mock_command("gh api repos/owner/repo/labels/" .. spec.name, {
     stdout = '{"name":"' .. spec.name
       .. '","description":"fkst-dev-label-mode-ownership-claim owner=peer-bot"}\n',

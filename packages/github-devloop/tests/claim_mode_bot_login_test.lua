@@ -114,9 +114,9 @@ local function ownership_json(logins, author_login, labels)
 end
 
 local bare_claimed_label = "fkst-dev:claimed"
-local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
 local derived_claimed_label = derived_claim_spec.name
-local peer_claimed_label = claim_carriers.derived_label("peer-bot")
+local peer_claimed_label = claim_carriers.derived_label("peer-bot", 32)
 
 local function mock_claim_label_binding(description, times)
   for _ = 1, times or 1 do

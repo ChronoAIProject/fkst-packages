@@ -61,7 +61,11 @@ function C.claimed_label()
 end
 
 function C.claimed_label_spec()
-  return claim_carriers.active_label_spec(config.claim_label_naming(), C.claim_owner())
+  return claim_carriers.active_label_spec(
+    config.claim_label_naming(),
+    C.claim_owner(),
+    config.claim_label_owner_digest_hex_length()
+  )
 end
 
 function C.assert_claim_label_binding(existing, desired)
