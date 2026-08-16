@@ -369,3 +369,39 @@ library functions the capability directly rather than reading it off the ambient
 change, not a sweep.
 
 ⟦AI:FKST⟧
+
+## Where each remaining migration ledger actually stands, and what it needs
+
+Measured on `dev` at `2d7735993`. The god-pattern reduction this campaign drove is locked in
+(#3838); what follows is why the rest did not move, so the next pass does not re-derive it.
+
+**Four ledgers were probed to exhaustion this round and none is reducible by substitution or
+sweeping.** In each case the naive mechanical answer existed and was wrong:
+
+| ledger | count | what blocks it |
+|---|---:|---|
+| `version-suffix.allowlist` | 3 | **floor.** All three are `libraries/contract/source_ref.lua:41-43`, below `transition_version` and unable to require it without a cycle. |
+| `gh-egress.inventory` | 1 | **floor by design.** `check_repo_gh_egress.py:190` *requires* the `SANCTIONED_EGRESS` entry to be present. Terminal state is 1, not 0. |
+| `library-error-class.allowlist` | 1 | **floor.** Its one site raises with a runtime `reason_code` in the class position; the message is already semantically correct and only statically unprovable. Inserting a literal class displaces the real one -- two tests catch it. |
+| `lock-scope.allowlist` | 5 | 2 marked `justified:` (permanent), 3 marked `needs-redesign(#3520-class)`. |
+| `dept-failure-surface.allowlist` | 3 -> 1 (#3839) | the remaining one is `integration-coverage-producer`, which has no `devloop` lib_dep; clearing it means widening the dependency graph or copying a local helper. |
+| `producer-liveness.allowlist` | 2 -> 1 (#3841) | the remaining raiser's driver shells out to a Python tool and a chain of further commands; a fire_raiser test there pins a long exact argv per hop. |
+| `devloop-forge-imports.inventory` | 7 | **not substitutable.** Three entries import forge for a single symbol, and the obvious redirect (`json_string` -> `contract.strings`) is a *different function*: forge escapes control characters with uppercase hex, contract with lowercase. Pinned in #3842 after measuring that changing forge's case reddened nothing. |
+| `gh-handle-construction.inventory` | 19 | every entry is a DI rewiring whose blast radius is its package's call graph; no stale entries (the checker already rejects those). |
+| `ambient-surface` / `devloop-godlib` | locked | reduced 168 -> 20 and 24 -> 17 this campaign; the remaining 20 exports all have real readers. |
+| `service-locator`, `core-param`, `bot-login-mediation`, `monotone-gate`, `github-devloop-saga-split` | 52/489, 148/127, 86, 94, 264 | untouched; these are the large architectural programs, not sweeps. |
+
+### The pattern worth carrying forward
+
+Every one of the four exhausted ledgers offered a mechanical answer that measurement refuted:
+
+- a **small count** read as "nearly done" three times, and was a required floor twice
+- a **same-named function** read as a duplicate twice (`json_string` casing, `repo_name_with_owner`
+  precedence), each differing in exactly one detail that nothing tested
+- an **install call** read as dead because its module "exports nothing", when the module delegates
+
+So the reusable step is not any of the fixes. It is: **before touching a ledger, read its checker for
+a required floor, and measure whether the substitution you intend is actually the same behaviour.**
+Both checks are minutes; both refused work that would have been green and wrong.
+
+⟦AI:FKST⟧
