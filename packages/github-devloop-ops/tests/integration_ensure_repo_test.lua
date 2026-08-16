@@ -76,7 +76,7 @@ local function mock_env(write_mode, integration)
   end
 end
 
-local function mock_claim_label_env(exclusive)
+local function mock_claim_label_env(exclusive, suffix)
   for _ = 1, 2 do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
       stdout = "label",
@@ -86,6 +86,11 @@ local function mock_claim_label_env(exclusive)
   end
   t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
     stdout = exclusive or "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
+    stdout = suffix or "",
     stderr = "",
     exit_code = 0,
   })
@@ -333,7 +338,7 @@ return {
   end,
 
   test_label_mode_provisions_derived_active_claim_label = function()
-    local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     local claim_label = claim_spec.name
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
@@ -363,8 +368,95 @@ return {
     t.eq(count_calls(claim_command), 1)
   end,
 
+  test_label_mode_provisions_declared_claim_label_suffix = function()
+    local claim_label = "fkst-dev:claimed:macstudio-4"
+    local description = "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
+    local claim_command = core.gh_repo_label_create_cmd(
+      "owner/repo",
+      claim_label,
+      "0E8A16",
+      description
+    )
+    mock_env("1")
+    mock_claim_label_env("", "macstudio-4")
+    mock_labels(canonical_labels_with_dashboard())
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_command, {
+      stdout = '{"name":"' .. claim_label .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_ensure(opts("ensure-declared-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = "macstudio-4",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST"), 1)
+    t.eq(count_calls(claim_command), 1)
+  end,
+
+  test_label_mode_rejects_invalid_declared_label_before_write = function()
+    mock_env("1")
+    mock_claim_label_env("", string.rep("x", 34))
+    mock_labels(canonical_labels_with_dashboard())
+
+    local result = run_ensure(opts("ensure-invalid-declared-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = string.rep("x", 34),
+    }))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh api --method POST"), 0)
+    t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
+  test_label_mode_rejects_declared_suffix_with_exclusive_before_write = function()
+    mock_env("1")
+    mock_claim_label_env("1", "macstudio-4")
+    mock_labels(canonical_labels_with_dashboard())
+
+    local result = run_ensure(opts("ensure-conflicting-claim-label-posture", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "1",
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = "macstudio-4",
+    }))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh api --method POST"), 0)
+    t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
+  test_label_mode_fails_closed_when_declared_label_is_bound_to_another_owner = function()
+    local claim_label = "fkst-dev:claimed:macstudio-4"
+    local repo_labels = canonical_labels_with_dashboard()
+    table.insert(repo_labels, {
+      name = claim_label,
+      color = "0E8A16",
+      description = "fkst-dev-label-mode-ownership-claim owner=peer-bot",
+    })
+    mock_env("1")
+    mock_claim_label_env("", "macstudio-4")
+    mock_labels(repo_labels)
+
+    local result = run_ensure(opts("ensure-declared-claim-label-collision", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_SUFFIX = "macstudio-4",
+    }))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh api --method POST"), 0)
+    t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
   test_label_mode_fails_closed_when_derived_label_is_bound_to_another_owner = function()
-    local claim_spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     local repo_labels = canonical_labels_with_dashboard()
     table.insert(repo_labels, {
       name = claim_spec.name,
