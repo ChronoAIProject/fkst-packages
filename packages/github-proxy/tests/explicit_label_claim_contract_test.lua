@@ -42,14 +42,18 @@ local function mock_explicit_env(exclusive, times)
   })
 end
 
-local function count_claim_mode_reads()
+local function count_command_calls(needle)
   local count = 0
   for _, call in ipairs(t.command_calls()) do
-    if tostring(call.rendered or ""):find("FKST_GITHUB_CLAIM_MODE", 1, true) ~= nil then
+    if tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
       count = count + 1
     end
   end
   return count
+end
+
+local function count_claim_mode_reads()
+  return count_command_calls("FKST_GITHUB_CLAIM_MODE")
 end
 
 return {
@@ -71,6 +75,37 @@ return {
     )
     t.eq(accepted, true)
     t.eq(reason, nil)
+    t.eq(count_claim_mode_reads(), 0)
+  end,
+
+  test_proxy_guarded_write_freshly_rereads_explicit_contract_claim = function()
+    mock_explicit_env(false)
+    local payload = explicit_payload(false)
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    t.mock_command("gh api repos/owner/x/issues/42", {
+      stdout = '{"assignees":[{"login":"human"}],"labels":[{"name":"'
+        .. spec.name .. '","description":"' .. spec.description .. '"}]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh api repos/owner/x/issues/42", {
+      stdout = '{"assignees":[{"login":"human"}],"labels":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local held, held_reason = core.verify_issue_claim_before_write(
+      payload, repo, issue_number, "explicit_claim"
+    )
+    local lost, lost_reason = core.verify_issue_claim_before_write(
+      payload, repo, issue_number, "explicit_claim"
+    )
+
+    t.eq(held, true)
+    t.eq(held_reason, nil)
+    t.eq(lost, false)
+    t.eq(lost_reason, "ownership-claim-lost")
+    t.eq(count_command_calls("gh api repos/owner/x/issues/42"), 2)
     t.eq(count_claim_mode_reads(), 0)
   end,
 
