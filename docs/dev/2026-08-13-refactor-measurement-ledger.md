@@ -471,3 +471,37 @@ repo-wide.** What remains on this ratchet is the full `make_department(caps)` mi
 what its design doc specified in the first place.
 
 ⟦AI:FKST⟧
+
+## Can completed migration work sit unprotected anywhere? No -- checked, both mechanisms
+
+`core-param` was found sitting on 211 points of someone else's finished migration with nothing
+preventing a climb back (#3851). That prompted the obvious question: where else can that happen?
+
+There are two mechanisms, and every ledger in the repository is covered by one of them:
+
+**Counted ratchets** compare a measured `current` against a committed `baseline`, and the gap between
+them is unguarded until someone tightens it. All six are now at zero slack, and
+`refactor_survey.py`'s `ratchets_with_unlocked_slack` unit watches for the gap reopening (#3853).
+
+**Line and JSONL ledgers** cannot accumulate the same way, because their checkers reject a *stale*
+entry as a violation exactly as they reject a missing one. Verified individually rather than
+assumed -- `dept-failure-surface`, `library-error-class`, `lock-scope`, `monotone-gate`,
+`producer-liveness`, `version-suffix`, `gh-handle-construction`, `devloop-forge-imports`,
+`github-devloop-saga-split`, and `bot-login-mediation` (`check_repo_bot_login_mediation.py:501`,
+"no longer matches bot-login mediation debt; prune the stale entry"). The single exception,
+`gh-egress`, has one entry that its checker *requires* to be present, so staleness cannot apply.
+
+### The caveat that matters for reading the new survey unit
+
+`ratchets_with_unlocked_slack` reports **44 checkers as UNEVALUATED**, because they are modules
+imported by the runner rather than CLIs and print nothing when run directly. That number is not 44
+blind spots. Those checkers guard line and JSONL ledgers, which are covered by stale-entry rejection
+-- a mechanism the unit cannot observe and does not need to.
+
+Two traps were hit while establishing this, both from a filter of mine rather than from the repo:
+a first pass skipped `devloop-forge-imports` and `github-devloop-saga-split` because their first line
+begins with `{` and the filter treated JSONL as a JSON document; and a first grep for
+`bot-login-mediation.inventory` found no checker because that checker composes the path instead of
+writing it literally. Neither absence was real.
+
+⟦AI:FKST⟧
