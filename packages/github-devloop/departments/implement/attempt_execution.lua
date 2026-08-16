@@ -35,11 +35,8 @@ local function execute(args, prepare_during_admission)
 end
 
 function M.run(args)
-  if args.completed_result == nil then
-    return execute(args, true)
-  end
   args.with_lock(M.lock_key(args.proposal_id, args.implementation_version), function()
-    execute(args, false)
+    execute(args, args.completed_result == nil)
   end)
 end
 

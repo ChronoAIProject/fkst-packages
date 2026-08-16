@@ -89,28 +89,56 @@ return {
     t.is_true(first:find("github-devloop/implement-recovery/", 1, true) == 1)
   end,
 
-  test_fresh_attempt_does_not_take_the_recovery_lock = function()
+  test_fresh_attempt_and_recovery_share_version_flight = function()
     local with_test_lock, lock_held, lock_entries = lock_fixture()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "ready/version/1"
     local transition_lock = "github-devloop/transition/owner/repo/issue/42"
+    local recovery_lock = recovery.lock_key(proposal_id, version)
+    local nested_ok, nested_error
+
+    local function run_recovery()
+      recovery.run({
+        with_lock = with_test_lock,
+        proposal_id = proposal_id,
+        implementation_version = version,
+        completed_result = { version = version },
+        transition_lock_key = transition_lock,
+        admit = function() return {} end,
+        prepare = function() return {} end,
+        verify = function() return nil end,
+        publish = function() end,
+      })
+    end
+
     recovery.run({
       with_lock = with_test_lock,
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      implementation_version = "ready/version/1",
+      proposal_id = proposal_id,
+      implementation_version = version,
       transition_lock_key = transition_lock,
       admit = function() return {} end,
       prepare = function()
+        t.is_true(lock_held(recovery_lock))
         t.is_true(lock_held(transition_lock))
         return {}
       end,
       verify = function()
+        t.is_true(lock_held(recovery_lock))
         t.eq(lock_held(transition_lock), false)
+        nested_ok, nested_error = pcall(run_recovery)
         return { kind = "implementing" }
       end,
-      publish = function() end,
+      publish = function()
+        t.is_true(lock_held(recovery_lock))
+        t.is_true(lock_held(transition_lock))
+      end,
     })
-    t.eq(#lock_entries, 2)
-    t.eq(lock_entries[1], transition_lock)
+    t.eq(nested_ok, false)
+    t.is_true(tostring(nested_error):find("with_lock lock busy", 1, true) ~= nil)
+    t.eq(#lock_entries, 3)
+    t.eq(lock_entries[1], recovery_lock)
     t.eq(lock_entries[2], transition_lock)
+    t.eq(lock_entries[3], transition_lock)
   end,
 
   test_distinct_versions_do_not_share_a_recovery_flight = function()
