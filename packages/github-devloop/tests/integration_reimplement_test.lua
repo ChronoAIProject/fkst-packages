@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local payloads_builders = require("devloop.payloads.builders")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local m_facts = require("devloop.markers.facts")
@@ -151,7 +152,7 @@ local function run_initial_typed_failure(event, outcome, name, base_outcome)
   }, 3)
   local worktree = mock_fresh_implement_worktree()
   t.mock_command("codex exec", {
-    stdout = require("testkit_internal.testing").codex_agent_message_jsonl("implemented"),
+    stdout = codex_jsonl.final_message("implemented"),
     stderr = "",
     exit_code = 0,
   })

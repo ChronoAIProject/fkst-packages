@@ -3,9 +3,9 @@ local entity_lib = require("devloop.entity")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
-local testing = require("testkit_internal.testing")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local t = h.t
 local core = h.core
@@ -66,7 +66,7 @@ local function mock_result(command, stdout)
 end
 
 local function mock_codex_result(command, stdout)
-  mock_result(command, testing.codex_agent_message_jsonl(stdout))
+  mock_result(command, codex_jsonl.final_message(stdout))
 end
 
 local function mock_consensus()

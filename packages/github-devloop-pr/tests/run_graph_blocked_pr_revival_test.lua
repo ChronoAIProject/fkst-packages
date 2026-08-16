@@ -3,9 +3,9 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local entity_lib = require("devloop.entity")
 local graph = require("testkit.graph")
-local testing = require("testkit_internal.testing")
 local h = require("tests.devloop_helpers")
 local consensus_core = require("consensus.core")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local m_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -114,9 +114,8 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl(
-        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"
-      ),
+      stdout = codex_jsonl.final_message(
+        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"),
       stderr = "",
       exit_code = 0,
     })

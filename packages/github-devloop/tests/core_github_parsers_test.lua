@@ -57,6 +57,7 @@ return {
       require_safe_remote = true,
       require_safe_sha = true,
       require_positive_pr_number = true,
+      is_label_name_valid = true,
       require_label_name = true,
       require_label_color = true,
       require_dashboard_label = true,

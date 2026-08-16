@@ -4,6 +4,7 @@ local execution_start = require("devloop.execution_start")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local consensus_core = require("consensus.core")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local t = h.t
 local core = h.core
@@ -162,7 +163,7 @@ local function mock_consensus_approval(opts)
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = require("testkit_internal.testing").codex_agent_message_jsonl(
+      stdout = codex_jsonl.final_message(
         verdict_label .. " approve\n" .. reply_label .. " execute start approves.\n"),
       stderr = "",
       exit_code = 0,

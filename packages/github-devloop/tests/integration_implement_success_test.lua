@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local m_facts = require("devloop.markers.facts")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = h.t
 local core = h.core
 local git_fake = require("forge.git_fake")
@@ -93,7 +94,7 @@ end
 
 local function mock_codex_success_without_local_iteration()
   t.mock_command("codex exec", {
-    stdout = require("testkit_internal.testing").codex_agent_message_jsonl("implemented"),
+    stdout = codex_jsonl.final_message("implemented"),
     stderr = "",
     exit_code = 0,
   })
@@ -311,7 +312,7 @@ return {
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     t.mock_command("codex exec", {
-      stdout = require("testkit_internal.testing").codex_agent_message_jsonl(
+      stdout = codex_jsonl.final_message(
         "wrote docs/devloop/plans/42-plan.md\n"),
       stderr = "",
       exit_code = 0,

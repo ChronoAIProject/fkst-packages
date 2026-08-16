@@ -6,7 +6,7 @@ local t = fkst.test
 local core = require("core")
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local function json_string(value)
   return tostring(value or "")
@@ -147,7 +147,7 @@ local function mock_workflow_none()
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl("⟦FKST:WORKFLOW_SELECT⟧ none"),
+    stdout = codex_jsonl.final_message("⟦FKST:WORKFLOW_SELECT⟧ none"),
     stderr = "",
     exit_code = 0,
   })
@@ -156,7 +156,7 @@ end
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl(
+    stdout = codex_jsonl.final_message(
       "⟦FKST:INTAKE⟧ decline\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph smoke only."
     ),
     stderr = "",

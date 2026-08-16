@@ -1,5 +1,5 @@
 local h = require("tests.devloop_helpers")
-local testing = require("testkit_internal.testing")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local t = h.t
 local core = h.core
 
@@ -297,7 +297,7 @@ end
 
 local function mock_successful_codex_resolution()
   t.mock_command("codex exec", {
-    stdout = testing.codex_agent_message_jsonl("resolved"),
+    stdout = codex_jsonl.final_message("resolved"),
     stderr = "",
     exit_code = 0,
   })
@@ -430,7 +430,7 @@ return {
     mock_fetch_and_heads()
     mock_conflicting_worktree("100644 abc 1\tmigration/restart-lifecycle.inventory.json\n")
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("resolved"),
+      stdout = codex_jsonl.final_message("resolved"),
       stderr = "",
       exit_code = 0,
     })
@@ -475,7 +475,7 @@ return {
     mock_fetch_and_heads()
     mock_conflicting_worktree()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("done"),
+      stdout = codex_jsonl.final_message("done"),
       stderr = "",
       exit_code = 0,
     })
@@ -495,7 +495,7 @@ return {
     mock_fetch_and_heads(nil, nil, core.max_sync_conflict_attempts() - 1)
     mock_conflicting_worktree()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("done"),
+      stdout = codex_jsonl.final_message("done"),
       stderr = "",
       exit_code = 0,
     })
@@ -537,7 +537,7 @@ return {
     mock_fetch_and_heads()
     mock_conflicting_worktree()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("done"),
+      stdout = codex_jsonl.final_message("done"),
       stderr = "",
       exit_code = 0,
     })
@@ -560,7 +560,7 @@ return {
     mock_fetch_and_heads()
     mock_conflicting_worktree()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("done"),
+      stdout = codex_jsonl.final_message("done"),
       stderr = "",
       exit_code = 0,
     })
@@ -586,7 +586,7 @@ return {
     mock_fetch_and_heads()
     mock_conflicting_worktree()
     t.mock_command("codex exec", {
-      stdout = testing.codex_agent_message_jsonl("done"),
+      stdout = codex_jsonl.final_message("done"),
       stderr = "",
       exit_code = 0,
     })
