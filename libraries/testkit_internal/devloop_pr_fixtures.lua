@@ -1,6 +1,7 @@
 local M = {}
 
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local testing = require("testkit_internal.testing")
 
 function M.new(deps)
   deps = deps or {}
@@ -607,7 +608,7 @@ function M.new(deps)
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = stdout,
+      stdout = testing.codex_agent_message_jsonl(stdout),
       stderr = "",
       exit_code = exit_code or 0,
     })

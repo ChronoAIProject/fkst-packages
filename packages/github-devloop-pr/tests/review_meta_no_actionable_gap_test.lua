@@ -3,6 +3,7 @@ local devloop_logging = require("devloop.logging")
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local testing = require("testkit_internal.testing")
 local replay_fields = require("devloop.replay_fields")
 local devloop_state = require("devloop.state")
 local replayer
@@ -22,7 +23,7 @@ local function mock_meta_codex(stdout)
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = testing.codex_agent_message_jsonl(stdout),
     stderr = "",
     exit_code = 0,
   })

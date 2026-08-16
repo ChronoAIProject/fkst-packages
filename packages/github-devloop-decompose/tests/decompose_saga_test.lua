@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local saga_conformance = require("testkit_internal.saga_conformance")
+local testing = require("testkit_internal.testing")
 local forge_saga_conformance = require("forge.saga_conformance")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local t = h.t
@@ -170,7 +171,7 @@ local function mock_decompose_codex(event, stdout)
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = testing.codex_agent_message_jsonl(stdout),
     stderr = "",
     exit_code = 0,
   })

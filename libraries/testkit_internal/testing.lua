@@ -38,6 +38,15 @@ function M.escape_json_string(value, unicode_escape_format)
     end)
 end
 
+function M.codex_agent_message_jsonl(message)
+  if type(message) ~= "string" then
+    error("testkit-internal: codex-agent-message-invalid: fixture message must be a string")
+  end
+  return '{"type":"item.completed","item":{"type":"agent_message","text":'
+    .. strings.json_string(message)
+    .. "}}\n"
+end
+
 local function json_value(value)
   if type(value) == "number" then
     return tostring(value)

@@ -1,6 +1,7 @@
 local t = fkst.test
 local core = require("core")
 local propose_mapping = require("departments.propose.mapping")
+local testing = require("testkit_internal.testing")
 
 local function nonce()
   return tostring({}):gsub("[^%w._-]", "_")
@@ -72,7 +73,9 @@ local function mock_consensus_approval()
   for _, angle in ipairs({ "teleology", "parsimony", "fidelity", "natural-ownership", "proportional-containment" }) do
     t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("consensus-angle-" .. angle, {
-      stdout = "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ " .. angle .. " approves.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ " .. angle .. " approves.\n"
+      ),
       stderr = "",
       exit_code = 0,
     })

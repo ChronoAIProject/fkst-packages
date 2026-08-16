@@ -2,6 +2,7 @@ local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local testing = require("testkit_internal.testing")
 local rollup_health = require("core.rollup_health")
 local zh_summary = string.char(228, 184, 173, 230, 150, 135, 230, 145, 152, 232, 166, 129)
 
@@ -186,7 +187,9 @@ local function mock_release_notes(body)
   t.mock_command("codex exec", command_result(
     0,
     "",
-    body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    testing.codex_agent_message_jsonl(
+      body or ("Release highlights\n\nZh: fa bu zhai yao.\n" .. core._release_notes_ai_sentinel)
+    )
   ))
 end
 
@@ -303,7 +306,11 @@ return {
     mock_pr_list(nil)
     mock_integration_head("def456")
     t.mock_command("git log", command_result(0, "", "abc123\tRollup change\n"))
-    t.mock_command("codex exec", command_result(0, "", "\n" .. core._release_notes_ai_sentinel .. "\n"))
+    t.mock_command("codex exec", command_result(
+      0,
+      "",
+      testing.codex_agent_message_jsonl("\n" .. core._release_notes_ai_sentinel .. "\n")
+    ))
     local result = run_scan(opts("rollup-codex-empty", { FKST_GITHUB_WRITE = "1" }))
     t.is_true(result.exit_code ~= 0)
     t.eq(h.count_calls("gh pr create"), 0)

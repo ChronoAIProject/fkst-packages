@@ -2,6 +2,7 @@ local consensus_core = require("consensus.core")
 local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
+local testing = require("testkit_internal.testing")
 
 local t = h.t
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -27,7 +28,8 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ managed author is admissible.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ managed author is admissible.\n"),
       stderr = "",
       exit_code = 0,
     })

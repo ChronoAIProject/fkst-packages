@@ -162,7 +162,8 @@ local function mock_consensus_approval(opts)
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " execute start approves.\n",
+      stdout = require("testkit_internal.testing").codex_agent_message_jsonl(
+        verdict_label .. " approve\n" .. reply_label .. " execute start approves.\n"),
       stderr = "",
       exit_code = 0,
     })

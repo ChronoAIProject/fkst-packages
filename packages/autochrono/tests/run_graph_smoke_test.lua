@@ -1,4 +1,5 @@
 local graph = require("testkit.graph")
+local testing = require("testkit_internal.testing")
 local t = fkst.test
 
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -35,7 +36,9 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"
+      ),
       stderr = "",
       exit_code = 0,
     })
