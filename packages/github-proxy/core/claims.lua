@@ -54,7 +54,7 @@ local function claim_contract_carrier(claim)
   if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
     return nil
   end
-  if claim.label ~= claim_carriers.active_label(config.claim_label_exclusive(), owner) then
+  if claim.label ~= claim_carriers.active_label(config.claim_label_naming(), owner) then
     return nil
   end
   return carrier
@@ -75,7 +75,7 @@ local function issue_claim_held_in_issue(issue, claim, carrier)
     carrier == "label" and github_author_policy.managed_bot_logins() or nil
   ) == "self"
   if held and carrier == "label" then
-    local desired = claim_carriers.active_label_spec(config.claim_label_exclusive(), claim.owner)
+    local desired = claim_carriers.active_label_spec(config.claim_label_naming(), claim.owner)
     if desired.owner ~= nil then
       local existing = nil
       for _, label in ipairs(issue.labels) do

@@ -43,10 +43,21 @@ function S.require_positive_pr_number(value)
   return forge_validators.require_positive_pr_number(value, "github-devloop")
 end
 
+function S.is_label_name_valid(name)
+  if type(name) ~= "string" or name == "" then
+    return false
+  end
+  local valid_utf8, length = pcall(utf8.len, name)
+  return valid_utf8 and length ~= nil and length <= 50
+end
+
 function S.require_label_name(name)
   local value = tostring(name or "")
   if value == "" then
     error("github-devloop: label-name-required: label name is required")
+  end
+  if not S.is_label_name_valid(value) then
+    error("github-devloop: label-name-invalid: label name must contain 1 to 50 characters")
   end
   return value
 end

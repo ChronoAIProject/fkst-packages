@@ -13,6 +13,7 @@ local allowed_env = {
   FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS = true,
   FKST_GITHUB_AUTHORIZE_ORG_MEMBERS = true,
   FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = true,
+  FKST_GITHUB_CLAIM_LABEL_SUFFIX = true,
   FKST_GITHUB_CLAIM_MODE = true,
   FKST_GITHUB_REPO = true,
   FKST_GITHUB_WRITE = true,
@@ -100,13 +101,21 @@ function C.claim_mode(exec)
   return "assignee"
 end
 
--- Claim-label exclusivity is opt-in and additive: the default
--- (unset/anything-but-"1") keeps per-owner derived labels.
--- Existing bare-label deployments must either set FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE=1
--- to keep bare labels unchanged or clear stale bare claim labels before using the
--- derived default. Under the derived posture, a bare label is a foreign peer lock by design.
-function C.claim_label_exclusive(exec)
-  return strings.trim(C.read_env("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE", exec) or "") == "1"
+-- Claim-label naming has one deployment posture. A declared suffix is preserved
+-- byte-for-byte; only the existing exclusive flag is trimmed for strict opt-in.
+function C.claim_label_naming(exec)
+  local exclusive = strings.trim(C.read_env("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE", exec) or "") == "1"
+  local suffix = C.read_env("FKST_GITHUB_CLAIM_LABEL_SUFFIX", exec)
+  if exclusive and suffix ~= nil then
+    error("github-devloop: claim-label-naming-conflict: declared suffix conflicts with exclusive claim label")
+  end
+  if suffix ~= nil then
+    return { kind = "declared_suffix", suffix = suffix }
+  end
+  if exclusive then
+    return { kind = "exclusive" }
+  end
+  return { kind = "derived" }
 end
 
 -- Rollup auto-fix is opt-in and additive: default (unset/anything-but-"1") is

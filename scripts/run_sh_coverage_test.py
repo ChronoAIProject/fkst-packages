@@ -179,6 +179,7 @@ class RunShComposedConformanceHarness:
                 operational = [
                     "FKST_GITHUB_BOT_LOGIN",
                     "FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE",
+                    "FKST_GITHUB_CLAIM_LABEL_SUFFIX",
                     "FKST_GITHUB_CLAIM_MODE",
                     "FKST_GITHUB_REPO",
                     "FKST_GITHUB_WRITE",
@@ -222,6 +223,7 @@ class RunShComposedConformanceHarness:
                 "FKST_NO_AUTOBUILD": "1",
                 "FKST_GITHUB_BOT_LOGIN": "live-bot",
                 "FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE": "1",
+                "FKST_GITHUB_CLAIM_LABEL_SUFFIX": "must-not-leak",
                 "FKST_GITHUB_CLAIM_MODE": "label",
                 "FKST_GITHUB_REPO": "owner/live",
                 "FKST_GITHUB_WRITE": "1",
