@@ -199,6 +199,11 @@ return {
       stderr = "",
       exit_code = 1,
     })
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
     mock_fresh_implement_worktree()
     mock_implement_codex(0, "implemented after retry")
     mock_git_status(" M packages/github-devloop/core.lua\n")
@@ -361,6 +366,11 @@ return {
       stderr = "",
       exit_code = 1,
     })
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
     mock_fresh_implement_worktree()
     mock_implement_codex(0, "implemented after orphan takeover")
     mock_git_status(" M packages/github-devloop/core.lua\n")
@@ -401,6 +411,28 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
     mock_missing_remote_branch(branch)
     mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "def456\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-list --count", {
+      stdout = "1\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "def456\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
@@ -408,12 +440,6 @@ return {
     })
     t.mock_command("git show " .. branch .. ":.fkst/substrate-ref", {
       stdout = "1111111111111111111111111111111111111111\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    t.mock_command("rev-parse --verify refs/heads/", {
-      stdout = "def456\n",
       stderr = "",
       exit_code = 0,
     })
@@ -555,6 +581,7 @@ return {
     }
     mock_issue_implement({ "fkst-dev:implementing" }, rerun)
     mock_missing_remote_branch(branch)
+    t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
     t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
     mock_fresh_implement_worktree()
     mock_implement_codex(0, "implemented after liveness re-drive")

@@ -126,6 +126,11 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
       stderr = "",
       exit_code = 1,
     })
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
     mock_fresh_implement_worktree({
       impl_version = ready.dedup_key,
       harvest_checks = 1,

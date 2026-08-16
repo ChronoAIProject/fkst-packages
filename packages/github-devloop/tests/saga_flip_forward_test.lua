@@ -173,6 +173,7 @@ local function run_old_sink_probe(probe)
       stdout = "", stderr = "fatal: couldn't find remote ref", exit_code = 128,
     })
     t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
   end
   mock_fresh_implement_worktree({
     impl_version = core.implementation_attempt_version(event.dedup_key, event.impl_retry_attempt),

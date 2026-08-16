@@ -515,6 +515,11 @@ local function mock_healthy_implementation()
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command("show-ref --verify --quiet", {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
   h.mock_fresh_implement_worktree({
     runtime = runtime_root,
     issue_number = healthy_issue_number,
