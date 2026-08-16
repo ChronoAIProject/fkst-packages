@@ -5,6 +5,7 @@ local observe_port = require("departments.audit.observe_port")
 local saga = require("workflow.saga")
 local ports_lib = require("forge.ports")
 local github_factory = require("devloop.github_factory")
+local devloop_logging = require("devloop.logging")
 local strings = require("contract.strings")
 
 local spec = {
@@ -347,6 +348,7 @@ local function make_department(ports)
   local department = saga.department(spec, {
     done = audit_done,
     act = act_audit,
+    wrap = devloop_logging.wrap_pipeline_failure,
     name = "audit",
   })
   department.ports = ports
