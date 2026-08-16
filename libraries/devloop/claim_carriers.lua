@@ -4,6 +4,7 @@ local sha256 = require("contract.sha256")
 local C = {}
 
 C.bare_label = "fkst-dev:claimed"
+C.label_contract_schema = "github-devloop.claim-label.v1"
 
 local claim_description = "fkst-dev-label-mode-ownership-claim"
 -- A 128-bit SHA-256 prefix keeps the complete label at 49 characters.
@@ -15,6 +16,19 @@ local function canonical_owner(owner)
     error("devloop.claim_carriers: claim-owner-missing: claim owner must be non-empty")
   end
   return canonical
+end
+
+local function copy_source_ref(source_ref)
+  if type(source_ref) ~= "table"
+    or source_ref.kind ~= "external"
+    or type(source_ref.ref) ~= "string"
+    or source_ref.ref == "" then
+    return nil
+  end
+  return {
+    kind = source_ref.kind,
+    ref = source_ref.ref,
+  }
 end
 
 function C.derived_label(owner)
@@ -48,6 +62,67 @@ end
 
 function C.active_label(exclusive, owner)
   return C.active_label_spec(exclusive, owner).name
+end
+
+function C.new_label_contract(exclusive, owner, source_ref)
+  local normalized_owner = canonical_owner(owner)
+  local normalized_source_ref = copy_source_ref(source_ref)
+  if normalized_source_ref == nil then
+    error("devloop.claim_carriers: claim-contract-source-ref-invalid: label claim source_ref must be external")
+  end
+  return {
+    schema = C.label_contract_schema,
+    owner = normalized_owner,
+    label = C.active_label(exclusive == true, normalized_owner),
+    source_ref = normalized_source_ref,
+  }
+end
+
+function C.validate_label_contract(claim, expected)
+  if type(claim) ~= "table" or claim.schema ~= C.label_contract_schema then
+    return nil, "claim-contract-version-unknown"
+  end
+  if claim.owner == nil or tostring(claim.owner) == "" then
+    return nil, "claim-contract-owner-missing"
+  end
+  if type(claim.owner) ~= "string" then
+    return nil, "claim-contract-owner-invalid"
+  end
+  local owner = parsers_misc.canonical_login(claim.owner)
+  if owner == nil then
+    return nil, "claim-contract-owner-invalid"
+  end
+  if not parsers_misc.is_canonical_login(claim.owner) then
+    return nil, "claim-contract-owner-noncanonical"
+  end
+  local expected_owner = parsers_misc.canonical_login(expected and expected.owner)
+  if expected_owner == nil or owner ~= expected_owner then
+    return nil, "claim-owner-mismatch"
+  end
+  if type(claim.label) ~= "string" or claim.label == "" then
+    return nil, "claim-contract-label-missing"
+  end
+  if claim.label ~= C.active_label(expected and expected.exclusive == true, owner) then
+    return nil, "claim-label-mismatch"
+  end
+  if claim.source_ref == nil then
+    return nil, "claim-contract-source-ref-missing"
+  end
+  local source_ref = copy_source_ref(claim.source_ref)
+  if source_ref == nil then
+    return nil, "claim-contract-source-ref-invalid"
+  end
+  local expected_source_ref = expected and expected.source_ref
+  if expected_source_ref ~= nil
+    and (source_ref.kind ~= expected_source_ref.kind or source_ref.ref ~= expected_source_ref.ref) then
+    return nil, "source-ref-mismatch"
+  end
+  return {
+    schema = C.label_contract_schema,
+    owner = owner,
+    label = claim.label,
+    source_ref = source_ref,
+  }
 end
 
 function C.is_claim_family(name)

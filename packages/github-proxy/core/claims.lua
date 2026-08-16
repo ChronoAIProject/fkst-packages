@@ -39,25 +39,43 @@ function M.gh_issue_view_ownership_cmd(repo, issue_number)
   return M.gh_issue_rest_view_cmd(repo, issue_number)
 end
 
-local function claim_contract_carrier(claim)
+local function issue_source_ref(repo, issue_number)
+  return {
+    kind = "external",
+    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
+  }
+end
+
+local function claim_contract_carrier(claim, repo, issue_number)
+  if type(claim) == "table" and claim.schema ~= nil then
+    local normalized, reason = claim_carriers.validate_label_contract(claim, {
+      owner = github_author_policy.claim_owner(),
+      exclusive = config.claim_label_exclusive(),
+      source_ref = issue_source_ref(repo, issue_number),
+    })
+    if normalized == nil then
+      return nil, nil, reason
+    end
+    return "label", normalized, nil
+  end
   if type(claim) ~= "table" or claim.owner == nil or tostring(claim.owner) == "" then
-    return nil
+    return nil, nil, "claim-contract-invalid"
   end
   local owner = github_author_policy.claim_owner()
   if forge_strings.canonical_login(claim.owner) ~= forge_strings.canonical_login(owner) then
-    return nil
+    return nil, nil, "claim-contract-invalid"
   end
   local carrier = config.claim_mode()
   if carrier == "assignee" then
-    return claim.label == nil and carrier or nil
+    return claim.label == nil and carrier or nil, claim, claim.label == nil and nil or "claim-contract-invalid"
   end
   if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
-    return nil
+    return nil, nil, "claim-contract-invalid"
   end
   if claim.label ~= claim_carriers.active_label(config.claim_label_exclusive(), owner) then
-    return nil
+    return nil, nil, "claim-contract-invalid"
   end
-  return carrier
+  return carrier, claim, nil
 end
 
 local function issue_claim_held_in_issue(issue, claim, carrier)
@@ -97,8 +115,7 @@ function M.issue_claim_held_by_self(repo, issue_number, claim, carrier)
   return issue_claim_held_in_issue(issue, claim, carrier)
 end
 
-local function claim_source_ref_matches(payload, repo, issue_number)
-  local claim = payload and payload.claim
+local function claim_source_ref_matches(claim, repo, issue_number)
   local source_ref = claim and claim.source_ref
   if type(source_ref) ~= "table" or source_ref.kind ~= "external" then
     return false
@@ -124,20 +141,22 @@ function M.verify_issue_claim_before_write(payload, repo, issue_number, dept)
   if claim == nil then
     return true
   end
-  local carrier = claim_contract_carrier(claim)
+  local carrier, normalized, contract_reason = claim_contract_carrier(claim, repo, issue_number)
   if carrier == nil then
-    verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
-    return false
+    local reason = contract_reason or "claim-contract-invalid"
+    verify_claim_log(dept, reason, repo, issue_number)
+    return false, reason
   end
-  if not claim_source_ref_matches(payload, repo, issue_number) then
+  claim = normalized or claim
+  if not claim_source_ref_matches(claim, repo, issue_number) then
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
-    return false
+    return false, "source-ref-mismatch"
   end
   if M.issue_claim_held_by_self(repo, issue_number, claim, carrier) then
     return true
   end
   verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
-  return false
+  return false, "ownership-claim-lost"
 end
 
 function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
@@ -145,20 +164,22 @@ function M.verify_issue_claim_in_issue(issue, payload, repo, issue_number, dept)
   if claim == nil then
     return true
   end
-  local carrier = claim_contract_carrier(claim)
+  local carrier, normalized, contract_reason = claim_contract_carrier(claim, repo, issue_number)
   if carrier == nil then
-    verify_claim_log(dept, "claim-contract-invalid", repo, issue_number)
-    return false
+    local reason = contract_reason or "claim-contract-invalid"
+    verify_claim_log(dept, reason, repo, issue_number)
+    return false, reason
   end
-  if not claim_source_ref_matches(payload, repo, issue_number) then
+  claim = normalized or claim
+  if not claim_source_ref_matches(claim, repo, issue_number) then
     verify_claim_log(dept, "source-ref-mismatch", repo, issue_number, claim.owner)
-    return false
+    return false, "source-ref-mismatch"
   end
   if issue_claim_held_in_issue(issue, claim, carrier) then
     return true
   end
   verify_claim_log(dept, "ownership-claim-lost", repo, issue_number, claim.owner)
-  return false
+  return false, "ownership-claim-lost"
 end
 
 end

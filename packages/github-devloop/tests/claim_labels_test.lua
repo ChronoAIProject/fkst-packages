@@ -60,6 +60,99 @@ return {
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
   end,
 
+  test_label_claim_contract_is_versioned_canonical_and_source_bound = function()
+    local labels = claim_carriers()
+    local source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    }
+    local contract = labels.new_label_contract(false, "APP/ElonSG", source_ref)
+
+    t.eq(contract.schema, "github-devloop.claim-label.v1")
+    t.eq(contract.owner, "elonsg")
+    t.eq(contract.label, labels.derived_label("elonsg"))
+    t.eq(contract.source_ref.kind, "external")
+    t.eq(contract.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(contract.source_ref ~= source_ref)
+  end,
+
+  test_label_claim_contract_validator_returns_narrow_rejection_reasons = function()
+    local labels = claim_carriers()
+    local source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    }
+    local expected = {
+      owner = "elonsg",
+      exclusive = false,
+      source_ref = source_ref,
+    }
+    local valid = labels.new_label_contract(false, "elonsg", source_ref)
+    local normalized, reason = labels.validate_label_contract(valid, expected)
+    t.eq(reason, nil)
+    t.eq(normalized.owner, "elonsg")
+
+    local cases = {
+      {
+        claim = { schema = "github-devloop.claim-label.v2" },
+        reason = "claim-contract-version-unknown",
+      },
+      {
+        claim = { schema = labels.label_contract_schema },
+        reason = "claim-contract-owner-missing",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "APP/ElonSG",
+          label = valid.label,
+          source_ref = source_ref,
+        },
+        reason = "claim-contract-owner-noncanonical",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "peer-bot",
+          label = labels.derived_label("peer-bot"),
+          source_ref = source_ref,
+        },
+        reason = "claim-owner-mismatch",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = labels.derived_label("peer-bot"),
+          source_ref = source_ref,
+        },
+        reason = "claim-label-mismatch",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = valid.label,
+        },
+        reason = "claim-contract-source-ref-missing",
+      },
+      {
+        claim = {
+          schema = labels.label_contract_schema,
+          owner = "elonsg",
+          label = valid.label,
+          source_ref = { kind = "external", ref = "owner/repo#issue/43" },
+        },
+        reason = "source-ref-mismatch",
+      },
+    }
+    for _, case in ipairs(cases) do
+      local rejected, rejection_reason = labels.validate_label_contract(case.claim, expected)
+      t.eq(rejected, nil)
+      t.eq(rejection_reason, case.reason)
+    end
+  end,
+
   test_claim_label_family_requires_exact_colon_boundary_and_suffix = function()
     local labels = claim_carriers()
     t.eq(labels.is_claim_family("fkst-dev:claimed"), true)
