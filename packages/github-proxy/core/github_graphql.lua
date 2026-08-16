@@ -6,6 +6,7 @@ local command_templates = {
 
 local queries = {
   blocked_by = '{repository(owner:"{{owner}}",name:"{{name}}"){issue(number:{{issue_number}}){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number repository{nameWithOwner}}}}}}',
+  blocking_entity_kind = "query($id:ID!){node(id:$id){__typename}}",
   add_blocked_by = "mutation($b:ID!,$g:ID!){addBlockedBy(input:{issueId:$b,blockingIssueId:$g}){clientMutationId}}",
 }
 
