@@ -505,3 +505,38 @@ begins with `{` and the filter treated JSONL as a JSON document; and a first gre
 writing it literally. Neither absence was real.
 
 ⟦AI:FKST⟧
+
+## The caps migration's first step is building, not migrating
+
+The ledger says what remains on `service-locator` is "the full `make_department(caps)` migration".
+That is true and incomplete in a way that matters for scheduling: **the infrastructure that migration
+targets does not exist yet.**
+
+`docs/superpowers/specs/2026-07-02-di-refactor-retire-ambient-m-design.md` specifies a department
+returning `{ spec = ..., cap_deps = spec.caps.requires, make_department = make_department }`, with
+`caps` grouped by **role** (`caps.log`, `caps.state.read`, `caps.state.cas`, `caps.commands.emit`,
+`caps.entity.reader`/`.writer`), and explicitly forbids both `make_department(core)` and
+`make_department(all_caps)`.
+
+Measured against the tree:
+
+| thing the spec requires | present |
+|---|---|
+| a department returning `cap_deps` | **0 repo-wide** |
+| a caps provider or role taxonomy in `libraries/` | **none** |
+| what the "migrated" departments actually use | `ports_lib.install(make_department, options)` — a handle bundle, not declared role caps |
+
+So the first slice is not a department. It is a shared-library capability surface plus whatever
+loader support the `{spec, cap_deps, make_department}` return shape needs — a framework decision at
+the cheapest-to-change-in-theory but most-expensive-in-blast-radius layer, with the spec leaving open
+who owns the provider and how `cap_deps` resolves.
+
+That is deliberately **not** attempted here. Building a framework for a migration nobody has
+scheduled, filling the spec's open questions with my own guesses, is the speculative-abstraction
+smell the WORTH GATE names -- and it would be indistinguishable, afterwards, from the migration
+having been "started".
+
+The useful thing to record is the ordering: **anyone picking this up writes the capability surface
+first, and should expect that to be the whole of a first increment.**
+
+⟦AI:FKST⟧
