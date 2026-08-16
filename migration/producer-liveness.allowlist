@@ -6,4 +6,3 @@
 # github-ratchet-migration-slicer.ratchet_migration_slicer why=packages/github-ratchet-migration-slicer/departments/ratchet_migration_driver/main.lua:9-12 declares produces={}, so a real raised queue/schema/payload would require a forbidden product change; the pinned composed target was baseline red on namespaced producer identity.
 github-ratchet-migration-slicer.ratchet_migration_slicer
 # idle-detector.idle_poll why=fkst-substrate/crates/fkst-framework/src/test_fire_raiser.rs:14-15,115-124,301-315 fixes cron slot/event.ts to 0 and exposes only file-watch fixture input; fkst-substrate/crates/fkst-framework/src/supervise/source_runner.rs:68-90 emits raiser-only payload, while packages/idle-detector/departments/idle_gate/main.lua:60-62,84-87,113-117 terminal-skips the non-ISO slot. The pinned probe raised 0 events.
-idle-detector.idle_poll
