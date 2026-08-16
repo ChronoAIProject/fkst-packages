@@ -434,6 +434,12 @@ return {
 
   test_label_mode_fails_closed_when_declared_label_is_bound_to_another_owner = function()
     local claim_label = "fkst-dev:claimed:macstudio-4"
+    local claim_update_command = core.gh_repo_label_update_cmd(
+      "owner/repo",
+      claim_label,
+      "0E8A16",
+      "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
+    )
     local repo_labels = canonical_labels_with_dashboard()
     table.insert(repo_labels, {
       name = claim_label,
@@ -443,6 +449,13 @@ return {
     mock_env("1")
     mock_claim_label_env("", "macstudio-4")
     mock_labels(repo_labels)
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_update_command, {
+      stdout = '{"name":"' .. claim_label .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
 
     local result = run_ensure(opts("ensure-declared-claim-label-collision", {
       FKST_GITHUB_WRITE = "1",
@@ -451,6 +464,7 @@ return {
     }))
 
     t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error or ""):find("claim-label-owner-collision", 1, true) ~= nil, tostring(result.error))
     t.eq(count_calls("gh api --method POST"), 0)
     t.eq(count_calls("gh api --method PATCH"), 0)
   end,
