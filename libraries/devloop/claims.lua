@@ -61,7 +61,7 @@ function C.claimed_label()
 end
 
 function C.claimed_label_spec()
-  return claim_carriers.active_label_spec(config.claim_label_exclusive(), C.claim_owner())
+  return claim_carriers.active_label_spec(config.claim_label_naming(), C.claim_owner())
 end
 
 local function resolve_explicit_label_claim(claim, source_ref)
@@ -71,7 +71,7 @@ local function resolve_explicit_label_claim(claim, source_ref)
   local normalized_source_ref = source_ref and base_ids.normalize_source_ref(source_ref) or nil
   local normalized, reason = claim_carriers.validate_label_contract(claim, {
     owner = C.claim_owner(),
-    exclusive = config.claim_label_exclusive(),
+    naming = config.claim_label_naming(),
     source_ref = normalized_source_ref,
   })
   if normalized == nil then
@@ -87,7 +87,7 @@ function C.new_label_claim_contract(source_ref)
     error("github-devloop: claim-contract-source-ref-invalid: label claim contract requires an issue source_ref")
   end
   return claim_carriers.new_label_contract(
-    config.claim_label_exclusive(),
+    config.claim_label_naming(),
     C.claim_owner(),
     normalized
   )
@@ -100,7 +100,7 @@ end
 function C.assert_current_claim_label_binding(repo, github_handle, claim)
   local explicit = resolve_explicit_label_claim(claim)
   local desired = explicit ~= nil
-    and claim_carriers.active_label_spec(explicit.label == claim_carriers.bare_label, explicit.owner)
+    and claim_carriers.active_label_spec(config.claim_label_naming(), explicit.owner)
     or C.claimed_label_spec()
   if desired.owner == nil then
     return
@@ -108,7 +108,7 @@ function C.assert_current_claim_label_binding(repo, github_handle, claim)
   local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
   local existing = json.decode(response.stdout or "{}")
   if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
-    error("github-devloop: claim-label-binding-missing: derived claim label binding is absent")
+    error("github-devloop: claim-label-binding-missing: claim label binding is absent")
   end
   C.assert_claim_label_binding(existing, desired)
 end

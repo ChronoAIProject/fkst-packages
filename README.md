@@ -104,9 +104,10 @@ cross-package composition goes through event queues.
 
 Shared repo-root code is split by positive library boundary. `libraries/contract/` contains only
 publishable value/protocol primitives (`contract.source_ref`, `contract.payload`,
-`contract.error_facts`, and scalar `contract.strings`). The publishable host authoring surface is
-limited to `workflow.saga`, `workflow.dead_letter`, and `testkit.graph`. Repo-private orchestration
-and test helpers live in `libraries/workflow_internal/` and `libraries/testkit_internal/`;
+`contract.error_facts`, and scalar `contract.strings`). `libraries/workflow/` contains the
+publishable host authoring surface (`workflow.saga` and `workflow.dead_letter`), while
+`libraries/testkit/` contains the publishable test surface (`testkit.graph`). Repo-private
+orchestration and test helpers live in `libraries/workflow_internal/` and `libraries/testkit_internal/`;
 forge-facing GitHub/Git adapters live in `libraries/forge/`, and the github-devloop product kernel
 lives in `libraries/devloop/`. Packages declare only the direct libraries they require in
 `fkst.toml`; the engine's scoped resolver grants access to those modules rather than from

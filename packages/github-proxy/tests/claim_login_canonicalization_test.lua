@@ -29,12 +29,17 @@ local function mock_claim_mode(mode, times)
   end
 end
 
-local function mock_ownership(assignees, labels, exclusive, mode)
+local function mock_ownership(assignees, labels, exclusive, mode, suffix)
   author_policy.mock_env(t, nil, { times = 2 })
   mock_claim_mode(mode, 2)
-  for _ = 1, 2 do
+  for _ = 1, 4 do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
       stdout = exclusive or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
+      stdout = suffix or "",
       stderr = "",
       exit_code = 0,
     })
@@ -165,7 +170,7 @@ return {
   end,
 
   test_label_claim_verification_accepts_own_label_with_human_assignee = function()
-    local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     local label = spec.name
     local payload = claim_payload("fkst-test-bot", label)
     local issue = {
@@ -179,8 +184,33 @@ return {
     t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), true)
   end,
 
+  test_label_claim_verification_uses_declared_suffix_as_the_only_self_label = function()
+    local label = "fkst-dev:claimed:macstudio-4"
+    local description = "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
+    local payload = claim_payload("fkst-test-bot", label)
+    local issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = label, description = description } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. label
+      .. '","description":"' .. description .. '"}]', "", "label", "macstudio-4")
+
+    t.eq(core.verify_issue_claim_before_write(payload, repo, issue_number, "claim_test"), true)
+    t.eq(core.verify_issue_claim_in_issue(issue, payload, repo, issue_number, "claim_test"), true)
+
+    local derived = claim_carriers.derived_label("fkst-test-bot")
+    local derived_payload = claim_payload("fkst-test-bot", derived)
+    local derived_issue = {
+      assignees = { { login = "human" } },
+      labels = { { name = derived } },
+    }
+    mock_ownership('[{"login":"human"}]', '[{"name":"' .. derived .. '"}]', "", "label", "macstudio-4")
+    t.eq(core.verify_issue_claim_before_write(derived_payload, repo, issue_number, "claim_test"), false)
+    t.eq(core.verify_issue_claim_in_issue(derived_issue, derived_payload, repo, issue_number, "claim_test"), false)
+  end,
+
   test_label_claim_verification_fails_closed_on_forced_owner_collision = function()
-    local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     local collision_description = "fkst-dev-label-mode-ownership-claim owner=peer-bot"
     local payload = claim_payload("fkst-test-bot", spec.name)
     local issue = {

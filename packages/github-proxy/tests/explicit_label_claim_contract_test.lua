@@ -13,7 +13,7 @@ local source_ref = {
 local function explicit_payload(exclusive, owner)
   return {
     claim = claim_carriers.new_label_contract(
-      exclusive == true,
+      { kind = exclusive == true and "exclusive" or "derived" },
       owner or "fkst-test-bot",
       source_ref
     ),
@@ -26,6 +26,11 @@ local function mock_explicit_env(exclusive, times)
   for _ = 1, count do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
       stdout = exclusive and "1" or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
+      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -51,7 +56,7 @@ return {
   test_proxy_accepts_explicit_derived_contract_independently_of_claim_mode = function()
     mock_explicit_env(false)
     local payload = explicit_payload(false)
-    local spec = claim_carriers.active_label_spec(false, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     local issue = {
       assignees = { { login = "human" } },
       labels = { { name = spec.name, description = spec.description } },

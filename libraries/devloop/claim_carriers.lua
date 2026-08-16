@@ -1,5 +1,6 @@
 local parsers_misc = require("devloop.parsers.misc")
 local sha256 = require("contract.sha256")
+local validators = require("devloop.commands.validators")
 
 local C = {}
 
@@ -36,18 +37,36 @@ function C.derived_label(owner)
   return C.bare_label .. ":" .. digest:sub(1, owner_digest_hex_length)
 end
 
-function C.active_label_spec(exclusive, owner)
-  if exclusive == true then
+function C.active_label_spec(naming, owner)
+  if type(naming) ~= "table" then
+    error("devloop.claim_carriers: claim-label-naming-invalid: claim label naming posture is invalid")
+  end
+  local name
+  local bound_owner
+  if naming.kind == "exclusive" then
+    name = C.bare_label
+  elseif naming.kind == "derived" then
+    bound_owner = canonical_owner(owner)
+    name = C.derived_label(bound_owner)
+  elseif naming.kind == "declared_suffix" and type(naming.suffix) == "string" then
+    bound_owner = canonical_owner(owner)
+    name = C.bare_label .. ":" .. naming.suffix
+  else
+    error("devloop.claim_carriers: claim-label-naming-invalid: claim label naming posture is invalid")
+  end
+  if not validators.is_label_name_valid(name) then
+    error("devloop.claim_carriers: claim-label-name-invalid: complete claim label name must contain 1 to 50 characters")
+  end
+  if bound_owner == nil then
     return {
-      name = C.bare_label,
+      name = name,
       description = claim_description,
     }
   end
-  local canonical = canonical_owner(owner)
   return {
-    name = C.derived_label(canonical),
-    description = claim_description .. " owner=" .. canonical,
-    owner = canonical,
+    name = name,
+    description = claim_description .. " owner=" .. bound_owner,
+    owner = bound_owner,
   }
 end
 
@@ -56,15 +75,15 @@ function C.assert_owner_binding(existing, desired)
     return
   end
   if tostring(existing.description or "") ~= desired.description then
-    error("devloop.claim_carriers: claim-label-owner-collision: derived claim label is bound to another owner")
+    error("devloop.claim_carriers: claim-label-owner-collision: claim label is bound to another owner")
   end
 end
 
-function C.active_label(exclusive, owner)
-  return C.active_label_spec(exclusive, owner).name
+function C.active_label(naming, owner)
+  return C.active_label_spec(naming, owner).name
 end
 
-function C.new_label_contract(exclusive, owner, source_ref)
+function C.new_label_contract(naming, owner, source_ref)
   local normalized_owner = canonical_owner(owner)
   local normalized_source_ref = copy_source_ref(source_ref)
   if normalized_source_ref == nil then
@@ -73,7 +92,7 @@ function C.new_label_contract(exclusive, owner, source_ref)
   return {
     schema = C.label_contract_schema,
     owner = normalized_owner,
-    label = C.active_label(exclusive == true, normalized_owner),
+    label = C.active_label(naming, normalized_owner),
     source_ref = normalized_source_ref,
   }
 end
@@ -102,7 +121,7 @@ function C.validate_label_contract(claim, expected)
   if type(claim.label) ~= "string" or claim.label == "" then
     return nil, "claim-contract-label-missing"
   end
-  if claim.label ~= C.active_label(expected and expected.exclusive == true, owner) then
+  if claim.label ~= C.active_label(expected and expected.naming, owner) then
     return nil, "claim-label-mismatch"
   end
   if claim.source_ref == nil then
