@@ -3,6 +3,7 @@ local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local observation = require("testkit_internal.old_behavior_observation_support")
+local testing = require("testkit_internal.testing")
 local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
@@ -149,7 +150,11 @@ local function mock_intake_codex(stdout)
     t.mock_command("wc -c < ", { stdout = "1\n", stderr = "", exit_code = 0 })
   end
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("codex exec", { stdout = stdout, stderr = "", exit_code = 0 })
+  t.mock_command("codex exec", {
+    stdout = testing.codex_agent_message_jsonl(stdout),
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function candidate(extra)

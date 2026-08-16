@@ -17,7 +17,8 @@ local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
-local command_output = require("testkit_internal.testing").command_output
+local testing = require("testkit_internal.testing")
+local command_output = testing.command_output
 
 local function read_command(command)
   local output, ok = command_output(command)
@@ -208,6 +209,7 @@ return M
   file.write(package_root .. "/tests/redrive_delivery_graph_test.lua", [[
 local consensus_core = require("consensus.core")
 local graph = require("testkit.graph")
+local testing = require("testkit_internal.testing")
 
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -226,7 +228,8 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " delivery reached the receiver.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        verdict_label .. " approve\n" .. reply_label .. " delivery reached the receiver.\n"),
       stderr = "",
       exit_code = 0,
     })

@@ -3,6 +3,7 @@ local entity_lib = require("devloop.entity")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
+local testing = require("testkit_internal.testing")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 
@@ -64,43 +65,47 @@ local function mock_result(command, stdout)
   })
 end
 
+local function mock_codex_result(command, stdout)
+  mock_result(command, testing.codex_agent_message_jsonl(stdout))
+end
+
 local function mock_consensus()
   mock_result('printf %s "$FKST_RUNTIME_ROOT"', "/tmp/fkst-packages-test/github-devloop-pr-synthesis-reject/runtime")
   for _ = 1, 7 do
     mock_result("mkdir -p", "")
   end
 
-  mock_result("consensus-angle-teleology", table.concat({
+  mock_codex_result("consensus-angle-teleology", table.concat({
     verdict_label .. " comment",
     reply_label .. " The implementation shape is acceptable but needs verification.",
   }, "\n") .. "\n")
-  mock_result("consensus-angle-parsimony", table.concat({
+  mock_codex_result("consensus-angle-parsimony", table.concat({
     verdict_label .. " abstain",
     reply_label .. " The current evidence does not settle readiness.",
   }, "\n") .. "\n")
-  mock_result("consensus-angle-fidelity", table.concat({
+  mock_codex_result("consensus-angle-fidelity", table.concat({
     verdict_label .. " comment",
     reply_label .. " Preserve the existing review ownership contract.",
   }, "\n") .. "\n")
 
-  mock_result("consensus-rebuttal-teleology", table.concat({
+  mock_codex_result("consensus-rebuttal-teleology", table.concat({
     stance_label .. " defend",
     verdict_label .. " reject",
     reply_label .. " The diff changes behavior without a regression test.",
     gap_label .. " " .. gap,
   }, "\n") .. "\n")
-  mock_result("consensus-rebuttal-parsimony", table.concat({
+  mock_codex_result("consensus-rebuttal-parsimony", table.concat({
     stance_label .. " defend",
     verdict_label .. " comment",
     reply_label .. " Keep the repair limited to the missing test.",
   }, "\n") .. "\n")
-  mock_result("consensus-rebuttal-fidelity", table.concat({
+  mock_codex_result("consensus-rebuttal-fidelity", table.concat({
     stance_label .. " defend",
     verdict_label .. " abstain",
     reply_label .. " No additional blocking gap is established.",
   }, "\n") .. "\n")
 
-  mock_result("consensus-synthesis-", table.concat({
+  mock_codex_result("consensus-synthesis-", table.concat({
     "reached:reject reject until the Phase R gap is fixed",
     gap_label .. " " .. gap,
   }, "\n") .. "\n")

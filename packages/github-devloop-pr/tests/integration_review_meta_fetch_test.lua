@@ -4,6 +4,7 @@ local strings = require("contract.strings")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
 local m_builders = require("devloop.markers.builders")
+local testing = require("testkit_internal.testing")
 local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
@@ -33,7 +34,7 @@ local function mock_meta_codex(stdout)
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = testing.codex_agent_message_jsonl(stdout),
     stderr = "",
     exit_code = 0,
   })

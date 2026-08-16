@@ -98,7 +98,9 @@ end
 local function mock_angle(angle, verdict, reply)
   mock_judgment_dir()
   t.mock_command("consensus-angle-" .. tostring(angle), {
-    stdout = "⟦FKST:VERDICT⟧ " .. verdict .. "\n⟦FKST:REPLY⟧ " .. reply .. "\n",
+    stdout = testing.codex_agent_message_jsonl(
+      "⟦FKST:VERDICT⟧ " .. verdict .. "\n⟦FKST:REPLY⟧ " .. reply .. "\n"
+    ),
     stderr = "",
     exit_code = 0,
   })

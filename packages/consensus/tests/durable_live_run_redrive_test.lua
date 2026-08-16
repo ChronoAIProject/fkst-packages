@@ -118,7 +118,7 @@ trap cleanup EXIT HUP INT TERM
 while [ ! -f "$FKST_FIXTURE_ROOT/release-codex" ]; do
   sleep 0.05
 done
-printf '⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The durable delivery behavior is correct.\n'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The durable delivery behavior is correct.\n"}}'
 ]])
   run_command("chmod +x " .. shell_quote(root .. "/bin/codex"))
 end

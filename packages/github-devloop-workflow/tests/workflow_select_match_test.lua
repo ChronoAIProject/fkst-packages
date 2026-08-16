@@ -193,7 +193,7 @@ local function mock_workflow_codex(stdout, exit_code)
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = (exit_code or 0) == 0 and testing.codex_agent_message_jsonl(stdout) or stdout,
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -259,7 +259,9 @@ local function mock_default_codex(stdout, current, authorized_logins)
   })
   mock_default_context_bundle(current, authorized_logins)
   t.mock_command("codex exec", {
-    stdout = stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded implementation task.",
+    stdout = testing.codex_agent_message_jsonl(
+      stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded implementation task."
+    ),
     stderr = "",
     exit_code = 0,
   })

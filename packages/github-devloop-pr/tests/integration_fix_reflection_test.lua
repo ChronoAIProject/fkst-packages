@@ -4,6 +4,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local canonical_json = require("testkit_internal.old_behavior_observation_support").canonical_json
+local testing = require("testkit_internal.testing")
 local devloop_state = require("devloop.state")
 local t = h.t
 local core = h.core
@@ -93,7 +94,9 @@ return {
     local event = reflection_meta_event()
     mock_reflection_context(event, "Round ledger: gaps stayed aligned with the issue goal.")
     t.mock_command("codex exec", {
-      stdout = action_label .. " continue\n" .. reason_label .. " The fix rounds are still converging on the original goal.",
+      stdout = testing.codex_agent_message_jsonl(
+        action_label .. " continue\n" .. reason_label .. " The fix rounds are still converging on the original goal."
+      ),
       stderr = "",
       exit_code = 0,
     })
@@ -197,7 +200,9 @@ return {
     local event = reflection_meta_event()
     mock_reflection_context(event, "Round ledger: latest gap diverges from stated acceptance.")
     t.mock_command("codex exec", {
-      stdout = action_label .. " spec-gap\n" .. reason_label .. " The review demand exceeds the original acceptance boundary.",
+      stdout = testing.codex_agent_message_jsonl(
+        action_label .. " spec-gap\n" .. reason_label .. " The review demand exceeds the original acceptance boundary."
+      ),
       stderr = "",
       exit_code = 0,
     })

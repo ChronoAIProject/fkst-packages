@@ -90,7 +90,7 @@ end
 
 local function mock_codex_success_without_local_iteration()
   t.mock_command("codex exec", {
-    stdout = "implemented",
+    stdout = require("testkit_internal.testing").codex_agent_message_jsonl("implemented"),
     stderr = "",
     exit_code = 0,
   })
@@ -306,7 +306,8 @@ return {
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
     t.mock_command("codex exec", {
-      stdout = "wrote docs/devloop/plans/42-plan.md\n",
+      stdout = require("testkit_internal.testing").codex_agent_message_jsonl(
+        "wrote docs/devloop/plans/42-plan.md\n"),
       stderr = "",
       exit_code = 0,
     })

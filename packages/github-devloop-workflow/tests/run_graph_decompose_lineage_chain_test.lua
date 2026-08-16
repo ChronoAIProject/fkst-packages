@@ -5,6 +5,7 @@ local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local entity_read_mocks = require("testkit_internal.entity_read_mock_fixtures").new(require("core"))
 local graph = require("testkit.graph")
+local testing = require("testkit_internal.testing")
 local m_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
 local author_policy = require("testkit_internal.github_author_policy")
@@ -194,7 +195,7 @@ local function mock_decompose_codex(payload)
     t.mock_command("python3 -c", { stdout = "", stderr = "", exit_code = 0 })
   end
   t.mock_command("codex exec", {
-    stdout = [[{"issues":[{"title":"Split the workflow child","body":"Smaller scope: split the workflow child.\nNon-goals: no unrelated changes.\nAcceptance: the focused test passes."}]}]],
+    stdout = testing.codex_agent_message_jsonl([[{"issues":[{"title":"Split the workflow child","body":"Smaller scope: split the workflow child.\nNon-goals: no unrelated changes.\nAcceptance: the focused test passes."}]}]]),
     stderr = "",
     exit_code = 0,
   })

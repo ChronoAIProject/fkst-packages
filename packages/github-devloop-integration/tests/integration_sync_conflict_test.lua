@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local testing = require("testkit_internal.testing")
 local t = h.t
 local core = h.core
 
@@ -295,7 +296,11 @@ local function mock_conflicting_worktree(unmerged_stdout)
 end
 
 local function mock_successful_codex_resolution()
-  t.mock_command("codex exec", { stdout = "resolved", stderr = "", exit_code = 0 })
+  t.mock_command("codex exec", {
+    stdout = testing.codex_agent_message_jsonl("resolved"),
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
@@ -424,7 +429,11 @@ return {
   test_sync_conflict_normalizes_self_hashed_manifest_after_codex = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree("100644 abc 1\tmigration/restart-lifecycle.inventory.json\n")
-    t.mock_command("codex exec", { stdout = "resolved", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("resolved"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("pwd", { stdout = "/trusted/fkst-packages\n", stderr = "", exit_code = 0 })
     t.mock_command("python3 -B", { stdout = "OK: restart lifecycle inventory is schema-valid, shrink-only, independent, and self-hash-matched\n", stderr = "", exit_code = 0 })
@@ -465,7 +474,11 @@ return {
   test_sync_conflict_leftover_conflict_errors_without_push = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree()
-    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("done"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = "100644 abc 1\tcore.lua\n", stderr = "", exit_code = 0 })
     mock_attempt_ledger(event(), nil)
     mock_cleanup()
@@ -481,7 +494,11 @@ return {
     local run_opts = opts("sync-conflict-leftover-terminal", "1")
     mock_fetch_and_heads(nil, nil, core.max_sync_conflict_attempts() - 1)
     mock_conflicting_worktree()
-    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("done"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = remaining, stderr = "", exit_code = 0 })
     mock_attempt_ledger(payload, core.max_sync_conflict_attempts() - 1)
     mock_attempt_ledger_write(payload)
@@ -519,7 +536,11 @@ return {
   test_sync_conflict_staged_conflict_marker_errors_without_commit_or_push = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree()
-    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("done"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --cached --check", {
@@ -538,7 +559,11 @@ return {
   test_sync_conflict_staged_whitespace_after_add_errors_without_commit_or_push = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree()
-    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("done"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
@@ -560,7 +585,11 @@ return {
   test_sync_conflict_unmerged_reappears_after_add_errors_without_commit_or_push = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree()
-    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("done"),
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })

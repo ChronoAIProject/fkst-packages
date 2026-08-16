@@ -8,6 +8,7 @@ local decompose_lib = require("devloop.decompose")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
+local testing = require("testkit_internal.testing")
 local h = require("tests.devloop_helpers")
 local devloop_state = require("devloop.state")
 
@@ -233,7 +234,7 @@ local function mock_decompose_execution(event, blocked_comment)
   })
   t.mock_command("gh pr comment", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = [[{"issues":[{"title":"Extract a minimal retry helper","body":"Smaller scope: implement only the retry helper.\nNon-goals: do not change the whole workflow.\nAcceptance: helper tests pass."},{"title":"Wire retry helper into one call site","body":"Smaller scope: apply the helper to one path.\nNon-goals: do not rewrite unrelated states.\nAcceptance: focused integration test passes."}]}]],
+    stdout = testing.codex_agent_message_jsonl([[{"issues":[{"title":"Extract a minimal retry helper","body":"Smaller scope: implement only the retry helper.\nNon-goals: do not change the whole workflow.\nAcceptance: helper tests pass."},{"title":"Wire retry helper into one call site","body":"Smaller scope: apply the helper to one path.\nNon-goals: do not rewrite unrelated states.\nAcceptance: focused integration test passes."}]}]]),
     stderr = "",
     exit_code = 0,
   })
