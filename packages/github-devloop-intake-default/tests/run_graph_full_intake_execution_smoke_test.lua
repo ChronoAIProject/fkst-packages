@@ -8,6 +8,7 @@ local h = require("tests.devloop_base_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -175,14 +176,16 @@ end
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph full chain smoke.",
+    stdout = codex_jsonl.final_message(
+      "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph full chain smoke."),
     stderr = "",
     exit_code = 0,
   })
   for _ in ipairs(consensus_angles) do
     t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " full chain smoke approves.",
+      stdout = codex_jsonl.final_message(
+        verdict_label .. " approve\n" .. reply_label .. " full chain smoke approves."),
       stderr = "",
       exit_code = 0,
     })

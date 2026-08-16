@@ -1,4 +1,5 @@
 local t = fkst.test
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local redrive_count = 13
 local wait_seconds = 30
@@ -105,6 +106,8 @@ local function write_fake_codex(root)
   run_command("mkdir -p " .. shell_quote(root .. "/bin"))
   run_command("mkdir -p " .. shell_quote(root .. "/codex-started"))
   run_command("mkdir -p " .. shell_quote(root .. "/codex-running"))
+  local stdout = codex_jsonl.final_message(
+    "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The durable delivery behavior is correct.\n")
   write_file(root .. "/bin/codex", [[#!/bin/sh
 set -eu
 started="$FKST_FIXTURE_ROOT/codex-started/$$"
@@ -118,8 +121,7 @@ trap cleanup EXIT HUP INT TERM
 while [ ! -f "$FKST_FIXTURE_ROOT/release-codex" ]; do
   sleep 0.05
 done
-printf '⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ The durable delivery behavior is correct.\n'
-]])
+printf %s ]] .. shell_quote(stdout) .. "\n")
   run_command("chmod +x " .. shell_quote(root .. "/bin/codex"))
 end
 
