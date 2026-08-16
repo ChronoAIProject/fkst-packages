@@ -209,6 +209,60 @@ def ambient_exports_without_readers(root: Path) -> list[str]:
     return sorted(dead)
 
 
+def ratchets_with_unlocked_slack(root: Path) -> list[str]:
+    """Shrink-only ratchets whose measured count is already below their committed baseline.
+
+    A count falling and a count being LOCKED are different events, and the window between them is
+    unguarded: nothing stops the measurement climbing back to the baseline. Nothing in the repo makes
+    that window visible -- the two numbers only differ if you put them side by side.
+
+    Found by hand after #3850: five of the six ratchets that report a baseline were at zero slack and
+    `core-param` was sitting on 124 + 87 points of someone else's completed migration, unprotected
+    since whenever it landed (#3851). This unit is that sweep, so the next pass does not have to
+    think of it.
+
+    TRAP: several `check_repo_*.py` are modules imported by the runner, not CLIs -- they exit 0 and
+    print nothing when run directly, which reads exactly like "no slack". Only files whose output
+    actually contains a baseline are counted; the rest are reported as unevaluated rather than clean.
+    """
+    import subprocess
+
+    out: list[str] = []
+    unevaluated = 0
+    for checker in sorted((root / "scripts").glob("check_repo_*.py")):
+        if checker.name.endswith("_test.py"):
+            continue
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-B", str(checker), str(root)],
+                capture_output=True, text=True, timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            unevaluated += 1
+            continue
+        text = proc.stdout
+        if "baseline:" not in text or "current:" not in text:
+            unevaluated += 1
+            continue
+        cur = re.search(r"current:\s*(.+?)\s+baseline:", text, re.S)
+        base = re.search(r"baseline:\s*(.+)", text)
+        if not (cur and base):
+            unevaluated += 1
+            continue
+        cur_nums = [int(n) for n in re.findall(r"-?\d+", cur.group(1))]
+        base_nums = [int(n) for n in re.findall(r"-?\d+", base.group(1))]
+        if len(cur_nums) != len(base_nums):
+            unevaluated += 1
+            continue
+        slack = sum(b - c for c, b in zip(cur_nums, base_nums) if b > c)
+        if slack:
+            out.append(f"{checker.stem}: {slack} point(s) of unlocked progress "
+                       f"(current {cur.group(1).strip()} vs baseline {base.group(1).strip()})")
+    if unevaluated:
+        out.append(f"({unevaluated} checker(s) produced no current/baseline pair and were NOT evaluated)")
+    return out
+
+
 UNITS = [
     ("exported library functions with no consumer", unused_exports),
     ("declared-but-unused lib_deps", unused_lib_deps),
@@ -217,6 +271,8 @@ UNITS = [
     ("leaf functions > 150 lines (informational; repo has no function-length rule)",
      long_leaf_functions),
     ("modules no require reaches and no index registers", never_required_modules),
+    ("shrink-only ratchets with unlocked slack (a trailing `(...)` line is SCOPE, not a finding)",
+     ratchets_with_unlocked_slack),
 ]
 
 
