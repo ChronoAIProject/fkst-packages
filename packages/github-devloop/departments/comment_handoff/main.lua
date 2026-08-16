@@ -1,6 +1,5 @@
 local devloop_base = require("devloop.base")
 local strings = require("contract.strings")
-local core = require("core")
 local saga = require("workflow.saga")
 local source_refs = require("contract.source_ref")
 local valid_round = require("devloop.rounds").valid_round
