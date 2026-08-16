@@ -23,7 +23,8 @@ local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
-local command_output = require("testkit_internal.testing").command_output
+local testing = require("testkit_internal.testing")
+local command_output = testing.command_output
 
 local function read_command(command)
   local output, ok = command_output(command)
@@ -184,23 +185,26 @@ local function mock_consensus_convergence(root)
   end
   for _ = 1, 5 do
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " abstain\n" .. reply_label .. " More evidence is required.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        verdict_label .. " abstain\n" .. reply_label .. " More evidence is required.\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   for _ = 1, 5 do
     t.mock_command("codex exec", {
-      stdout = stance_label .. " defend\n"
-        .. verdict_label .. " abstain\n"
-        .. reply_label .. " The evidence gap remains.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        stance_label .. " defend\n"
+          .. verdict_label .. " abstain\n"
+          .. reply_label .. " The evidence gap remains.\n"),
       stderr = "",
       exit_code = 0,
     })
   end
   t.mock_command("codex exec", {
-    stdout = "converge: generation context is readable + inspect the remaining evidence\n"
-      .. "open: remaining evidence is unresolved\n",
+    stdout = testing.codex_agent_message_jsonl(
+      "converge: generation context is readable + inspect the remaining evidence\n"
+        .. "open: remaining evidence is unresolved\n"),
     stderr = "",
     exit_code = 0,
   })

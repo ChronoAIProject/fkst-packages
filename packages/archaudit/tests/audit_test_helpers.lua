@@ -115,7 +115,7 @@ end
 
 local function mock_codex_findings(stdout, exit_code)
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = exit_code == 0 and testing.codex_agent_message_jsonl(stdout) or stdout,
     stderr = exit_code == 0 and "" or "codex timeout",
     exit_code = exit_code or 0,
   })

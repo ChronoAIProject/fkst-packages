@@ -7,6 +7,7 @@ local h = require("tests.devloop_base_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit_internal.github_author_policy")
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local testing = require("testkit_internal.testing")
 
 local context_runtime_root = "/tmp/fkst-packages-test/github-devloop-intake-default-run-graph/runtime"
 local context_tmp_dir = context_runtime_root .. "/context/.bundle-tmp.intake"
@@ -137,7 +138,9 @@ end
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:INTAKE⟧ decline\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph smoke only.",
+    stdout = testing.codex_agent_message_jsonl(
+      "⟦FKST:INTAKE⟧ decline\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ run_graph smoke only."
+    ),
     stderr = "",
     exit_code = 0,
   })

@@ -6,6 +6,7 @@ local marker_builders = require("devloop.markers.builders")
 local premise_correction = require("devloop.premise_correction")
 local t = fkst.test
 local context_fixtures = require("testkit_internal.devloop_helpers_fixtures")
+local testing = require("testkit_internal.testing")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -181,13 +182,15 @@ end
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:WORKFLOW_SELECT⟧ none",
+    stdout = testing.codex_agent_message_jsonl("⟦FKST:WORKFLOW_SELECT⟧ none"),
     stderr = "",
     exit_code = 0,
   })
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation.",
+    stdout = testing.codex_agent_message_jsonl(
+      "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ The corrected evidence supports autonomous implementation."
+    ),
     stderr = "",
     exit_code = 0,
   })

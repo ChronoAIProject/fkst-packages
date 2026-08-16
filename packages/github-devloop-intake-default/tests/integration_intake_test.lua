@@ -7,6 +7,7 @@ local opts = h.opts
 local find_raise = h.find_raise
 local count_calls = h.count_calls
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local testing = require("testkit_internal.testing")
 local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
 local intake_class = require("core.intake_class")
@@ -232,7 +233,9 @@ local function mock_intake_codex_with_closed_issues(stdout, closed_issues, exit_
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded implementation task.",
+    stdout = (exit_code or 0) == 0 and testing.codex_agent_message_jsonl(
+      stdout or "⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded implementation task."
+    ) or stdout,
     stderr = stderr or "",
     exit_code = exit_code or 0,
   })

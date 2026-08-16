@@ -194,7 +194,7 @@ end
 local function mock_codex(stdout, current, payload)
   mock_context_bundle(current, payload)
   t.mock_command("codex exec", {
-    stdout = stdout,
+    stdout = testing.codex_agent_message_jsonl(stdout),
     stderr = "",
     exit_code = 0,
   })
@@ -212,7 +212,7 @@ local function mock_workflow_none()
     exit_code = 0,
   })
   t.mock_command("codex exec", {
-    stdout = "⟦FKST:WORKFLOW_SELECT⟧ none",
+    stdout = testing.codex_agent_message_jsonl("⟦FKST:WORKFLOW_SELECT⟧ none"),
     stderr = "",
     exit_code = 0,
   })

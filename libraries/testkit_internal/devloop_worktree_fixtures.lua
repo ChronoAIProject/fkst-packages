@@ -1,6 +1,7 @@
 local M = {}
 
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local testing = require("testkit_internal.testing")
 
 local default_durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
 local default_repo = "owner/repo"
@@ -380,7 +381,11 @@ function M.new(deps)
 
   local function mock_implement_codex(exit_code, stdout, stderr)
     local resolved_exit_code = exit_code or 0
-    t.mock_command("codex exec", command_result(resolved_exit_code, stderr, stdout or "implemented"))
+    t.mock_command("codex exec", command_result(
+      resolved_exit_code,
+      stderr,
+      testing.codex_agent_message_jsonl(stdout or "implemented")
+    ))
     if resolved_exit_code == 0 then
       t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED",
         command_result(0, "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n"))

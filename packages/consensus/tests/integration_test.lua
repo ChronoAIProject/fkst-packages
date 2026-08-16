@@ -1,6 +1,7 @@
 local core = require("consensus.core")
 local synthesis_contract = require("consensus.synthesis_contract")
 local reach_test_helper = require("tests.reach_test_helpers")
+local testing = require("testkit_internal.testing")
 local t = fkst.test
 require("tests.cache_seed_helpers")
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -144,7 +145,9 @@ local function mock_angle(angle, verdict, reply, exit_code)
   mock_judgment_dir()
   local gap = verdict == "reject" and "\n" .. "⟦FKST:GAP⟧ " .. tostring(reply):sub(1, 80) or ""
   t.mock_command(angle_mock_pattern(angle), {
-    stdout = verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
+    stdout = testing.codex_agent_message_jsonl(
+      verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n"
+    ),
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -162,7 +165,9 @@ local function mock_rebuttal(angle, stance, verdict, reply, peer_claim, exit_cod
   end
   local gap = verdict == "reject" and "\n" .. "⟦FKST:GAP⟧ " .. tostring(reply):sub(1, 80) or ""
   t.mock_command(rebuttal_mock_pattern(angle), {
-    stdout = stance_line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
+    stdout = testing.codex_agent_message_jsonl(
+      stance_line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n"
+    ),
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -186,7 +191,7 @@ end
 local function mock_synthesis(line, exit_code)
   mock_judgment_dir()
   t.mock_command("consensus-synthesis-proposal", {
-    stdout = synthesis_stdout(line),
+    stdout = testing.codex_agent_message_jsonl(synthesis_stdout(line)),
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -195,7 +200,7 @@ end
 local function mock_synthesis_repair(line, exit_code)
   mock_judgment_dir()
   t.mock_command("consensus-synthesis-repair-proposal", {
-    stdout = synthesis_stdout(line),
+    stdout = testing.codex_agent_message_jsonl(synthesis_stdout(line)),
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -708,7 +713,10 @@ return {
     mock_judgment_runtime()
     mock_angle("teleology", "approve", "Teleology angle approves.")
     mock_judgment_dir()
-    t.mock_command("consensus-angle-parsimony", { stdout = "malformed", exit_code = 0 })
+    t.mock_command("consensus-angle-parsimony", {
+      stdout = testing.codex_agent_message_jsonl("malformed"),
+      exit_code = 0,
+    })
     mock_angle("fidelity", "comment", "Fidelity angle notes a non-blocking concern.")
 
     local run_opts = opts("gate-partial-malformed-angle")
@@ -801,11 +809,20 @@ return {
   test_zero_valid_angle_outputs_fail_closed_before_rebuttal = function()
     mock_judgment_runtime()
     mock_judgment_dir()
-    t.mock_command("consensus-angle-teleology", { stdout = "no verdict here", exit_code = 0 })
+    t.mock_command("consensus-angle-teleology", {
+      stdout = testing.codex_agent_message_jsonl("no verdict here"),
+      exit_code = 0,
+    })
     mock_judgment_dir()
-    t.mock_command("consensus-angle-parsimony", { stdout = "still nothing useful", exit_code = 0 })
+    t.mock_command("consensus-angle-parsimony", {
+      stdout = testing.codex_agent_message_jsonl("still nothing useful"),
+      exit_code = 0,
+    })
     mock_judgment_dir()
-    t.mock_command("consensus-angle-fidelity", { stdout = "garbage output", exit_code = 0 })
+    t.mock_command("consensus-angle-fidelity", {
+      stdout = testing.codex_agent_message_jsonl("garbage output"),
+      exit_code = 0,
+    })
     local result = run_decide(proposal({ dedup_key = "proposal-42-v1/unparseable" }), opts("unparseable"))
     t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)

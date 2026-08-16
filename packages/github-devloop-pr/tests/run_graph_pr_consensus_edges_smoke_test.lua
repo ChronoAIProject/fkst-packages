@@ -4,6 +4,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
+local testing = require("testkit_internal.testing")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
@@ -149,7 +150,9 @@ local function mock_consensus_approval()
       exit_code = 0,
     })
     t.mock_command("codex exec", {
-      stdout = verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n",
+      stdout = testing.codex_agent_message_jsonl(
+        verdict_label .. " approve\n" .. reply_label .. " " .. angle .. " approves.\n"
+      ),
       stderr = "",
       exit_code = 0,
     })
@@ -179,7 +182,7 @@ local function mock_consensus_premise_refuted()
     "premise-refuted: verified repository source proves the claimed missing feature exists\n",
   }) do
     t.mock_command("codex exec", {
-      stdout = answer,
+      stdout = testing.codex_agent_message_jsonl(answer),
       stderr = "",
       exit_code = 0,
     })

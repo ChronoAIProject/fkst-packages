@@ -74,7 +74,11 @@ return {
 
   test_audit_department_consumes_injected_observe_port = function()
     mock_env()
-    t.mock_command("codex exec", { stdout = "[]", stderr = "", exit_code = 0 })
+    t.mock_command("codex exec", {
+      stdout = testing.codex_agent_message_jsonl("[]"),
+      stderr = "",
+      exit_code = 0,
+    })
 
     local model = github_fake.model()
     local github = github_fake.new(model)
