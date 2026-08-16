@@ -1,0 +1,254 @@
+local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant, effect_ids)
+  local id = "github-devloop-pr/fixing/autonomous/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
+return function(M, h)
+  local fact = h.fact
+  local obligation = h.obligation
+  local effect = h.effect
+  local budget = h.budget
+  local timeout = h.timeout
+  local liveness = h.liveness
+  local actionable_epoch = h.actionable_epoch
+  local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
+  local advancing_fact = h.advancing_fact
+  return {
+    from_state = "fixing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop-pr/fixing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:fix" },
+    },
+    generation_entry = "always",
+    liveness_class_id = "fixing.actionable",
+    watchdog = {
+      mode = "live-defer",
+      -- The budget must cover a whole attempt, not just its codex. A live fix codex defers this
+      -- row, but the verification that runs after the codex exits is not a codex run, so
+      -- fkst.codex_runs cannot see it and the row becomes actionable while the attempt is still
+      -- working. 600 = the fix codex timeout (300 minutes) plus one verification, which is bounded
+      -- by that same role timeout.
+      budget_ms = 600 * 60 * 1000,
+      on_stale = {
+        op = "redrive_receiver",
+      },
+    },
+    actionable_epoch = {
+      source = "codex_run_with_durable_hold:v1",
+      generation_source = "same_as_actionable_epoch",
+    },
+    defer = {
+      kind = "codex_run_with_durable_hold",
+      hold_fact = "ci-repair-attempt:v1",
+      hold_resolver = "ci-repair-backoff",
+      redrive_opens_generation = true,
+    },
+    terminal = false,
+    to_states = { "reviewing", "review-meta", "blocked" },
+    driving_queue = "devloop_fixing",
+    observe_surfaces = { issue = true, pr = true, liveness_scan = true },
+    output_obligation = obligation({ "fix:v1", "state:v1 reviewing", "review-meta:v1", "ci-repair-attempt:v1", "fix-reconcile:v1", "state:v1 blocked" }, { "reviewing", "review-meta", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/fixing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run_with_durable_hold:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 600,
+        },
+      },
+    },
+    budget = budget(600, "Covers one whole attempt: the fix codex plus the verification that follows it, which is not a codex run and is therefore invisible to fkst.codex_runs. A live or indeterminate fixing codex defers; after a completed own-CI repair attempt, the trusted attempt fact defers until its version-derived due time and opens a new due-time generation before the fixing watchdog can accrue timeout attempts."),
+    liveness_contract = liveness({
+      mode = "live-defer",
+      real_execution = {
+        primitive = "fkst.codex_runs",
+        match = {
+          role = "fix",
+          proposal_id = "state.proposal_id",
+          dedup_key = "state.work_unit_key",
+        },
+        status = "running",
+        on_error = "defer",
+      },
+    }),
+    on_timeout = timeout("devloop_fixing"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_fix_reconcile",
+        target = "blocked",
+        output_variant = "review_reject_to_blocked",
+        cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
+        cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_fix_reconcile",
+        target = "blocked",
+        output_variant = "bounded_fix_to_blocked",
+        cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
+        cas_variant = "bounded_fix_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "fixing_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+    },
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "code-producer",
+      driving_queue = "devloop_fixing",
+      state_kind = "worker",
+      liveness_class = "fixing.actionable",
+      input_fact_family = "revision-goal",
+      output_postcondition_family = "revision_published",
+      phase_rank = devloop_state.stage_rank("fixing"),
+      lineage_keys = { "state.version", "revision-goal.work_unit_key", "review-result.dedup", "review-result.head_sha", "source_ref" },
+      successors = {
+        {
+          state = "reviewing",
+          output_variant = "revision_published",
+          cas_policy_id = "cas.legacy_fix_v1",
+          cas_variant = "fixing_to_reviewing",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+                "git.push:fix-branch",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/idempotent",
+              effect_ids = {},
+            },
+          },
+          kind = "autonomous",
+          pending_order = { participates = true, predecessor_state = "fixing" },
+          postcondition_family = "revision_published",
+          bump = true,
+        },
+        {
+          state = "review-meta",
+          output_variant = "revision_failed",
+          kind = "autonomous",
+          cas_policy_id = "cas.legacy_fix_v1",
+          cas_variant = "fixing_to_review_meta",
+          transition_effect_entitlements = effect_entitlements("revision_failed", {
+            "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+          }),
+          pending_order = { participates = true, predecessor_state = "fixing" },
+          failure = true,
+          monotonic = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "fix_budget_exhausted",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
+          pending_order = { participates = false },
+          terminal = true,
+          monotonic = true,
+        },
+      },
+    }),
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_fixing_payload",
+    dedup_shape = "ci-failure:<proposal_id>/<pr>/<version> shared by forward and replay; review-feedback:forward fixing/<proposal_id>/<version>/<pr>/<review_dedup>/noci, replay fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/noci/<reviewed_head_sha>; timeout delivery appends delivery-redrive/<generation_key>/<attempt> to the logical replay identity",
+    required_facts = {
+      fact("state", "marker-read"),
+      fact("pr-link", "marker-read"),
+      fact("review-result", "marker-read"),
+      fact("review-meta", "marker-read"),
+      fact("merge-gate", "marker-read"),
+      fact("pr-head", "fetch-before-compare"),
+    },
+    advancing_facts = {
+      advancing_fact("revision-goal", "fixing", { pr = true, liveness_scan = true }, "source_ref:pr"),
+      advancing_fact("revision-goal", "reviewing", { pr = true, liveness_scan = true }, "source_ref:pr"),
+    },
+    payload_fields = {
+      schema = "literal:github-devloop.fixing.v1",
+      proposal_id = "marker:state.proposal",
+      pr_number = "marker:pr-link.pr",
+      version = "marker:state.version",
+      review_proposal_id = "marker:merge-gate.review_proposal",
+      review_dedup_key = "marker:merge-gate.review_dedup",
+      reviewed_head_sha = "marker:merge-gate.head_sha",
+      repair_input = "typed:review-feedback|ci-failure",
+      ci_failure_key = "marker:merge-gate.ci_failure_key",
+      work_unit_key = "dedup:fixing-work-unit",
+      dedup_key = "dedup:replayed-fixing",
+      gate_baseline_sha = "marker:merge-gate.gate_baseline_sha",
+      gate_failure_excerpt = "comment_body:fix-feedback",
+      source_ref = "source_ref:pr",
+    },
+    version_identity = "strip_transition_version_suffixes(state.version)",
+    effects = effect(
+      { "devloop_fixing", "pr-state-label" },
+      "fixing replay is complete only when trusted feedback marker fields are copied into devloop_fixing and the PR-local state label projection is requested",
+      "build_reconcile_pr_state_label_request"
+    ),
+    marker_facts = "state:v1 fixing plus review-result/review-meta/merge-gate feedback, ci-repair-attempt:v1 for a completed own-CI repair round, or current PR head for deterministic renormalization",
+    kickoff = "devloop_fixing or devloop_reviewing",
+    replay = "Observe re-raises fix when a trusted feedback fact is parseable; otherwise it re-enters reviewing for the current head.",
+    span_contract = span_contract({
+      department = "fix",
+      durable_start_marker = "state:v1 fixing",
+      spawn_predecessor = "precheck_fix_write_gate",
+      spawn_function = "run_fix_attempt",
+    }),
+  }
+end

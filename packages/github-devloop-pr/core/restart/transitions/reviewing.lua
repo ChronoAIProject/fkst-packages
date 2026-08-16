@@ -1,0 +1,226 @@
+local devloop_state = require("devloop.state")
+local reviewing_entitlements = require("core.restart.transitions.index").pr_comment_and_issue_label
+return function(M, h)
+  local fact = h.fact
+  local obligation = h.obligation
+  local effect = h.effect
+  local budget = h.budget
+  local timeout = h.timeout
+  local liveness = h.liveness
+  local watchdog = h.watchdog
+  local responsibility_signature = h.responsibility_signature
+  local advancing_fact = h.advancing_fact
+  local function effect_entitlements(semantic_variant)
+    return reviewing_entitlements("github-devloop-pr/reviewing/autonomous/" .. semantic_variant)
+  end
+  return {
+    from_state = "reviewing",
+    generation_entry = {
+      reentry_bump = true,
+      birth_from = "pr-open",
+    },
+    liveness_class_id = "reviewing.active",
+    watchdog = {
+      mode = "live-defer",
+      budget_ms = 150 * 60 * 1000,
+      on_stale = {
+        op = "redrive_receiver",
+        producer = "review-converge-round",
+      },
+    },
+    actionable_epoch = {
+      source = "live_defer_heartbeat:v1",
+      generation_source = "same_as_actionable_epoch",
+      live_marker = "review-converge-round:v1",
+      producer = "review-converge-round",
+    },
+    defer = {
+      kind = "heartbeat",
+      live_marker = "review-converge-round:v1",
+      producer = "review-converge-round",
+      freshness_ms = 120 * 60 * 1000,
+      redrive_opens_generation = true,
+    },
+    terminal = false,
+    to_states = { "merge-ready", "fixing", "review-meta", "blocked" },
+    driving_queue = "devloop_reviewing",
+    observe_surfaces = { issue = true, pr = true, liveness_scan = true },
+    timeout_surfaces = { issue = true, pr = true, liveness_scan = true },
+    pr_recovery = {
+      not_mergeable = {
+        to_state = "fixing",
+        queue = "devloop_fixing",
+      },
+    },
+    output_obligation = obligation({ "review-result:v1", "review-converge-round:v1", "state:v1 blocked" }, { "merge-ready", "fixing", "review-meta", "blocked", "reviewing" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/reviewing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "live_defer_heartbeat:v1",
+          resolver = "live-defer",
+          budget_minutes = 150,
+        },
+      },
+    },
+    budget = budget(150, "The long review receiver is supervised by review-converge-round heartbeats; this budget only bounds stale heartbeat redrive."),
+    liveness_contract = liveness({
+      mode = "live-defer",
+      signal = {
+        family = "review-converge-round",
+        producer = "review-converge-round",
+        surface = "pr-comment-stream",
+        version_form = "safe_version_segment",
+        max_age_minutes = 120,
+      },
+    }),
+    on_timeout = timeout("devloop_reviewing"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_review_reconcile",
+        target = "blocked",
+        output_variant = "review_reconcile_true_stall",
+        cas_policy_id = "cas.legacy_issue_reconcile_v1",
+        cas_variant = "reviewing_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_fix_reconcile",
+        target = "blocked",
+        output_variant = "review_reject_to_blocked",
+        cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
+        cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+    },
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "reviewer",
+      driving_queue = "devloop_reviewing",
+      state_kind = "decision",
+      liveness_class = "reviewing.active",
+      input_fact_family = "pr-revision-review-request",
+      output_postcondition_family = "review_decision_recorded",
+      decision_type = "ReviewDecision",
+      phase_rank = devloop_state.stage_rank("reviewing"),
+      lineage_keys = { "state.version", "pr-link.pr", "pr-head.sha", "source_ref" },
+      successors = {
+        {
+          state = "merge-ready",
+          output_variant = "approved",
+          cas_policy_id = "cas.legacy_review_result_v1",
+          cas_variant = "reviewing_to_merge_ready",
+          transition_effect_entitlements = effect_entitlements("approved"),
+          kind = "autonomous",
+          pending_order = { participates = true, predecessor_state = "reviewing" },
+          postcondition_family = "review_decision_recorded",
+          decision_type = "ReviewDecision",
+          monotonic = true,
+        },
+        {
+          state = "fixing",
+          output_variant = "changes_requested",
+          cas_policy_id = "cas.legacy_review_result_v1",
+          cas_variant = "reviewing_to_fixing",
+          transition_effect_entitlements = effect_entitlements("changes_requested"),
+          kind = "autonomous",
+          pending_order = { participates = true, predecessor_state = "reviewing" },
+          postcondition_family = "review_decision_recorded",
+          decision_type = "ReviewDecision",
+          bump = true,
+        },
+        {
+          state = "review-meta",
+          output_variant = "needs_review_meta",
+          cas_policy_id = "cas.legacy_review_result_v1",
+          cas_variant = "reviewing_to_review_meta",
+          transition_effect_entitlements = effect_entitlements("needs_review_meta"),
+          kind = "autonomous",
+          pending_order = { participates = true, predecessor_state = "reviewing" },
+          postcondition_family = "review_decision_recorded",
+          decision_type = "ReviewDecision",
+          monotonic = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "watchdog_reconcile_terminal",
+          kind = "timeout",
+          cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+          cas_variant = "reviewing_to_blocked",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal/idempotent",
+              effect_ids = {},
+            },
+          },
+          pending_order = { participates = false },
+          terminal = true,
+          monotonic = true,
+        },
+      },
+    }),
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_reviewing_payload",
+    dedup_shape = "reviewing/<proposal_id>/<state.version>/<pr>",
+    required_facts = {
+      fact("state", "marker-read"),
+      fact("pr-link", "marker-read"),
+      fact("pr-head", "fetch-before-compare"),
+      fact("review-converge-round", "marker-read"),
+    },
+    advancing_facts = {
+      advancing_fact("review-result", "merge-ready", { pr = true, liveness_scan = true }, "source_ref:pr"),
+      advancing_fact("review-result", "fixing", { pr = true, liveness_scan = true }, "source_ref:pr"),
+      advancing_fact("review-converge-round", "blocked", { pr = true, liveness_scan = true }, "source_ref:pr"),
+    },
+    payload_fields = {
+      proposal_id = "marker:state.proposal",
+      version = "marker:state.version",
+      pr_number = "marker:pr-link.pr",
+      source_ref = "source_ref:pr",
+    },
+    version_identity = "strip_transition_version_suffixes(state.version)",
+    effects = effect(
+      { "devloop_reviewing", "pr-state-label" },
+      "reviewing replay is complete when current PR head is fetched, no head-bound review result exists, and the PR-local state label projection is requested",
+      "build_reconcile_pr_state_label_request"
+    ),
+    marker_facts = "state:v1 reviewing plus PR head facts",
+    kickoff = "devloop_reviewing",
+    replay = "PR observe re-derives review kickoff from current PR head and issue version.",
+  }
+end

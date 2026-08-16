@@ -1,0 +1,398 @@
+-- This grant-disabled shadow slice proves CAS-admission-composition parity only.
+-- It models selected PR lifecycle edges while preserving the raw snapshot fact
+-- for each policy profile to project independently.
+-- No live effect is authorized or emitted by this module.
+
+local core = require("core")
+local owner = core.restart_package_name
+local rows = core.restart_transition_table()
+local inventories = {
+  canonicalization = require("core.restart.canonicalization_inventory"),
+  entry = require("core.restart.entry_inventory"),
+  operator_reentry = require("core.restart.operator_reentry_inventory"),
+}
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local edges = owner_pending_projection.edges(owner, rows, inventories)
+local projection = owner_pending_projection.derive(owner, rows, inventories)
+local catalog = require("devloop.restart_cas_catalog")
+local restart_effect_entitlements = require("devloop.restart_effect_entitlements")
+local restart_source_admission = require("devloop.restart_source_admission")
+local receiver_dispatch = require("devloop.restart_receiver_dispatch")
+local receiver_dispatch_index = receiver_dispatch.index(owner, rows)
+
+local M = {}
+local issued = setmetatable({}, { __mode = "k" })
+local intent_fields = {
+  semantic_variant = true,
+  source_boundary = true,
+  target = true,
+  evidence_refs = true,
+  review_version = true,
+  reviewing_version = true,
+  handoff = true,
+  incoming_version = true,
+  target_version = true,
+  overlay_version = true,
+}
+
+local function illegal(reason_code, outcome_reason)
+  local detail = outcome_reason or reason_code
+  return {
+    status = "illegal",
+    reason_code = reason_code,
+    cas_outcome = "illegal(" .. tostring(detail) .. ")",
+    grant = nil,
+  }
+end
+
+local function normalize_intent(intent)
+  if type(intent) ~= "table" then
+    return nil
+  end
+  for field in pairs(intent) do
+    if intent_fields[field] ~= true then
+      return nil
+    end
+  end
+  if type(intent.semantic_variant) ~= "string" or intent.semantic_variant == "" then
+    return nil
+  end
+  for _, field in ipairs({ "review_version", "reviewing_version", "incoming_version", "target_version", "overlay_version" }) do
+    local value = intent[field]
+    if value ~= nil and (type(value) ~= "string" or value == "") then
+      return nil
+    end
+  end
+  if intent.handoff ~= nil
+    and (type(intent.handoff) ~= "table"
+      or (intent.handoff.status ~= "valid" and intent.handoff.status ~= "invalid")) then
+    return nil
+  end
+  return {
+    semantic_variant = intent.semantic_variant,
+    source_boundary = intent.source_boundary,
+    target = intent.target,
+    evidence_refs = intent.evidence_refs,
+    review_version = intent.review_version,
+    reviewing_version = intent.reviewing_version,
+    handoff = intent.handoff and { status = intent.handoff.status } or nil,
+    incoming_version = intent.incoming_version,
+    target_version = intent.target_version,
+    overlay_version = intent.overlay_version,
+  }
+end
+
+local function timeout_reconcile_candidates_are_equivalent(candidates)
+  local definition = catalog.definition("cas.legacy_timeout_reconcile_v1")
+  if type(definition) ~= "table" or type(definition.variants) ~= "table" then
+    return false
+  end
+  for _, candidate in ipairs(candidates) do
+    local variant = definition.variants[candidate.cas_variant]
+    local sources = variant
+      and restart_source_admission.dense_unique_state_set(variant.source_states)
+      or nil
+    local entitlements = candidate.transition_effect_entitlements
+    local apply = type(entitlements) == "table" and entitlements.apply or nil
+    local idempotent = type(entitlements) == "table" and entitlements.idempotent or nil
+    if candidate.semantic_variant ~= "watchdog_reconcile_terminal"
+      or candidate.cas_policy_id ~= "cas.legacy_timeout_reconcile_v1"
+      or candidate.target ~= "blocked"
+      or type(candidate.source) ~= "table"
+      or candidate.source.state == nil
+      or variant == nil
+      or variant.target_state ~= "blocked"
+      or sources == nil
+      or sources[candidate.source.state] ~= true
+      or type(apply) ~= "table"
+      or type(apply.effect_ids) ~= "table"
+      or #apply.effect_ids ~= 2
+      or apply.effect_ids[1] ~= "github-proxy.github_pr_comment_request"
+      or apply.effect_ids[2] ~= "github-proxy.github_issue_label_request"
+      or type(idempotent) ~= "table"
+      or type(idempotent.effect_ids) ~= "table"
+      or #idempotent.effect_ids ~= 0 then
+      return false
+    end
+  end
+  return #candidates > 1
+end
+
+local function select_edge(semantic_variant, current_state)
+  local candidates = {}
+  for _, candidate in ipairs(edges) do
+    if candidate.semantic_variant == semantic_variant then
+      table.insert(candidates, candidate)
+    end
+  end
+  if #candidates <= 1 then
+    return candidates[1], #candidates
+  end
+
+  local exact = nil
+  local exact_matches = 0
+  for _, candidate in ipairs(candidates) do
+    if candidate.source.state == current_state then
+      exact = candidate
+      exact_matches = exact_matches + 1
+    end
+  end
+  if exact_matches == 1 then
+    return exact, 1
+  end
+  if exact_matches > 1 then
+    return nil, #candidates
+  end
+
+  local representative = candidates[1]
+  if timeout_reconcile_candidates_are_equivalent(candidates) then
+    return representative, 1
+  end
+  for index = 2, #candidates do
+    local candidate = candidates[index]
+    if candidate.kind ~= representative.kind
+      or candidate.source.boundary ~= representative.source.boundary
+      or candidate.target ~= representative.target
+      or candidate.cas_policy_id ~= representative.cas_policy_id
+      or candidate.cas_variant ~= representative.cas_variant then
+      return nil, #candidates
+    end
+  end
+  return representative, 1
+end
+
+function M.seal_snapshot(fields)
+  if type(fields) ~= "table" or fields.owner ~= owner then
+    error("restart-authority: snapshot-owner-mismatch: owner must be " .. tostring(owner))
+  end
+  local current = type(fields.current) == "table" and fields.current or {}
+  local sealed = {
+    owner = fields.owner,
+    proposal_id = fields.proposal_id,
+    current = {
+      state = current.state,
+      version = current.version or "",
+    },
+  }
+  issued[sealed] = true
+  return sealed
+end
+
+function M.decide_transition(sealed_snapshot, intent)
+  if issued[sealed_snapshot] ~= true or sealed_snapshot.owner ~= owner then
+    return illegal("unsealed-or-foreign-snapshot", "unsealed")
+  end
+
+  local normalized = normalize_intent(intent)
+  if normalized == nil then
+    return illegal("malformed-intent")
+  end
+
+  local current = type(sealed_snapshot.current) == "table" and sealed_snapshot.current or {}
+  local edge, matches = select_edge(normalized.semantic_variant, current.state)
+  if matches == 0 then
+    return illegal("unknown-variant")
+  end
+  if matches > 1 then
+    return illegal("ambiguous-variant")
+  end
+  local supported_review_result = edge.cas_policy_id == "cas.legacy_review_result_v1"
+    and (edge.cas_variant == "reviewing_to_merge_ready"
+      or edge.cas_variant == "reviewing_to_fixing"
+      or edge.cas_variant == "reviewing_to_review_meta")
+  local supported_fix = edge.cas_policy_id == "cas.legacy_fix_v1"
+    and (edge.cas_variant == "fixing_to_reviewing"
+      or edge.cas_variant == "fixing_to_review_meta")
+  local supported_review_meta = edge.cas_policy_id == "cas.legacy_review_meta_v1"
+    and edge.cas_variant == "predecision_eligibility"
+    and (edge.semantic_variant == "fix"
+      or edge.semantic_variant == "no-actionable-gap"
+      or edge.semantic_variant == "block")
+  local supported_observe_pr = edge.cas_policy_id == "cas.legacy_observe_pr_v1"
+    and edge.cas_variant == "pr_open_to_reviewing"
+  local supported_observe_pr_fix = edge.cas_policy_id == "cas.legacy_observe_pr_fix_v1"
+    and edge.cas_variant == "pr_open_to_fixing"
+  local supported_review_reconcile = edge.cas_policy_id == "cas.legacy_issue_reconcile_v1"
+    and edge.cas_variant == "reviewing_to_blocked"
+    and edge.semantic_variant == "review_reconcile_true_stall"
+  local supported_timeout_reconcile = edge.cas_policy_id == "cas.legacy_timeout_reconcile_v1"
+    and edge.target == "blocked"
+    and (edge.kind == "timeout"
+      or (edge.kind == "entry" and edge.source.boundary == "devloop_timeout_reconcile"))
+  local supported_merge = edge.cas_policy_id == "cas.legacy_merge_v1"
+    and (edge.cas_variant == "merge_ready_or_merging_to_merging"
+      or edge.cas_variant == "merge_ready_to_fixing"
+      or edge.cas_variant == "merging_to_fixing")
+  local supported_merge_completion = edge.cas_policy_id == "cas.legacy_merge_completion_v1"
+    and edge.cas_variant == "merge_ready_or_merging_to_merged"
+  local supported_pr_fix_reconcile = edge.cas_policy_id == "cas.legacy_pr_fix_reconcile_v1"
+    and (edge.cas_variant == "review_reject_to_blocked"
+      or edge.cas_variant == "bounded_fix_to_blocked")
+  local supported_review_activation = edge.cas_policy_id == "cas.legacy_review_activation_handoff_v1"
+    and edge.semantic_variant == "review_receiver"
+  local supported_review_loop = edge.cas_policy_id == "cas.legacy_review_loop_safe_v1"
+    and edge.semantic_variant == "review_convergence_round"
+  if not supported_review_result
+    and not supported_fix
+    and not supported_review_meta
+    and not supported_observe_pr
+    and not supported_observe_pr_fix
+    and not supported_review_reconcile
+    and not supported_timeout_reconcile
+    and not supported_merge
+    and not supported_merge_completion
+    and not supported_pr_fix_reconcile
+    and not supported_review_activation
+    and not supported_review_loop then
+    return illegal("unsupported-shadow-edge")
+  end
+
+  local concrete_source_mode = edge.source.state ~= nil
+  local ingress_mode = edge.kind == "entry" and edge.source.state == nil
+  if not concrete_source_mode and not ingress_mode then
+    return illegal("policy-variant-shape-mismatch")
+  end
+  if ingress_mode then
+    if type(edge.source.boundary) ~= "string" or edge.source.boundary == ""
+      or normalized.source_boundary ~= edge.source.boundary then
+      return illegal("source-boundary-mismatch")
+    end
+    if normalized.target ~= edge.target then
+      return illegal("target-mismatch")
+    end
+  else
+    local canonical_timeout_boundary = supported_timeout_reconcile
+      and normalized.source_boundary == "devloop_timeout_reconcile"
+    if normalized.source_boundary ~= nil
+      and normalized.source_boundary ~= edge.source.boundary
+      and not canonical_timeout_boundary then
+      return illegal("source-boundary-mismatch")
+    end
+    if normalized.target ~= nil and normalized.target ~= edge.target then
+      return illegal("target-mismatch")
+    end
+  end
+
+  local definition = catalog.definition(edge.cas_policy_id)
+  local resolve_based = (supported_review_activation or supported_review_loop)
+    and definition ~= nil
+    and definition.variants == nil
+    and definition.base == nil
+  local variant = nil
+  if not resolve_based then
+    variant = definition
+      and type(definition.variants) == "table"
+      and definition.variants[edge.cas_variant]
+      or nil
+    if variant == nil then
+      return illegal("policy-variant-shape-mismatch")
+    end
+    if supported_review_meta then
+      if variant.target_state ~= nil
+        or type(variant.legacy_probe_target_state) ~= "string"
+        or variant.legacy_probe_target_state == "" then
+        return illegal("policy-variant-shape-mismatch")
+      end
+    elseif variant.target_state ~= edge.target then
+      return illegal("policy-variant-shape-mismatch")
+    end
+    if concrete_source_mode then
+      local source_admitted = restart_source_admission.exact_source_state(variant.source_states, edge.source.state)
+      if supported_merge or supported_merge_completion or supported_pr_fix_reconcile then
+        local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
+        source_admitted = admitted_sources ~= nil and admitted_sources[edge.source.state] == true
+      end
+      if not source_admitted then
+        return illegal("policy-variant-shape-mismatch")
+      end
+    end
+    if ingress_mode then
+      local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
+      if admitted_sources == nil then
+        return illegal("policy-variant-shape-mismatch")
+      end
+      local current_state = current.state == nil and "unmanaged" or current.state
+      if admitted_sources[current_state] ~= true then
+        return illegal("source-state-not-admitted")
+      end
+    end
+    local cas_base = variant.base or definition.base
+    if (cas_base == "versioned" or cas_base == "cyclic")
+      and normalized.incoming_version == nil then
+      return illegal("incoming-version-required")
+    end
+  end
+
+  local evidence
+  if resolve_based then
+    local current_version = current.version
+    if current.state == nil and current_version == "" then
+      current_version = nil
+    end
+    evidence = {
+      current = {
+        state = current.state,
+        version = current_version,
+      },
+    }
+    if supported_review_loop then
+      evidence.review_version = normalized.review_version
+    else
+      evidence.reviewing_version = normalized.reviewing_version
+      evidence.handoff = normalized.handoff
+    end
+  else
+    evidence = {
+      current = {
+        state = current.state,
+        version = current.version,
+      },
+      variant = edge.cas_variant,
+      incoming_version = normalized.incoming_version,
+      target_version = normalized.target_version,
+      overlay_version = normalized.overlay_version,
+    }
+  end
+  local resolved = catalog.resolve(edge.cas_policy_id, evidence, projection)
+  local disposition = ({
+    apply = "apply",
+    idempotent = "idempotent",
+  })[resolved.status]
+  local effect_entitlement_id = nil
+  local granted_effect_ids = nil
+  if disposition ~= nil and edge.transition_effect_entitlements ~= nil then
+    local entitlement = restart_effect_entitlements.resolve(edge, disposition)
+    effect_entitlement_id = entitlement.id
+    granted_effect_ids = entitlement.effect_ids
+  end
+  return {
+    status = resolved.status,
+    reason_code = resolved.reason_code,
+    cas_outcome = resolved.cas_outcome,
+    edge_id = edge.id,
+    cas_policy_id = edge.cas_policy_id,
+    incoming_version = normalized.incoming_version,
+    target_version = normalized.target_version,
+    overlay_version = normalized.overlay_version,
+    effect_entitlement_id = effect_entitlement_id,
+    granted_effect_ids = granted_effect_ids,
+    evidence = {
+      status = "complete",
+      refs = normalized.evidence_refs or {},
+      facts = {
+        source = ingress_mode and current.state or edge.source.state,
+        target = edge.target,
+      },
+    },
+    grant = nil,
+  }
+end
+
+function M.decide_receiver_dispatch(sealed_snapshot, intent)
+  if issued[sealed_snapshot] ~= true or sealed_snapshot.owner ~= owner then
+    return illegal("unsealed-or-foreign-snapshot", "unsealed")
+  end
+  return receiver_dispatch.decide(receiver_dispatch_index, sealed_snapshot.current, intent)
+end
+
+return M

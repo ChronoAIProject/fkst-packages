@@ -1,0 +1,778 @@
+-- Non-circularity contract: production truth comes from the real reconcile
+-- department's owner decision and emitted effects. OLD admission truth comes from
+-- the protected R9 corpus or a frozen literal probe outcome on each additional
+-- edge case.
+
+local base_ids = require("devloop.base_ids")
+local catalog = require("devloop.restart_cas_catalog")
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local inventories = {
+  canonicalization = require("core.restart.canonicalization_inventory"),
+  entry = require("core.restart.entry_inventory"),
+  operator_reentry = require("core.restart.operator_reentry_inventory"),
+}
+local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
+local fix_rounds = require("core.fix_rounds")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+local transition_version = require("contract.transition_version")
+local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
+local t = h.t
+local core = h.core
+local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
+
+local POLICY_ID = "cas.legacy_pr_fix_reconcile_v1"
+local REVIEW_REJECT_VARIANT = "review_reject_to_blocked"
+local BOUNDED_FIX_VARIANT = "bounded_fix_to_blocked"
+local OWNER = core.restart_package_name
+local FIX_RECONCILE_CORPUS_PATH =
+  "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json"
+local FIX_RECONCILE_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-fix-reconcile-new-trace.json"
+)
+
+local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3"
+local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z/fix/1/fix/2/fix/3"
+local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
+local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
+local V_SAFE_EQUIVALENT_INCOMING = "x/fix/1/fix/2/fix/3"
+local V_SAFE_EQUIVALENT_CURRENT = V_SAFE_EQUIVALENT_INCOMING:gsub("/", "-")
+
+local variant_source_states = {
+  [REVIEW_REJECT_VARIANT] = { "reviewing", "fixing", "merge-ready", "merging" },
+  [BOUNDED_FIX_VARIANT] = { "fixing", "merge-ready", "merging" },
+}
+
+-- The facade resolves shared builders at emit time. These transparent wrappers
+-- record calls only while an observation is active and delegate unchanged otherwise.
+local active_boundary_calls = nil
+local active_label_boundary_calls = nil
+local original_boundary = core.build_fix_reconcile_comment_request
+local original_label_boundary = core.build_fix_reconcile_label_request
+core.build_fix_reconcile_comment_request = function(
+  repo,
+  issue_number,
+  reconcile,
+  action,
+  reason,
+  version
+)
+  local request = original_boundary(repo, issue_number, reconcile, action, reason, version)
+  if active_boundary_calls ~= nil then
+    table.insert(active_boundary_calls, {
+      repo = repo,
+      issue_number = issue_number,
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+      version = version,
+      request = request,
+    })
+  end
+  return request
+end
+core.build_fix_reconcile_label_request = function(repo, issue_number, reconcile, version)
+  local request = original_label_boundary(repo, issue_number, reconcile, version)
+  if active_label_boundary_calls ~= nil then
+    table.insert(active_label_boundary_calls, {
+      repo = repo,
+      issue_number = issue_number,
+      reconcile = reconcile,
+      version = version,
+      request = request,
+    })
+  end
+  return request
+end
+local reconcile_department = require("departments.reconcile.main")
+
+local function copy_array(values)
+  local out = {}
+  for _, value in ipairs(values or {}) do
+    table.insert(out, value)
+  end
+  return out
+end
+
+local function fix_reconcile_event(incoming_version, variant)
+  local event = h.fix_reconcile()
+  event.issue_version = incoming_version
+  event.round = devloop_state.version_fix_round(incoming_version)
+  if variant == BOUNDED_FIX_VARIANT then
+    event.schema = fix_rounds.MERGE_GATE_SCHEMA
+    event.reason_class = fix_rounds.FIX_LOOP_MAX_ROUNDS
+    event.bound_head_sha = event.head_sha
+    event.dedup_key = base_ids.dedup_key({
+      event.schema,
+      incoming_version,
+      event.reason_class,
+    })
+  else
+    event.dedup_key = "fix-reconcile:" .. tostring(incoming_version)
+  end
+  return event
+end
+
+local function observe_department(run)
+  local probes = {}
+  local decisions = {}
+  local boundary_calls = {}
+  local label_boundary_calls = {}
+  local original_decide = restart_effects.decide_transition
+  local original_log_cas = devloop_logging.log_cas_decision
+
+  restart_effects.decide_transition = function(snapshot, intent)
+    local from_states = variant_source_states[intent.semantic_variant]
+    local decision = original_decide(snapshot, intent)
+    table.insert(probes, {
+      current = snapshot.current,
+      from_states = copy_array(from_states),
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      decision = decision,
+    })
+    return decision
+  end
+  devloop_logging.log_cas_decision = function(
+    dept,
+    proposal_id,
+    current,
+    from_state,
+    to_state,
+    outcome,
+    reason
+  )
+    table.insert(decisions, {
+      dept = dept,
+      proposal_id = proposal_id,
+      current = current,
+      from_state = from_state,
+      to_state = to_state,
+      outcome = outcome,
+      reason = reason,
+    })
+    return original_log_cas(
+      dept,
+      proposal_id,
+      current,
+      from_state,
+      to_state,
+      outcome,
+      reason
+    )
+  end
+  active_boundary_calls = boundary_calls
+  active_label_boundary_calls = label_boundary_calls
+  local ok, result = pcall(run)
+  active_boundary_calls = nil
+  active_label_boundary_calls = nil
+  devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide
+  if not ok then
+    error(result, 0)
+  end
+  return result, probes, decisions, boundary_calls, label_boundary_calls
+end
+
+local function evidence_from_probe(probe, variant)
+  return {
+    current = probe.current,
+    variant = variant,
+    incoming_version = probe.incoming_version,
+    target_version = probe.target_version,
+    overlay_version = probe.incoming_version,
+  }
+end
+
+local function emitted_state(result)
+  for _, raised in ipairs(result.raises or {}) do
+    if raised.queue == "github-proxy.github_pr_comment_request" then
+      return tostring(raised.payload and raised.payload.body or ""):match('state="([^"]+)"')
+    end
+  end
+  return nil
+end
+
+local function state_is_in(state_name, states)
+  for _, candidate in ipairs(states or {}) do
+    if state_name == candidate then
+      return true
+    end
+  end
+  return false
+end
+
+local function protected_probe_outcome(fixture)
+  if fixture.probe_outcome ~= nil then
+    return fixture.probe_outcome
+  end
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      FIX_RECONCILE_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  error("PR fix reconcile fixture is missing its frozen OLD probe outcome: "
+    .. tostring(fixture.name), 0)
+end
+
+local function protected_admission(fixture)
+  if fixture.fixture_id == nil then return nil end
+  return observation_support.protected_admission_expectation(
+    FIX_RECONCILE_CORPUS_PATH, fixture.fixture_id)
+end
+
+local function observed_admission(probe_outcome, probe, decision, boundary_reached)
+  local cas_outcome = decision.outcome
+  if boundary_reached then
+    return { status = "apply", reason_code = "apply", cas_outcome = cas_outcome }
+  end
+  if probe_outcome == "pending" then
+    return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = cas_outcome }
+  end
+  if probe_outcome == "idempotent" then
+    return { status = "idempotent", reason_code = "already-at-target", cas_outcome = cas_outcome }
+  end
+  if probe_outcome == "stale" then
+    if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
+      return { status = "stale", reason_code = "incoming-version-older", cas_outcome = cas_outcome }
+    end
+    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = cas_outcome }
+  end
+  if probe_outcome ~= "apply" then
+    error("PR fix reconcile protected admission probe returned an unknown outcome: "
+      .. tostring(probe_outcome))
+  end
+  if not state_is_in(probe.current.state, probe.from_states) then
+    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = cas_outcome }
+  end
+  return { status = "stale", reason_code = "version-mismatch", cas_outcome = cas_outcome }
+end
+
+local function post_admission_disposition(result, boundary_reached)
+  if not boundary_reached then
+    return "not-admitted"
+  end
+  local state = emitted_state(result)
+  if state ~= nil then
+    return "effect-emitted(" .. state .. ")"
+  end
+  return "post-admission-no-effect"
+end
+
+local function run_real_department(event)
+  local raises = {}
+  local original_raise = raise
+  raise = function(queue, payload)
+    table.insert(raises, { queue = queue, payload = payload })
+  end
+  local ok, failure = pcall(reconcile_department.pipeline, {
+    queue = "devloop_fix_reconcile",
+    payload = event,
+  })
+  raise = original_raise
+  return {
+    exit_code = ok and 0 or 1,
+    error = ok and nil or tostring(failure),
+    raises = raises,
+  }
+end
+
+local function mock_current_pr(event, fixture)
+  local comments = {}
+  if fixture.current_state ~= nil then
+    table.insert(comments, core.state_marker(
+      event.proposal_id,
+      fixture.current_state,
+      fixture.current_version
+    ))
+  end
+  h.mock_bot_env()
+  h.mock_default_issue_claim()
+  h.mock_pr_origin(
+    comments,
+    "devloop-owner-repo-42-01HY",
+    fixture.current_head_sha or event.head_sha,
+    "OPEN",
+    "dev"
+  )
+end
+
+local function assert_probe_shape(name, probe, variant, fixture)
+  t.eq(probe.current.state, fixture.current_state, name .. ": probe current state")
+  t.eq(probe.current.version, fixture.current_version, name .. ": probe current version")
+  local expected_sources = variant_source_states[variant]
+  t.eq(#probe.from_states, #expected_sources, name .. ": probe source state count")
+  for index, expected in ipairs(expected_sources) do
+    t.eq(probe.from_states[index], expected, name .. ": probe source state " .. tostring(index))
+  end
+  t.eq(probe.to_state, "blocked", name .. ": probe target state")
+  t.eq(probe.incoming_version, tostring(fixture.incoming_version), name .. ": probe incoming version")
+  t.eq(probe.target_version, nil, name .. ": probe target version")
+end
+
+local function assert_catalog_matches_observed_admission(fixture)
+  local variant = fixture.variant or REVIEW_REJECT_VARIANT
+  local event = fix_reconcile_event(fixture.incoming_version, variant)
+  mock_current_pr(event, fixture)
+
+  local result, probes, decisions, boundary_calls, label_boundary_calls = observe_department(function()
+    return run_real_department(event)
+  end)
+
+  local admission_phase = #probes == 0 and "pre-cas" or "cas"
+  t.eq(admission_phase, fixture.admission_phase or "cas", fixture.name .. ": admission phase")
+  t.eq(#probes, admission_phase == "cas" and 1 or 0, fixture.name .. ": real department CAS probe count")
+  t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
+  local decision = decisions[1]
+  t.eq(decision.dept, "reconcile", fixture.name .. ": CAS decision department")
+  t.eq(decision.to_state, "blocked", fixture.name .. ": logged target state")
+  t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
+  t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
+
+  local boundary_reached = #boundary_calls > 0
+  t.eq(#boundary_calls, fixture.boundary_reached and 1 or 0, fixture.name .. ": admission boundary reach")
+  if boundary_reached then
+    local boundary = boundary_calls[1]
+    t.eq(boundary.repo, "owner/repo", fixture.name .. ": boundary repo")
+    t.eq(boundary.issue_number, "42", fixture.name .. ": boundary issue")
+    t.eq(boundary.reconcile, event, fixture.name .. ": boundary event")
+    t.eq(boundary.action, "drop", fixture.name .. ": boundary action")
+    t.eq(boundary.version, event.issue_version, fixture.name .. ": boundary version")
+    t.eq(#label_boundary_calls, 1, fixture.name .. ": label builder reach")
+    t.eq(label_boundary_calls[1].version, event.issue_version, fixture.name .. ": label boundary version")
+  else
+    t.eq(#label_boundary_calls, 0, fixture.name .. ": label builder not reached")
+  end
+
+  local probe = probes[1]
+  local observed = nil
+  if probe ~= nil then
+    assert_probe_shape(fixture.name, probe, variant, fixture)
+    local protected = protected_admission(fixture)
+    local old_probe_outcome = protected_probe_outcome(fixture)
+    observed = protected or observed_admission(old_probe_outcome, probe, decision, boundary_reached)
+    local evidence = evidence_from_probe(probe, variant)
+    t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
+    t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
+    t.eq(evidence.target_version, probe.target_version, fixture.name .. ": catalog target version comes from probe")
+    t.eq(evidence.overlay_version, probe.incoming_version, fixture.name .. ": catalog overlay comes from probe")
+    local actual = catalog.resolve(POLICY_ID, evidence, projection)
+    t.eq(probe.decision.status, observed.status,
+      fixture.name .. ": production owner status vs protected OLD")
+    t.eq(probe.decision.reason_code, observed.reason_code,
+      fixture.name .. ": production owner reason vs protected OLD")
+    if protected ~= nil then
+      t.eq(probe.decision.cas_outcome, observed.cas_outcome,
+        fixture.name .. ": production owner outcome vs protected OLD")
+    end
+    t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
+    t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
+    if protected ~= nil then
+      t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": admission outcome parity")
+    end
+    if fixture.probe_outcome ~= nil then
+      t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
+    end
+    if fixture.admission_status ~= nil then
+      t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
+      t.eq(actual.status, fixture.admission_status, fixture.name .. ": catalog admission status")
+    end
+    if fixture.admission_reason_code ~= nil then
+      t.eq(observed.reason_code, fixture.admission_reason_code, fixture.name .. ": observed admission reason")
+      t.eq(actual.reason_code, fixture.admission_reason_code, fixture.name .. ": catalog admission reason")
+    end
+  else
+    t.eq(boundary_reached, false, fixture.name .. ": pre-CAS input cannot reach admission boundary")
+  end
+
+  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
+  t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effect count")
+  t.eq(
+    post_admission_disposition(result, boundary_reached),
+    fixture.post_admission_disposition or "not-admitted",
+    fixture.name .. ": post-admission disposition"
+  )
+  if fixture.legacy_log_outcome ~= nil then
+    t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+  end
+  return probe and {
+    evidence = evidence_from_probe(probe, variant),
+    observed = observed,
+    result = result,
+    event = event,
+    decision = decision,
+    boundary_calls = boundary_calls,
+    label_boundary_calls = label_boundary_calls,
+  } or nil
+end
+
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "bounded-fix-fixing-apply",
+    name = "r9-pr-fix-reconcile-bounded-fix-apply",
+    variant = BOUNDED_FIX_VARIANT,
+    current_state = "fixing",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "review-reject-reviewing-apply",
+    name = "r9-pr-fix-reconcile-review-reject-apply",
+    current_state = "reviewing",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "review-reject-version-mismatch-stale",
+    name = "r9-pr-fix-reconcile-stale",
+    current_state = "reviewing",
+    current_version = V_ORDERING_EQUAL_CURRENT,
+    incoming_version = V_ORDERING_EQUAL_INCOMING,
+    probe_outcome = "apply",
+    admission_status = "stale",
+    admission_reason_code = "version-mismatch",
+    legacy_log_outcome = "skip-stale(version-mismatch)",
+  },
+}
+
+local function trace_edge_id(fixture)
+  return OWNER .. "/" .. fixture.current_state .. "/entry/"
+    .. (fixture.variant or REVIEW_REJECT_VARIANT)
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-pr-fix-reconcile-trace.v1",
+    OWNER,
+    "pr-fix-reconcile",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local variant = fixture.variant or REVIEW_REJECT_VARIANT
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = "owner/repo", number = 7 },
+    proposal_id = production.event.proposal_id,
+    current = { state = fixture.current_state, version = fixture.current_version },
+    snapshot_fingerprint = "r9-pr-fix-reconcile:" .. fixture.fixture_id,
+    lock_epoch = "r9-pr-fix-reconcile:lock",
+    generation = "r9-pr-fix-reconcile:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = variant,
+    source_boundary = "devloop_fix_reconcile",
+    target = "blocked",
+    incoming_version = production.evidence.incoming_version,
+    target_version = production.evidence.target_version,
+    overlay_version = production.evidence.overlay_version,
+  })
+  t.eq(decided.edge_id, trace_edge_id(fixture), fixture.fixture_id .. ": selected edge")
+
+  local writes = observation_support.json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(
+      snapshot, decided, "comment:pr:reconcile-blocked"
+    )
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    t.eq(#production.boundary_calls, 1, fixture.fixture_id .. ": OLD comment builder observed")
+    t.eq(#production.label_boundary_calls, 1, fixture.fixture_id .. ": OLD label builder observed")
+    local facade = restart_effect_facade.make({
+      family = "pr-fix-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local boundary = production.boundary_calls[1]
+    local args = {
+      core = core,
+      repo = boundary.repo,
+      issue_number = boundary.issue_number,
+      reconcile = boundary.reconcile,
+      action = boundary.action,
+      reason = boundary.reason,
+      version = boundary.version,
+    }
+    local old_requests = {
+      ["github-proxy.github_pr_comment_request"] = boundary.request,
+      ["github-proxy.github_issue_label_request"] =
+        production.label_boundary_calls[1].request,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      t.eq(
+        observation_support.canonical_json(emitted),
+        observation_support.canonical_json(old_requests[effect_id]),
+        fixture.fixture_id .. ": NEW facade reused the OLD shared builder for " .. effect_id
+      )
+      table.insert(writes,
+        observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return decided, writes
+end
+
+local function assert_fix_reconcile_trace_equality()
+  local corpus = json.decode(file.read(FIX_RECONCILE_CORPUS_PATH))
+  local old_fixtures = observation_support.json_array()
+  local new_fixtures = observation_support.json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_admission(fixture)
+    local decided, new_writes = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 PR fix-reconcile trace"
+      )
+      or observation_support.json_array()
+    local edge_id = trace_edge_id(fixture)
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      production.observed.status,
+      production.observed.reason_code,
+      production.decision.outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      decided.status,
+      decided.reason_code,
+      decided.cas_outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      new_writes
+    ))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 PR fix-reconcile production and independent facade admission trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 PR fix-reconcile trace could not create its artifact directory", 0)
+  end
+  file.write(FIX_RECONCILE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR fix-reconcile production trace equals frozen OLD corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 PR fix-reconcile NEW semantic trace")
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
+end
+
+local function assert_shadow_parity(fixture)
+  local production = assert_catalog_matches_observed_admission(fixture)
+  t.is_true(production ~= nil, fixture.name .. ": OLD reached the CAS probe")
+  local variant = fixture.variant or REVIEW_REJECT_VARIANT
+  local sealed = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow = restart_authority.decide_transition(sealed, {
+    semantic_variant = variant,
+    source_boundary = "devloop_fix_reconcile",
+    target = "blocked",
+    incoming_version = production.evidence.incoming_version,
+    target_version = production.evidence.target_version,
+    overlay_version = production.evidence.overlay_version,
+  })
+
+  assert_bidirectional(shadow, production.observed, "status", fixture.name)
+  assert_bidirectional(shadow, production.observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production.observed, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/" .. fixture.current_state .. "/entry/" .. variant,
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.evidence.facts.source, fixture.current_state, fixture.name .. ": selected edge source")
+  t.eq(shadow.evidence.facts.target, "blocked", fixture.name .. ": selected edge target")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+end
+
+local function assert_malformed_fails_closed(payload)
+  h.mock_bot_env()
+  local result, probes, decisions, boundary_calls = observe_department(function()
+    return run_real_department(payload)
+  end)
+  t.eq(result.exit_code, 0, "malformed: production rejects without a pipeline error")
+  t.eq(#probes, 0, "malformed: production rejects before CAS")
+  t.eq(#boundary_calls, 0, "malformed: production rejects before admission boundary")
+  t.eq(#decisions, 1, "malformed: structured rejection decision count")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "malformed: legacy log outcome")
+end
+
+return {
+  test_pr_fix_reconcile_review_reject_shadow_matches_old_across_source_states = function()
+    for _, current_state in ipairs(variant_source_states[REVIEW_REJECT_VARIANT]) do
+      assert_shadow_parity({
+        name = "review-reject-" .. current_state .. "-source-equal",
+        current_state = current_state,
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        boundary_reached = true,
+        probe_outcome = "apply",
+        admission_status = "apply",
+        effect_count = 2,
+        post_admission_disposition = "effect-emitted(blocked)",
+        legacy_log_outcome = "applied",
+      })
+    end
+  end,
+
+  test_pr_fix_reconcile_bounded_fix_shadow_matches_old_across_source_states = function()
+    for _, current_state in ipairs(variant_source_states[BOUNDED_FIX_VARIANT]) do
+      assert_shadow_parity({
+        name = "bounded-fix-" .. current_state .. "-source-equal",
+        variant = BOUNDED_FIX_VARIANT,
+        current_state = current_state,
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        boundary_reached = true,
+        probe_outcome = "apply",
+        admission_status = "apply",
+        effect_count = 2,
+        post_admission_disposition = "effect-emitted(blocked)",
+        legacy_log_outcome = "applied",
+      })
+    end
+  end,
+
+  test_pr_fix_reconcile_source_older_is_stale = function()
+    assert_catalog_matches_observed_admission({
+      name = "review-reject-source-older",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      incoming_version = V_OLDER,
+      probe_outcome = "stale",
+      admission_status = "stale",
+      admission_reason_code = "incoming-version-older",
+      legacy_log_outcome = "skip-stale(version-mismatch)",
+    })
+  end,
+
+  test_pr_fix_reconcile_newer_predecessor_is_pending = function()
+    assert_catalog_matches_observed_admission({
+      name = "review-reject-newer-predecessor",
+      current_state = "pr-open",
+      current_version = V_EQUAL,
+      incoming_version = V_NEWER,
+      probe_outcome = "pending",
+      admission_status = "pending",
+      admission_reason_code = "source-marker-not-visible",
+      expected_exit_code = 1,
+      legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+    })
+  end,
+
+  test_pr_fix_reconcile_unrelated_current_is_stale = function()
+    assert_catalog_matches_observed_admission({
+      name = "review-reject-unrelated-current",
+      current_state = "awaiting-pr",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      probe_outcome = "stale",
+      admission_status = "stale",
+      admission_reason_code = "advanced-or-diverged",
+      legacy_log_outcome = "skip-stale(version-mismatch)",
+    })
+  end,
+
+  test_pr_fix_reconcile_ordering_equal_safe_different_is_stale_version_mismatch = function()
+    t.is_true(
+      V_ORDERING_EQUAL_CURRENT ~= V_ORDERING_EQUAL_INCOMING,
+      "ordering-equal-safe-different: fixture versions must be byte-different"
+    )
+    t.is_true(
+      transition_version.safe_version_segment(V_ORDERING_EQUAL_CURRENT)
+        ~= transition_version.safe_version_segment(V_ORDERING_EQUAL_INCOMING),
+      "ordering-equal-safe-different: safe segments must differ"
+    )
+    assert_shadow_parity({
+      name = "review-reject-ordering-equal-safe-different",
+      current_state = "reviewing",
+      current_version = V_ORDERING_EQUAL_CURRENT,
+      incoming_version = V_ORDERING_EQUAL_INCOMING,
+      probe_outcome = "apply",
+      admission_status = "stale",
+      admission_reason_code = "version-mismatch",
+      legacy_log_outcome = "skip-stale(version-mismatch)",
+    })
+  end,
+
+  test_pr_fix_reconcile_raw_different_safe_equal_applies = function()
+    t.is_true(
+      V_SAFE_EQUIVALENT_CURRENT ~= V_SAFE_EQUIVALENT_INCOMING,
+      "raw-different-safe-equal: fixture versions must be byte-different"
+    )
+    t.eq(
+      transition_version.safe_version_segment(V_SAFE_EQUIVALENT_CURRENT),
+      transition_version.safe_version_segment(V_SAFE_EQUIVALENT_INCOMING),
+      "raw-different-safe-equal: fixture safe segments"
+    )
+    assert_shadow_parity({
+      name = "review-reject-raw-different-safe-equal",
+      current_state = "reviewing",
+      current_version = V_SAFE_EQUIVALENT_CURRENT,
+      incoming_version = V_SAFE_EQUIVALENT_INCOMING,
+      boundary_reached = true,
+      probe_outcome = "apply",
+      admission_status = "apply",
+      effect_count = 2,
+      post_admission_disposition = "effect-emitted(blocked)",
+      legacy_log_outcome = "applied",
+    })
+  end,
+
+  test_pr_fix_reconcile_target_state_is_pre_cas_idempotent = function()
+    assert_catalog_matches_observed_admission({
+      name = "review-reject-target-state",
+      current_state = "blocked",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      admission_phase = "pre-cas",
+      legacy_log_outcome = "skip-idempotent(already terminal)",
+    })
+  end,
+
+  test_pr_fix_reconcile_malformed_version_fails_closed_before_cas = function()
+    local payload = fix_reconcile_event(V_EQUAL, REVIEW_REJECT_VARIANT)
+    payload.issue_version = 42
+    assert_malformed_fails_closed(payload)
+  end,
+
+  test_r9_pr_fix_reconcile_old_equals_new_equals_corpus = function()
+    assert_fix_reconcile_trace_equality()
+  end,
+}

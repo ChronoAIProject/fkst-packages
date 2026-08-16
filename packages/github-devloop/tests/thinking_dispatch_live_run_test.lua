@@ -1,0 +1,171 @@
+local h = require("tests.devloop_helpers")
+local payloads_builders = require("devloop.payloads.builders")
+local codex_status = require("tests.codex_status_helpers")
+local convergence_shared = require("devloop.convergence.shared")
+local conv_rounds = require("devloop.convergence.rounds")
+local t = h.t
+local core = h.core
+local issue = h.issue
+local opts = h.opts
+local run_observe = h.run_observe
+local run_loop = h.run_loop
+local mock_issue_state = h.mock_issue_state
+local mock_issue_loop = h.mock_issue_loop
+local find_raise = h.find_raise
+
+local function converge_round_comment(event, proposal_id, epoch_version, round, question, verdict)
+  local consensus_base_dedup = "consensus:" .. epoch_version
+  return {
+    body = conv_rounds.converge_round_marker(proposal_id,
+      epoch_version,
+      convergence_shared.source_ref_digest(event.source_ref),
+      round,
+      consensus_base_dedup .. "/loop/" .. tostring(round),
+      question or ("Question " .. tostring(round)),
+      {
+        { angle = "minimal", verdict = verdict or "abstain", digest = "round-digest-" .. tostring(round) },
+      }),
+    created_at = "2026-06-03T00:0" .. tostring(round) .. ":00Z",
+  }
+end
+
+return {
+  test_thinking_redrive_defers_when_matching_consensus_run_is_live = function()
+    local event = issue()
+    local original = payloads_builders.build_proposal(event)
+    local version = original.dedup_key .. "/loop/1"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
+      {
+        body = core.state_marker(original.proposal_id, "thinking", version),
+        created_at = "2026-06-03T00:00:00Z",
+      },
+    })
+
+    local run_opts = opts("thinking-live-consensus-redrive", {
+      now = "2026-06-03T02:00:00Z",
+    })
+    local release_codex_run = codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+      started_at = "2026-06-03T00:30:00Z",
+      started_at_ms = nil,
+      timeout_seconds = 7200,
+      lease_expires_at_ms = nil,
+    })
+    local result = run_observe(event, run_opts)
+    release_codex_run()
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+  end,
+
+  test_thinking_redrive_without_live_run_reuses_current_lineage = function()
+    local event = issue()
+    local original = payloads_builders.build_proposal(event)
+    local version = original.dedup_key .. "/loop/1"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
+      {
+        body = core.state_marker(original.proposal_id, "thinking", version),
+        created_at = "2026-06-03T00:00:00Z",
+      },
+    })
+
+    local result = run_observe(event, opts("thinking-no-live-consensus-redrive", {
+      now = "2026-06-03T02:00:00Z",
+    }))
+    t.eq(result.exit_code, 0)
+    local proposal = find_raise(result.raises, "devloop_consensus_request")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.effect_version, version)
+    t.is_true(proposal.payload.dedup_key ~= version)
+    t.eq(proposal.payload.round, 1)
+    local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(attempt ~= nil)
+    t.is_true(tostring(attempt.payload.body or ""):find('round="1"', 1, true) ~= nil)
+  end,
+
+  test_thinking_redrive_resumes_latest_visible_converge_round_lineage_from_base_state = function()
+    local event = issue()
+    local original = payloads_builders.build_proposal(event)
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
+      {
+        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        created_at = "2026-06-03T00:00:00Z",
+      },
+      converge_round_comment(event, original.proposal_id, original.dedup_key, 0, "Latest visible question", "abstain"),
+    })
+
+    local result = run_observe(event, opts("thinking-replay-latest-converge-round", {
+      now = "2026-06-03T02:00:00Z",
+    }))
+    t.eq(result.exit_code, 0)
+    local proposal = find_raise(result.raises, "devloop_consensus_request")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.effect_version, original.dedup_key .. "/loop/1")
+    t.is_true(proposal.payload.dedup_key ~= proposal.payload.effect_version)
+    t.eq(proposal.payload.round, 1)
+    t.eq(proposal.payload.convergence_question, "Latest visible question")
+    t.eq(proposal.payload.findings_record, nil)
+    t.eq(proposal.payload.prior_round_digests, nil)
+
+    local loop_event = {
+      schema = "consensus.consensus_converge.v1",
+      proposal_id = proposal.payload.proposal_id,
+      round = proposal.payload.round,
+      narrowed_question = "Evidence continuation still needs a handoff",
+      angle_digests = {
+        { angle = "minimal", verdict = "approve", digest = "round-digest-1" },
+      },
+      dedup_key = "consensus:" .. proposal.payload.effect_version,
+      effect_version = proposal.payload.effect_version,
+      source_ref = proposal.payload.source_ref,
+    }
+    mock_issue_loop({ "fkst-dev:enabled", "fkst-dev:thinking" }, {
+      {
+        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        created_at = "2026-06-03T00:00:00Z",
+      },
+      converge_round_comment(event, original.proposal_id, original.dedup_key, 0, "Latest visible question", "abstain"),
+    })
+    local loop = run_loop(loop_event, opts("thinking-replay-loop-regenerates-lost-handoff"))
+    t.eq(loop.exit_code, 0)
+    -- Owner directive (#2725): the continuation round-budget is non-terminal. With two
+    -- DISTINCT rounds (round-0 visible + the incoming round 1, not a true-stall),
+    -- convergence REDRIVES the next round (consensus.proposal round 2) instead of
+    -- regenerating a terminal budget-exhausted reconcile handoff.
+    local loop_proposal = h.take_consensus_proposal()
+    t.is_true(loop_proposal ~= nil)
+    t.eq(loop_proposal.round, 2)
+    t.is_true(find_raise(loop.raises, "devloop_consensus_request") ~= nil)
+    local marker = find_raise(loop.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(marker ~= nil)
+    t.is_true(marker.payload.body:find('round="1"', 1, true) ~= nil)
+    t.is_nil(marker.payload.handoff)
+  end,
+
+  test_thinking_redrive_defers_when_latest_visible_converge_round_run_is_live = function()
+    local event = issue()
+    local original = payloads_builders.build_proposal(event)
+    local version = original.dedup_key .. "/loop/1"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
+      {
+        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        created_at = "2026-06-03T00:00:00Z",
+      },
+      converge_round_comment(event, original.proposal_id, original.dedup_key, 0),
+    })
+
+    local run_opts = opts("thinking-latest-converge-live-consensus-redrive", {
+      now = "2026-06-03T02:00:00Z",
+    })
+    local release_codex_run = codex_status.seed_role_codex_run(run_opts, "consensus", original.proposal_id, version, {
+      started_at = "2026-06-03T00:30:00Z",
+      started_at_ms = nil,
+      timeout_seconds = 7200,
+      lease_expires_at_ms = nil,
+    })
+    local result = run_observe(event, run_opts)
+    release_codex_run()
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+  end,
+}

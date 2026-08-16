@@ -1,0 +1,3 @@
+# Shrink-only inventory for recognizable bot-login trust-comparison bypasses.
+# Format: kind|path|surface|why=<one-line migration reason>
+# The migrated baseline is empty; new legacy normalizers or raw comparisons fail CI.

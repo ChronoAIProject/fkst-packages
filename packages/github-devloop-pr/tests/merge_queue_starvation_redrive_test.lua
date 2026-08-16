@@ -1,0 +1,164 @@
+local entity_lib = require("devloop.entity")
+local devloop_base = require("devloop.base")
+local h = require("tests.devloop_helpers")
+local contract_time = require("contract.time")
+local payloads_builders = require("devloop.payloads.builders")
+local m_builders = require("devloop.markers.builders")
+local m_mq = require("devloop.merge_queue")
+local t = h.t
+local core = h.core
+local opts = h.opts
+local merge_ready = h.merge_ready
+local mock_bot_env = h.mock_bot_env
+local mock_write_env = h.mock_write_env
+local count_calls = h.count_calls
+local find_raise = h.find_raise
+local render_comment = h.render_comment
+local json_string = h.json_string
+
+local function branch_for_pr(pr_number)
+  return "devloop-owner-repo-" .. tostring(pr_number)
+end
+
+local function mock_repo_env()
+  t.mock_command('printf %s "$FKST_GITHUB_REPO"', {
+    stdout = "owner/repo",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_starvation_merge_queue_tick(event, run_opts)
+  return t.run_department("departments/merge_queue/main.lua", {
+    queue = "devloop_merge_queue_tick",
+    payload = m_mq.merge_queue_starvation_tick_payload("owner/repo", "merge-ready/pr/" .. tostring(event.pr_number), {
+      pr_number = event.pr_number,
+      proposal_id = event.proposal_id,
+      version = event.version,
+      head_sha = event.reviewed_head_sha,
+    }),
+  }, run_opts)
+end
+
+local function event_for_pr(pr_number, issue_number, version_time, head_sha)
+  local version = "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/" .. tostring(version_time)
+  local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
+  local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", pr_number, version, head_sha)
+  return payloads_builders.build_devloop_merge_ready_payload(proposal_id, pr_number, version, {
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = "consensus:" .. review_proposal_id .. "/review",
+    reviewed_head_sha = head_sha,
+  }, {
+    kind = "external",
+    ref = "owner/repo#pr/" .. tostring(pr_number),
+  })
+end
+
+local function merge_comments_for_event(event)
+  local entity = entity_lib.parse_entity_proposal_id(event.proposal_id)
+  return {
+    m_builders.pr_origin_marker(event.proposal_id,
+      tostring(entity.issue_number),
+      branch_for_pr(event.pr_number),
+      event.version,
+      "dev"
+    ),
+    core.state_marker(event.proposal_id, "merge-ready", event.version),
+    m_builders.merge_ready_marker(event.proposal_id,
+      event.pr_number,
+      event.version,
+      event.review_proposal_id,
+      event.review_dedup_key,
+      event.reviewed_head_sha
+    ),
+    m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
+  }
+end
+
+local function mock_queue_list(pr_numbers)
+  local items = {}
+  for _, number in ipairs(pr_numbers or {}) do
+    table.insert(items, string.format(
+      '{"number":%d,"state":"open","base":{"ref":"dev"},"head":{"ref":"%s","sha":"def%d"}}',
+      number,
+      branch_for_pr(number),
+      number
+    ))
+  end
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&base=dev&per_page=100'", {
+    stdout = "[" .. table.concat(items, ",") .. "]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_queue_pr(event, created_at)
+  local rendered = {}
+  for _, comment in ipairs(merge_comments_for_event(event)) do
+    table.insert(rendered, render_comment({
+      body = comment,
+      author_login = "fkst-test-bot",
+      created_at = created_at,
+    }))
+  end
+  t.mock_command("--json headRefName,headRefOid,baseRefName,baseRefOid,state,updatedAt,isDraft,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup", {
+    stdout = string.format(
+      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","baseRefOid":"abc123","state":"OPEN","updatedAt":"2026-06-03T02:03:04Z","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}\n',
+      json_string(branch_for_pr(event.pr_number)),
+      json_string(event.reviewed_head_sha),
+      table.concat(rendered, ",")
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+return {
+  test_queue_starvation_scheduler_does_not_label_aged_later_entry_as_head = function()
+    local fifo_head = merge_ready()
+    local aged = event_for_pr(459, 459, "2026-06-03T00-00-00Z", "abcdef1234567890abcdef1234567890abcdef12")
+    local entries = {
+      {
+        pr_number = fifo_head.pr_number,
+        proposal_id = fifo_head.proposal_id,
+        version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T02-50-00Z",
+        state = "merge-ready",
+        head_sha = fifo_head.reviewed_head_sha,
+        merge_ready_created_at = "2026-06-03T01:00:00Z",
+      },
+      {
+        pr_number = aged.pr_number,
+        proposal_id = aged.proposal_id,
+        version = aged.version,
+        state = "merge-ready",
+        head_sha = aged.reviewed_head_sha,
+        merge_ready_created_at = "2026-06-03T02:00:00Z",
+      },
+    }
+
+    local selected, age = m_mq.merge_queue_starvation_candidate(entries, 60, contract_time.iso_timestamp_epoch_seconds("2026-06-03T02:30:00Z"))
+
+    t.eq(selected, nil)
+    t.eq(age, nil)
+  end,
+
+  test_queue_starvation_redrive_does_not_merge_aged_later_entry_as_head = function()
+    local current = merge_ready()
+    local stale = event_for_pr(459, 459, "2026-06-03T00-00-00Z", "abcdef1234567890abcdef1234567890abcdef12")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_repo_env()
+    mock_queue_list({ 7, 459 })
+    mock_queue_pr(current, "2026-06-03T01:00:00Z")
+    mock_queue_pr(stale, "2026-06-03T02:00:00Z")
+
+    local result = run_starvation_merge_queue_tick(stale, opts("merge-queue-starvation-non-reported-head", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_REPO = "owner/repo",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh pr merge"), 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request"), nil)
+  end,
+}

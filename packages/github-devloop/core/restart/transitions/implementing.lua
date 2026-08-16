@@ -1,0 +1,173 @@
+local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant)
+  local id = "github-devloop/implementing/autonomous/" .. semantic_variant
+  local effect_ids = {
+    "github-proxy.github_issue_comment_request",
+  }
+  if semantic_variant ~= "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_label_request")
+  end
+  if semantic_variant == "revision_published" then
+    table.insert(effect_ids, "git.push:implementation-branch")
+  elseif semantic_variant == "precursor_waiting" then
+    table.insert(effect_ids, "github-proxy.github_issue_blocked_by_request")
+  end
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
+return function(M, h)
+  local fact = h.fact
+  local obligation = h.obligation
+  local effect = h.effect
+  local budget = h.budget
+  local timeout = h.timeout
+  local liveness = h.liveness
+  local watchdog = h.watchdog
+  local advancing_fact = h.advancing_fact
+  local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
+  return {
+    from_state = "implementing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop/implementing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:implement" },
+    },
+    liveness_class_id = "implementing.active",
+    watchdog = {
+      mode = "live-defer",
+      -- The budget must cover a whole attempt, not just its codex. A live codex defers this row,
+      -- but the harvest verification that runs after the codex exits is not a codex run, so
+      -- fkst.codex_runs cannot see it and the row becomes actionable while the attempt is still
+      -- working. At 120 the budget expired mid-attempt and redrove, and because the worktree path
+      -- is deterministic per (repo, issue, impl_version) every redrive re-entered the SAME
+      -- directory: 16 implement passes and 26 concurrent suites were observed against 1 codex.
+      -- 600 = the implement codex timeout (300 minutes) plus one harvest verification, which is
+      -- bounded by that same role timeout. The red path that adds base probes can still exceed it;
+      -- redriving there is correct, and a timeout redrives rather than terminates.
+      budget_ms = 600 * 60 * 1000,
+      on_stale = {
+        op = "redrive_receiver",
+      },
+    },
+    actionable_epoch = {
+      source = "codex_run:v1",
+      generation_source = "same_as_actionable_epoch",
+    },
+    defer = {
+      kind = "codex_run",
+      redrive_opens_generation = true,
+    },
+    terminal = false,
+    to_states = { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" },
+    driving_queue = "devloop_ready",
+    observe_surfaces = { issue = true, liveness_scan = true },
+    output_obligation = obligation(
+      { "state:v1 awaiting-pr", "state:v1 dependency_wait", "state:v1 blocked", "state:v1 impl-failed" },
+      { "awaiting-pr", "dependency_wait", "blocked", "impl-failed" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/implementing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 600,
+        },
+      },
+    },
+    budget = budget(600, "Covers one whole attempt: the implement codex plus the harvest verification that follows it, which is not a codex run and is therefore invisible to fkst.codex_runs. A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
+    liveness_contract = liveness({
+      mode = "live-defer",
+      real_execution = {
+        primitive = "fkst.codex_runs",
+        match = {
+          role = "implement",
+          proposal_id = "state.proposal_id",
+          dedup_key = "state.version",
+        },
+        status = "running",
+        on_error = "defer",
+        indeterminate_timeout = "row-budget",
+      },
+    }),
+    on_timeout = timeout("devloop_ready"),
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "code-producer",
+      driving_queue = "devloop_ready",
+      state_kind = "worker",
+      liveness_class = "implementing.active",
+      input_fact_family = "ready/devloop_ready",
+      output_postcondition_family = "implementation_attempt_result",
+      phase_rank = devloop_state.stage_rank("implementing"),
+      lineage_keys = { "state.version", "implementing.dedup", "source_ref" },
+      successors = {
+        {
+          state = "awaiting-pr",
+          output_variant = "revision_published",
+          kind = "autonomous",
+          cas_policy_id = "cas.legacy_awaiting_pr_v1",
+          cas_variant = "implementing_to_awaiting_pr",
+          transition_effect_entitlements = effect_entitlements("revision_published"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
+          monotonic = true,
+        },
+        {
+          state = "dependency_wait",
+          output_variant = "precursor_waiting",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("precursor_waiting"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
+          bump = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "implementation_refused",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("implementation_refused"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
+          monotonic = true,
+        },
+        {
+          state = "impl-failed",
+          output_variant = "revision_failed",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("revision_failed"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          failure = true,
+          monotonic = true,
+        },
+      },
+    }),
+    payload_builder_symbol = "devloop.payloads.builders.build_devloop_ready_payload",
+    dedup_shape = "ready/<implementing_inner_version> with impl_retry_attempt=<implementation_retry_attempt(state.version)>",
+    required_facts = {
+      fact("state", "marker-read"),
+      fact("implementing", "marker-read"),
+      fact("implement-attempt", "marker-read"),
+      fact("branch-head", "fetch-before-compare"),
+    },
+    advancing_facts = {
+      advancing_fact("implementing", "implementing", { issue = true, liveness_scan = true }, "source_ref:issue"),
+    },
+    payload_fields = {
+      proposal_id = "marker:state.proposal",
+      dedup_key = "marker:state.version",
+      source_ref = "source_ref:issue",
+    },
+    version_identity = "ready_payload_inner_version(state.version) plus implementation_retry_attempt(state.version)",
+    effects = effect({ "devloop_ready" }, "implementing replay is complete only when observe_issue can re-raise devloop_ready with the frozen implementing version for implement to re-derive PR link, remote branch, local branch, or bounded retry"),
+    marker_facts = "active run uses state:v1 implementing plus fkst.codex_runs real execution; implement-attempt:v1 is audit-only and implementing:v1 exists only after codex completion",
+    kickoff = "devloop_ready",
+    replay = "Observe re-raises devloop_ready only when no matching codex run exists; implement then re-derives PR link, remote branch, local branch, or bounded retry.",
+    span_contract = span_contract({
+      department = "implement",
+      durable_start_marker = "implement-attempt:v1",
+      spawn_predecessor = "raise_implementing_state",
+      spawn_function = "run_attempt",
+    }),
+  }
+end

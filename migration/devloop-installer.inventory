@@ -1,0 +1,4 @@
+{
+  "_comment": "G-DEVLOOP-INSTALLER shrink-only per-package baseline. Each entry is one production reader call through that package core to a symbol installed by that same package core. CI compares counts independently per package; record progress by deleting migrated sites. Target: no package entries.",
+  "packages": {}
+}

@@ -1,0 +1,4 @@
+# Shrink-only inventory of the existing consensus request-reply message dialogue.
+# Format: kind|path|surface|migration=<post-terminal R9 migration link>|why=<migration debt>
+# This baseline may shrink but must not grow. Zero-surface is activated only by the
+# separate post-terminal consensus-to-library behavior-change PR.

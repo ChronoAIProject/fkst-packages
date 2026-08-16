@@ -1,0 +1,9 @@
+kind = "package"
+name = "autochrono"
+persistence_class = "judgment_pipeline"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit", "testkit_internal", "consensus"]

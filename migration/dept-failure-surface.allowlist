@@ -1,0 +1,13 @@
+# Departments that use neither an enabled `retry` table nor `wrap_pipeline_failure`.
+# Omitted `retry` inherits the engine's reliable host defaults, exactly like `retry = {}`;
+# `retry = false` is the explicit opt-out. This inventory tracks package-owned explicitness,
+# not deliveries dropped because retry was omitted.
+#
+# Format: <package>.<department>|issue=#N|why=<one-line reason>
+#
+# SHRINK-ONLY. New entries fail CI. Remove an entry by giving the department a `retry` policy
+# or `wrap_pipeline_failure` -- never by widening the structural exemptions in
+# scripts/check_repo_dept_failure_surface.py.
+#
+# `dead_letter` and `test_*` departments are structurally exempt by role and are not listed.
+integration-coverage-producer.produce|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.

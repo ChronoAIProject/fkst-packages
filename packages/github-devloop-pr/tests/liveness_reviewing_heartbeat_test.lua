@@ -1,0 +1,425 @@
+local devloop_base = require("devloop.base")
+local entity_lib = require("devloop.entity")
+local convergence_shared = require("devloop.convergence.shared")
+local h = require("tests.devloop_helpers")
+local conv_rounds = require("devloop.convergence.rounds")
+local conv_attempts = require("devloop.convergence.attempts")
+local requests_review = require("devloop.requests.review")
+local devloop_state = require("devloop.state")
+local t = h.t
+local core = h.core
+local restart_policy = assert(rawget(core, "restart_policy"))
+local opts = h.opts
+local replay_fields = require("devloop.replay_fields")
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local m_builders = require("devloop.markers.builders")
+local mock_issue_review = h.mock_issue_review
+local mock_pr_origin_sequence = h.mock_pr_origin_sequence
+
+local repo = "owner/repo"
+local proposal_id = "github-devloop/issue/owner/repo/42"
+local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+
+local function restart_transition_row(state_name)
+  return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
+end
+
+local function encode_json_string(value)
+  return h.encode_json_string(value)
+end
+
+local function run_liveness_scan(name)
+  return h.run_department("departments/liveness_scan/main.lua", {
+    queue = "devloop_liveness_tick",
+    payload = { schema = "github-devloop.tick.v1" },
+    ts = "2026-06-03T01:32:03Z",
+  }, opts(name or "liveness-reviewing-heartbeat"))
+end
+
+local mock_branch_config_env = require("testkit_internal.env_mocks").mock_branch_config
+
+local function mock_branch_config_env_value(integration_branch)
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = tostring(integration_branch or "dev"),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_observe_pr(name)
+  mock_branch_config_env()
+  return h.run_department("departments/observe_pr/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = repo,
+      number = 7,
+      state = "open",
+      updated_at = "2026-06-04T01:02:03Z",
+      dedup_key = "liveness-scan/owner/repo/pr/7",
+      source = "liveness-scan",
+      source_ref = entity_lib.pr_source_ref(repo, 7),
+    },
+  }, opts(name or "observe-pr-reviewing-heartbeat"))
+end
+
+local function run_observe_pr_with_integration(name, integration_branch)
+  mock_branch_config_env_value(integration_branch)
+  return h.run_department("departments/observe_pr/main.lua", {
+    queue = "devloop_observe_pr",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = repo,
+      number = 7,
+      state = "open",
+      updated_at = "2026-06-04T01:02:03Z",
+      dedup_key = "liveness-scan/owner/repo/pr/7",
+      source = "liveness-scan",
+      source_ref = entity_lib.pr_source_ref(repo, 7),
+    },
+  }, opts(name or "observe-pr-base-unmanaged-heal"))
+end
+
+local mock_repo = require("testkit_internal.env_mocks").bind_mock_repo(devloop_base, repo)
+
+local function mock_issue_list()
+  t.mock_command(core.gh_issue_list_observe_cmd(repo), {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_pr_list()
+  t.mock_command(core.gh_pr_list_observe_cmd(repo), {
+    stdout = '[{"number":7,"state":"open","updated_at":"2026-06-04T01:02:03Z"}]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_issue_claim()
+  entity_read_mocks.mock_issue_read_forms(t, {
+    repo = repo,
+    number = 42,
+    title = "Issue 42",
+    body = "",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    labels = { "fkst-dev:enabled", "fkst-dev:reviewing" },
+    comments = {},
+    assignees = { "fkst-test-bot" },
+    register_all_views = true,
+    times = 1,
+  })
+end
+
+local function mock_pr_state(comments)
+  entity_read_mocks.mock_pr_read_forms(t, {
+    repo = repo,
+    number = 7,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = "def456",
+    base_branch = "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    times = 1,
+  })
+  entity_read_mocks.mock_pr_view_selector(t, {
+    repo = repo,
+    number = 7,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = "def456",
+    base_branch = "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    labels = {},
+  }, entity_read_mocks.pr_origin_selector)
+end
+
+local function mock_pr_state_base(comments, base_branch)
+  entity_read_mocks.mock_pr_read_forms(t, {
+    repo = repo,
+    number = 7,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = "def456",
+    base_branch = base_branch or "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    labels = { "fkst-dev:blocked" },
+    times = 1,
+  })
+  entity_read_mocks.mock_pr_view_selector(t, {
+    repo = repo,
+    number = 7,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = "def456",
+    base_branch = base_branch or "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    labels = { "fkst-dev:blocked" },
+  }, entity_read_mocks.pr_origin_selector)
+end
+
+local function trusted_comment(body, created_at)
+  return {
+    body = body,
+    author_login = "fkst-test-bot",
+    created_at = created_at or "2026-06-03T00:00:00Z",
+  }
+end
+
+local function state_comment(state_name, state_version, created_at)
+  return trusted_comment(core.state_marker(proposal_id, state_name, state_version), created_at)
+end
+
+local function timeout_attempt_comment(state_version, round)
+  return trusted_comment(conv_attempts.timeout_attempt_marker(proposal_id, state_version, "reviewing", round, entity_lib.pr_source_ref(repo, 7)))
+end
+
+local function review_round_comment(created_at)
+  local source_ref = entity_lib.pr_source_ref(repo, 7)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
+  return trusted_comment(conv_rounds.review_converge_round_marker(restart_policy,
+    review_proposal_id,
+    proposal_id,
+    version,
+    "def456",
+    convergence_shared.source_ref_digest(source_ref),
+    1,
+    "consensus:" .. review_proposal_id .. "/review/loop/1",
+    "Still reviewing",
+    { { angle = "minimal", verdict = "continue", digest = "recent" } }
+  ), created_at)
+end
+
+local function run_with_pr_comments(name, comments)
+  mock_repo()
+  mock_issue_list()
+  mock_pr_list()
+  mock_issue_claim()
+  mock_pr_state(comments)
+  return run_liveness_scan(name)
+end
+
+local function run_observe_with_pr_comments(name, comments)
+  mock_issue_claim()
+  mock_pr_state(comments)
+  return run_observe_pr(name)
+end
+
+local function find_raise(result, queue)
+  return h.find_raise(result.raises, queue)
+end
+
+local function find_pr_comment_with(result, needle)
+  return h.find_raise(result.raises, "github-proxy.github_pr_comment_request", function(payload)
+    return tostring(payload and payload.body or ""):find(needle, 1, true) ~= nil
+  end)
+end
+
+return {
+  test_liveness_scan_reviewing_redrive_carries_fresh_delivery_identity = function()
+    local review_version = version .. "/review-loop/1"
+    local result = run_with_pr_comments("liveness-scan-reviewing-fresh-delivery-identity", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
+      state_comment("reviewing", review_version, "2026-06-03T00:00:00Z"),
+    })
+    t.eq(result.exit_code, 0)
+    local reviewing = find_raise(result, "devloop_reviewing")
+    t.is_true(reviewing ~= nil)
+    t.eq(reviewing.payload.review_delivery_dedup_key, reviewing.payload.dedup_key)
+    local review_id = devloop_base.pr_review_proposal_id(repo, 7, review_version, "def456")
+    t.eq(
+      devloop_base.canonical_pr_review_proposal_dedup_for_proposal(
+        reviewing.payload.review_delivery_dedup_key,
+        review_id
+      ),
+      devloop_base.pr_review_proposal_dedup_key(review_id)
+    )
+    t.is_true(reviewing.payload.review_delivery_dedup_key ~= devloop_base.pr_review_proposal_dedup_key(review_id))
+  end,
+
+  test_observe_pr_reviewing_redrive_preserves_fresh_identity_through_comment_handoff = function()
+    local review_version = version .. "/review-loop/1"
+    local observed = run_observe_with_pr_comments("observe-pr-reviewing-fresh-delivery-identity", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
+      state_comment("reviewing", review_version, "2026-06-03T00:00:00Z"),
+    })
+    if observed.exit_code ~= 0 then
+      error("observe_pr redrive failed: " .. tostring(observed.error or observed.stderr))
+    end
+    local comment = h.find_raise(observed.raises, "github-proxy.github_pr_comment_request", function(payload)
+      return payload.handoff ~= nil and payload.handoff.kind == "github-devloop.reviewing"
+    end)
+    t.is_true(comment ~= nil)
+    local delivery_dedup_key = comment.payload.handoff.review_delivery_dedup_key
+    t.eq(comment.payload.dedup_key, delivery_dedup_key)
+    t.is_true(#delivery_dedup_key <= devloop_base._max_key_len)
+    local review_id = devloop_base.pr_review_proposal_id(repo, 7, review_version, "def456")
+    t.eq(
+      devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(delivery_dedup_key),
+      review_id
+    )
+
+    local handed_off = h.run_comment_handoff_from_request(
+      comment.payload,
+      "IC_reviewing_redrive_1",
+      "observe-pr-reviewing-redrive-handoff"
+    )
+    if handed_off.exit_code ~= 0 then
+      error("comment_handoff redrive failed: " .. tostring(handed_off.error or handed_off.stderr))
+    end
+    local reviewing_event = find_raise(handed_off, "devloop_reviewing")
+    t.is_true(reviewing_event ~= nil)
+    t.eq(reviewing_event.payload.dedup_key, delivery_dedup_key)
+    t.eq(reviewing_event.payload.review_delivery_dedup_key, delivery_dedup_key)
+
+    mock_issue_review({ "fkst-dev:reviewing" }, {
+      core.state_marker(proposal_id, "reviewing", review_version),
+    }, {
+      title = "Implement decision recorder",
+      body = "Issue context",
+    })
+    mock_pr_origin_sequence({
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+    })
+    local reviewed = h.run_review_pr(reviewing_event.payload, opts("review-pr-redrive-from-comment-handoff"))
+    if reviewed.exit_code ~= 0 then
+      error("review_pr redrive failed: " .. tostring(reviewed.error or reviewed.stderr))
+    end
+    local proposal = find_raise(reviewed, "devloop_review_request")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.proposal_id, review_id)
+    t.eq(proposal.payload.dedup_key, delivery_dedup_key)
+  end,
+
+  test_liveness_scan_reviewing_recent_pr_converge_round_does_not_timeout_count = function()
+    local result = run_with_pr_comments("liveness-scan-reviewing-pr-heartbeat-live", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", version, "2026-06-03T00:00:00Z"),
+      review_round_comment(os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
+    })
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.eq(find_raise(result, "devloop_reviewing"), nil)
+    t.eq(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt:v1"), nil)
+  end,
+
+  test_liveness_scan_reviewing_stale_past_budget_pr_converge_round_climbs_to_blocked = function()
+    local timeout_version = version .. "/timeout/reviewing/3"
+    local result = run_with_pr_comments("liveness-scan-reviewing-pr-heartbeat-stale", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
+      timeout_attempt_comment(version, 1),
+      timeout_attempt_comment(version, 2),
+      review_round_comment("2026-06-03T00:00:00Z"),
+    })
+    t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): a reviewing stale-past-budget PR converge round is a
+    -- round/counter condition that must NEVER escalate to a terminal reconcile/blocked; it
+    -- REDRIVES, emitting the next timeout-attempt PR comment instead.
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.is_true(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt") ~= nil)
+  end,
+
+  test_liveness_scan_reviewing_issue_side_heartbeat_is_not_read_as_pr_live = function()
+    local row = restart_transition_row("reviewing")
+    local source_ref = entity_lib.pr_source_ref(repo, 7)
+    local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
+    local signal = core.restart_row_liveness_signal(row, {
+      state = "reviewing",
+      version = version,
+      proposal_id = proposal_id,
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }, {
+      proposal_id = proposal_id,
+      source_ref = source_ref,
+      review_proposal_id = review_proposal_id,
+      head_sha = "def456",
+      current = {
+        comments = {
+          review_round_comment(os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
+        },
+      },
+      current_pr = {
+        comments = {},
+      },
+      now_seconds = now(),
+    }, now())
+    t.eq(signal.live, false)
+  end,
+
+  test_observe_pr_reviewing_recent_pr_converge_round_does_not_escalate_timeout = function()
+    local timeout_version = version .. "/timeout/reviewing/2"
+    local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-live", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
+      timeout_attempt_comment(version, 1),
+      timeout_attempt_comment(version, 2),
+      review_round_comment(os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
+    })
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.eq(find_raise(result, "devloop_reviewing"), nil)
+    t.eq(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt:v1"), nil)
+  end,
+
+  test_observe_pr_reviewing_stale_past_budget_pr_converge_round_escalates_timeout = function()
+    local timeout_version = version .. "/timeout/reviewing/2"
+    local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-stale", {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
+      timeout_attempt_comment(version, 1),
+      timeout_attempt_comment(version, 2),
+      review_round_comment("2026-06-03T00:00:00Z"),
+    })
+    t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): a reviewing stale-past-budget PR converge round is a
+    -- round/counter condition that must NEVER escalate to a terminal reconcile/blocked; it
+    -- REDRIVES, emitting the next timeout-attempt PR comment instead.
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.is_true(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt") ~= nil)
+  end,
+
+  test_liveness_scan_pr_base_unmanaged_block_reinjects_observe_before_decompose = function()
+    local blocked_version = requests_review.pr_base_unmanaged_blocked_version(version)
+    local comments = {
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("blocked", blocked_version, "2026-06-01T00:00:00Z"),
+    }
+    mock_branch_config_env_value("dev")
+    mock_repo()
+    mock_issue_list()
+    mock_pr_list()
+    mock_issue_claim()
+    mock_pr_state_base(comments, "dev")
+
+    local scanned = run_liveness_scan("liveness-scan-pr-base-unmanaged-heal")
+    t.eq(scanned.exit_code, 0)
+    t.eq(find_raise(scanned, "github-devloop-decompose.devloop_decompose"), nil)
+    t.eq(find_pr_comment_with(scanned, "fkst:github-devloop:timeout-attempt"), nil)
+    local observe = find_raise(scanned, "devloop_observe_pr")
+    t.is_true(observe ~= nil)
+    t.eq(observe.payload.source, "liveness-scan")
+
+    mock_issue_claim()
+    mock_pr_state_base(comments, "dev")
+    local observed = run_observe_pr_with_integration("observe-pr-base-unmanaged-heal-from-liveness", "dev")
+    t.eq(observed.exit_code, 0)
+    local reviewing = h.find_causal_raise(observed, "devloop_reviewing")
+    t.is_true(reviewing ~= nil)
+    t.eq(reviewing.payload.version, devloop_state.next_review_loop_version(version))
+  end,
+}
