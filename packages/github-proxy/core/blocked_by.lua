@@ -87,6 +87,32 @@ function M.parse_issue_node_id(stdout)
   return id
 end
 
+function M.gh_blocking_entity_kind_cmd(node_id)
+  local query = M.github_graphql_queries.blocking_entity_kind
+  return function(timeout)
+    return M.github_graphql(query, { id = node_id }, timeout)
+  end
+end
+
+function M.parse_blocking_entity_kind(stdout)
+  local ok, decoded = pcall(json.decode, stdout or "")
+  local kind = ok
+    and type(decoded) == "table"
+    and type(decoded.data) == "table"
+    and type(decoded.data.node) == "table"
+    and decoded.data.node.__typename
+  if type(kind) ~= "string" or kind == "" then
+    error("github-proxy: blocking-entity-kind-response-malformed: blocking entity kind response missing __typename")
+  end
+  return kind
+end
+
+function M.assert_blocking_entity_is_issue(kind)
+  if kind ~= "Issue" then
+    error("github-proxy: blocking-entity-not-issue: blocking entity resolved as " .. tostring(kind))
+  end
+end
+
 function M.gh_issue_blocked_by_cmd(repo, issue_number)
   local owner, name = forge_strings.split_repo(repo)
   if owner == nil or not shared.is_positive_integer(issue_number) then
@@ -221,6 +247,9 @@ function M.write_issue_blocked_by_request(payload)
       if blocked_id == nil or blocking_id == nil then
         error("github-proxy: issue-node-id-missing: issue node id missing")
       end
+      local blocking_kind = M.gh_exec(
+        M.gh_blocking_entity_kind_cmd(blocking_id), 30, "GitHub blocking entity kind")
+      M.assert_blocking_entity_is_issue(M.parse_blocking_entity_kind(blocking_kind.stdout))
       M.gh_exec(M.gh_add_blocked_by_cmd(blocked_id, blocking_id), 30, "GitHub addBlockedBy")
     end
 
