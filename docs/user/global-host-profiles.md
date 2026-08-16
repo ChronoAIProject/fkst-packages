@@ -57,13 +57,24 @@ The profile schema is the existing host-run environment surface:
 | `FKST_DURABLE_ROOT` | yes for supervise | Stable durable delivery root passed as `--durable-root`. |
 | `FKST_RATE_POOL_ROOT` | yes for GitHub traffic | Host-stable external-command rate-pool root. |
 | `FKST_GITHUB_REPO` | package-dependent | GitHub repository identity such as `owner/repo`. |
-| `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. |
+| `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. It is also the required anchor of the trusted-author allowlist, so the account named here is always an authorized author for this deployment — configuring a login here is what makes that account "the bot" to this host, whether it is a GitHub App identity or a person's own account. |
+| `FKST_DEVLOOP_MANAGED_BOT_LOGINS` | optional | Comma-separated logins this fleet treats as its own automation rather than outside contributions. Merged into the trusted-author allowlist alongside `FKST_GITHUB_BOT_LOGIN`. An App identity carries the `[bot]` suffix; a personal account does not. |
+| `FKST_GITHUB_AUTHORIZED_LOGINS` | optional | Comma-separated additional logins whose authored issues, comments and reviews this deployment will act on. |
+| `FKST_GITHUB_AUTHORIZE_ORG_MEMBERS` | optional | Trimmed `1` additionally authorizes every member of the organization owning `FKST_GITHUB_REPO`, read from `orgs/<owner>/members`; unset or any other value keeps the allowlist static. If that read fails, the allowlist falls back to the static logins rather than opening up. |
+| `FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS` | optional | Trimmed `1` additionally authorizes every push-permission collaborator on `FKST_GITHUB_REPO`, read from `repos/<repo>/collaborators?permission=push`; same default and the same fail-closed fallback. |
 | `FKST_GITHUB_CLAIM_MODE` | optional | Claim ownership posture: trimmed `label` selects claim labels for GitHub App hosts that cannot be issue assignees; `assignee` is the default, and unset or every other value uses issue assignees. |
 | `FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE` | optional | Claim-label naming posture: trimmed `1` selects the bare `fkst-dev:claimed` label, and only one App host may use that exclusive posture because two bare-label hosts recreate a holderless lock; unset or every other value defaults to `fkst-dev:claimed:<128-bit-sha256-of-normalized-owner>`. Provisioning binds the full normalized owner in the label description and fails closed if that derived name is already bound to another owner. Existing bare-label deployments must either opt in with `1` or clear stale bare claim labels before switching. |
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
 | `FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` | optional | Trusted-base cache preparation run for each implementation worktree before Codex starts. |
+
+Those five keys together are the whole trusted-author allowlist: `FKST_GITHUB_BOT_LOGIN`
+(a required anchor) ∪ `FKST_DEVLOOP_MANAGED_BOT_LOGINS` ∪ `FKST_GITHUB_AUTHORIZED_LOGINS`,
+plus the two optional membership sets when their flags are `1`. A host that names no
+additional logins still acts on content authored by its own configured login and declines
+every other author, so setting `FKST_GITHUB_BOT_LOGIN` alone is already an authorization
+decision and not only an identity one.
 
 `FKST_GITHUB_WRITE=1` is intentionally commented in the scaffold. Unset means dry-run.
 
