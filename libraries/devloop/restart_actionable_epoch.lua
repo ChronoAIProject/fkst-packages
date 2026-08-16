@@ -483,7 +483,7 @@ function C.actionable_epoch_timeout_due(M, row, state, facts, now_seconds)
   return true, age
 end
 
-function C.actionable_epoch_timeout_attempt(M, row, state, facts)
+function C.actionable_epoch_timeout_attempt(row, state, facts)
   local eval = facts and facts.actionable_epoch_eval
   if type(eval) ~= "table" or eval.status ~= "actionable" or eval.generation_key == nil then
     return 0
