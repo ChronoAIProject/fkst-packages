@@ -830,13 +830,14 @@ local function process_ready_event(event)
       end
       attempt_plan.base_head = attempt_plan.base_head or worktree_lifecycle.prepare_base(attempt_plan.branches)
       local function prepare()
-        worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result = prepare_attempt(
+        return prepare_attempt(
           repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
           attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
           attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
           activation_snapshot, activation_decision, lock_key)
       end
-      replacement_recovery.prepare(with_lock, implement_caps.git_handle, attempt_plan, prepare)
+      worktree, codex_started_at, exec_ref, receiver_authorization, attempt_plan.completed_result =
+        replacement_recovery.prepare(implement_caps.git_handle, attempt_plan, prepare)
     end
   end)
   if worktree == nil then

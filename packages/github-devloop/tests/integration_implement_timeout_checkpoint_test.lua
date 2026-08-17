@@ -263,6 +263,20 @@ local function mock_local_progress_read(head_sha, receipt_subject)
   mock_branch_diff_paths("packages/github-devloop/core.lua\n", receipt_subject)
 end
 
+local function mock_worktree_receipt_read(head_sha, receipt_subject)
+  t.mock_command("rev-parse HEAD", {
+    stdout = head_sha .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("cat-file -p", {
+    stdout = "tree aaaaaaa\nparent bbbbbbb\n\n"
+      .. tostring(receipt_subject or "ordinary implementation progress") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function deadline_redrive_ready(event)
   local payload = payloads_builders.build_devloop_ready_payload({
     proposal_id = event.proposal_id,
@@ -383,12 +397,29 @@ return {
       "harvested implementation must retain the completed-result worktree")
   end,
 
-  test_deadline_redrive_harvests_receipt_committed_at_replacement_lock_boundary = function()
+  test_deadline_redrive_harvests_receipt_committed_during_replacement_preparation = function()
     local current = ready()
     local event = deadline_redrive_ready(current)
     local branch = deterministic_branch_for(current)
     local progress_head = "1111111111111111111111111111111111111111"
     local receipt_head = "2222222222222222222222222222222222222222"
+    mock_issue_implement({ "fkst-dev:ready" }, nil, { times = 2 })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "completed implementation output")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(progress_head, branch, nil, receipt_head)
+    t.mock_command("rev-parse --abbrev-ref HEAD", {
+      stdout = branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_view_failure("title,body,labels,comments,state,author", "post-output source recheck failed")
+    local first_opts = opts("implement-deadline-redrive-orphan-runtime")
+    local first = run_implement(event, first_opts)
+    t.eq(first.exit_code, 1)
+    local first_codex_calls = count_calls("codex exec")
+    local first_gate_calls = count_calls("scripts/run.sh test-affected")
+
     local comments = {
       core.state_marker(current.proposal_id, "implementing", current.dedup_key),
       core.implement_attempt_marker(current.proposal_id, current.dedup_key, 1, stale_started_at()),
@@ -407,28 +438,35 @@ return {
       exit_code = 0,
     })
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    mock_local_progress_read(receipt_head,
-      "fkst: implementation result v1 " .. require("contract.sha256").hex(current.dedup_key))
+    mock_local_progress_read(progress_head)
     t.mock_command("show-ref --verify --quiet", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("rev-parse HEAD", {
-      stdout = receipt_head .. "\n",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_worktree_receipt_read(receipt_head, "fkst: implementation result v1 "
+      .. require("contract.sha256").hex(current.dedup_key))
     mock_implement_codex(0, "deadline redrive must not replace a completed result")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("3333333333333333333333333333333333333333", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
 
-    local result = run_implement(event, opts("implement-deadline-redrive-receipt-race"))
+    local run_opts = opts("implement-deadline-redrive-receipt-race")
+    local result = run_implement(event, run_opts)
 
+    t.is_true(first_opts.env.FKST_RUNTIME_ROOT ~= run_opts.env.FKST_RUNTIME_ROOT,
+      "receipt harvest must cross fresh runtime roots")
     t.eq(result.exit_code, 0, tostring(result.error))
-    t.eq(count_calls("codex exec"), 0, "completed receipt must suppress replacement Codex")
-    t.eq(count_calls("scripts/run.sh test-affected"), 1, "completed receipt must enter local verification")
+    t.eq(count_calls("codex exec"), first_codex_calls,
+      "completed receipt must suppress replacement Codex")
+    t.eq(count_calls("scripts/run.sh test-affected"), first_gate_calls + 1,
+      "completed receipt must enter replacement harvest verification")
+    local merge_index = last_command_call_index("merge --no-edit")
+    local receipt_index = last_command_call_index("cat-file -p")
+    local gate_index = last_command_call_index("scripts/run.sh test-affected")
+    t.is_true(merge_index ~= nil and receipt_index ~= nil and gate_index ~= nil)
+    t.is_true(merge_index < receipt_index and receipt_index < gate_index,
+      "replacement must reread the durable receipt after preparation and before harvest")
     local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
     end)
@@ -736,6 +774,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    mock_worktree_receipt_read("1111111111111111111111111111111111111111")
     mock_implement_codex(0, "finished from local progress")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
@@ -780,6 +819,7 @@ return {
     mock_remote_branch(branch, checkpoint_head)
     mock_local_progress_read(checkpoint_head)
     mock_stale_local_branch_remote_checkpoint_reuse(event, branch, checkpoint_head)
+    mock_worktree_receipt_read(checkpoint_head)
     mock_implement_codex(0, "finished from checkpoint")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)

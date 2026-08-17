@@ -170,10 +170,7 @@ local function run_attempt(args)
     harvest.commit_dirty_worktree(args.repo, args.issue_number, args.ready, args.worktree, args.branch)
   end
 
-  local result_head = nil
-  result_checkpoint.with_version_lock(with_lock, args.ready.proposal_id, args.ready.dedup_key, function()
-    result_head = result_checkpoint.persist(implement_caps.git_handle, args.worktree, args.ready.dedup_key)
-  end)
+  local result_head = result_checkpoint.persist(implement_caps.git_handle, args.worktree, args.ready.dedup_key)
   return harvest.after_codex_success(
     args.repo,
     args.issue_number,

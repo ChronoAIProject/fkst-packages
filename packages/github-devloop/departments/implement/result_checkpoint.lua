@@ -1,23 +1,9 @@
 local pr_safety = require("devloop.pr_safety")
-local base_ids = require("devloop.base_ids")
 local sha256 = require("contract.sha256")
 
 local M = {}
 
 local SUBJECT_PREFIX = "fkst: implementation result v1 "
-
-function M.version_lock_key(proposal_id, version)
-  if tostring(proposal_id or "") == "" or tostring(version or "") == "" then
-    error("github-devloop: implementation-result-lock-identity-missing: proposal and version are required")
-  end
-  return base_ids.dedup_key({
-    "github-devloop", "implement-result", proposal_id, version,
-  })
-end
-
-function M.with_version_lock(with_lock_fn, proposal_id, version, fn)
-  return with_lock_fn(M.version_lock_key(proposal_id, version), fn)
-end
 
 function M.subject(version)
   local logical_version = tostring(version or "")
@@ -87,6 +73,16 @@ function M.rehydrate(git, progress, version)
     return nil
   end
   return progress
+end
+
+function M.rehydrate_worktree(git, worktree, progress, version)
+  if type(progress) ~= "table" then return nil end
+  local current = {}
+  for key, value in pairs(progress) do
+    current[key] = value
+  end
+  current.head_sha = read_head(git, worktree)
+  return M.rehydrate(git, current, version)
 end
 
 return M

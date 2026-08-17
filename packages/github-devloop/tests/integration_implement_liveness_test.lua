@@ -443,6 +443,16 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("rev-parse HEAD", {
+      stdout = "def456\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("cat-file -p", {
+      stdout = "tree aaaaaaa\nparent bbbbbbb\n\nordinary implementation progress\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_implement_codex(0, "finished from local progress")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("fed456", branch)
