@@ -682,7 +682,7 @@ host_run_require_expected_engine_revision() {
     printf 'ENGINE_BINARY_RECEIPT_ABSENT: no receipt beside %s\n' "$BIN" >&2
     return 1
   }
-  observed="$(shasum -a 256 "$BIN" 2>/dev/null | cut -d" " -f1)"
+  observed="sha256-$(shasum -a 256 "$BIN" 2>/dev/null | cut -d" " -f1)"
   recorded="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["binary_sha256"])' "$receipt" 2>/dev/null || true)"
   if [ -z "$observed" ] || [ -z "$recorded" ] || [ "$observed" != "$recorded" ]; then
     printf 'ENGINE_BINARY_RECEIPT_MISMATCH: revision %s bytes at %s do not match its receipt\n' \

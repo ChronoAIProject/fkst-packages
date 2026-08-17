@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """The supervise contract must refuse a binary that is not the declared engine revision.
 
+The receipt records the digest in the publisher's canonical `sha256-<hex>` form, so these
+fixtures write that exact form; comparing a bare hex digest against it never matches.
+
 Each case drives the real `host_run_require_expected_engine_revision` from
 `scripts/host_run.sh`, so a regression in that function fails here rather than only on
 a live machine.
@@ -34,7 +37,7 @@ def _publish(directory: pathlib.Path, revision: str, body: bytes, digest: str | 
     binary.chmod(0o755)
     receipt = directory / f".{binary.name}.build-receipt.json"
     receipt.write_text(
-        json.dumps({"binary_sha256": digest or hashlib.sha256(body).hexdigest()}),
+        json.dumps({"binary_sha256": digest or "sha256-" + hashlib.sha256(body).hexdigest()}),
         encoding="ascii",
     )
     return binary
@@ -54,7 +57,7 @@ def main() -> int:
             failures.append("a binary for another revision must be refused")
 
         # Bytes that no longer match the receipt are a corrupt or partial publication.
-        tampered = _publish(directory, SHA_B, b"engine-bytes", digest=hashlib.sha256(b"other").hexdigest())
+        tampered = _publish(directory, SHA_B, b"engine-bytes", digest="sha256-" + hashlib.sha256(b"other").hexdigest())
         if _drive(tampered, SHA_B).returncode == 0:
             failures.append("bytes that do not match the receipt must be refused")
 
