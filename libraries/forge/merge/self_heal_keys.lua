@@ -42,8 +42,28 @@ function K.ci_selfheal_once_key(repo, pr_number, head_sha)
   return key("ci-selfheal", repo, pr_number, head_sha)
 end
 
+function K.ci_verification_selfheal_once_key(repo, pr_number, head_sha, base_sha)
+  local value = key("ci-verification-selfheal", repo, pr_number, head_sha)
+    .. "/"
+    .. safe_head_segment(base_sha)
+  if not strings.is_path_safe_key(value, max_dedup_len) then
+    error("github-devloop: dedup-key-invalid: invalid verification self-heal dedup_key")
+  end
+  return value
+end
+
 function K.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
   return key("ci-missing-status-observed", repo, pr_number, head_sha)
+end
+
+function K.ci_verification_selfheal_first_observed_key(repo, pr_number, head_sha, base_sha)
+  local value = key("ci-verification-selfheal-observed", repo, pr_number, head_sha)
+    .. "/"
+    .. safe_head_segment(base_sha)
+  if not strings.is_path_safe_key(value, max_dedup_len) then
+    error("github-devloop: dedup-key-invalid: invalid verification self-heal observed key")
+  end
+  return value
 end
 
 return K

@@ -141,7 +141,7 @@ jobs:
 
   verification-subject:
     needs: test
-    name: "verification-subject:${{ github.event.pull_request.base.sha || github.sha }}"
+    name: "verification-subject:${{ github.event.pull_request.base.sha || github.sha }}:${{ github.event.pull_request.head.sha || github.sha }}"
     runs-on: ubuntu-latest
     steps:
       - name: Attest successful verification against the current base

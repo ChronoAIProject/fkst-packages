@@ -358,7 +358,7 @@ local function capture(fixture)
         .. '","status":"' .. rollup_status .. '","conclusion":' .. rollup_conclusion
         .. ',"headSha":"' .. rollup_head_sha .. '"},'
         .. '{"__typename":"CheckRun","name":"verification-subject:' .. string.rep("a", 40)
-        .. '","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. head_sha .. '"}]',
+        .. ':' .. head_sha .. '","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. head_sha .. '"}]',
     }
   end
   function ports.github.issue_view(repo, number, fields, timeout)

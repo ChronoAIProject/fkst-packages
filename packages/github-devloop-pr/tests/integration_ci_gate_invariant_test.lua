@@ -125,7 +125,7 @@ return {
     local base_0 = "aaa111"
     local base_1 = "bbb222"
     local rollup = '[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"},'
-      .. '{"name":"verification-subject:' .. base_0 .. '","status":"COMPLETED","conclusion":"SUCCESS"}]'
+      .. '{"name":"verification-subject:' .. base_0 .. ':' .. event.reviewed_head_sha .. '","status":"COMPLETED","conclusion":"SUCCESS"}]'
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")

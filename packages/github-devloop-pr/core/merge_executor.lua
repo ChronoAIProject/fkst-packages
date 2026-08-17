@@ -617,14 +617,15 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       return
     end
     if not parsers_misc.is_ci_red_reason(rollup_reason) then
-      if rollup_reason == "missing-status-rollup" then
+      if rollup_reason == "missing-status-rollup" or rollup_reason == "verification-subject-missing" then
         local healed, heal_reason = core.ci_selfheal_once(
           repo,
           merge_ready.pr_number,
           current_pr,
           merge_ready.proposal_id,
           nil,
-          ci_check_runs
+          ci_check_runs,
+          { require_verification_subject = rollup_reason == "verification-subject-missing" }
         )
         if healed then
           log_gate(merge_ready, "dry-run", "ci-selfheal-triggered; waiting for checks")

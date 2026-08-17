@@ -318,7 +318,7 @@ function C.is_ci_wait_reason(reason)
     or text == "ci-unknown"
     or text == "checks-pending"
     or text == "rollup-pending"
-    or text == "verification-subject-base-invalid"
+    or text == "verification-subject-identity-invalid"
     or text == "verification-subject-missing"
 end
 

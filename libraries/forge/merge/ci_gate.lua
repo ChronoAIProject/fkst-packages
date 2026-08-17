@@ -145,7 +145,8 @@ local function evaluate_ci_status_gate(pr, opts)
   if green and type(opts) == "table" and opts.require_verification_subject == true then
     green, green_reason = verification_subject_green(
       check_runs or (type(pr) == "table" and pr.status_check_rollup or nil),
-      type(pr) == "table" and pr.base_ref_oid or nil
+      type(pr) == "table" and pr.base_ref_oid or nil,
+      type(pr) == "table" and pr.head_sha or nil
     )
   end
   return green, green_reason, check_runs

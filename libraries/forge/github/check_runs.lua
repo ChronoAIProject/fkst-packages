@@ -157,17 +157,20 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
-function C.verification_subject_check_name(base_ref_oid)
-  if not gitref.is_git_sha(base_ref_oid) then
+function C.verification_subject_check_name(base_ref_oid, head_sha)
+  if not gitref.is_git_sha(base_ref_oid) or not gitref.is_git_sha(head_sha) then
     return nil
   end
-  return "verification-subject:" .. tostring(base_ref_oid):lower()
+  return "verification-subject:"
+    .. tostring(base_ref_oid):lower()
+    .. ":"
+    .. tostring(head_sha):lower()
 end
 
-function C.verification_subject_green(entries, base_ref_oid)
-  local expected = C.verification_subject_check_name(base_ref_oid)
+function C.verification_subject_green(entries, base_ref_oid, head_sha)
+  local expected = C.verification_subject_check_name(base_ref_oid, head_sha)
   if expected == nil then
-    return false, "verification-subject-base-invalid"
+    return false, "verification-subject-identity-invalid"
   end
   local pending = false
   local red = false
@@ -195,7 +198,8 @@ end
 function C.pr_verification_subject_green(pr)
   return C.verification_subject_green(
     type(pr) == "table" and pr.status_check_rollup or nil,
-    type(pr) == "table" and pr.base_ref_oid or nil
+    type(pr) == "table" and pr.base_ref_oid or nil,
+    type(pr) == "table" and pr.head_sha or nil
   )
 end
 

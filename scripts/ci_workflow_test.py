@@ -102,7 +102,11 @@ class CiWorkflowTest(unittest.TestCase):
         workflow = self.read_workflow()
 
         self.assertIn("github.event.pull_request.head.sha || github.sha", workflow)
-        self.assertIn("verification-subject:${{ github.event.pull_request.base.sha || github.sha }}", workflow)
+        self.assertIn(
+            "verification-subject:${{ github.event.pull_request.base.sha || github.sha }}:"
+            "${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
         self.assertRegex(workflow, r"verification-subject:\n\s+needs: test")
 
 

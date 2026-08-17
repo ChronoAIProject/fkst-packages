@@ -167,7 +167,7 @@ local function mock_queue_pr(event, created_at, state, state_version, mergeable,
     mergeable = mergeable or "MERGEABLE",
     merge_state = merge_state or "CLEAN",
     status_check_rollup_json = '[{"name":"test","status":' .. json_literal(rollup_state or "COMPLETED") .. ',"conclusion":' .. json_literal(rollup_conclusion or "SUCCESS") .. '},'
-      .. '{"name":"verification-subject:' .. current_base .. '","status":"COMPLETED","conclusion":"SUCCESS"}]',
+      .. '{"name":"verification-subject:' .. current_base .. ':' .. event.reviewed_head_sha .. '","status":"COMPLETED","conclusion":"SUCCESS"}]',
   })
 end
 
@@ -192,7 +192,7 @@ local function mock_merge_pr_view(event, state, mergeable, merge_state, rollup_s
     mergeable = mergeable or "MERGEABLE",
     merge_state = merge_state or "CLEAN",
     status_check_rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":' .. json_literal(rollup_conclusion or "SUCCESS") .. ',"detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":' .. json_literal(rollup_state or "COMPLETED") .. ',"workflowName":"test"},'
-      .. '{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:05Z","conclusion":"SUCCESS","detailsUrl":"https://example.invalid/checks/verification-subject","name":"verification-subject:' .. current_base .. '","startedAt":"2026-06-03T02:04:04Z","status":"COMPLETED","workflowName":"ci"}]',
+      .. '{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:05Z","conclusion":"SUCCESS","detailsUrl":"https://example.invalid/checks/verification-subject","name":"verification-subject:' .. current_base .. ':' .. event.reviewed_head_sha .. '","startedAt":"2026-06-03T02:04:04Z","status":"COMPLETED","workflowName":"ci"}]',
   })
 end
 

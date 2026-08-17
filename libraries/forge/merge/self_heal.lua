@@ -117,11 +117,7 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
   return true, "ci-selfheal-head-nudged"
 end
 
-local function ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_seconds, grace_seconds)
-  local green, green_reason = pr_rollup_green(pr)
-  if green or green_reason ~= "missing-status-rollup" then
-    return false, green_reason
-  end
+local function missing_fact_dispatch_eligible(now_seconds, first_observed_seconds, grace_seconds, reason)
   local current_seconds = tonumber(now_seconds)
   local observed_seconds = tonumber(first_observed_seconds)
   local grace = tonumber(grace_seconds or 300)
@@ -132,17 +128,47 @@ local function ci_missing_status_dispatch_eligible(pr, now_seconds, first_observ
   if age_seconds < grace then
     return false, "missing-status-grace"
   end
-  return true, "missing-status-rollup", age_seconds
+  return true, reason or "missing-status-rollup", age_seconds
 end
 
-local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds, runs)
+local function ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_seconds, grace_seconds)
   local green, green_reason = pr_rollup_green(pr)
   if green or green_reason ~= "missing-status-rollup" then
     return false, green_reason
   end
+  return missing_fact_dispatch_eligible(now_seconds, first_observed_seconds, grace_seconds)
+end
+
+local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds, runs, opts)
+  local green, green_reason = pr_rollup_green(pr)
+  local verification_missing = false
+  if type(opts) == "table" and opts.require_verification_subject == true and green then
+    local subject_green, subject_reason = check_runs.verification_subject_green(
+      runs or (type(pr) == "table" and pr.status_check_rollup or nil),
+      type(pr) == "table" and pr.base_ref_oid or nil,
+      type(pr) == "table" and pr.head_sha or nil
+    )
+    if subject_green then
+      return false, subject_reason
+    end
+    if subject_reason ~= "verification-subject-missing" then
+      return false, subject_reason
+    end
+    verification_missing = true
+    green_reason = subject_reason
+  end
+  if not verification_missing and (green or green_reason ~= "missing-status-rollup") then
+    return false, green_reason
+  end
   local head_sha = tostring(pr and pr.head_sha or "")
+  local base_sha = tostring(pr and pr.base_ref_oid or "")
   local now_seconds = now()
-  local observed_key = self_heal_keys.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
+  local observed_key
+  if verification_missing then
+    observed_key = self_heal_keys.ci_verification_selfheal_first_observed_key(repo, pr_number, head_sha, base_sha)
+  else
+    observed_key = self_heal_keys.ci_missing_status_first_observed_key(repo, pr_number, head_sha)
+  end
   local first_observed_seconds = tonumber(cache_get(observed_key) or "")
   if first_observed_seconds == nil then
     first_observed_seconds = tonumber(now_seconds)
@@ -151,13 +177,24 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
     end
     cache_set(observed_key, tostring(first_observed_seconds))
   end
-  local eligible, reason, age_seconds = ci_missing_status_dispatch_eligible({
-    status_check_rollup = pr and pr.status_check_rollup,
-  }, now_seconds, first_observed_seconds, grace_seconds)
+  local eligible, reason, age_seconds
+  if verification_missing then
+    eligible, reason, age_seconds = missing_fact_dispatch_eligible(
+      now_seconds, first_observed_seconds, grace_seconds, "verification-subject-missing")
+  else
+    eligible, reason, age_seconds = ci_missing_status_dispatch_eligible({
+      status_check_rollup = pr and pr.status_check_rollup,
+    }, now_seconds, first_observed_seconds, grace_seconds)
+  end
   if not eligible then
     return false, reason
   end
-  local key = self_heal_keys.ci_selfheal_once_key(repo, pr_number, head_sha)
+  local key
+  if verification_missing then
+    key = self_heal_keys.ci_verification_selfheal_once_key(repo, pr_number, head_sha, base_sha)
+  else
+    key = self_heal_keys.ci_selfheal_once_key(repo, pr_number, head_sha)
+  end
   local ran = once(key, function()
     local rerequested, rerequest_reason = rerequest_head_check_runs(
       repo,
