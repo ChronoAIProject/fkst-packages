@@ -667,7 +667,8 @@ return {
     })
 
     t.eq(result.exit_code, 0)
-    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    -- The first replay emits one one-time integration merge receipt.
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 1)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
     t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 0)
@@ -675,6 +676,22 @@ return {
     t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor"), 0)
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+  end,
+
+  test_split_topology_existing_integration_merge_receipt_is_idempotent = function()
+    mock_issue_close()
+    mock_branch_config()
+    mock_no_rollup_receipt()
+    local comments = parent_comments()
+    table.insert(comments, comment(m_builders.integration_merge_receipt_marker(
+      parent, pr_number, version, merge_commit_sha)))
+    local result = run_observe(comments, child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
   end,
 
   test_single_branch_topology_child_merged_does_not_require_rollup_probe = function()

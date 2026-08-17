@@ -1,10 +1,12 @@
 local core = require("core")
 local saga = require("workflow.saga")
+local dashboard = require("devloop.dashboard")
 local entity_list_cache = require("devloop.entity_list_cache")
 local poll_delivery_rearm = require("core.poll_delivery_rearm")
 
 local changed_queue = "github-proxy.github_entity_changed"
 local observed_queue = "github-proxy.github_issue_observed"
+local entity_source_ref = core.entity_source_ref
 
 local spec = {
   consumes = { "github_poll_tick" },
@@ -34,8 +36,11 @@ local function is_observed_issue_snapshot(entity_type, entity)
 end
 
 local function is_intake_candidate_snapshot(entity_type, entity)
+  -- Dashboard issues are producer-owned observability artifacts, not work items;
+  -- unbounded level replay turns their frozen identity into a poison pill.
   return entity_type == "issue"
     and tostring(entity.state or ""):upper() == "OPEN"
+    and not core.has_label(entity.labels, dashboard.label)
 end
 
 local function is_unassigned_intake_candidate_snapshot(entity_type, entity)
@@ -116,7 +121,7 @@ local function raise_changed_item(repo, item, poll_token, delivery_index)
         -- Durable-delivery: stable pointer so a reliable consumer can
         -- re-derive the current entity (also required by the engine when
         -- this event is routed to a reliable subscription).
-        source_ref = core.entity_source_ref(repo, item.entity_type, entity.number),
+        source_ref = entity_source_ref(repo, item.entity_type, entity.number),
       })
       if not item.level_replay then
         cache_set(item.key, entity.updated_at)
@@ -141,7 +146,7 @@ local function raise_observed_item(repo, item, poll_token, delivery_index)
         dedup_key = item_dedup_key(repo, item, delivery_index, observed_queue),
         poll_token = poll_token,
         source = "gh",
-        source_ref = core.entity_source_ref(repo, "issue", entity.number),
+        source_ref = entity_source_ref(repo, "issue", entity.number),
       })
     end
   end)
