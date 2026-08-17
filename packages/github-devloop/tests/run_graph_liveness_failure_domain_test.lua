@@ -325,12 +325,14 @@ return {
       exit_code = 1,
       error = "cause_error_class=timeout-redrive-stuck",
     }), 1)
+    -- The entity-local failure and terminal-tombstone suppression are separate
+    -- surfaced dead letters under the current engine contract.
     t.eq(count_steps(trace, {
       queue = "github-devloop.dead_letter",
       consumer = "github-devloop.dead_letter",
       exit_code = 0,
-    }), 1)
-    t.eq(trace.final.dead_letters, 1)
+    }), 2)
+    t.eq(trace.final.dead_letters, 2)
 
     local stuck_observations = raised_observations(trace, stuck_number)
     t.eq(#stuck_observations, 2)
