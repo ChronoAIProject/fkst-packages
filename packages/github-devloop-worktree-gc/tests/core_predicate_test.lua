@@ -68,8 +68,6 @@ local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
 local CURRENT_PATH = CUR_RT .. "/worktrees/devloop-current-333"
 local STABLE_PATH = IMPLEMENTATION_ROOT .. "/worktrees/devloop-current-333"
-local ATTEMPT_PATH = base.implementation_attempt_worktree_template(
-  IMPLEMENTATION_ROOT, CURRENT_BRANCH, 2):gsub("XXXXXX$", "A1B2C3")
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -78,7 +76,6 @@ local FULL_PORCELAIN = porcelain({
   { path = ORPHAN_PATH, branch = ORPHAN_BRANCH },
   { path = TERMINAL_PATH, branch = TERMINAL_BRANCH },
   { path = CURRENT_PATH, branch = CURRENT_BRANCH },
-  { path = ATTEMPT_PATH, detached = true },
   { path = DETACHED_PATH, detached = true },
   { path = FOREIGN_PATH, branch = "feature/some-external-branch" },
 })
@@ -322,45 +319,7 @@ return {
     t.eq(result.removable[1].issue_ref.proposal_id, "github-devloop/issue/" .. REPO .. "/333")
   end,
 
-  test_live_branch_preserves_every_detached_attempt_for_that_branch = function()
-    local worktrees = core.parse_worktrees(FULL_PORCELAIN)
-    local live = core.live_branches({ running_row(333, "dedup-current") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
-      released_branches = { [CURRENT_BRANCH] = true },
-    })
-
-    t.eq(removable_has(result, ATTEMPT_PATH), false)
-    t.eq(skip_reason(result, ATTEMPT_PATH), "live-branch")
-  end,
-
-  test_terminal_release_reclaims_detached_attempt_for_exact_branch = function()
-    local worktrees = core.parse_worktrees(FULL_PORCELAIN)
-    local live = core.live_branches({}, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
-      released_branches = { [CURRENT_BRANCH] = true },
-    })
-
-    t.eq(removable_has(result, ATTEMPT_PATH), true)
-    local candidate
-    for _, value in ipairs(result.removable) do
-      if value.path == ATTEMPT_PATH then candidate = value end
-    end
-    t.eq(candidate.branch, CURRENT_BRANCH)
-    t.eq(candidate.issue_ref.proposal_id, "github-devloop/issue/" .. REPO .. "/333")
-  end,
-
-  test_nonterminal_detached_attempt_is_not_reclaimed_without_release = function()
-    local worktrees = core.parse_worktrees(FULL_PORCELAIN)
-    local live = core.live_branches({}, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, IMPLEMENTATION_ROOT, {
-      released_branches = {},
-    })
-
-    t.eq(removable_has(result, ATTEMPT_PATH), false)
-    t.eq(skip_reason(result, ATTEMPT_PATH), "attempt-release-unverified")
-  end,
-
-  -- Unowned detached, foreign, and main-checkout worktrees are never removable.
+  -- Detached, foreign, and main-checkout worktrees are never removable.
   test_detached_foreign_main_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({}, NOW_MS)

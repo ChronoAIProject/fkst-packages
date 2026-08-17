@@ -30,7 +30,7 @@ local function each_line(text, fn)
   end
 end
 
--- Parse `git worktree list --porcelain` -> { {path=, head=, branch=, detached=bool}, ... }.
+-- Parse `git worktree list --porcelain` -> { {path=, branch=, detached=bool}, ... }.
 -- The FIRST entry is the main checkout; it is returned like any other and is filtered
 -- out downstream by branch shape (its branch is never a deterministic devloop branch).
 function M.parse_worktrees(porcelain)
@@ -42,11 +42,8 @@ function M.parse_worktrees(porcelain)
       cur = { path = path, branch = nil, detached = false }
       out[#out + 1] = cur
     elseif cur then
-      local head = line:match("^HEAD (.+)$")
       local branch = line:match("^branch refs/heads/(.+)$")
-      if head then
-        cur.head = head
-      elseif branch then
+      if branch then
         cur.branch = branch
       elseif line == "detached" then
         cur.detached = true
@@ -179,8 +176,7 @@ end
 --   -> { removable = {<path>,...}, skipped = {{path,branch,reason},...} }.
 -- A worktree is REMOVABLE iff ALL hold:
 --   (1) the live set is complete (else fail-open: skip everything);
---   (2) it is attached to a deterministic branch, or its detached attempt path
---       round-trips to one;
+--   (2) it is attached to a deterministic devloop implement/fix branch (round-trips through the prefix);
 --   (3) that branch is ABSENT from the live-branch set;
 --   (4) it is outside both owned roots, or the trusted terminal lifecycle fact
 --       releases the exact branch.
@@ -200,42 +196,24 @@ function M.classify(worktrees, live, current_runtime_root, implementation_root, 
   end
 
   for _, w in ipairs(worktrees or {}) do
-    local attempt_branch = w.detached
-      and base.parse_implementation_attempt_worktree_path(implementation_root, w.path)
-      or nil
-    local owner_branch = attempt_branch or w.branch
-    if attempt_branch ~= nil then
-      local issue_ref = M.issue_ref_from_branch(attempt_branch)
-      if live.set[attempt_branch] then
-        skip(w, "live-branch")
-      elseif issue_ref ~= nil and released_branches ~= nil
-        and released_branches[attempt_branch] == true then
-        removable[#removable + 1] = {
-          path = w.path,
-          branch = attempt_branch,
-          issue_ref = issue_ref,
-        }
-      else
-        skip(w, "attempt-release-unverified")
-      end
-    elseif w.detached or owner_branch == nil then
+    if w.detached or w.branch == nil then
       skip(w, "detached-or-non-branch")
-    elseif not M.is_deterministic_devloop_branch(owner_branch) then
+    elseif not M.is_deterministic_devloop_branch(w.branch) then
       skip(w, "non-deterministic-branch")
-    elseif live.set[owner_branch] then
+    elseif live.set[w.branch] then
       skip(w, "live-branch")
     elseif base.path_under_root(current_runtime_root, w.path)
       or base.path_under_root(implementation_root, w.path) then
-      local issue_ref = M.issue_ref_from_branch(owner_branch)
-      if issue_ref ~= nil and released_branches ~= nil and released_branches[owner_branch] == true then
-        removable[#removable + 1] = { path = w.path, branch = owner_branch, issue_ref = issue_ref }
+      local issue_ref = M.issue_ref_from_branch(w.branch)
+      if issue_ref ~= nil and released_branches ~= nil and released_branches[w.branch] == true then
+        removable[#removable + 1] = { path = w.path, branch = w.branch, issue_ref = issue_ref }
       elseif base.path_under_root(implementation_root, w.path) then
         skip(w, "stable-release-unverified")
       else
         skip(w, released_branches ~= nil and "current-runtime-release-unverified" or "current-runtime-root")
       end
     else
-      removable[#removable + 1] = { path = w.path, branch = owner_branch }
+      removable[#removable + 1] = { path = w.path, branch = w.branch }
     end
   end
   return { removable = removable, skipped = skipped }

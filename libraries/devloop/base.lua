@@ -605,50 +605,6 @@ function C.implement_worktree_path(implementation_root, repo, issue_number, impl
   return root:gsub("/+$", "") .. "/worktrees/devloop-" .. slug .. "-" .. suffix
 end
 
-function C.implementation_attempt_worktree_template(implementation_root, branch, attempt)
-  local root = trim(implementation_root)
-  local attempt_number = tonumber(attempt)
-  if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: implementation-worktree-root-invalid: invalid implementation worktree root")
-  end
-  if type(branch) ~= "string"
-    or branch:sub(1, 14) ~= "devloop/issue/"
-    or not forge_validators.is_git_ref_safe(branch) then
-    error("github-devloop: implementation-attempt-branch-invalid: invalid implementation attempt branch")
-  end
-  if attempt_number == nil or attempt_number < 1 or attempt_number % 1 ~= 0 then
-    error("github-devloop: implementation-attempt-invalid: implementation attempt must be a positive integer")
-  end
-  return root:gsub("/+$", "") .. "/attempts/" .. branch
-    .. "/attempt-" .. tostring(attempt_number) .. "-XXXXXX"
-end
-
-function C.parse_implementation_attempt_worktree_path(implementation_root, path)
-  local root = trim(implementation_root):gsub("/+$", "")
-  local target = trim(path):gsub("/+$", "")
-  if root == "" or root:find("[\r\n]") ~= nil
-    or target == "" or target:find("[\r\n]") ~= nil
-    or not C.path_under_root(root, target) then
-    return nil
-  end
-  local prefix = root .. "/attempts/"
-  if target:sub(1, #prefix) ~= prefix then
-    return nil
-  end
-  local branch, attempt, suffix = target:sub(#prefix + 1):match(
-    "^(devloop/issue/.+)/attempt%-(%d+)%-([A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9])$")
-  local attempt_number = tonumber(attempt)
-  if branch == nil or not forge_validators.is_git_ref_safe(branch)
-    or attempt_number == nil or attempt_number < 1 or attempt_number % 1 ~= 0 then
-    return nil
-  end
-  local template = C.implementation_attempt_worktree_template(root, branch, attempt_number)
-  if target ~= template:sub(1, -7) .. suffix then
-    return nil
-  end
-  return branch, attempt_number
-end
-
 function C.path_under_root(root_path, path)
   local root = trim(root_path)
   local target = trim(path)

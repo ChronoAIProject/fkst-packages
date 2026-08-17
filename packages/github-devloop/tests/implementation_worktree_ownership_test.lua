@@ -59,37 +59,6 @@ local function mock_new_attempt_worktree(durable_root, worktree, branch_head)
 end
 
 return {
-  test_attempt_worktree_path_round_trips_its_branch_owner = function()
-    local implementation_root = "/tmp/fkst-packages-test/github-devloop/attempt-path-root"
-    local branch = devloop_base.implement_branch(
-      "owner/repo", 42, "ready/github-devloop/issue/owner/repo/42/intake/123")
-    local template = devloop_base.implementation_attempt_worktree_template(
-      implementation_root, branch, 2)
-    local path = template:gsub("XXXXXX$", "A1B2C3")
-
-    local parsed_branch, parsed_attempt =
-      devloop_base.parse_implementation_attempt_worktree_path(implementation_root, path)
-
-    t.eq(template, implementation_root .. "/attempts/" .. branch .. "/attempt-2-XXXXXX")
-    t.eq(parsed_branch, branch)
-    t.eq(parsed_attempt, 2)
-  end,
-
-  test_attempt_worktree_path_rejects_non_owned_shapes = function()
-    local implementation_root = "/tmp/fkst-packages-test/github-devloop/attempt-path-root"
-    local branch = devloop_base.implement_branch(
-      "owner/repo", 42, "ready/github-devloop/issue/owner/repo/42/intake/123")
-
-    t.eq(devloop_base.parse_implementation_attempt_worktree_path(
-      implementation_root, implementation_root .. "/attempts/" .. branch .. "/attempt-0-A1B2C3"), nil)
-    t.eq(devloop_base.parse_implementation_attempt_worktree_path(
-      implementation_root, implementation_root .. "/attempts/feature/not-owned/attempt-1-A1B2C3"), nil)
-    t.eq(devloop_base.parse_implementation_attempt_worktree_path(
-      implementation_root, implementation_root .. "/attempts/" .. branch .. "/attempt-1-short"), nil)
-    t.eq(devloop_base.parse_implementation_attempt_worktree_path(
-      implementation_root, implementation_root .. "/../attempts/" .. branch .. "/attempt-1-A1B2C3"), nil)
-  end,
-
   test_prepare_does_not_reclaim_worktree_that_owns_canonical_branch = function()
     local durable_root = "/tmp/fkst-packages-test/github-devloop/noncanonical-durable"
     local ready = h.ready()
