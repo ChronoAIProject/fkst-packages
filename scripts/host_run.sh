@@ -226,6 +226,29 @@ def same_path(left: Path, right: Path) -> bool:
         return False
 
 
+def same_repository_history(left: Path, right: Path) -> bool:
+    """True when two checkouts are two views of one repository.
+
+    The operator launches from an immutable snapshot of the platform commit, which is a
+    different tree than --project-root while being the same repository. Path equality
+    cannot express that, so each side must be able to resolve the other's HEAD.
+    """
+    left_head = git_output_optional(["rev-parse", "HEAD"], cwd=left)
+    right_head = git_output_optional(["rev-parse", "HEAD"], cwd=right)
+    if not left_head or not right_head:
+        return False
+    return all(
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+            cwd=root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+        for root, revision in ((left, right_head), (right, left_head))
+    )
+
+
 def trusted_platform_identity(platform_root: Path) -> tuple[str, set[str]]:
     if not platform_root.is_dir():
         fail(f"trusted --platform-root does not exist: {platform_root}")
@@ -347,10 +370,16 @@ package_roots: list[Path] = []
 platform_roots: set[Path] = set()
 for package, kind, source_id in selected:
     if kind == "workspace":
+        package_platform_root = project_root
         if not same_path(project_root, trusted_platform_root):
-            fail(f"workspace platform package '{package}' requires trusted --platform-root")
-        root = project_root / "packages" / package
-        platform_roots.add(project_root)
+            if not same_repository_history(project_root, trusted_platform_root):
+                fail(
+                    f"workspace platform package '{package}' requires trusted --platform-root "
+                    "from the project repository"
+                )
+            package_platform_root = trusted_platform_root
+        root = package_platform_root / "packages" / package
+        platform_roots.add(package_platform_root)
     else:
         assert source_id is not None
         root = source_roots[source_id] / "packages" / package
@@ -653,7 +682,7 @@ host_run_require_expected_engine_revision() {
     printf 'ENGINE_BINARY_RECEIPT_ABSENT: no receipt beside %s\n' "$BIN" >&2
     return 1
   }
-  observed="$(shasum -a 256 "$BIN" 2>/dev/null | cut -d" " -f1)"
+  observed="sha256-$(shasum -a 256 "$BIN" 2>/dev/null | cut -d" " -f1)"
   recorded="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["binary_sha256"])' "$receipt" 2>/dev/null || true)"
   if [ -z "$observed" ] || [ -z "$recorded" ] || [ "$observed" != "$recorded" ]; then
     printf 'ENGINE_BINARY_RECEIPT_MISMATCH: revision %s bytes at %s do not match its receipt\n' \
