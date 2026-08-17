@@ -12,11 +12,12 @@ HOST_RUN_RUNTIME_BASE=""
 HOST_RUN_RUNTIME_LABEL=""
 HOST_RUN_RUNTIME_IS_EXPLICIT=0
 HOST_RUN_RESTART=0
+HOST_RUN_EXPECTED_ENGINE_REVISION=""
 HOST_RUN_PACKAGE_ROOTS=()
 
 host_run_usage() {
   cat >&2 <<'EOF'
-usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
+usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--expected-engine-revision <sha>] [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
    or: scripts/run.sh supervise <package>
 EOF
 }
@@ -388,6 +389,7 @@ host_run_parse_supervise_args() {
   HOST_RUN_RUNTIME_LABEL=""
   HOST_RUN_RUNTIME_IS_EXPLICIT=0
   HOST_RUN_RESTART=0
+  HOST_RUN_EXPECTED_ENGINE_REVISION=""
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -403,6 +405,9 @@ host_run_parse_supervise_args() {
       --platform-packages)
         [ "$#" -ge 2 ] || { echo "error: --platform-packages requires a package list" >&2; return 2; }
         HOST_RUN_PLATFORM_PACKAGES="$2"; shift 2 ;;
+      --expected-engine-revision)
+        [ "$#" -ge 2 ] || { echo "error: --expected-engine-revision requires a revision" >&2; return 2; }
+        HOST_RUN_EXPECTED_ENGINE_REVISION="$2"; shift 2 ;;
       --host-packages)
         [ "$#" -ge 2 ] || { echo "error: --host-packages requires a package list" >&2; return 2; }
         HOST_RUN_HOST_PACKAGES="$2"; shift 2 ;;
@@ -619,6 +624,45 @@ host_run_kill_supervise_pid() {
   return 1
 }
 
+# Verify that BIN is the engine revision the operator declared and that its bytes
+# still match the receipt published beside it. This is corruption detection, not
+# tamper resistance: a writer with access to this tree already owns everything the
+# check could protect. It exists because a build killed partway, a truncated copy, a
+# full disk or an interrupted publication can leave bytes that do not match their
+# receipt, and because the operator's own verification cannot cover the interval
+# between its last check and this exec.
+#
+# The check is self-contained on purpose. It reads only the receipt beside BIN, so it
+# does not depend on any file outside this repository.
+host_run_require_expected_engine_revision() {
+  [ -n "$HOST_RUN_EXPECTED_ENGINE_REVISION" ] || return 0
+  if [[ ! "$HOST_RUN_EXPECTED_ENGINE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ENGINE_REVISION_INVALID: --expected-engine-revision must be a full lowercase Git SHA" >&2
+    return 1
+  fi
+  case "$BIN" in
+    *-"$HOST_RUN_EXPECTED_ENGINE_REVISION") ;;
+    *)
+      printf 'ENGINE_REVISION_MISMATCH: expected %s, resolved binary is %s\n' \
+        "$HOST_RUN_EXPECTED_ENGINE_REVISION" "$BIN" >&2
+      return 1 ;;
+  esac
+  local receipt observed recorded
+  receipt="$(dirname "$BIN")/.$(basename "$BIN").build-receipt.json"
+  [ -f "$receipt" ] || {
+    printf 'ENGINE_BINARY_RECEIPT_ABSENT: no receipt beside %s\n' "$BIN" >&2
+    return 1
+  }
+  observed="$(shasum -a 256 "$BIN" 2>/dev/null | cut -d" " -f1)"
+  recorded="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["binary_sha256"])' "$receipt" 2>/dev/null || true)"
+  if [ -z "$observed" ] || [ -z "$recorded" ] || [ "$observed" != "$recorded" ]; then
+    printf 'ENGINE_BINARY_RECEIPT_MISMATCH: revision %s bytes at %s do not match its receipt\n' \
+      "$HOST_RUN_EXPECTED_ENGINE_REVISION" "$BIN" >&2
+    return 1
+  fi
+  export FKST_EXPECTED_ENGINE_REVISION="$HOST_RUN_EXPECTED_ENGINE_REVISION"
+}
+
 host_run_restart_prior() {
   local pid_file pid
   [ "$HOST_RUN_RESTART" -eq 1 ] || return 0
@@ -695,6 +739,7 @@ host_run_supervise_contract() {
   fi
 
   host_run_validate_local_iteration_test_command || return $?
+  host_run_require_expected_engine_revision || return $?
   host_run_restart_prior || return $?
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"

@@ -214,6 +214,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/host_run_restart_test.py"'
     'python3 -B "$ROOT/scripts/host_run_source_identity_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
+    'python3 -B "$ROOT/scripts/host_run_expected_engine_revision_test.py"'
     'python3 -B "$ROOT/scripts/host_run_process_group_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
