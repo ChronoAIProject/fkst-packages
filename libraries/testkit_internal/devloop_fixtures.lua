@@ -23,6 +23,8 @@ function M.new(deps)
   local core = deps.core or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.core is required")
   local entity_read_mocks = deps.entity_read_mocks
     or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.entity_read_mocks is required")
+  local claim_carriers = deps.claim_carriers
+    or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.claim_carriers is required")
   local devloop_base = deps.devloop_base or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.devloop_base is required")
   local parsers_misc = deps.parsers_misc
     or error("testkit_internal.devloop_fixtures: fixture-dependency-missing: deps.parsers_misc is required")
@@ -49,6 +51,7 @@ function M.new(deps)
     t = t,
     core = core,
     entity_read_mocks = entity_read_mocks,
+    claim_carriers = claim_carriers,
     m_builders = m_builders,
     pr_safety = pr_safety,
     has_value = has_value, projected_state_comment = deps.projected_state_comment,

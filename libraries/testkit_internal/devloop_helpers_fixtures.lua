@@ -65,6 +65,8 @@ end
 function M.new(deps)
   deps = deps or {}
   local entity_lib = deps.entity_lib or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.entity_lib is required")
+  local claim_carriers = deps.claim_carriers
+    or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.claim_carriers is required")
   local base = deps.base or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.base is required")
   local pr = deps.pr or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.pr is required")
   local worktree = deps.worktree or error("testkit_internal.devloop_helpers_fixtures: fixture-dependency-missing: deps.worktree is required")
@@ -93,18 +95,28 @@ function M.new(deps)
   local function mock_default_issue_claim(repo, number)
     local selected_repo = repo or "owner/repo"
     local selected_number = number or 42
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
     entity_read_mocks.mock_issue_read_forms(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      assignees = { "fkst-test-bot" },
+      assignees = {},
       author_login = "fkst-test-bot",
+      labels = { claim_spec.name },
     })
     entity_read_mocks.mock_issue_view_selector(helpers.t, {
       repo = selected_repo,
       number = selected_number,
-      assignees = { "fkst-test-bot" },
+      assignees = {},
       author_login = "fkst-test-bot",
+      labels = { claim_spec.name },
     }, "assignees,author,labels", 30)
+    for _ = 1, 8 do
+      helpers.t.mock_command("gh api repos/" .. selected_repo .. "/labels/" .. claim_spec.name, {
+        stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+    end
   end
 
   local function encoded_comment_json(comment_id, body, author_login)

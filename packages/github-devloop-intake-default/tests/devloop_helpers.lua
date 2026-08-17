@@ -1,5 +1,6 @@
 return require("testkit_internal.devloop_helpers_fixtures").new({
   entity_lib = require("devloop.entity"),
+  claim_carriers = require("devloop.claim_carriers"),
   base = require("tests.devloop_base_helpers"),
   pr = require("tests.devloop_pr_helpers"),
   worktree = require("tests.devloop_worktree_helpers"),

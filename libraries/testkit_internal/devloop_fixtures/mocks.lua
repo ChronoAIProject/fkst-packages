@@ -6,11 +6,43 @@ function M.new(ctx, funcs)
   local t = ctx.t
   local core = ctx.core
   local entity_read_mocks = ctx.entity_read_mocks
+  local claim_carriers = ctx.claim_carriers
   local m_builders = ctx.m_builders
   local pr_safety = ctx.pr_safety
   local has_value = ctx.has_value
   local reviewing = funcs.reviewing
   local pr_link_marker_for_fix = funcs.pr_link_marker_for_fix
+  local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+
+  local function held_issue_fields(labels, fields)
+    local selected_labels = {}
+    local has_claim = false
+    for _, label in ipairs(labels or {}) do
+      table.insert(selected_labels, label)
+      has_claim = has_claim or claim_carriers.is_claim_family(label)
+    end
+    local selected_fields = {}
+    for key, value in pairs(fields or {}) do
+      selected_fields[key] = value
+    end
+    if selected_fields.assignees == nil then
+      selected_fields.assignees = {}
+      if not has_claim then
+        table.insert(selected_labels, claim_spec.name)
+        has_claim = true
+      end
+    end
+    if has_claim and has_value(selected_labels, claim_spec.name) then
+      for _ = 1, selected_fields.times or 1 do
+        t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+          stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+          stderr = "",
+          exit_code = 0,
+        })
+      end
+    end
+    return selected_labels, selected_fields
+  end
 
   local function json_string(value)
     return tostring(value)
@@ -39,13 +71,19 @@ function M.new(ctx, funcs)
 
   local function encode_assignees_json(assignees)
     local rendered = {}
-    for _, assignee in ipairs(assignees or { "fkst-test-bot" }) do
+    for _, assignee in ipairs(assignees or {}) do
       table.insert(rendered, string.format('{"login":"%s"}', json_string(assignee)))
     end
     return table.concat(rendered, ",")
   end
 
   local function mock_issue_state(labels, state, comments, assignees, author_login, created_at)
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:enabled" }, {
+      assignees = assignees,
+      author_login = author_login,
+      created_at = created_at,
+      state = state,
+    })
     local selected_comments = {}
     if comments ~= nil then
       for _, comment in ipairs(comments) do
@@ -53,7 +91,7 @@ function M.new(ctx, funcs)
       end
     else
       local state_marker = nil
-      for _, label in ipairs(labels or {}) do
+      for _, label in ipairs(selected_labels) do
         if label == "fkst-dev:thinking" then
           state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", default_marker_version)
         elseif label == "fkst-dev:ready" then
@@ -78,17 +116,17 @@ function M.new(ctx, funcs)
         table.insert(selected_comments, state_marker)
       end
     end
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:enabled" }, selected_comments, { state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at })
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected_comments, fields)
     entity_read_mocks.mock_issue_read_forms(t, {
-      labels = labels or { "fkst-dev:enabled" },
+      labels = selected_labels,
       comments = selected_comments,
       state = state or "OPEN",
-      assignees = assignees,
+      assignees = fields.assignees,
       author_login = author_login,
       created_at = created_at,
     })
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,updatedAt,assignees")
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected_comments, state = state or "OPEN", assignees = fields.assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,updatedAt,assignees")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected_comments, state = state or "OPEN", assignees = fields.assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
   end
 
   local function state_from_labels(labels)
@@ -271,23 +309,20 @@ function M.new(ctx, funcs)
   end
 
   local function mock_issue_result(labels, comments, extra)
-    set_pr_phase_comments(labels or { "fkst-dev:thinking" }, comments)
-    local fields = {}
-    for key, value in pairs(extra or {}) do
-      fields[key] = value
-    end
-    local selected = with_default_state_marker(labels or { "fkst-dev:thinking" }, comments)
-    ctx.pending_result_issue = mock_result_issue_value(labels or { "fkst-dev:thinking" }, selected, fields)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:thinking" }, selected, fields)
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:thinking" }, extra)
+    set_pr_phase_comments(selected_labels, comments)
+    local selected = with_default_state_marker(selected_labels, comments)
+    ctx.pending_result_issue = mock_result_issue_value(selected_labels, selected, fields)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, fields)
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
   end
 
   local function mock_issue_loop(labels, comments, extra)
-    local fields = extra or {}
-    local selected = with_default_state_marker(labels or { "fkst-dev:thinking" }, comments)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:thinking" }, selected, fields)
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:thinking" }, comments = selected, title = fields.title, updated_at = fields.updated_at, state = fields.state, assignees = fields.assignees, author_login = fields.author_login }, "title,updatedAt,labels,comments,state,author")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:thinking" }, extra)
+    local selected = with_default_state_marker(selected_labels, comments)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, fields)
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, title = fields.title, updated_at = fields.updated_at, state = fields.state, assignees = fields.assignees, author_login = fields.author_login }, "title,updatedAt,labels,comments,state,author")
   end
 
   local function mock_issue_reconcile(labels, comments, extra)
@@ -310,7 +345,7 @@ function M.new(ctx, funcs)
 
   local function mock_issue_title_labels_comments(labels, comments, extra, default_label, include_default_marker, selector)
     local rendered_labels = {}
-    local selected_labels = labels or { default_label }
+    local selected_labels, fields = held_issue_fields(labels or { default_label }, extra)
     for _, label in ipairs(selected_labels) do
       table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
     end
@@ -322,7 +357,6 @@ function M.new(ctx, funcs)
     for _, comment in ipairs(selected_comments) do
       table.insert(rendered_comments, render_comment(comment))
     end
-    local fields = extra or {}
     local needs_implement_rechecks = has_value(selected_labels, "fkst-dev:ready")
       or has_value(selected_labels, "fkst-dev:implementing")
       or has_value(selected_labels, "fkst-dev:impl-failed")
@@ -352,28 +386,28 @@ function M.new(ctx, funcs)
   end
 
   local function mock_issue_reviewing(labels, comments, extra)
-    set_pr_phase_comments(labels or { "fkst-dev:pr-open" }, comments)
-    local fields = extra or {}
-    local selected = with_default_state_marker(labels or { "fkst-dev:pr-open" }, comments)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:pr-open" }, selected, fields)
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:pr-open" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:pr-open" }, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:pr-open" }, extra)
+    set_pr_phase_comments(selected_labels, comments)
+    local selected = with_default_state_marker(selected_labels, comments)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, fields)
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "labels,comments")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, assignees = fields.assignees, author_login = fields.author_login }, "assignees,author,labels")
   end
 
   local function mock_issue_review(labels, comments, extra)
-    set_pr_phase_comments(labels or { "fkst-dev:reviewing" }, comments)
-    local fields = extra or {}
-    local selected = with_default_state_marker(labels or { "fkst-dev:reviewing" }, comments)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:reviewing" }, selected, fields)
-    entity_read_mocks.mock_issue_view_selector(t, { repo = fields.repo, number = fields.number, labels = labels or { "fkst-dev:reviewing" }, comments = selected, title = fields.title, assignees = fields.assignees, author_login = fields.author_login }, "title,labels,comments,assignees,author")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:reviewing" }, extra)
+    set_pr_phase_comments(selected_labels, comments)
+    local selected = with_default_state_marker(selected_labels, comments)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, fields)
+    entity_read_mocks.mock_issue_view_selector(t, { repo = fields.repo, number = fields.number, labels = selected_labels, comments = selected, title = fields.title, assignees = fields.assignees, author_login = fields.author_login }, "title,labels,comments,assignees,author")
   end
 
   local function mock_issue_decompose(labels, comments, extra)
-    set_pr_phase_comments(labels or { "fkst-dev:blocked" }, comments)
-    local fields = extra or {}
-    local selected = with_default_state_marker(labels or { "fkst-dev:blocked" }, comments)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:blocked" }, selected, { title = fields.title, body = fields.body or "Body from GitHub" })
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:blocked" }, comments = selected, title = fields.title, body = fields.body or "Body from GitHub", author_login = fields.author_login }, "title,body,labels,comments,author")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:blocked" }, extra)
+    set_pr_phase_comments(selected_labels, comments)
+    local selected = with_default_state_marker(selected_labels, comments)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, { title = fields.title, body = fields.body or "Body from GitHub", assignees = fields.assignees })
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, title = fields.title, body = fields.body or "Body from GitHub", assignees = fields.assignees, author_login = fields.author_login }, "title,body,labels,comments,author")
   end
 
   local function mock_issue_fix(labels, comments, extra)
@@ -397,11 +431,11 @@ function M.new(ctx, funcs)
   end
 
   local function mock_issue_merge(labels, comments, extra)
-    set_pr_phase_comments(labels or { "fkst-dev:merge-ready" }, comments)
-    local fields = extra or {}
-    local selected = with_default_state_marker(labels or { "fkst-dev:merge-ready" }, comments)
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:merge-ready" }, selected, { title = fields.title, state = fields.state, assignees = fields.assignees or { "fkst-test-bot" } })
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:merge-ready" }, comments = selected, title = fields.title, state = fields.state, assignees = fields.assignees or { "fkst-test-bot" }, author_login = fields.author_login }, "title,labels,comments,state,assignees,author")
+    local selected_labels, fields = held_issue_fields(labels or { "fkst-dev:merge-ready" }, extra)
+    set_pr_phase_comments(selected_labels, comments)
+    local selected = with_default_state_marker(selected_labels, comments)
+    entity_read_mocks.mock_issue_read_with_defaults(t, selected_labels, selected, { title = fields.title, state = fields.state, assignees = fields.assignees })
+    entity_read_mocks.mock_issue_view_selector(t, { labels = selected_labels, comments = selected, title = fields.title, state = fields.state, assignees = fields.assignees, author_login = fields.author_login }, "title,labels,comments,state,assignees,author")
   end
 
   return {
