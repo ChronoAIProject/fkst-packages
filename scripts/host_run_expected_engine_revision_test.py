@@ -4,16 +4,19 @@
 The receipt records the digest in the publisher's canonical `sha256-<hex>` form, so these
 fixtures write that exact form; comparing a bare hex digest against it never matches.
 
-Each case drives the real `host_run_require_expected_engine_revision` from
-`scripts/host_run.sh`, so a regression in that function fails here rather than only on
-a live machine.
+The helper cases drive the real `host_run_require_expected_engine_revision` from
+`scripts/host_run.sh`; the entrypoint cases execute `scripts/run.sh supervise` so parser
+drift or reordered restart/claim effects fail here rather than only on a live machine.
 """
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+
+from host_run_fixture import HostRunHarness, kill_if_alive, start_orphan_sleep
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SHA_A = "a" * 40
@@ -41,6 +44,39 @@ def _publish(directory: pathlib.Path, revision: str, body: bytes, digest: str | 
         encoding="ascii",
     )
     return binary
+
+
+def _run_supervise(harness: HostRunHarness, binary: pathlib.Path, expected: str, *, restart: bool = False):
+    args = [
+        "/bin/bash",
+        str(REPO_ROOT / "scripts" / "run.sh"),
+        "supervise",
+        "--project-root",
+        str(harness.packages_host),
+        "--platform-root",
+        str(harness.packages_host),
+        "--platform-packages",
+        "github-proxy",
+        "--expected-engine-revision",
+        expected,
+        "--durable-root",
+        str(harness.durable),
+        "--runtime-root",
+        str(harness.runtime),
+    ]
+    if restart:
+        args.append("--restart")
+    environment = os.environ.copy()
+    environment["BIN"] = str(binary)
+    environment["FKST_NO_AUTOBUILD"] = "1"
+    return subprocess.run(
+        args,
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def main() -> int:
@@ -80,5 +116,57 @@ def main() -> int:
     return 1 if failures else 0
 
 
+def test_real_supervise_entrypoint_rejects_before_restart_or_claim() -> None:
+    harness = HostRunHarness()
+    prior_pid = start_orphan_sleep()
+    try:
+        harness.write_workspace_manifest(root=harness.packages_host, workspace_units=["packages/*"])
+        binary = _publish(harness.root, SHA_B, b"#!/bin/sh\nexit 0\n")
+        harness.durable.mkdir(parents=True, exist_ok=True)
+        pid_file = harness.durable / ".fkst-supervise.pid"
+        pid_file.write_text(f"{prior_pid}\n", encoding="ascii")
+
+        result = _run_supervise(harness, binary, SHA_A, restart=True)
+
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert "ENGINE_REVISION_MISMATCH" in result.stderr, result.stderr
+        assert "unknown supervise option" not in result.stderr, result.stderr
+        assert "killing prior supervise pid" not in result.stderr, result.stderr
+        assert prior_pid_is_alive(prior_pid), "the pre-existing supervisor must not be restarted"
+        assert pid_file.read_text(encoding="ascii") == f"{prior_pid}\n"
+    finally:
+        kill_if_alive(prior_pid)
+        harness.close()
+
+
+def test_real_supervise_entrypoint_accepts_expected_revision_option() -> None:
+    harness = HostRunHarness()
+    try:
+        harness.write_workspace_manifest(root=harness.packages_host, workspace_units=["packages/*"])
+        binary = _publish(harness.root, SHA_A, b"#!/bin/sh\nexit 0\n")
+
+        result = _run_supervise(harness, binary, SHA_A)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "unknown supervise option" not in result.stderr, result.stderr
+        assert "ENGINE_REVISION_MISMATCH" not in result.stderr, result.stderr
+    finally:
+        harness.close()
+
+
+def prior_pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    status = main()
+    if status:
+        raise SystemExit(status)
+    test_real_supervise_entrypoint_rejects_before_restart_or_claim()
+    test_real_supervise_entrypoint_accepts_expected_revision_option()
