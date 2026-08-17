@@ -9,6 +9,7 @@ local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local claim_carriers = require("devloop.claim_carriers")
 local opts = h.opts
 local merge_ready = h.merge_ready
 local ready = h.ready
@@ -30,6 +31,7 @@ local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 local render_comment = h.render_comment
 local json_string = h.json_string
+local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
 
 local function json_literal(value)
   return '"' .. json_string(value) .. '"'
@@ -132,9 +134,15 @@ local function mock_claimed_issue_for_event(event, times)
     entity_read_mocks.mock_issue_view_selector(t, {
       repo = "owner/repo",
       number = entity.issue_number,
-      assignees = { "fkst-test-bot" },
+      assignees = {},
       author_login = "fkst-test-bot",
+      labels = { claim_spec.name },
     }, "assignees,author,labels")
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 

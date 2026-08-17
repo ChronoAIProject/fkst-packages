@@ -1,5 +1,6 @@
 local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
+local claim_carriers = require("devloop.claim_carriers")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -21,13 +22,11 @@ local function origin_marker(version)
   )
 end
 
-local function claim(issue_number, assignees, author_login)
-  local rendered = {}
-  for _, login in ipairs(assignees or {}) do
-    table.insert(rendered, '{"login":"' .. h.json_string(login) .. '"}')
-  end
+local function claim(issue_number, owner, author_login)
+  local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, owner)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", issue_number or 42), {
-    stdout = '{"assignees":[' .. table.concat(rendered, ",") .. '],"author":{"login":"' .. h.json_string(author_login or "fkst-test-bot") .. '"}}\n',
+    stdout = '{"assignees":[],"author":{"login":"' .. h.json_string(author_login or "fkst-test-bot")
+      .. '"},"labels":[{"name":"' .. claim_spec.name .. '"}]}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -100,7 +99,7 @@ return {
         state = "OPEN",
       },
     })
-    claim(42, { "human" })
+    claim(42, "human")
 
     local result = run_review_loop_raw(event, opts("review-loop-claim-other"))
     t.eq(result.exit_code, 0)
@@ -133,7 +132,7 @@ return {
   test_review_meta_other_owned_issue_skips_before_codex = function()
     local event = review_meta_event()
     mock_bot_env()
-    claim(42, { "human" })
+    claim(42, "human")
 
     local result = run_review_meta_raw(event, opts("review-meta-claim-other"))
     t.eq(result.exit_code, 0)
@@ -144,7 +143,7 @@ return {
   test_fix_other_owned_issue_skips_before_git_or_codex = function()
     local event = fixing()
     mock_bot_env()
-    claim(42, { "human" })
+    claim(42, "human")
 
     local result = run_fix_raw(event, opts("fix-claim-other", {
       FKST_GITHUB_WRITE = "1",
@@ -173,7 +172,7 @@ return {
   test_review_reconcile_other_owned_issue_skips_before_pr_comment = function()
     local event = review_reconcile()
     mock_bot_env()
-    claim(42, { "human" })
+    claim(42, "human")
 
     local result = run_review_reconcile_raw(event, opts("review-reconcile-claim-other"))
     t.eq(result.exit_code, 0)
@@ -184,7 +183,7 @@ return {
   test_fix_reconcile_other_owned_issue_skips_before_pr_comment = function()
     local event = fix_reconcile()
     mock_bot_env()
-    claim(42, { "human" })
+    claim(42, "human")
 
     local result = run_fix_reconcile_raw(event, opts("fix-reconcile-claim-other"))
     t.eq(result.exit_code, 0)

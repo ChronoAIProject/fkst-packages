@@ -17,6 +17,7 @@ local json_string = h.json_string
 local render_comment = h.render_comment
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local claim_carriers = require("devloop.claim_carriers")
 
 local function branch_for_pr(pr_number)
   return "devloop-owner-repo-" .. tostring(pr_number)
@@ -149,20 +150,24 @@ local function mock_merged_pr_view(event)
   })
 end
 
-local function mock_issue_claim(issue_number, assignees, author_login)
-  local rendered = {}
-  for _, assignee in ipairs(assignees or {}) do
-    table.insert(rendered, string.format('{"login":"%s"}', json_string(assignee)))
-  end
+local function mock_issue_claim(issue_number, owner, author_login)
+  local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, owner)
   t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", issue_number), {
     stdout = string.format(
-      '{"assignees":[%s],"author":{"login":"%s"}}\n',
-      table.concat(rendered, ","),
-      json_string(author_login or "fkst-test-bot")
+      '{"assignees":[],"author":{"login":"%s"},"labels":[{"name":"%s"}]}\n',
+      json_string(author_login or "fkst-test-bot"),
+      claim_spec.name
     ),
     stderr = "",
     exit_code = 0,
   })
+  if owner == "fkst-test-bot" then
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_issue_claim_failure(issue_number)
@@ -215,7 +220,7 @@ return {
     local current = merge_ready()
     mock_bot_env()
     mock_write_env("1")
-    mock_issue_claim(42, { "human" })
+    mock_issue_claim(42, "human")
 
     local result = run_direct_merge_ready(current, opts("merge-direct-other-owned", {
       FKST_GITHUB_WRITE = "1",
@@ -239,12 +244,12 @@ return {
     t.eq(count_calls("gh pr merge"), 0)
   end,
 
-  test_merge_direct_merge_ready_accepts_unassigned_self_authored_issue = function()
+  test_merge_direct_merge_ready_accepts_self_claimed_issue = function()
     local current = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(current.proposal_id, "42", "devloop-owner-repo-42-01HY", current.version, "dev")
     mock_bot_env()
     mock_write_env("1")
-    mock_issue_claim(42, {}, "fkst-test-bot")
+    mock_issue_claim(42, "fkst-test-bot")
     mock_pr_merge({ origin_marker })
     mock_queue_list({ 7 })
     mock_queue_pr(current, "2026-06-03T02:00:00Z")
@@ -283,7 +288,7 @@ return {
     mock_queue_list({ 7, 8 })
     mock_queue_pr(first, "2026-06-03T01:00:00Z")
     mock_queue_pr(second, "2026-06-03T01:01:00Z")
-    mock_issue_claim(42, { "fkst-test-bot" })
+    mock_issue_claim(42, "fkst-test-bot")
     mock_merge_pr_view(first)
     mock_merge_pr_view(first)
     mock_merge_pr_view(first)
@@ -292,7 +297,7 @@ return {
     mock_issue_close()
     mock_diff_name_only(7, { "packages/a.lua" })
     mock_current_base_head("abc124")
-    mock_issue_claim(43, { "human" })
+    mock_issue_claim(43, "human")
     mock_queue_list({ 8 })
     mock_queue_pr(second, "2026-06-03T01:01:00Z")
 

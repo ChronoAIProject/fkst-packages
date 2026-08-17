@@ -3,6 +3,7 @@ local h = require("tests.devloop_helpers")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local devloop_state = require("devloop.state")
+local claim_carriers = require("devloop.claim_carriers")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -15,6 +16,15 @@ local mock_issue_review = h.mock_issue_review
 local mock_pr_origin = h.mock_pr_origin
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local count_calls = h.count_calls
+
+local function claimed_labels(labels, owner)
+  local selected = {}
+  for _, label in ipairs(labels or {}) do
+    table.insert(selected, label)
+  end
+  table.insert(selected, claim_carriers.active_label_spec({ kind = "derived" }, owner).name)
+  return selected
+end
 
 local function pr_event()
   return {
@@ -178,10 +188,8 @@ return {
     local impl_version = reviewing().version
     mock_bot_env()
     mock_pr_origin({ origin_marker(impl_version) })
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "other-bot"), {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
-    }, {
-      assignees = { "other-bot" },
     })
 
     local result = run_observe_pr(pr_event(), opts("observe-pr-other-claim"))
@@ -189,15 +197,12 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_observe_pr_processes_unassigned_self_authored_backing_issue = function()
+  test_observe_pr_processes_self_claimed_backing_issue = function()
     local impl_version = reviewing().version
     mock_bot_env()
     mock_pr_origin({ origin_marker(impl_version) })
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "fkst-test-bot"), {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
-    }, {
-      assignees = {},
-      author_login = "fkst-test-bot",
     })
 
     local result = run_observe_pr(pr_event(), opts("observe-pr-unassigned-self-author"))
@@ -232,10 +237,8 @@ return {
   test_review_pr_skips_expensive_review_when_claim_is_other = function()
     local event = reviewing()
     mock_bot_env()
-    mock_issue_review({ "fkst-dev:reviewing" }, {
+    mock_issue_review(claimed_labels({ "fkst-dev:reviewing" }, "other-bot"), {
       review_state_marker(event.version),
-    }, {
-      assignees = { "other-bot" },
     })
     mock_pr_origin_sequence({
       { comments = { origin_marker(event.version) }, head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
@@ -254,10 +257,8 @@ return {
       unmanaged_origin_marker(impl_version, "feature-unmanaged"),
       pr_open_state_marker(impl_version),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "feature-unmanaged")
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "fkst-test-bot"), {
       pr_open_state_marker(impl_version),
-    }, {
-      assignees = { "fkst-test-bot" },
     })
 
     local result = run_observe_pr(pr_event(), opts("observe-pr-self-unmanaged-base"))
@@ -298,10 +299,8 @@ return {
       },
       base_branch = "integration",
     })
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "fkst-test-bot"), {
       pr_open_state_marker(impl_version),
-    }, {
-      assignees = { "fkst-test-bot" },
     })
 
     local first = run_observe_pr_with_integration(pr_event(), "observe-pr-two-pass-wrong-integration", "dev")
@@ -333,10 +332,8 @@ return {
       base_branch = "integration",
       labels = { "fkst-dev:blocked" },
     })
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "fkst-test-bot"), {
       pr_open_state_marker(impl_version),
-    }, {
-      assignees = { "fkst-test-bot" },
     })
 
     local second = run_observe_pr_with_integration(pr_event(), "observe-pr-two-pass-correct-integration", "integration")
@@ -374,10 +371,8 @@ return {
       base_branch = "integration",
       labels = { "fkst-dev:blocked" },
     })
-    mock_issue_reviewing({ "fkst-dev:blocked" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:blocked" }, "fkst-test-bot"), {
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
-    }, {
-      assignees = { "fkst-test-bot" },
     })
 
     local result, logs = run_observe_pr_with_logs(pr_event(), "observe-pr-stranded-base-unmanaged-heal", "integration")
@@ -422,10 +417,8 @@ return {
       base_branch = "integration",
       labels = { "fkst-dev:blocked" },
     })
-    mock_issue_reviewing({ "fkst-dev:blocked" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:blocked" }, "other-bot"), {
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
-    }, {
-      assignees = { "other-bot" },
     })
 
     local result, logs = run_observe_pr_with_logs(pr_event(), "observe-pr-stranded-base-unmanaged-claim-skip", "integration")
@@ -445,10 +438,8 @@ return {
       unmanaged_origin_marker(impl_version, "integration"),
       pr_open_state_marker(impl_version),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "integration")
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "other-bot"), {
       pr_open_state_marker(impl_version),
-    }, {
-      assignees = { "other-bot" },
     })
 
     local result = run_observe_pr(pr_event(), opts("observe-pr-foreign-unmanaged-base"))
@@ -465,10 +456,8 @@ return {
       unmanaged_origin_marker(impl_version, "dev"),
       pr_open_state_marker(impl_version),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
-    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+    mock_issue_reviewing(claimed_labels({ "fkst-dev:pr-open" }, "fkst-test-bot"), {
       pr_open_state_marker(impl_version),
-    }, {
-      assignees = { "fkst-test-bot" },
     })
 
     local result = run_observe_pr(pr_event(), opts("observe-pr-self-base-matched"))
