@@ -1,4 +1,5 @@
 local fixtures = require("tests.poll_outbound_test_helpers")
+local dashboard = require("devloop.dashboard")
 local h = fixtures.h
 local sha256 = fixtures.sha256
 local t = fixtures.t
@@ -467,6 +468,59 @@ return {
     local cached_labelled_observed = observed_issue_raises(cached_labelled.raises)
     t.eq(#cached_labelled_observed, 1)
     t.eq(cached_labelled_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
+  end,
+
+  test_inbound_poll_excludes_dashboard_from_level_replay_but_keeps_change_edges = function()
+    local run_opts = opts("dashboard-level-replay", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "10" })
+    local normal_updated_at = "2026-08-13T01:00:00Z"
+
+    local function unassigned_issue(number, title, updated_at, label)
+      return string.format(
+        '{"number":%d,"title":"%s","html_url":"https://github.example/owner/x/issues/%d","updated_at":"%s","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"%s"}],"assignees":[]}',
+        number,
+        json_string(title),
+        number,
+        updated_at,
+        json_string(label)
+      )
+    end
+
+    local function poll(timestamp, dashboard_updated_at)
+      mock_poll_env("10")
+      mock_issue_list(issue_list_from({
+        unassigned_issue(3343, dashboard.title, dashboard_updated_at, dashboard.label),
+        unassigned_issue(50, "Issue 50", normal_updated_at, "bug"),
+      }))
+      mock_pr_list("[]\n")
+      local result = t.run_department("departments/github_poll/main.lua", {
+        queue = "github_poll_tick",
+        payload = {},
+        ts = timestamp,
+      }, run_opts)
+      t.eq(result.exit_code, 0, result.error)
+      return result
+    end
+
+    local first = poll("dashboard-poll-1", "2026-08-13T01:00:00Z")
+    local first_changed = changed_raises(first.raises)
+    t.eq(#first_changed, 2)
+    t.is_true(find_entity_raise(first_changed, "issue", 3343) ~= nil)
+    local first_normal = find_entity_raise(first_changed, "issue", 50)
+    t.is_true(first_normal ~= nil)
+
+    local second = poll("dashboard-poll-2", "2026-08-13T01:00:00Z")
+    local second_changed = changed_raises(second.raises)
+    t.eq(#second_changed, 1)
+    t.is_nil(find_entity_raise(second_changed, "issue", 3343))
+    local second_normal = find_entity_raise(second_changed, "issue", 50)
+    t.is_true(second_normal ~= nil)
+    t.eq(second_normal.payload.dedup_key, first_normal.payload.dedup_key)
+
+    local changed = poll("dashboard-poll-3", "2026-08-14T02:00:00Z")
+    local dashboard_change = find_entity_raise(changed.raises, "issue", 3343)
+    t.is_true(dashboard_change ~= nil)
+    t.eq(dashboard_change.payload.updated_at, "2026-08-14T02:00:00Z")
+    t.eq(dashboard_change.payload.dedup_key, "owner/x#issue#3343@2026-08-14T02:00:00Z")
   end,
 
   test_inbound_poll_rearms_a_terminal_subscriber_while_a_sibling_is_live = function()
