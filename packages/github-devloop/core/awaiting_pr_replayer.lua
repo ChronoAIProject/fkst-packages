@@ -244,6 +244,30 @@ local function build_parent_merged_projection_comment_request(issue, state, dele
   }), source_ref)
 end
 
+local function build_integration_merge_receipt_comment_request(issue, state, delegation, current_pr, branches)
+  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
+  local merge_commit_sha = tostring(current_pr.merge_commit_sha)
+  local body = "github-devloop recorded delegated child PR integration merge receipt"
+    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
+    .. "\nIntegration branch: " .. tostring(branches.integration)
+    .. "\nWaiting for promotion to upstream branch: " .. tostring(branches.upstream)
+    .. "\nMerge commit: " .. merge_commit_sha
+    .. "\n\n" .. m_builders.integration_merge_receipt_marker(
+      delegation.proposal_id, delegation.pr_number, state.version, merge_commit_sha)
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = issue.repo,
+    number = issue.number,
+  }, body, base_ids.dedup_key({
+    "awaiting-pr",
+    "integration-merge-receipt",
+    tostring(delegation.proposal_id),
+    tostring(delegation.pr_number),
+    tostring(state.version),
+    merge_commit_sha,
+  }), source_ref)
+end
+
 local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation, child_state)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
   local child_proposal = delegation.pr_proposal_id or delegation.pr_proposal
@@ -592,6 +616,22 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     end
     local landed, outcome, reason = merged_child_landed_on_upstream(dept, issue, state, delegation, current_pr)
     if not landed then
+      if outcome == "skip-pending(rollup-receipt-missing)" then
+        local parent_comments = facts.snapshot and facts.snapshot.comments or {}
+        local receipt = m_facts.integration_merge_receipt_fact(
+          parent_comments, proposal_id, delegation.pr_number, state.version)
+        local merge_commit_sha = tostring(current_pr.merge_commit_sha)
+        if receipt == nil then
+          local comment_request = build_integration_merge_receipt_comment_request(
+            issue, state, delegation, current_pr, config.branch_config())
+          raise_effects(dept, proposal_id, "awaiting-pr", state.version,
+            { add = {}, remove = {} }, {
+              { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
+            })
+        elseif tostring(receipt.merge_commit_sha) ~= merge_commit_sha then
+          error("github-devloop: integration-merge-receipt-conflict: parent receipt merge commit does not match canonical delegated PR")
+        end
+      end
       return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason)
     end
   end
