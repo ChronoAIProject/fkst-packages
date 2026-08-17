@@ -783,6 +783,7 @@ return {
     handle.commit_message_file("/tmp/wt", "/tmp/message.txt", 40)
     handle.worktree_add_detached("/tmp/wt", "eeee5555", 41)
     handle.worktree_remove("/tmp/wt", 42)
+    handle.update_branch_ref("feature/a", "ffff6666", "eeee5555", 43)
 
     assert_argv_equal(calls[1].argv, { "git", "push", "-u", "origin", "feature/a" }, "push_branch")
     assert_argv_equal(calls[2].argv, { "git", "show-ref", "--verify", "refs/heads/feature/a" }, "show_ref_branch")
@@ -806,6 +807,9 @@ return {
     assert_argv_equal(calls[20].argv, { "git", "-C", "/tmp/wt", "commit", "-F", "/tmp/message.txt" }, "commit_message_file")
     assert_argv_equal(calls[21].argv, { "git", "worktree", "add", "--detach", "/tmp/wt", "eeee5555" }, "worktree_add_detached")
     assert_argv_equal(calls[22].argv, { "git", "worktree", "remove", "--force", "/tmp/wt" }, "worktree_remove")
+    assert_argv_equal(calls[23].argv, {
+      "git", "update-ref", "refs/heads/feature/a", "ffff6666", "eeee5555",
+    }, "update_branch_ref")
     for index, call in ipairs(calls) do
       assert(call.timeout == index + 20, "git method timeout mismatch for call " .. tostring(index))
       assert(call.cmd == nil, "git method must not pass cmd")

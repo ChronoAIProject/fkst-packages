@@ -28,6 +28,8 @@ local MAIN_PATH = "/home/dev/fkst-packages"
 local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
 local STABLE_PATH = STABLE_ROOT .. "/worktrees/devloop-current-333"
+local ATTEMPT_PATH = base.implementation_attempt_worktree_template(
+  STABLE_ROOT, STABLE_BRANCH, 2):gsub("XXXXXX$", "A1B2C3")
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -51,6 +53,7 @@ local FULL = porcelain({
   { path = ORPHAN_PATH, branch = ORPHAN_BRANCH },
   { path = TERMINAL_PATH, branch = TERMINAL_BRANCH },
   { path = STABLE_PATH, branch = STABLE_BRANCH },
+  { path = ATTEMPT_PATH, detached = true },
   { path = DETACHED_PATH, detached = true },
   { path = FOREIGN_PATH, branch = "feature/some-external-branch" },
 })
@@ -210,6 +213,7 @@ return {
     t.eq(removed[1], TERMINAL_PATH)
     t.eq(contains(removed, ORPHAN_PATH), false)
     t.eq(contains(removed, STABLE_PATH), false)
+    t.eq(contains(removed, ATTEMPT_PATH), false)
     t.eq(contains(removed, DETACHED_PATH), false)
     t.eq(contains(removed, FOREIGN_PATH), false)
     t.eq(contains(removed, MAIN_PATH), false)
@@ -244,9 +248,10 @@ return {
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "merged")
     testing.run_fake(dept, tick())
 
-    t.eq(#removed, 2)
+    t.eq(#removed, 3)
     t.eq(contains(removed, TERMINAL_PATH), true)
     t.eq(contains(removed, STABLE_PATH), true)
+    t.eq(contains(removed, ATTEMPT_PATH), true)
     t.eq(contains(removed, ORPHAN_PATH), false)
   end,
 
@@ -260,6 +265,7 @@ return {
     t.eq(#removed, 1)
     t.eq(removed[1], TERMINAL_PATH)
     t.eq(contains(removed, STABLE_PATH), false)
+    t.eq(contains(removed, ATTEMPT_PATH), false)
   end,
 
   test_live_retry_worktree_survives_terminal_marker_race = function()
@@ -270,6 +276,7 @@ return {
     testing.run_fake(dept, tick())
 
     t.eq(contains(removed, STABLE_PATH), false)
+    t.eq(contains(removed, ATTEMPT_PATH), false)
   end,
 
   test_published_stable_worktree_remains_owned_without_live_row_during_fix_harvest = function()
@@ -279,6 +286,7 @@ return {
     testing.run_fake(dept, tick())
 
     t.eq(contains(removed, STABLE_PATH), false)
+    t.eq(contains(removed, ATTEMPT_PATH), false)
   end,
 
   test_preserves_published_branch_reacquired_by_live_fix = function()

@@ -162,15 +162,19 @@ local function make_department(ports)
       return released
     end
     for _, w in ipairs(worktrees or {}) do
-      if not w.detached
-        and caps.is_deterministic_devloop_branch(w.branch)
-        and not live.set[w.branch] then
-        local issue_ref = caps.issue_ref_from_branch(w.branch)
+      local attempt_branch = w.detached
+        and devloop_base.parse_implementation_attempt_worktree_path(implementation_root, w.path)
+        or nil
+      local branch = attempt_branch or w.branch
+      if branch ~= nil
+        and caps.is_deterministic_devloop_branch(branch)
+        and not live.set[branch] then
+        local issue_ref = caps.issue_ref_from_branch(branch)
         if issue_ref ~= nil
           and (devloop_base.path_under_root(current_rt, w.path)
             or devloop_base.path_under_root(implementation_root, w.path)) then
-          if issue_release_fact(issue_ref, w.branch) ~= nil then
-            released[w.branch] = true
+          if issue_release_fact(issue_ref, branch) ~= nil then
+            released[branch] = true
           end
         end
       end

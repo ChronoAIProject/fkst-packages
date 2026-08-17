@@ -81,6 +81,111 @@ local function worktree_outcome(worktree)
 end
 
 return {
+  test_recovery_selects_the_unique_descendant_of_committed_attempt_heads = function()
+    local root = "/tmp/fkst-packages-test/github-devloop/recovery-root"
+    local branch = devloop_base.implement_branch(
+      "owner/repo", 42, "ready/github-devloop/issue/owner/repo/42/intake/123")
+    local first = devloop_base.implementation_attempt_worktree_template(root, branch, 1)
+      :gsub("XXXXXX$", "AAAAAA")
+    local second = devloop_base.implementation_attempt_worktree_template(root, branch, 2)
+      :gsub("XXXXXX$", "BBBBBB")
+    local ancestry = {
+      ["abc123\0def456"] = true,
+      ["abc123\0789abcd"] = true,
+      ["def456\0789abcd"] = true,
+    }
+    local git = {
+      is_ancestor = function(ancestor, descendant)
+        return { stdout = "", stderr = "", exit_code = ancestry[ancestor .. "\0" .. descendant] and 0 or 1 }
+      end,
+    }
+    local porcelain = "worktree " .. first .. "\nHEAD def456\ndetached\n\n"
+      .. "worktree " .. second .. "\nHEAD 789abcd\ndetached\n\n"
+
+    t.eq(worktree_lifecycle.recover_attempt_head(
+      git, root, branch, "abc123", porcelain), "789abcd")
+  end,
+
+  test_recovery_fails_closed_for_divergent_committed_attempt_heads = function()
+    local root = "/tmp/fkst-packages-test/github-devloop/recovery-root"
+    local branch = devloop_base.implement_branch(
+      "owner/repo", 42, "ready/github-devloop/issue/owner/repo/42/intake/123")
+    local first = devloop_base.implementation_attempt_worktree_template(root, branch, 1)
+      :gsub("XXXXXX$", "AAAAAA")
+    local second = devloop_base.implementation_attempt_worktree_template(root, branch, 2)
+      :gsub("XXXXXX$", "BBBBBB")
+    local git = {
+      is_ancestor = function(ancestor)
+        return { stdout = "", stderr = "", exit_code = ancestor == "abc123" and 0 or 1 }
+      end,
+    }
+    local porcelain = "worktree " .. first .. "\nHEAD def456\ndetached\n\n"
+      .. "worktree " .. second .. "\nHEAD 789abcd\ndetached\n\n"
+
+    assert_error_contains(function()
+      worktree_lifecycle.recover_attempt_head(git, root, branch, "abc123", porcelain)
+    end, "attempt-recovery-diverged")
+  end,
+
+  test_verified_attempt_head_promotes_with_ancestry_checked_compare_and_swap = function()
+    local calls = {}
+    local git = {
+      show_ref_branch_quiet = function(branch, timeout)
+        calls[#calls + 1] = { "show", branch, timeout }
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+      branch_head = function(branch, timeout)
+        calls[#calls + 1] = { "head", branch, timeout }
+        return { stdout = "abc123\n", stderr = "", exit_code = 0 }
+      end,
+      is_ancestor = function(ancestor, descendant, timeout)
+        calls[#calls + 1] = { "ancestor", ancestor, descendant, timeout }
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+      update_branch_ref = function(branch, new_head, expected_old, timeout)
+        calls[#calls + 1] = { "update", branch, new_head, expected_old, timeout }
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local promoted, reason = worktree_lifecycle.promote_attempt_head(
+      git, "devloop/issue/owner/repo/42/change-123", "abc123", "def456")
+
+    t.eq(promoted, true)
+    t.eq(reason, "promoted")
+    t.eq(calls[3][1], "ancestor")
+    t.eq(calls[3][2], "abc123")
+    t.eq(calls[3][3], "def456")
+    t.eq(calls[4][1], "update")
+    t.eq(calls[4][4], "abc123")
+  end,
+
+  test_divergent_verified_attempt_cannot_replace_promoted_branch = function()
+    local updated = 0
+    local git = {
+      show_ref_branch_quiet = function()
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+      branch_head = function()
+        return { stdout = "789abcd\n", stderr = "", exit_code = 0 }
+      end,
+      is_ancestor = function()
+        return { stdout = "", stderr = "", exit_code = 1 }
+      end,
+      update_branch_ref = function()
+        updated = updated + 1
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local promoted, reason = worktree_lifecycle.promote_attempt_head(
+      git, "devloop/issue/owner/repo/42/change-123", "abc123", "def456")
+
+    t.eq(promoted, false)
+    t.eq(reason, "stale-divergent")
+    t.eq(updated, 0)
+  end,
+
   test_integration_merge_reports_clean_without_probing_unmerged_paths = function()
     t.mock_command("merge --no-edit", {
       stdout = "Already up to date.\n",

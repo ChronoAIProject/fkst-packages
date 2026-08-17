@@ -39,14 +39,14 @@ function M.new(deps)
         opts.impl_retry_attempt
       )
     end
-    local prefix = devloop_base.implement_worktree_path(
-      stable_root,
+    local branch = devloop_base.implement_branch(
       opts.repo or default_repo,
       opts.issue_number or opts.issue or default_issue_number,
       worktree_version
     )
     local attempt = opts.attempt or opts.impl_retry_attempt or 1
-    return prefix .. "-attempt-" .. tostring(attempt) .. "-AAAAAA"
+    return devloop_base.implementation_attempt_worktree_template(
+      stable_root, branch, attempt):gsub("XXXXXX$", "AAAAAA")
   end
 
   local function implement_branch_for(opts)
@@ -128,6 +128,22 @@ function M.new(deps)
     t.mock_command("git worktree add --detach", command_result(0))
   end
 
+  local function mock_no_recoverable_attempts()
+    t.mock_command("git worktree list --porcelain", command_result(0))
+  end
+
+  local function mock_attempt_completion(worktree, branch, current_head)
+    t.mock_command("show-ref --verify --quiet", command_result(current_head ~= nil and 0 or 1))
+    if current_head ~= nil then
+      t.mock_command("rev-parse --verify refs/heads/",
+        command_result(0, "", tostring(current_head) .. "\n"))
+    end
+    t.mock_command("merge-base --is-ancestor", command_result(0))
+    t.mock_command("git update-ref", command_result(0))
+    t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", command_result(0))
+    t.mock_command("git worktree remove --force", command_result(0))
+  end
+
   local function mock_force_clean(worktree, options)
     local opts = options or {}
     local remove_result = opts.remove_result or command_result(0)
@@ -201,6 +217,7 @@ function M.new(deps)
     branch_pin = opts.branch_pin or branch_pin
     mock_dev_base_head()
     t.mock_command("show-ref --verify --quiet", command_result(1))
+    mock_no_recoverable_attempts()
     mock_attempt_worktree_allocation(durable, worktree)
     t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
@@ -213,6 +230,7 @@ function M.new(deps)
         opts.harvest_checks
       )
     end
+    mock_attempt_completion(worktree, implement_branch_for(opts), nil)
     return worktree
   end
 
@@ -250,6 +268,7 @@ function M.new(deps)
         opts.harvest_checks
       )
     end
+    mock_attempt_completion(worktree, implement_branch_for(opts), nil)
     return worktree
   end
 
@@ -273,6 +292,7 @@ function M.new(deps)
         opts.harvest_checks
       )
     end
+    mock_attempt_completion(worktree, implement_branch_for(opts), "abc123")
   end
 
   local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
@@ -280,10 +300,8 @@ function M.new(deps)
     local base_head = opts.base_head or "abc123"
     branch = opts.branch or branch
     ahead_count = opts.ahead_count or ahead_count
-    local stable_root = devloop_base.implementation_worktree_root(durable)
     local worktree = enable_substrate_pin_refresh and implement_worktree_for(durable, opts)
-      or (stable_root .. "/worktrees/devloop-owner-repo-42-01HY-attempt-"
-        .. tostring(opts.attempt or opts.impl_retry_attempt or 1) .. "-AAAAAA")
+      or implement_worktree_for(durable, opts)
     local branch_head = tonumber(ahead_count or "0") > 0 and "def456" or base_head
     mock_dev_base_head(base_head)
     t.mock_command("show-ref --verify --quiet", command_result(0))
@@ -306,6 +324,7 @@ function M.new(deps)
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin, base_head)
     mock_attempt_worktree_head(enable_substrate_pin_refresh and "def456" or branch_head)
     mock_harvest_worktree(worktree, branch)
+    mock_attempt_completion(worktree, branch, branch_head)
     return worktree
   end
 

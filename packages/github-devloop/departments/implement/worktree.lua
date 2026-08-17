@@ -88,17 +88,12 @@ local function verify_remote_checkpoint(branch, checkpoint_head)
 end
 
 function M.attempt_worktree_template(implementation_worktree_root, repo, issue_number, version, attempt)
-  local attempt_number = tonumber(attempt)
-  if attempt_number == nil or attempt_number < 1 or attempt_number % 1 ~= 0 then
-    error("github-devloop: implementation-attempt-invalid: implementation attempt must be a positive integer")
-  end
-  local prefix = devloop_base.implement_worktree_path(
-    implementation_worktree_root, repo, issue_number, version)
-  return prefix .. "-attempt-" .. tostring(attempt_number) .. "-XXXXXX"
+  local branch = devloop_base.implement_branch(repo, issue_number, version)
+  return devloop_base.implementation_attempt_worktree_template(
+    implementation_worktree_root, branch, attempt)
 end
 
-local function allocate_attempt_worktree(repo, issue_number, ready, attempt)
-  local stable_root = implementation_root()
+local function allocate_attempt_worktree(stable_root, repo, issue_number, ready, attempt)
   local worktree_version = impl_failure.implementation_branch_version(
     ready.dedup_key, ready.impl_retry_attempt)
   local template = M.attempt_worktree_template(
@@ -128,11 +123,11 @@ local function allocate_attempt_worktree(repo, issue_number, ready, attempt)
   return worktree
 end
 
-local function add_detached_attempt(repo, issue_number, ready, attempt, head)
+local function add_detached_attempt(stable_root, repo, issue_number, ready, attempt, head)
   if not pr_safety.is_safe_head_sha(head) then
     error("github-devloop: unsafe-head-sha: unsafe implementation attempt head")
   end
-  local worktree = allocate_attempt_worktree(repo, issue_number, ready, attempt)
+  local worktree = allocate_attempt_worktree(stable_root, repo, issue_number, ready, attempt)
   local worktree_result = git().git_worktree_add_detached(worktree, head, 60)
   if worktree_result.exit_code ~= 0 then
     error("github-devloop: git-worktree-add-failed: git detached implementation worktree add failed: "
@@ -141,7 +136,124 @@ local function add_detached_attempt(repo, issue_number, ready, attempt, head)
   return worktree
 end
 
+local function parse_registered_attempts(porcelain, implementation_worktree_root, branch)
+  local candidates = {}
+  local current
+  for line in (tostring(porcelain or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local path = line:match("^worktree (.+)$")
+    if path ~= nil then
+      current = { path = path, detached = false }
+    elseif current ~= nil then
+      local head = line:match("^HEAD (.+)$")
+      if head ~= nil then
+        current.head = head
+      elseif line == "detached" then
+        current.detached = true
+      elseif line == "" then
+        local owner = devloop_base.parse_implementation_attempt_worktree_path(
+          implementation_worktree_root, current.path)
+        if current.detached and owner == branch then
+          candidates[#candidates + 1] = current
+        end
+        current = nil
+      end
+    end
+  end
+  return candidates
+end
+
+local function is_ancestor(git_handle, ancestor, descendant, context)
+  local result = git_handle.is_ancestor(ancestor, descendant, 30)
+  if result.exit_code == 0 then return true end
+  if result.exit_code == 1 then return false end
+  error("github-devloop: attempt-ancestry-check-failed: " .. tostring(context)
+    .. ": " .. tostring(result.stderr))
+end
+
+function M.recover_attempt_head(git_handle, implementation_worktree_root, branch, base_head, porcelain)
+  local heads, seen = {}, {}
+  for _, candidate in ipairs(parse_registered_attempts(
+    porcelain, implementation_worktree_root, branch)) do
+    local head = tostring(candidate.head or "")
+    if not pr_safety.is_safe_head_sha(head) then
+      error("github-devloop: unsafe-head-sha: unsafe detached implementation attempt head")
+    end
+    if not is_ancestor(git_handle, base_head, head, "base does not contain detached attempt") then
+      error("github-devloop: attempt-recovery-diverged: detached attempt does not descend from base")
+    end
+    if not seen[head] then
+      seen[head] = true
+      heads[#heads + 1] = head
+    end
+  end
+  if #heads == 0 then return nil end
+  for _, candidate in ipairs(heads) do
+    local contains_all = true
+    for _, other in ipairs(heads) do
+      if other ~= candidate
+        and not is_ancestor(git_handle, other, candidate, "detached attempts diverged") then
+        contains_all = false
+        break
+      end
+    end
+    if contains_all then return candidate end
+  end
+  error("github-devloop: attempt-recovery-diverged: detached implementation attempts have divergent heads")
+end
+
+local ZERO_SHA = string.rep("0", 40)
+
+local function local_branch_head(git_handle, branch)
+  local exists = git_handle.show_ref_branch_quiet(branch, 30)
+  if exists.exit_code == 1 then return nil end
+  if exists.exit_code ~= 0 then
+    error("github-devloop: branch-ref-check-failed: git branch ref check failed: "
+      .. tostring(exists.stderr))
+  end
+  local head = git_handle.branch_head(branch, 30)
+  if head.exit_code ~= 0 then
+    error("github-devloop: git-head-read-failed: git implementation branch head failed: "
+      .. tostring(head.stderr))
+  end
+  local value = tostring(head.stdout or ""):gsub("%s+$", "")
+  if not pr_safety.is_safe_head_sha(value) then
+    error("github-devloop: unsafe-head-sha: unsafe local implementation branch head")
+  end
+  return value
+end
+
+function M.promote_attempt_head(git_handle, branch, base_head, new_head)
+  if not pr_safety.is_safe_branch(branch) then
+    error("github-devloop: unsafe-branch: unsafe implementing branch")
+  end
+  if not pr_safety.is_safe_head_sha(base_head) or not pr_safety.is_safe_head_sha(new_head) then
+    error("github-devloop: unsafe-head-sha: unsafe implementation promotion head")
+  end
+  local current = local_branch_head(git_handle, branch)
+  local ancestor = current or base_head
+  if not is_ancestor(git_handle, ancestor, new_head, "verified attempt does not advance branch") then
+    return false, "stale-divergent"
+  end
+  local expected = current or ZERO_SHA
+  local update = git_handle.update_branch_ref(branch, new_head, expected, 30)
+  if update.exit_code == 0 then return true, "promoted" end
+  local observed = local_branch_head(git_handle, branch)
+  if observed == new_head then return true, "already-promoted" end
+  if observed ~= current then return false, "cas-conflict" end
+  error("github-devloop: branch-ref-update-failed: git update-ref failed: "
+    .. tostring(update.stderr))
+end
+
+function M.release_attempt(git_handle, worktree)
+  local result = git_handle.git_worktree_remove_if_present(worktree, 60)
+  if result.exit_code ~= 0 then
+    error("github-devloop: attempt-worktree-release-failed: git worktree removal failed: "
+      .. tostring(result.stderr))
+  end
+end
+
 function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint, attempt)
+  local stable_root = implementation_root()
   local checkpoint_head = checkpoint_head_for_branch(checkpoint, branch)
   local start_head = checkpoint_head ~= nil and verify_remote_checkpoint(branch, checkpoint_head) or nil
   if start_head == nil then
@@ -157,17 +269,22 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       end
       start_head = tostring(head_result.stdout or ""):gsub("%s+$", "")
     else
-      start_head = base_head
+      local list = git().worktree_list(30)
+      if list.exit_code ~= 0 then
+        error("github-devloop: worktree-list-failed: detached implementation attempt recovery failed: "
+          .. tostring(list.stderr))
+      end
+      start_head = M.recover_attempt_head(git(), stable_root, branch, base_head, list.stdout) or base_head
     end
   end
-  return add_detached_attempt(repo, issue_number, ready, attempt, start_head)
+  return add_detached_attempt(stable_root, repo, issue_number, ready, attempt, start_head)
 end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head, attempt)
   if not pr_safety.is_safe_branch(branch) then
     error("github-devloop: unsafe-branch: unsafe implementing branch")
   end
-  return add_detached_attempt(repo, issue_number, ready, attempt, base_head)
+  return add_detached_attempt(implementation_root(), repo, issue_number, ready, attempt, base_head)
 end
 
 return M

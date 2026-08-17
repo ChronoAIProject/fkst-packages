@@ -129,6 +129,16 @@ local function branch_head_argv(branch)
   return { "git", "rev-parse", "--verify", "refs/heads/" .. tostring(branch) }
 end
 
+local function update_branch_ref_argv(branch, new_head, expected_old)
+  return {
+    "git",
+    "update-ref",
+    "refs/heads/" .. tostring(branch),
+    tostring(new_head),
+    tostring(expected_old),
+  }
+end
+
 local function rev_parse_verify_head_argv()
   return { "git", "rev-parse", "--verify", "HEAD" }
 end
@@ -487,6 +497,18 @@ function M.install(handle)
 
   function handle.branch_head(branch, timeout)
     return exec_result(handle, branch_head_argv(branch), timeout, "git rev-parse branch")
+  end
+
+  function handle.update_branch_ref(branch, new_head, expected_old, timeout)
+    local safe_branch = gitref.require_safe_branch("update branch", branch, "forge.git")
+    local safe_new = gitref.require_safe_sha("new branch sha", new_head, "forge.git")
+    local safe_old = gitref.require_safe_sha("expected old branch sha", expected_old, "forge.git")
+    return exec_result(
+      handle,
+      update_branch_ref_argv(safe_branch, safe_new, safe_old),
+      timeout,
+      "git update-ref"
+    )
   end
 
   function handle.rev_parse_verify_head(timeout)

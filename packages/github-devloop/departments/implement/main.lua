@@ -20,6 +20,7 @@ local substrate_pin = require("departments.implement.substrate_pin")
 local cache_preparation = require("departments.implement.cache_preparation")
 local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
+local attempt_ownership = require("departments.implement.attempt_ownership")
 local attempt_runner = require("departments.implement.attempt")
 local branch_progress = require("departments.implement.branch_progress")
 local result_checkpoint = require("departments.implement.result_checkpoint")
@@ -847,12 +848,17 @@ local function process_ready_event(event)
     attempt_plan.base_head, worktree, codex_started_at, exec_ref,
     receiver_authorization, attempt_plan.attempt, event.ts, event.queue,
     attempt_plan.completed_result)
-  if outcome == nil then return end
+  if outcome == nil then
+    attempt_ownership.release(implement_caps.git_handle, worktree)
+    return
+  end
+  local handled = false
   with_lock(lock_key, function()
     local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,
       attempt_plan.marker_ready, attempt_plan.expected_from_states,
       attempt_plan.accepted_ready_hand_off, true)
     if write_gate_ok then
+      handled = true
       local publish_authorization = nil
       if outcome.kind == "implementing" or outcome.kind == "implement-checkpoint" then
         publish_authorization = restart_sink_grants.implementation_publish(implement_caps, {
@@ -860,9 +866,20 @@ local function process_ready_event(event)
           publish_state = publish_state, outcome_kind = outcome.kind, lock_key = lock_key,
         })
       end
-      raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
+      local completed, reason = attempt_ownership.complete(
+        implement_caps.git_handle, worktree, outcome, attempt_plan.base_head, function()
+          raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
+        end)
+      if not completed then
+        devloop_logging.log_cas_decision("implement", attempt_plan.marker_ready.proposal_id,
+          publish_state, "implementing", "implementing", "skip-stale(" .. tostring(reason) .. ")",
+          "verified attempt did not advance the deterministic implementation branch")
+      end
     end
   end)
+  if not handled then
+    attempt_ownership.release(implement_caps.git_handle, worktree)
+  end
 end
 
 local function act_implement(event)
