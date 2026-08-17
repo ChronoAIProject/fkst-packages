@@ -68,6 +68,41 @@ return {
     )
   end,
 
+  test_label_rest_paths_encode_the_complete_label_segment_and_keep_values_literal = function()
+    local calls = {}
+    local label = "fkst-dev:claimed:team/A + Ω%"
+    local encoded_label = "fkst-dev%3Aclaimed%3Ateam%2FA%20%2B%20%CE%A9%25"
+    local handle = github_adapter.new(function(spec)
+      table.insert(calls, spec)
+      return { stdout = "{}", stderr = "", exit_code = 0 }
+    end, author_policy.github_options())
+
+    handle.label_rest_get("owner/repo", label, 31)
+    handle.label_rest_update("owner/repo", label, "0E8A16", "canonical owner binding", 32)
+    handle.label_rest_create("owner/repo", label, "0E8A16", "canonical owner binding", 33)
+    handle.issue_edit_labels("owner/repo", 42, { label }, { label }, 34)
+
+    assert_argv_equal(calls[1].argv, {
+      "gh", "api", "--method", "GET", "repos/owner/repo/labels/" .. encoded_label,
+    })
+    assert_argv_equal(calls[2].argv, {
+      "gh", "api", "--method", "PATCH", "repos/owner/repo/labels/" .. encoded_label,
+      "-f", "color=0E8A16", "-f", "description=canonical owner binding",
+    })
+    assert_argv_equal(calls[3].argv, {
+      "gh", "api", "--method", "POST", "repos/owner/repo/labels",
+      "-f", "name=" .. label, "-f", "color=0E8A16", "-f", "description=canonical owner binding",
+    })
+    assert_argv_equal(calls[4].argv, {
+      "gh", "issue", "edit", "42", "--repo", "owner/repo",
+      "--add-label", label, "--remove-label", label,
+    })
+    t.eq(calls[1].timeout, 31)
+    t.eq(calls[2].timeout, 32)
+    t.eq(calls[3].timeout, 33)
+    t.eq(calls[4].timeout, 34)
+  end,
+
   test_forge_merge_requires_injected_github_handle = function()
     local ok, err = pcall(function()
       require("forge.merge").install({})

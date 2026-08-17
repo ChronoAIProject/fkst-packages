@@ -3,9 +3,13 @@ local m_claims = require("devloop.claims")
 local h = require("tests.devloop_core_helpers")
 local t = h.t
 local gh_argv = require("testkit_internal.gh_argv_mock")
+<<<<<<< HEAD
 local entity_lib = require("devloop.entity")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+=======
+local github_shell = require("forge.github.shell")
+>>>>>>> 8d37ecdfd200fc58580e86343e18cee34a0c292d
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -60,7 +64,7 @@ end
 
 local function mock_binding(spec, description, times)
   for _ = 1, times or 1 do
-    t.mock_command("gh api repos/owner/repo/labels/" .. spec.name, {
+    t.mock_command("gh api --method GET 'repos/owner/repo/labels/" .. github_shell.url_encode(spec.name) .. "'", {
       stdout = '{"name":"' .. spec.name .. '","description":"'
         .. tostring(description or spec.description) .. '"}\n',
       stderr = "",
