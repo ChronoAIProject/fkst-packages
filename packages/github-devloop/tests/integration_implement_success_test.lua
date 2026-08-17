@@ -293,7 +293,7 @@ return {
     end
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
-    t.eq(count_calls("git -C"), 12)
+    t.eq(count_calls("git -C"), 10)
     t.eq(count_calls("git worktree add -b"), 0)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)

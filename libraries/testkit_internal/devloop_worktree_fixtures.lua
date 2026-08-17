@@ -204,7 +204,6 @@ function M.new(deps)
     mock_attempt_worktree_allocation(durable, worktree)
     t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
-    mock_attempt_worktree_head(enable_substrate_pin_refresh and "def456" or "abc123")
     if opts.harvest ~= false then
       mock_harvest_worktree(
         worktree,
@@ -264,7 +263,6 @@ function M.new(deps)
     mock_attempt_worktree_allocation(durable, worktree)
     t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
-    mock_attempt_worktree_head(enable_substrate_pin_refresh and "def456" or "abc123")
     if opts.harvest ~= false then
       mock_harvest_worktree(
         worktree,
@@ -304,7 +302,6 @@ function M.new(deps)
       ))
     end
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin, base_head)
-    mock_attempt_worktree_head(enable_substrate_pin_refresh and "def456" or branch_head)
     mock_harvest_worktree(worktree, branch)
     return worktree
   end
@@ -397,7 +394,11 @@ function M.new(deps)
   end
 
   local function mock_git_status(stdout, exit_code, stderr)
-    t.mock_command("status --porcelain", command_result(exit_code or 0, stderr, stdout))
+    local resolved_exit_code = exit_code or 0
+    t.mock_command("status --porcelain", command_result(resolved_exit_code, stderr, stdout))
+    if resolved_exit_code == 0 and tostring(stdout or "") == "" then
+      mock_attempt_worktree_head(enable_substrate_pin_refresh and "def456" or "abc123")
+    end
   end
 
   local function mock_branch_diff_paths(stdout, receipt_subject)
