@@ -11,6 +11,7 @@ local replay_fields = require("devloop.replay_fields")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local decompose_lib = require("devloop.decompose")
 local m_builders = require("devloop.markers.builders")
+local claim_carriers = require("devloop.claim_carriers")
 local opts = h.opts
 local reviewing = h.reviewing
 local review_reached = h.review_reached
@@ -50,25 +51,42 @@ end
 
 local function mock_issue_result_view(labels, comments, extra)
   local fields = extra or {}
+  local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+  local current_labels = {}
+  local has_claim = false
+  for _, label in ipairs(labels or {}) do
+    table.insert(current_labels, label)
+    has_claim = has_claim or claim_carriers.is_claim_family(label)
+  end
+  if not has_claim then
+    table.insert(current_labels, claim_spec.name)
+  end
   entity_read_mocks.mock_issue_read_forms(t, {
     repo = fields.repo,
     number = fields.number,
-    labels = labels,
+    labels = current_labels,
     comments = comments,
-    assignees = fields.assignees,
+    assignees = fields.assignees or {},
     author_login = fields.author_login,
     times = fields.times,
   })
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = fields.repo,
     number = fields.number,
-    labels = labels,
+    labels = current_labels,
     comments = comments,
   }, "labels,comments")
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = fields.repo,
     number = fields.number,
   }, "assignees,author,labels")
+  for _ = 1, 8 do
+    t.mock_command("gh api repos/" .. tostring(fields.repo or "owner/repo") .. "/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name .. '","description":"' .. claim_spec.description .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_decompose_child_issue_list(event, indexes)
