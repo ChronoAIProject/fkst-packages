@@ -5,6 +5,7 @@ local t = h.t
 local core = h.core
 local opts = h.opts
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 
 local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
@@ -96,6 +97,7 @@ return {
   test_golden_admission_open_unmanaged_raises_candidate = function()
     h.mock_bot_env()
     mock_repo_env()
+    claim_contract_mocks.mock_binding(t)
     mock_issue({ number = 42, labels = {}, title = "Issue", body = "" })
 
     local result = run_admission(opts("golden-admission-open-unmanaged"))
@@ -112,11 +114,10 @@ return {
     assert_source_ref(payload)
   end,
 
-  test_golden_admission_claim_skip_known_state_hold_and_foreign_assignee = function()
+  test_golden_admission_claim_skip_known_state_and_hold = function()
     local cases = {
       { name = "known-state", view = { labels = { "fkst-dev:thinking" } } },
       { name = "hold", view = { labels = { "fkst-dev:hold" } } },
-      { name = "foreign-assignee", view = { labels = {}, assignees = { "other-bot" } } },
     }
     for _, case in ipairs(cases) do
       h.mock_bot_env()
@@ -129,5 +130,17 @@ return {
       t.eq(#result.raises, 0)
       assert_no_codex_or_issue_edit()
     end
+  end,
+
+  test_golden_migrated_admission_ignores_legacy_foreign_assignee = function()
+    h.mock_bot_env()
+    mock_repo_env()
+    claim_contract_mocks.mock_binding(t)
+    mock_issue({ labels = {}, assignees = { "other-bot" } })
+
+    local result = run_admission(opts("golden-admission-legacy-foreign-assignee"))
+
+    t.eq(result.exit_code, 0)
+    assert_queues(result.raises, { "devloop_intake_candidate" })
   end,
 }

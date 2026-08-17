@@ -163,7 +163,11 @@ return saga.department(spec, { done = function() return false end, act = functio
       end
       current_issue = parsers_issue.parse_issue_view_review(issue_view.stdout)
     end
-    if not m_claims.verify_pr_review_issue_claim("review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
+    local claim_contract = m_claims.new_label_claim_contract(
+      entity_lib.issue_source_ref(repo, issue_number)
+    )
+    if not m_claims.verify_pr_review_issue_claim(
+        "review_pr", repo, issue_number, current_issue, reviewing.proposal_id, claim_contract) then
       return
     end
     local review_id = devloop_base.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)

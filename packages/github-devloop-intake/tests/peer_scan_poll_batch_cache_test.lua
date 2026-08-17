@@ -9,6 +9,7 @@ local author_policy = require("testkit_internal.github_author_policy")
 local github_author_policy = require("devloop.github_author_policy")
 local github_factory = require("devloop.github_factory")
 local m_claims = require("devloop.claims")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 local t = h.t
 local core = h.core
 
@@ -154,6 +155,7 @@ local function run_admission(run_opts, number, poll_token, created_at, opts)
     end
   end
   mock_event_env()
+  claim_contract_mocks.mock_binding(t)
   mock_admission_view(number, created_at, options.current)
   local department = admission_department.make_department({
     capacity = options.capacity or test_capacity,
@@ -194,7 +196,7 @@ local function counting_capacity(counter)
   }
 end
 
-local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_issue_rows)
+local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_issue_rows, expect_candidate)
   local run_opts = h.opts("peer-scan-stale-decision-" .. name)
   local counter = { calls = 0 }
   local capacity = counting_capacity(counter)
@@ -212,9 +214,16 @@ local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_
 
   mock_peer_result(issue_peer_command, { stdout = second_issue_rows, stderr = "", exit_code = 0 })
   mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
-  assert_no_admission_effect(run_admission(run_opts, 81, poll_b, nil, {
+  local second = run_admission(run_opts, 81, poll_b, nil, {
     capacity = capacity,
-  }))
+  })
+  if expect_candidate then
+    t.eq(second.exit_code, 0)
+    t.is_true(h.find_raise(second.raises, "devloop_intake_candidate") ~= nil)
+    t.eq(h.find_raise(second.raises, "github-proxy.github_issue_create_request"), nil)
+  else
+    assert_no_admission_effect(second)
+  end
   t.eq(counter.calls, 1, "the next poll re-evaluates the " .. name .. " decision")
   t.eq(count_peer_calls(issue_peer_command), 2)
 end
@@ -251,12 +260,12 @@ return {
 
   test_positive_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
     local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
-    assert_peer_decision_is_rechecked("positive-peer-bot", peer_rows, "[]\n")
+    assert_peer_decision_is_rechecked("positive-peer-bot", peer_rows, "[]\n", true)
   end,
 
   test_negative_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
     local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
-    assert_peer_decision_is_rechecked("negative-peer-bot", "[]\n", peer_rows)
+    assert_peer_decision_is_rechecked("negative-peer-bot", "[]\n", peer_rows, false)
   end,
 
   test_unavailable_peer_activity_scan_fails_closed_before_fork = function()

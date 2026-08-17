@@ -264,6 +264,9 @@ local function decompose_context(event)
   end
   local repo = entity.repo
   local issue_number = entity.issue_number
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(repo, issue_number)
+  )
   local _, pr_number = devloop_base.parse_pr_source_ref(decompose.source_ref)
   if tostring(pr_number or "") ~= tostring(decompose.pr_number) then
     devloop_logging.log_cas_decision("decompose", decompose.proposal_id, { state = nil, version = nil }, "blocked", "decomposed", "skip-foreign(source_ref)", "source_ref PR does not match decompose payload")
@@ -272,7 +275,8 @@ local function decompose_context(event)
     end
     return nil
   end
-  if not m_claims.verify_pr_review_issue_claim("decompose", repo, issue_number, nil, decompose.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim(
+      "decompose", repo, issue_number, nil, decompose.proposal_id, claim_contract) then
     if type(event) == "table" then
       context_cache[event] = false
     end

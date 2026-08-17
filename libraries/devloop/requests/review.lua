@@ -138,7 +138,7 @@ function C.build_review_converge_round_comment_request(output_language, repo, is
 end
 
 function C.build_issue_review_converge_round_comment_request(output_language, repo, issue_number, unresolved, issue_proposal_id, round, marker_body, source_ref)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -153,7 +153,7 @@ function C.build_issue_review_converge_round_comment_request(output_language, re
       tostring(unresolved.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(source_ref or unresolved.source_ref),
-  }, source_ref or unresolved.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_reviewing_comment_request(output_language, repo, issue_number, origin, pr_number, source_ref, review_delivery_dedup_key)

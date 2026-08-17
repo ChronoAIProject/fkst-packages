@@ -360,18 +360,14 @@ end
 function M.ensure_repo()
   local cfg = config.devloop_config()
   local repo = require_repo(cfg.repo)
-  local claim_mode = config.claim_mode()
   if cfg.write_mode == "real" then
     parsers_misc.assert_trusted_bot_configured()
   end
   local repo_labels = parsers_misc.parse_repo_labels(run_gh(function(timeout)
     return labels.gh_repo_labels_list(repo, timeout)
   end, 30, "gh label list").stdout)
-  local claim_spec = nil
-  if claim_mode == "label" then
-    claim_spec = m_claims.claimed_label_spec()
-    m_claims.assert_claim_label_binding(label_index(repo_labels)[claim_spec.name], claim_spec)
-  end
+  local claim_spec = m_claims.claimed_label_spec()
+  m_claims.assert_claim_label_binding(label_index(repo_labels)[claim_spec.name], claim_spec)
   local dashboard_issues = parsers_misc.parse_dashboard_issue_list(run_gh(function(timeout)
       return dashboard.gh_dashboard_issue_all_open(repo, timeout)
     end, 30, "gh dashboard issue list").stdout
@@ -390,21 +386,15 @@ function M.ensure_repo()
     color = "ededed",
     description = "fkst observability dashboard singleton",
   })
-  -- The active claim label backs label-mode ownership; only register it when the
-  -- deployment opts into label-mode so assignee-mode repos stay unchanged.
-  local claim_label_result = nil
-  if claim_mode == "label" then
-    claim_label_result = ensure_label(repo, apply_mode, repo_labels, {
-      name = claim_spec.name,
-      color = "0E8A16",
-      description = claim_spec.description,
-    })
-  end
+  local claim_label_result = ensure_label(repo, apply_mode, repo_labels, {
+    name = claim_spec.name,
+    color = "0E8A16",
+    description = claim_spec.description,
+  })
   local dashboard_result = ensure_dashboard_anchor(repo, apply_mode, dashboard_issues, cfg.bot_login)
   return {
     repo = repo,
     mode = cfg.write_mode,
-    claim_mode = claim_mode,
     labels = label_result,
     dashboard_label = dashboard_label_result,
     claim_label = claim_label_result,

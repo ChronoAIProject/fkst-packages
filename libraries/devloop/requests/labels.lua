@@ -17,8 +17,8 @@ local function label_colors_for(add_labels)
   return has_color and colors or nil
 end
 
-function C.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key, source_ref)
-  return m_claims.attach_issue_claim({
+function C.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key, source_ref, claim)
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.label.v1",
     repo = repo,
     target_kind = "issue",
@@ -29,7 +29,7 @@ function C.build_label_request(repo, issue_number, add_labels, remove_labels, de
     label_colors = label_colors_for(add_labels),
     dedup_key = dedup_key,
     source_ref = base_ids.normalize_source_ref(source_ref),
-  }, source_ref)
+  }, repo, issue_number, claim)
 end
 
 local function state_marker_guard(proposal_id, state, version, marker_target)
@@ -59,7 +59,7 @@ local function state_marker_guard(proposal_id, state, version, marker_target)
   return guard
 end
 
-function C.build_state_label_request(repo, issue_number, to_state, proposal_id, state_marker_version, dedup_key_value, source_ref, current_labels, marker_target)
+function C.build_state_label_request(repo, issue_number, to_state, proposal_id, state_marker_version, dedup_key_value, source_ref, current_labels, marker_target, claim)
   if proposal_id == nil or state_marker_version == nil then
     error("github-devloop: state-label-request-guard-fields-missing: state label request requires proposal_id and state marker version")
   end
@@ -73,7 +73,7 @@ function C.build_state_label_request(repo, issue_number, to_state, proposal_id, 
     kind = "issue",
     number = issue_number,
   }
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.label.v1",
     repo = repo,
     target_kind = "issue",
@@ -89,7 +89,7 @@ function C.build_state_label_request(repo, issue_number, to_state, proposal_id, 
     label_colors = label_colors_for(add_labels),
     dedup_key = dedup_key_value,
     source_ref = base_ids.normalize_source_ref(source_ref),
-  }, source_ref)
+  }, repo, issue_number, claim)
 end
 
 local canonical_state_marker_guard = state_marker_guard(nil, nil, nil)
@@ -102,7 +102,7 @@ function C.is_canonical_state_marker_guard(guard)
     and restart_metadata.arrays_equal(guard.order_by, canonical_state_marker_guard.order_by)
 end
 
-function C.build_thinking_label_request(issue, proposal)
+function C.build_thinking_label_request(issue, proposal, claim)
   return C.build_state_label_request(
     issue.repo,
     issue.number,
@@ -110,7 +110,10 @@ function C.build_thinking_label_request(issue, proposal)
     proposal.proposal_id,
     tostring(proposal.effect_version or proposal.dedup_key),
     tostring(proposal.effect_version or proposal.dedup_key) .. "/label/thinking",
-    issue.source_ref
+    issue.source_ref,
+    nil,
+    nil,
+    claim or m_claims.new_label_claim_contract(base_ids.issue_source_ref(issue.repo, issue.number))
   )
 end
 

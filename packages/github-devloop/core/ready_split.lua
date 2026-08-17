@@ -239,7 +239,7 @@ end
 local function raise_dependency_gate_blocked(M, dept, issue, proposal_id, state, gate)
   local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
   table.insert(remove_labels, M._blocked_on_dependency_label)
-  local comment_request = m_claims.attach_issue_claim({
+  local comment_request = m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = issue.repo,
     issue_number = issue.number,
@@ -248,7 +248,7 @@ local function raise_dependency_gate_blocked(M, dept, issue, proposal_id, state,
       .. "\n\n" .. devloop_state.state_marker(proposal_id, "blocked", state.version),
     dedup_key = base_ids.dedup_key({ "dependency", "blocked", tostring(proposal_id), tostring(state.version), tostring(gate.kind), tostring(gate.reason) }),
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
-  }, issue.source_ref)
+  }, issue.repo, issue.number)
   local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     "blocked",

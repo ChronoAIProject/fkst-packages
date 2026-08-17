@@ -151,6 +151,9 @@ local function reap_orphan_pr(repo, entity)
     return
   end
   local parent_state = devloop_state.current_state(parent.comments, proposal_id)
+  local claim_contract = m_claims.new_label_claim_contract(
+    base_ids.issue_source_ref(repo, origin.issue_number)
+  )
   local reason = terminal_parent_reason(parent, entity)
   if reason == nil then
     log.info(orphan_reap_log_line(repo, pr_number, proposal_id, "skip", "parent-active"))
@@ -165,7 +168,8 @@ local function reap_orphan_pr(repo, entity)
     return
   end
 
-  if not m_claims.verify_pr_review_issue_claim(dept, repo, origin.issue_number, parent, proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim(
+      dept, repo, origin.issue_number, parent, proposal_id, claim_contract) then
     log.info(orphan_reap_log_line(repo, pr_number, proposal_id, "skip", "backing-issue-not-self-owned"))
     return
   end

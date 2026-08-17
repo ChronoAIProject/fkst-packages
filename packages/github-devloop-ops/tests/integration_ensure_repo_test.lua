@@ -76,10 +76,10 @@ local function mock_env(write_mode, integration)
   end
 end
 
-local function mock_claim_label_env(exclusive, suffix)
+local function mock_claim_label_env(exclusive, suffix, claim_mode)
   for _ = 1, 2 do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
-      stdout = "label",
+      stdout = claim_mode or "label",
       stderr = "",
       exit_code = 0,
     })
@@ -360,6 +360,36 @@ return {
     local result = run_ensure(opts("ensure-derived-claim-label", {
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST"), 1)
+    t.eq(count_calls(claim_command), 1)
+  end,
+
+  test_assignee_mode_provisions_derived_active_claim_label = function()
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local claim_command = core.gh_repo_label_create_cmd(
+      "owner/repo",
+      claim_spec.name,
+      "0E8A16",
+      claim_spec.description
+    )
+    mock_env("1")
+    mock_claim_label_env("", nil, "assignee")
+    mock_labels(canonical_labels_with_dashboard())
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_command, {
+      stdout = '{"name":"' .. claim_spec.name .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_ensure(opts("ensure-assignee-posture-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "assignee",
       FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
     }))
 

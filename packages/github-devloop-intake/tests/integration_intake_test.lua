@@ -7,6 +7,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local dashboard = require("devloop.dashboard")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 
 local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
@@ -120,6 +121,7 @@ return {
   test_admission_raises_candidate_for_open_unmanaged_issue = function()
     h.mock_bot_env()
     mock_repo_env()
+    claim_contract_mocks.mock_binding(t)
     mock_issue(43, { labels = { "fkst-class:expedite" } })
 
     local result = run_admission(entity_changed(43), opts("intake-admission-open"))
@@ -134,6 +136,7 @@ return {
   test_admission_ignores_forged_marker = function()
     h.mock_bot_env()
     mock_repo_env()
+    claim_contract_mocks.mock_binding(t)
     mock_issue(42, {
       comments = {
         {

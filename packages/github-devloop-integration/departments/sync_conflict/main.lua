@@ -392,6 +392,7 @@ local function validate_open_original_pr(conflict, source_repo, pr, origin, bran
 end
 
 local function read_matching_parent(github, source_repo, pr_number, origin)
+  local claim_contract = m_claims.new_label_claim_contract(entity_lib.issue_source_ref(origin.repo, origin.issue_number))
   local parent = github.read_issue(entity_lib.issue_source_ref(origin.repo, origin.issue_number), {
     consumer = "sync_conflict",
     force_fresh = true,
@@ -409,12 +410,11 @@ local function read_matching_parent(github, source_repo, pr_number, origin)
     or tonumber(delegation.pr_number) ~= tonumber(pr_number) then
     return nil, "fail-closed(parent-delegation)", "parent no longer currently awaits this exact managed PR generation"
   end
-  if m_claims.issue_claim_state(parent.assignees, m_claims.claim_owner(), parent.labels) ~= "self" then
+  if m_claims.issue_claim_state(
+      parent.assignees, claim_contract.owner, parent.labels, claim_contract) ~= "self" then
     return nil, "fail-closed(parent-claim)", "parent issue is not held by the current self-only claim"
   end
-  if m_claims.claim_mode_active() == "label" then
-    m_claims.assert_current_claim_label_binding(source_repo, github)
-  end
+  m_claims.assert_current_claim_label_binding(source_repo, github, claim_contract)
   return parent, nil, nil
 end
 

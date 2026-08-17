@@ -1,24 +1,14 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local devloop_claims = require("devloop.claims")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
-local forge_strings = require("forge.strings")
 local github_factory = require("devloop.github_factory")
 
 local M = {}
 
 M.DEPT = "workflow_materialize_next"
 M.RELEASE_TIMEOUT_SECONDS = 30
-
-local function owner()
-  return devloop_claims.claim_owner()
-end
-
-local function is_self_only_assignee(core, ownership, claim_owner)
-  local logins = devloop_claims.assignee_logins(ownership and ownership.assignees)
-  return #logins == 1
-    and forge_strings.canonical_login(logins[1]) == forge_strings.canonical_login(claim_owner)
-end
 
 local function log(origin, action, reason)
   devloop_logging.log_cas_decision(M.DEPT, origin, { state = nil, version = nil }, "claim", "claim", action, reason)
@@ -31,13 +21,6 @@ local function github()
   return github_factory.production_handle()
 end
 
-local function read_ownership(core, deps, repo, issue_number)
-  if type(deps) == "table" and type(deps.read_current_issue_ownership) == "function" then
-    return deps.read_current_issue_ownership(core, repo, issue_number)
-  end
-  return devloop_claims.read_current_issue_ownership(repo, issue_number)
-end
-
 local function write_enabled(deps)
   if type(deps) == "table" and type(deps.write_enabled) == "function" then
     return deps.write_enabled()
@@ -45,34 +28,22 @@ local function write_enabled(deps)
   return devloop_base.read_env("FKST_GITHUB_WRITE") == "1"
 end
 
-local function unassign(deps, repo, issue_number, claim_owner)
-  if type(deps) == "table" and type(deps.issue_unassign) == "function" then
-    return deps.issue_unassign(repo, issue_number, claim_owner, M.RELEASE_TIMEOUT_SECONDS)
-  end
-  return github().issue_unassign(repo, issue_number, claim_owner, M.RELEASE_TIMEOUT_SECONDS)
-end
-
-function M.release_done_claim(core, deps, repo, issue_number, origin)
+function M.release_done_claim(core, deps, repo, issue_number, origin, claim_contract)
   if type(deps) == "table" and type(deps.release_done_claim) == "function" then
-    return deps.release_done_claim(core, repo, issue_number, origin)
+    return deps.release_done_claim(core, repo, issue_number, origin, claim_contract)
   end
-
-  local claim_owner = owner()
-  local ownership = read_ownership(core, deps, repo, issue_number)
-  if not is_self_only_assignee(core, ownership, claim_owner) then
-    log(origin, "skip-release-claim-not-self", "terminal done does not remove a non-self assignee claim")
-    return false
-  end
-
-  if not write_enabled(deps) then
-    log(origin, "dry-run-release-claim", "terminal done would release self-only claim but FKST_GITHUB_WRITE!=1")
-    return true
-  end
-
-  unassign(deps, repo, issue_number, claim_owner)
-  devloop_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
-  log(origin, "released-claim", "terminal done released the self-only assignee claim")
-  return true
+  local explicit = claim_contract or devloop_claims.new_label_claim_contract(
+    base_ids.issue_source_ref(repo, issue_number)
+  )
+  return devloop_claims.release_issue_claim_if_self(
+    core,
+    M.DEPT,
+    repo,
+    issue_number,
+    origin,
+    "workflow-terminal-done",
+    explicit
+  )
 end
 
 local function issue_close(deps, repo, issue_number)

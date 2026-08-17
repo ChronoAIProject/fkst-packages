@@ -1,8 +1,6 @@
 local entity_lib = require("devloop.entity")
-local claim_carriers = require("devloop.claim_carriers")
 local h = require("tests.devloop_helpers")
 local t = h.t
-local core = h.core
 local opts = h.opts
 local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -12,6 +10,7 @@ local entity_list_cache = require("devloop.entity_list_cache")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local testing = require("testkit_internal.testing")
 local admission_department = require("departments.admission.main")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 local poll_sequence = 0
 
 local function mock_repo_env(claim_mode)
@@ -94,15 +93,6 @@ local function mock_admission_view(fields)
   }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
 
-local function mock_state_view(fields)
-  local f = fields or {}
-  t.mock_command(core.gh_issue_view_state_cmd("owner/repo", tostring(f.number or 42)), {
-    stdout = '{"title":"External request","createdAt":"' .. tostring(f.created_at or "2026-06-03T01:00:00Z") .. '","updatedAt":"' .. tostring(f.updated_at or "2026-06-03T01:02:03Z") .. '","state":"' .. tostring(f.state or "OPEN") .. '","labels":[],"comments":[],"assignees":[],"author":{"login":"' .. tostring(f.author_login or "trusted-human") .. '"}}\n',
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
 local function run_admission(run_opts, updated_at, deps)
   author_policy.mock_env(t, run_opts, {
     configure_trusted_bot_login = h.mock_author_policy_configure,
@@ -118,14 +108,6 @@ local function assert_no_fork_or_candidate(result)
   t.eq(find_raise(result.raises, "devloop_intake_candidate"), nil)
 end
 
-local function created_inside_grace()
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", now())
-end
-
-local function created_after_grace()
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
-end
-
 return {
   test_label_mode_denies_non_whitelisted_author_before_candidate_admission = function()
     local run_opts = opts("label-mode-non-whitelisted-author", {
@@ -136,13 +118,6 @@ return {
     mock_repo_env("label")
     mock_admission_view({ author_login = "drive-by" })
     cache_set(entity_highwater.key("github-devloop-intake/admission", source_ref()), "")
-    local claim_label = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
-    t.mock_command("gh api repos/owner/repo/labels/" .. claim_label.name, {
-      stdout = '{"name":"' .. claim_label.name .. '","description":"' .. claim_label.description .. '"}\n',
-      stderr = "",
-      exit_code = 0,
-    })
-
     local result = run_admission(run_opts, nil, {
       capacity = {
         authorize = function()
@@ -160,69 +135,19 @@ return {
     assert_no_fork_or_candidate(result)
   end,
 
-  test_admission_other_authored_unassigned_issue_inside_grace_does_not_fork = function()
-    mock_repo_env()
-    mock_admission_view({ created_at = created_inside_grace() })
-    mock_state_view({ created_at = created_inside_grace() })
-
-    local result = run_admission(opts("fork-intake-admission-other-author"))
-
-    assert_no_fork_or_candidate(result)
-  end,
-
-  test_admission_other_authored_unassigned_issue_after_grace_raises_fork_request_only = function()
-    local run_opts = opts("fork-intake-admission-other-author-stale")
-    mock_repo_env()
-    mock_admission_view({ created_at = created_after_grace() })
-    mock_state_view({ created_at = created_after_grace() })
+  test_migrated_admission_claims_authorized_external_issue_without_assignee_fork = function()
+    local run_opts = opts("explicit-label-intake-admission-other-author", {
+      FKST_GITHUB_CLAIM_MODE = "assignee",
+    })
+    mock_repo_env("assignee")
+    claim_contract_mocks.mock_binding(t)
+    mock_admission_view()
 
     local result = run_admission(run_opts)
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
-    t.eq(request.external_effect_saga, "fork-and-block")
-    t.eq(request.external_effect_step, "create-fork")
-    t.eq(request.assignees[1], "fkst-test-bot")
-    t.eq(request.parent_comment_target.issue_number, 42)
-    t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
-    t.eq(request.post_create_blocked_by.external_effect_saga, "fork-and-block")
-    t.eq(request.post_create_blocked_by.external_effect_step, "block-original")
-    t.eq(find_raise(result.raises, "devloop_intake_candidate"), nil)
-  end,
-
-  test_admission_stale_open_issue_revalidates_closed_issue_before_fork = function()
-    local run_opts = opts("fork-intake-admission-stale-open-author-closed")
-    mock_repo_env()
-    mock_admission_view({ created_at = created_after_grace() })
-    mock_state_view({ state = "CLOSED", created_at = created_after_grace() })
-
-    local result = run_admission(run_opts)
-
-    assert_no_fork_or_candidate(result)
-  end,
-
-  test_admission_other_authored_closed_issue_after_grace_does_not_fork = function()
-    local run_opts = opts("fork-intake-admission-other-author-closed")
-    mock_repo_env()
-    mock_admission_view({ state = "CLOSED", created_at = created_after_grace() })
-
-    local result = run_admission(run_opts)
-
-    assert_no_fork_or_candidate(result)
-  end,
-
-  test_admission_updated_at_change_does_not_restart_fork_grace = function()
-    local run_opts = opts("fork-intake-admission-progress-keeps-grace")
-    mock_repo_env()
-    mock_admission_view({ created_at = created_after_grace(), updated_at = "2026-06-03T02:00:00Z" })
-    mock_state_view({ created_at = created_after_grace(), updated_at = "2026-06-03T02:00:00Z" })
-
-    local result = run_admission(run_opts, "2026-06-03T02:00:00Z")
-
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request").payload.post_create_blocked_by.blocked_issue_number, 42)
-    t.eq(find_raise(result.raises, "devloop_intake_candidate"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
+    t.is_true(find_raise(result.raises, "devloop_intake_candidate") ~= nil)
+    t.eq(h.count_calls("--add-assignee"), 0)
   end,
 }

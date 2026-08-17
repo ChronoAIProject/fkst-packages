@@ -26,7 +26,7 @@ local function execute_start_done(_event)
   return false
 end
 
-local function read_current(repo, issue_number, request)
+local function read_current(repo, issue_number, request, claim_contract)
   local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-execute-start-view-failed: " .. tostring(view.stderr))
@@ -42,14 +42,24 @@ local function read_current(repo, issue_number, request)
     devloop_logging.log_cas_decision("execute_start", request.proposal_id, { state = nil, version = nil }, "execution-request", "thinking", "skip-held", "fkst-dev:hold label is present")
     return nil
   end
-  if not m_claims.claim_issue_for_management("execute_start", repo, issue_number, current, request.proposal_id) then
+  if not m_claims.claim_issue_for_management(
+      "execute_start", repo, issue_number, current, request.proposal_id, nil, nil, claim_contract) then
     return nil
   end
   return current
 end
 
-local function raise_execution_start(repo, issue_number, request, current, event_ts)
-  local effects = execution_start.build_execution_start_effects(require("devloop.prompts").output_language, repo, issue_number, request, current, event_ts, "execute_start")
+local function raise_execution_start(repo, issue_number, request, current, event_ts, claim_contract)
+  local effects = execution_start.build_execution_start_effects(
+    require("devloop.prompts").output_language,
+    repo,
+    issue_number,
+    request,
+    current,
+    event_ts,
+    "execute_start",
+    claim_contract
+  )
   if effects == nil then
     log.warn("github-devloop dept=execute_start proposal_id=" .. tostring(request.proposal_id) .. " tag=SKIP reason=cannot-build-valid-execution-start-effects")
     return false
@@ -86,13 +96,16 @@ local function act_execute_start(event)
   end
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(repo, issue_number)
+  )
   with_lock(lock_key, function()
     parsers_misc.assert_trusted_bot_configured()
-    local current = read_current(repo, issue_number, request)
+    local current = read_current(repo, issue_number, request, claim_contract)
     if current == nil then
       return
     end
-    raise_execution_start(repo, issue_number, request, current, event.ts)
+    raise_execution_start(repo, issue_number, request, current, event.ts, claim_contract)
   end)
 end
 

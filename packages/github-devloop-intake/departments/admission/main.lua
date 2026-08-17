@@ -26,7 +26,7 @@ local spec = {
 
 local reconcile_capacity = admission_shared.reconcile_capacity
 
-local function claim_with_capacity(context, authorize, repo, issue_number, current, proposal_id, admission, detail)
+local function claim_with_capacity(context, authorize, repo, issue_number, current, proposal_id, admission, detail, claim_contract)
   local granted, reason = authorize(repo, issue_number, current, proposal_id)
   if not granted then
     devloop_logging.log_cas_decision(
@@ -47,7 +47,8 @@ local function claim_with_capacity(context, authorize, repo, issue_number, curre
     current,
     proposal_id,
     admission,
-    detail
+    detail,
+    claim_contract
   ) then
     return true
   end
@@ -57,10 +58,10 @@ local function claim_with_capacity(context, authorize, repo, issue_number, curre
   return false
 end
 
-local function settled_claim_admission(context, repo, current, poll_key)
+local function settled_claim_admission(context, repo, current, poll_key, claim_contract)
   return context.claims.claim_admission_precheck(
     current,
-    context.claims.claim_admission_inputs(current, repo, poll_key)
+    context.claims.claim_admission_inputs(current, repo, poll_key, claim_contract)
   )
 end
 
@@ -70,8 +71,8 @@ end
 
 local issue_from_current = admission_shared.issue_from_current
 
-local function initial_claim_is_in_milestone_scope(context, repo, current, poll_key)
-  local admission, detail = settled_claim_admission(context, repo, current, poll_key)
+local function initial_claim_is_in_milestone_scope(context, repo, current, poll_key, claim_contract)
+  local admission, detail = settled_claim_admission(context, repo, current, poll_key, claim_contract)
   if admission ~= "needs-claim" then
     return true, admission, detail
   end
@@ -133,11 +134,15 @@ local function admit_issue_event(context, event, entity)
         devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
         return
       end
+      local claim_contract = m_claims.new_label_claim_contract(
+        base_ids.issue_source_ref(repo, issue_number)
+      )
       local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
         context,
         repo,
         current,
-        poll_key
+        poll_key,
+        claim_contract
       )
       if not in_milestone_scope then
         reconcile_capacity(context, repo, proposal_id)
@@ -153,7 +158,8 @@ local function admit_issue_event(context, event, entity)
           current,
           proposal_id,
           claim_admission,
-          claim_detail
+          claim_detail,
+          claim_contract
         ) then
           return
         end

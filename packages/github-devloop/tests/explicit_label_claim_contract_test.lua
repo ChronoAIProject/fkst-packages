@@ -3,6 +3,9 @@ local m_claims = require("devloop.claims")
 local h = require("tests.devloop_core_helpers")
 local t = h.t
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local entity_lib = require("devloop.entity")
+local requests_labels = require("devloop.requests.labels")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -67,6 +70,43 @@ local function mock_binding(spec, description, times)
 end
 
 return {
+  test_real_issue_request_builders_emit_explicit_contract_without_claim_mode = function()
+    mock_contract_env("", "", "")
+    local proposal = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      dedup_key = "explicit-request-builders",
+    }
+    local issue = {
+      repo = repo,
+      number = issue_number,
+      source_ref = source_ref,
+    }
+    local requests = {
+      entity_lib.build_entity_comment_request(
+        { kind = "issue", repo = repo, number = issue_number },
+        "body",
+        "explicit-request-builders/entity",
+        source_ref
+      ),
+      requests_labels.build_label_request(
+        repo,
+        issue_number,
+        { "fkst-dev:enabled" },
+        {},
+        "explicit-request-builders/label",
+        source_ref
+      ),
+      requests_lifecycle.build_observe_comment_request("en", issue, proposal),
+    }
+
+    for _, request in ipairs(requests) do
+      t.eq(request.claim.schema, claim_carriers.label_contract_schema)
+      t.eq(request.claim.owner, "fkst-test-bot")
+      t.eq(request.claim.source_ref.ref, source_ref.ref)
+    end
+    t.eq(count_calls('printf %s "$FKST_GITHUB_CLAIM_MODE"'), 0)
+  end,
+
   test_explicit_contract_drives_complete_label_lifecycle_without_claim_mode = function()
     mock_contract_env("", "1", "peer-bot")
     local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")

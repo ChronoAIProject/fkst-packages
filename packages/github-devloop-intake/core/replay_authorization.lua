@@ -106,13 +106,16 @@ function S.authorize(current, proposal_id, source_ref, opts)
   if options.has_trusted_progress == true then
     return nil, "trusted-progress-visible"
   end
-  local owner = m_claims.claim_owner()
-  if m_claims.issue_claim_state(current.assignees, owner, current.labels) ~= "self" then
-    return nil, "not-self-only-assignee"
-  end
   local repo, issue_number = devloop_base.parse_issue_source_ref(source_ref)
   if repo == nil or issue_number == nil then
     return nil, "source-ref-unmatchable"
+  end
+  local claim_contract = m_claims.new_label_claim_contract(
+    base_ids.issue_source_ref(repo, issue_number)
+  )
+  if m_claims.issue_claim_state(
+      current.assignees, claim_contract.owner, current.labels, claim_contract) ~= "self" then
+    return nil, "not-self-only-assignee"
   end
 
   local normalized = base_ids.normalize_source_ref(source_ref)

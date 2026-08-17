@@ -356,9 +356,12 @@ function C.build_projected_state_comment_request(args)
     or label_policy.dedup_key == nil or args.comment_dedup_key == nil then
     error("github-devloop: projected-state-comment-incomplete: required request data is missing")
   end
+  local claim_contract = require("devloop.claims").new_label_claim_contract(
+    base_ids.issue_source_ref(args.repo, args.issue_number)
+  )
   local label_request = requests_labels.build_state_label_request(args.repo, args.issue_number,
     args.state, args.proposal_id, marker_version, label_policy.dedup_key, args.source_ref,
-    label_policy.current_labels)
+    label_policy.current_labels, nil, claim_contract)
   append_labels(label_request.add_labels, label_policy.add_labels)
   append_labels(label_request.remove_labels, label_policy.remove_labels)
   for _, label in ipairs(label_policy.add_labels or {}) do
@@ -369,13 +372,13 @@ function C.build_projected_state_comment_request(args)
     end
   end
   local normalized_source_ref = base_ids.normalize_source_ref(args.source_ref)
-  local request = require("devloop.claims").attach_issue_claim({
+  local request = require("devloop.claims").attach_issue_label_claim({
     schema = "github-proxy.v1", repo = args.repo, issue_number = args.issue_number,
     body = args.body_before_marker
       .. render_state_marker(args.proposal_id, args.state, marker_version, args.effects)
       .. args.body_after_marker,
     dedup_key = args.comment_dedup_key, source_ref = normalized_source_ref,
-  }, args.source_ref)
+  }, args.repo, args.issue_number, claim_contract)
   request.handoff = {
     kind = handoff_kind, proposal_id = args.proposal_id,
     version = tostring(args.handoff_version or marker_version), marker_version = marker_version,

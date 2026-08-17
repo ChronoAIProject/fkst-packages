@@ -80,7 +80,11 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-no-state", "PR has no origin marker")
     return false
   end
-  if not m_claims.verify_pr_review_issue_claim("liveness_scan", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+  )
+  if not m_claims.verify_pr_review_issue_claim(
+      "liveness_scan", origin.repo, origin.issue_number, nil, origin.proposal_id, claim_contract) then
     return false
   end
 

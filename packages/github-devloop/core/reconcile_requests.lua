@@ -61,7 +61,7 @@ function M.build_reconcile_comment_request(repo, issue_number, reconcile, action
   local marker = conv_reconcile.reconcile_marker(reconcile.proposal_id, reconcile.base_version, reconcile.round, action, reconcile.terminal_cause)
   local state_marker = devloop_state.state_marker(reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -76,7 +76,7 @@ function M.build_reconcile_comment_request(repo, issue_number, reconcile, action
       tostring(reconcile.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(reconcile.source_ref),
-  }, reconcile.source_ref)
+  }, repo, issue_number)
 end
 
 function M.build_fix_reconcile_comment_request(repo, issue_number, fix_reconcile, action, reason)

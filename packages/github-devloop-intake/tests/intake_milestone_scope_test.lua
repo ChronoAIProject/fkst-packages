@@ -4,6 +4,8 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local h = require("tests.devloop_helpers")
 local parsers_issue = require("devloop.parsers.issue")
+local claim_carriers = require("devloop.claim_carriers")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 local t = h.t
 
 local intake_fields = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone"
@@ -39,12 +41,20 @@ local function assignees_json(assignees)
   return table.concat(rendered, ",")
 end
 
-local function issue_view_json(number, milestone_json, assignees)
+local function labels_json(labels)
+  local rendered = {}
+  for _, label in ipairs(labels or {}) do
+    table.insert(rendered, '{"name":"' .. tostring(label) .. '"}')
+  end
+  return table.concat(rendered, ",")
+end
+
+local function issue_view_json(number, milestone_json, assignees, labels)
   return '{"number":' .. tostring(number)
     .. ',"title":"Issue ' .. tostring(number) .. '"'
     .. ',"body":"","createdAt":"2026-07-16T01:00:00Z"'
     .. ',"updatedAt":"2026-07-16T01:02:03Z","state":"OPEN"'
-    .. ',"labels":[],"comments":[],"assignees":[' .. assignees_json(assignees) .. ']'
+    .. ',"labels":[' .. labels_json(labels) .. '],"comments":[],"assignees":[' .. assignees_json(assignees) .. ']'
     .. ',"author":{"login":"fkst-test-bot"},"milestone":' .. tostring(milestone_json or "null") .. "}\n"
 end
 
@@ -69,17 +79,18 @@ local function mock_env(scope, write_mode)
   end
 end
 
-local function mock_issue(number, milestone_json, assignees)
+local function mock_issue(number, milestone_json, assignees, labels)
   entity_read_mocks.mock_issue_view_raw_selector(t, { number = number }, intake_fields, {
-    stdout = issue_view_json(number, milestone_json, assignees),
+    stdout = issue_view_json(number, milestone_json, assignees, labels),
     stderr = "",
     exit_code = 0,
   })
 end
 
-local function run_admission(name, number, scope, milestone_json, assignees, write_mode)
+local function run_admission(name, number, scope, milestone_json, assignees, write_mode, labels)
   mock_env(scope, write_mode)
-  mock_issue(number, milestone_json, assignees)
+  claim_contract_mocks.mock_binding(t)
+  mock_issue(number, milestone_json, assignees, labels)
   return t.run_department("departments/admission/main.lua", entity_changed(number), h.opts(name, {
     FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS = scope or "",
     FKST_GITHUB_WRITE = write_mode or "",
@@ -92,10 +103,11 @@ local function candidate_for(result, number)
   end)
 end
 
-local function count_assign_calls()
+local function count_claim_write_calls()
   local count = 0
   for _, call in ipairs(t.command_calls()) do
-    if gh_argv.call_contains(call, "--add-assignee") then
+    if gh_argv.call_contains(call, "--add-assignee")
+      or gh_argv.call_contains(call, "--add-label") then
       count = count + 1
     end
   end
@@ -150,7 +162,7 @@ return {
   end,
 
   test_initial_claim_rejects_other_or_missing_milestone_before_any_write = function()
-    local before = count_assign_calls()
+    local before = count_claim_write_calls()
     local outside = run_admission("intake-milestone-outside", 2786, "34,35", '{"number":36,"title":"Other"}', {}, "1")
     local missing = run_admission("intake-milestone-missing", 2785, "34,35", "null", {}, "1")
 
@@ -158,7 +170,7 @@ return {
     t.eq(missing.exit_code, 0)
     t.eq(candidate_for(outside, 2786), nil)
     t.eq(candidate_for(missing, 2785), nil)
-    t.eq(count_assign_calls(), before)
+    t.eq(count_claim_write_calls(), before)
   end,
 
   test_live_membership_revalidation_ignores_stale_event_and_observes_later_change = function()
@@ -171,29 +183,30 @@ return {
     t.is_true(candidate_for(admitted, 2784) ~= nil)
   end,
 
-  test_self_held_claim_bypasses_initial_scope_after_milestone_changes = function()
-    local before = count_assign_calls()
+  test_self_held_label_claim_bypasses_initial_scope_after_milestone_changes = function()
+    local before = count_claim_write_calls()
     local result = run_admission(
       "intake-milestone-self-held",
       2784,
       "34,35",
       '{"number":36,"title":"Moved"}',
-      { "fkst-test-bot" },
-      "1"
+      {},
+      "1",
+      { claim_carriers.derived_label("fkst-test-bot") }
     )
 
     t.eq(result.exit_code, 0)
     t.is_true(candidate_for(result, 2784) ~= nil)
-    t.eq(count_assign_calls(), before)
+    t.eq(count_claim_write_calls(), before)
   end,
 
   test_invalid_scope_fails_closed_before_claim = function()
-    local before = count_assign_calls()
+    local before = count_claim_write_calls()
     local result = run_admission("intake-milestone-invalid-config", 2784, "34,,35", '{"number":34}', {}, "1")
 
     t.eq(result.exit_code, 1)
     t.eq(candidate_for(result, 2784), nil)
-    t.eq(count_assign_calls(), before)
+    t.eq(count_claim_write_calls(), before)
   end,
 
   test_pr_events_remain_outside_issue_admission_scope = function()

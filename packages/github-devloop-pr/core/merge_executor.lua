@@ -352,7 +352,11 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, { state = nil, version = nil }, "claim", "claim", "skip-not-owned", "backing issue is absent")
     return
   end
-  if issue_number ~= nil and not m_claims.verify_pr_review_issue_claim("merge", repo, issue_number, nil, merge_ready.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(repo, issue_number)
+  )
+  if not m_claims.verify_pr_review_issue_claim(
+      "merge", repo, issue_number, nil, merge_ready.proposal_id, claim_contract) then
     return
   end
   if options ~= nil and type(options.queue_starvation_cause) == "table" then

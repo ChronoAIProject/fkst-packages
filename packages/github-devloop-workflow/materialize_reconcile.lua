@@ -267,12 +267,12 @@ local function load_blueprints(deps, ctx)
   return workflow_select.load_catalog_for_ctx(ctx or {})
 end
 
-local function verify_claim(core, deps, repo, issue_number, origin)
+local function verify_claim(core, deps, repo, issue_number, origin, claim_contract)
   if type(deps.verify_issue_claim) == "function" then
-    return deps.verify_issue_claim(core, repo, issue_number, origin)
+    return deps.verify_issue_claim(core, repo, issue_number, origin, claim_contract)
   end
-  local owner = devloop_claims.claim_owner()
-  return devloop_claims.verify_issue_claim(repo, issue_number, owner)
+  return devloop_claims.verify_issue_claim(
+    repo, issue_number, claim_contract.owner, claim_contract)
 end
 
 local function content_fetch(core, predecessor_ref, ctx)
@@ -483,6 +483,9 @@ end
 -- under a re-read currency check, so the lock no longer spans network or codex IO that
 -- tempfails observe_issue / admission / rollup_scan on the same issue.
 local function plan_origin(core, deps, repo, issue_number, event, catalog, unit, current, origin)
+  local claim_contract = devloop_claims.new_label_claim_contract(
+    base_ids.issue_source_ref(repo, issue_number)
+  )
   if tostring(current.state or ""):upper() ~= "OPEN" then
     unit.log_decision(origin, "tick", "discover", "skip-closed", "issue is not open")
     return "skip"
@@ -507,7 +510,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
             and actions.done_label_request(repo, issue_number, origin, fresh_ctx.current.labels) == nil
         end, "merged label projection no longer authorizes the irreversible done cleanup")
         unit.lease_action(function()
-          lease.release_done_claim(core, deps, repo, issue_number, origin)
+          lease.release_done_claim(core, deps, repo, issue_number, origin, claim_contract)
           lease.close_done_origin(core, deps, repo, issue_number, origin)
         end)
       end
@@ -517,7 +520,7 @@ local function plan_origin(core, deps, repo, issue_number, event, catalog, unit,
     unit.log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
     return "skip"
   end
-  if not verify_claim(core, deps, repo, issue_number, origin) then
+  if not verify_claim(core, deps, repo, issue_number, origin, claim_contract) then
     unit.log_decision(origin, "claim", "materialize", "skip-claim-lost", "origin materialization lease is not self-held")
     return "skip"
   end

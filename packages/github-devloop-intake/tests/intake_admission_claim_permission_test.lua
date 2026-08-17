@@ -4,11 +4,16 @@ local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local claim_carriers = require("devloop.claim_carriers")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 
-local function mock_bot_env()
+local function mock_bot_env(claim_mode)
   for _ = 1, 6 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
-    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', { stdout = claim_mode or "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
   end
 end
@@ -88,30 +93,69 @@ local function candidate_for(result, number)
 end
 
 return {
-  test_permission_denied_claim_skips_issue_and_later_event_can_admit_next_issue = function()
-    mock_bot_env()
+  test_admission_uses_explicit_label_contract_under_assignee_mode = function()
+    mock_bot_env("assignee")
     mock_repo_env()
     mock_write_mode_reads(6)
     mock_admission_view(42)
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
-      stdout = "",
-      stderr = "GraphQL: Resource not accessible by integration (permission-denied)\n",
-      exit_code = 1,
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    for _ = 1, 3 do
+      t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+        stdout = '{"name":"' .. claim_spec.name .. '","description":"'
+          .. claim_spec.description .. '"}\n',
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-label '" .. claim_spec.name .. "'", {
+      stdout = "", stderr = "", exit_code = 0,
     })
+    t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", "42"), {
+      stdout = '{"assignees":[],"author":{"login":"fkst-test-bot"},"labels":[{"name":"'
+        .. claim_spec.name .. '"}]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local admitted = run_admission(42)
+
+    t.eq(admitted.exit_code, 0)
+    t.is_true(candidate_for(admitted, 42) ~= nil)
+    t.eq(count_calls("--add-assignee"), 0)
+    t.eq(count_calls("--remove-assignee"), 0)
+    t.eq(count_calls('printf %s "$FKST_GITHUB_CLAIM_MODE"'), 0)
+  end,
+
+  test_label_binding_collision_does_not_fallback_to_assignee_and_later_event_can_admit = function()
+    mock_bot_env("assignee")
+    mock_repo_env()
+    mock_write_mode_reads(6)
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    t.mock_command("gh api repos/owner/repo/labels/" .. claim_spec.name, {
+      stdout = '{"name":"' .. claim_spec.name
+        .. '","description":"fkst-dev-label-mode-ownership-claim owner=other-bot"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    claim_contract_mocks.mock_binding(t, "owner/repo", "fkst-test-bot", 2)
+    mock_admission_view(42)
 
     local denied = run_admission(42)
 
-    t.eq(denied.exit_code, 0)
+    t.eq(denied.exit_code, 1)
     t.eq(candidate_for(denied, 42), nil)
+    t.eq(count_calls("--add-assignee"), 0)
 
+    mock_bot_env("assignee")
     mock_admission_view(43)
-    t.mock_command("gh issue edit '43' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
+    t.mock_command("gh issue edit '43' --repo 'owner/repo' --add-label '" .. claim_spec.name .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", "43"), {
-      stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"assignees":[],"author":{"login":"fkst-test-bot"},"labels":[{"name":"'
+        .. claim_spec.name .. '"}]}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -120,7 +164,7 @@ return {
 
     t.eq(admitted.exit_code, 0)
     t.is_true(candidate_for(admitted, 43) ~= nil)
-    t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 2)
-    t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
+    t.eq(count_calls("--add-assignee"), 0)
+    t.eq(count_calls("--remove-assignee"), 0)
   end,
 }

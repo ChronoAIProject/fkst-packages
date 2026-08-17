@@ -413,7 +413,8 @@ local function visible_pr_base_unmanaged_block_state(state, origin, current_pr)
   return nil
 end
 
-local function maybe_heal_pr_base_unmanaged_block(origin, pr_number, current_pr, state, branches, source_ref, issue_current)
+local function maybe_heal_pr_base_unmanaged_block(
+    origin, pr_number, current_pr, state, branches, source_ref, issue_current, claim_contract)
   local blocked_state = visible_pr_base_unmanaged_block_state(state, origin, current_pr)
   if blocked_state == nil
     or not pr_safety.origin_base_matches_current_pr(origin, current_pr)
@@ -425,7 +426,7 @@ local function maybe_heal_pr_base_unmanaged_block(origin, pr_number, current_pr,
     return true
   end
   local claim_decision = m_claims.pr_review_issue_claim_decision(
-    "observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id)
+    "observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id, claim_contract)
   if not claim_decision.owned then
     local outcome = "skip-not-owned(pr-base-unmanaged-self-heal)"
     local reason = "backing issue is not self-owned"
@@ -465,10 +466,15 @@ local function maybe_block_unmanaged_base(pr, origin, current_pr, branches, sour
 
   local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
   local issue_current = issue_claim_for_origin(origin)
-  if maybe_heal_pr_base_unmanaged_block(origin, pr.number, current_pr, state, branches, source_ref, issue_current) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+  )
+  if maybe_heal_pr_base_unmanaged_block(
+      origin, pr.number, current_pr, state, branches, source_ref, issue_current, claim_contract) then
     return true
   end
-  if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim(
+      "observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id, claim_contract) then
     return true
   end
   if state.state == "blocked" then
@@ -687,10 +693,15 @@ local function reconcile_pr_event(event)
 
     local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
     local issue_current = issue_claim_for_origin(origin)
-    if maybe_heal_pr_base_unmanaged_block(origin, pr.number, current_pr, state, branches, source_ref, issue_current) then
+    local claim_contract = m_claims.new_label_claim_contract(
+      entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+    )
+    if maybe_heal_pr_base_unmanaged_block(
+        origin, pr.number, current_pr, state, branches, source_ref, issue_current, claim_contract) then
       return
     end
-    if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
+    if not m_claims.verify_pr_review_issue_claim(
+        "observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id, claim_contract) then
       return
     end
     if maybe_remediate_legacy_fix_feedback(

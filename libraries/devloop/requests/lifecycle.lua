@@ -17,8 +17,8 @@ local m_mq = require("devloop.merge_queue")
 local strings = shared.strings
 local ai_sentinel = shared.ai_sentinel
 
-function C.build_observe_comment_request(output_language, issue, proposal)
-  return m_claims.attach_issue_claim({
+function C.build_observe_comment_request(output_language, issue, proposal, claim)
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = issue.repo,
     issue_number = issue.number,
@@ -31,7 +31,7 @@ function C.build_observe_comment_request(output_language, issue, proposal)
       tostring(proposal.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
-  }, issue.source_ref)
+  }, issue.repo, issue.number, claim)
 end
 function C.build_result_comment_request(output_language, repo, issue_number, reached, state_name)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
@@ -73,18 +73,18 @@ function C.build_result_comment_request(output_language, repo, issue_number, rea
       source_ref = reached.source_ref, framing = reached.framing,
     })
   end
-  local request = m_claims.attach_issue_claim({
+  local request = m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1", repo = repo, issue_number = issue_number,
     body = body .. devloop_state.state_marker(reached.proposal_id, canonical_state, marker_version, effects)
       .. "\n" .. marker
       .. "\n" .. ai_sentinel,
     dedup_key = comment_dedup_key, source_ref = base_ids.normalize_source_ref(reached.source_ref),
-  }, reached.source_ref)
+  }, repo, issue_number)
   return attach_declined_label_handoff(request, repo, issue_number, reached, canonical_state, marker_version)
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -93,7 +93,7 @@ function C.build_result_divergence_comment_request(repo, issue_number, reached, 
       .. "\n" .. ai_sentinel,
     dedup_key = base_ids.dedup_key({ "result-divergence", tostring(reached.proposal_id), logical_identity, tostring(first_decision), tostring(reached.decision) }),
     source_ref = base_ids.normalize_source_ref(reached.source_ref),
-  }, reached.source_ref)
+  }, repo, issue_number)
 end
 function C.result_effects_complete(current, reached)
   if type(current) ~= "table" or type(reached) ~= "table" then
@@ -113,7 +113,7 @@ function C.result_effects_complete(current, reached)
 end
 
 function C.build_converge_round_comment_request(output_language, repo, issue_number, unresolved, round, marker_body, handoff)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -128,7 +128,7 @@ function C.build_converge_round_comment_request(output_language, repo, issue_num
       tostring(unresolved.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(unresolved.source_ref), handoff = handoff,
-  }, unresolved.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_dependency_hold_comment_request(output_language, repo, issue_number, proposal_id, version, gate, marker, source_ref)
@@ -137,7 +137,7 @@ function C.build_dependency_hold_comment_request(output_language, repo, issue_nu
   if reason == "" then
     reason = hold_kind
   end
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -146,7 +146,7 @@ function C.build_dependency_hold_comment_request(output_language, repo, issue_nu
       .. "\n\n" .. tostring(marker),
     dedup_key = base_ids.dedup_key({ "dependency", "comment", tostring(proposal_id), tostring(version), tostring(hold_kind) }),
     source_ref = base_ids.normalize_source_ref(source_ref),
-  }, source_ref)
+  }, repo, issue_number)
 end
 function C.build_dependency_release_comment_request(dependency_markers, output_language, repo, issue_number, proposal_id, version, gate, source_ref)
   local reason = devloop_base.neutralize_untrusted_comment_text(gate and gate.reason or "satisfied")
@@ -158,7 +158,7 @@ function C.build_dependency_release_comment_request(dependency_markers, output_l
   if note_markers ~= "" then
     markers = markers .. "\n" .. note_markers
   end
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -167,7 +167,7 @@ function C.build_dependency_release_comment_request(dependency_markers, output_l
       .. "\n\n" .. markers,
     dedup_key = base_ids.dedup_key({ "dependency", "comment", "release", tostring(proposal_id), tostring(version), reason }),
     source_ref = base_ids.normalize_source_ref(source_ref),
-  }, source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_intake_decision_comment_request(output_language, repo, issue_number, candidate, decision, reason, service_class)
@@ -196,7 +196,7 @@ function C.build_intake_decision_comment_request(output_language, repo, issue_nu
   if decision == "track" then
     detail = "\n\n" .. comment_strings.comment_string(output_language, "intake_tracking_ack")
   end
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -212,7 +212,7 @@ function C.build_intake_decision_comment_request(output_language, repo, issue_nu
       tostring(candidate.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(candidate.source_ref),
-  }, candidate.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_implementing_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
@@ -230,7 +230,7 @@ function C.build_implementing_comment_request(implement_attempt_marker, output_l
   end
   local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
   local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -249,7 +249,7 @@ function C.build_implementing_comment_request(implement_attempt_marker, output_l
       tostring(ready.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
-  }, ready.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_implementing_state_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
@@ -264,7 +264,7 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
   end
   local state_marker = devloop_state.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
   local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -282,7 +282,7 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
       tostring(ready.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
-  }, ready.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_implement_checkpoint_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
@@ -318,7 +318,7 @@ function C.build_implement_checkpoint_comment_request(implement_attempt_marker, 
     checkpoint_reason
   )
   local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -341,7 +341,7 @@ function C.build_implement_checkpoint_comment_request(implement_attempt_marker, 
       checkpoint_reason,
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
-  }, ready.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_implement_attempt_comment_request(implement_attempt_marker, repo, issue_number, ready, attempt, started_at, exec_ref)
@@ -396,7 +396,7 @@ function C.build_impl_failure_comment_request(impl_failure_marker, output_langua
   local marker = impl_failure_marker(
     ready.proposal_id, ready.dedup_key, safe_reason, attempt, fault_class, retryable)
   local state_marker = devloop_state.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -413,7 +413,7 @@ function C.build_impl_failure_comment_request(impl_failure_marker, output_langua
       tostring(ready.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
-  }, ready.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_expected_dependency_edge_request(
@@ -507,14 +507,14 @@ function C.build_implementation_refusal_comment_request(
     })
   end
   local state_marker = devloop_state.state_marker(ready.proposal_id, target_state, target_version)
-  return m_claims.attach_issue_claim({
+  return m_claims.attach_issue_label_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
     body = body_before_marker .. state_marker .. body_after_marker,
     dedup_key = comment_dedup_key,
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
-  }, ready.source_ref)
+  }, repo, issue_number)
 end
 
 function C.build_merging_comment_request(output_language, repo, merge_ready)

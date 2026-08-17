@@ -31,6 +31,7 @@ local function mock_claim_env(mode)
   local values = {
     FKST_GITHUB_BOT_LOGIN = owner,
     FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    FKST_GITHUB_CLAIM_LABEL_SUFFIX = "",
     FKST_GITHUB_CLAIM_MODE = mode,
     FKST_GITHUB_WRITE = "",
     FKST_DEVLOOP_MANAGED_BOT_LOGINS = "",
@@ -166,13 +167,11 @@ return {
     t.eq(reason, "not-self-only-assignee")
   end,
 
-  test_assignee_claim_authorizes_replay = function()
+  test_assignee_claim_does_not_authorize_migrated_replay = function()
     mock_claim_env("assignee")
     local authorization, reason = authorize(current_issue({ owner }, {}))
 
-    t.is_true(type(authorization) == "table")
-    t.eq(authorization.repo, "owner/repo")
-    t.eq(authorization.issue_number, "42")
-    t.is_nil(reason)
+    t.is_nil(authorization)
+    t.eq(reason, "not-self-only-assignee")
   end,
 }

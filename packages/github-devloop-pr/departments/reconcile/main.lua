@@ -159,7 +159,11 @@ local function pipeline_review(event)
   if pr_number == nil then
     pr_number = entity.pr_number
   end
-  if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(repo, issue_number)
+  )
+  if not m_claims.verify_pr_review_issue_claim(
+      "reconcile", repo, issue_number, nil, reconcile.proposal_id, claim_contract) then
     return
   end
 
@@ -303,7 +307,11 @@ local function pipeline_fix(event)
   if pr_number == nil then
     pr_number = entity.pr_number
   end
-  if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(repo, issue_number)
+  )
+  if not m_claims.verify_pr_review_issue_claim(
+      "reconcile", repo, issue_number, nil, reconcile.proposal_id, claim_contract) then
     return
   end
 
@@ -473,6 +481,9 @@ local function pipeline_timeout(event)
   devloop_logging.log_entry("reconcile", event, reconcile.proposal_id, reconcile.dedup_key)
   local repo, issue_number = base_ids.parse_proposal_id(reconcile.proposal_id)
   local _, pr_number = devloop_base.parse_pr_source_ref(reconcile.source_ref)
+  local claim_contract = repo ~= nil and issue_number ~= nil
+    and m_claims.new_label_claim_contract(entity_lib.issue_source_ref(repo, issue_number))
+    or nil
   local lock_key = entity_lib.transition_lock_key(reconcile.proposal_id)
   if lock_key == nil then
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, reconcile.state, "blocked", "skip-foreign(proposal_id)", "no transition lock key")
@@ -488,7 +499,8 @@ local function pipeline_timeout(event)
     local snapshot
     local target_pr_number = pr_number
     if pr_number ~= nil then
-      if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+      if not m_claims.verify_pr_review_issue_claim(
+          "reconcile", repo, issue_number, nil, reconcile.proposal_id, claim_contract) then
         return
       end
       local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)

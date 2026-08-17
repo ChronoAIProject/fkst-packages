@@ -683,4 +683,10 @@ function C.attach_issue_claim(payload, source_ref, claim)
   return payload
 end
 
+function C.attach_issue_label_claim(payload, repo, issue_number, claim)
+  local source_ref = base_ids.issue_source_ref(repo, issue_number)
+  local explicit = claim or C.new_label_claim_contract(source_ref)
+  return C.attach_issue_claim(payload, source_ref, explicit)
+end
+
 return C

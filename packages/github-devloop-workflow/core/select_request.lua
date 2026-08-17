@@ -107,7 +107,7 @@ function M.build_blueprint_decision_comment_request(root, repo, issue_number, ca
     }),
     source_ref = base_ids.normalize_source_ref(candidate.source_ref),
   }
-  return claims.attach_issue_claim(payload, candidate.source_ref), nil
+  return claims.attach_issue_label_claim(payload, repo, issue_number), nil
 end
 
 function M.install(target)

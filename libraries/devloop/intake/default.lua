@@ -155,7 +155,9 @@ local function read_current_for_candidate(intake_service_class, dept, repo, issu
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-held", "fkst-dev:hold label is present")
     return nil
   end
-  if not m_claims.claim_issue_for_management(dept, repo, issue_number, current, candidate.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(entity_lib.issue_source_ref(repo, issue_number))
+  if not m_claims.claim_issue_for_management(
+      dept, repo, issue_number, current, candidate.proposal_id, nil, nil, claim_contract) then
     return nil
   end
 

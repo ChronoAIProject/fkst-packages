@@ -158,6 +158,7 @@ end
 
 local function build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
   local snapshot = {}
+  local claim_contracts = {}
   local numbers = {}
   local function include(number)
     local selected = tonumber(number)
@@ -184,18 +185,22 @@ local function build_snapshot(ports, repo, owner, grant, candidate_number, candi
       error("github-devloop-intake: capacity-issue-read-missing: capacity issue read returned no issue")
     end
     snapshot[number].number = number
+    if type(ports.claim_contract) == "function" then
+      claim_contracts[number] = ports.claim_contract(repo, number)
+    end
   end
-  return snapshot
+  return snapshot, claim_contracts
 end
 
-local function desired_allocation(repo, owner, max_inflight, grant, snapshot, candidate_number)
+local function desired_allocation(repo, owner, max_inflight, grant, snapshot, claim_contracts, candidate_number)
   local holders = {}
   local selected = {}
 
   for _, number in ipairs(grant and grant.holders or {}) do
     local normalized = tonumber(number)
     local current = normalized and snapshot[normalized] or nil
-    local ownership = current and claims.issue_claim_state(current.assignees, owner, current.labels) or "other"
+    local ownership = current and claims.issue_claim_state(
+      current.assignees, owner, current.labels, claim_contracts[normalized]) or "other"
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
@@ -208,7 +213,8 @@ local function desired_allocation(repo, owner, max_inflight, grant, snapshot, ca
 
   local candidates = {}
   for number, current in pairs(snapshot) do
-    local ownership = claims.issue_claim_state(current.assignees, owner, current.labels)
+    local ownership = claims.issue_claim_state(
+      current.assignees, owner, current.labels, claim_contracts[number])
     local is_current_candidate = tonumber(candidate_number) == number
     if not selected[number]
       and issue_occupies_capacity(repo, current)
@@ -229,11 +235,12 @@ local function desired_allocation(repo, owner, max_inflight, grant, snapshot, ca
   return holders
 end
 
-local function converge_claims(ports, repo, owner, holders, snapshot)
+local function converge_claims(ports, repo, owner, holders, snapshot, claim_contracts)
   local releases = {}
   for number, current in pairs(snapshot) do
     if not contains(holders, number)
-      and claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
+      and claims.issue_claim_state(
+        current.assignees, owner, current.labels, claim_contracts[number]) == "self" then
       table.insert(releases, {
         number = number,
         active = issue_occupies_capacity(repo, current),
@@ -285,13 +292,15 @@ function C.new(ports)
     local owner = ports.owner()
     ports.assert_owner_binding(repo)
     local grant = ports.read_grant(repo, owner)
-    local snapshot = build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
+    local snapshot, claim_contracts = build_snapshot(
+      ports, repo, owner, grant, candidate_number, candidate_current)
     local holders = desired_allocation(
       repo,
       owner,
       max_inflight,
       grant,
       snapshot,
+      claim_contracts,
       candidate_number
     )
 
@@ -323,7 +332,7 @@ function C.new(ports)
       holders = copy_array(grant.holders)
     end
 
-    converge_claims(ports, repo, owner, holders, snapshot)
+    converge_claims(ports, repo, owner, holders, snapshot, claim_contracts)
     if candidate_number == nil then
       return true, "wip-cap-reconciled"
     end
@@ -478,9 +487,10 @@ function C.production(_M)
     end,
     owner = claims.claim_owner,
     assert_owner_binding = function(repo)
-      if claims.claim_mode_active() == "label" then
-        claims.assert_current_claim_label_binding(repo)
-      end
+      claims.assert_current_claim_label_binding(repo)
+    end,
+    claim_contract = function(repo, issue_number)
+      return claims.new_label_claim_contract(base_ids.issue_source_ref(repo, issue_number))
     end,
     list_open_claim_numbers = function(repo, owner)
       local listed = result_required(
@@ -490,7 +500,11 @@ function C.production(_M)
       )
       local numbers = {}
       for _, current in ipairs(parsers_issue.parse_issue_list_intake(listed.stdout)) do
-        if claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
+        local claim_contract = claims.new_label_claim_contract(
+          base_ids.issue_source_ref(repo, current.number)
+        )
+        if claims.issue_claim_state(
+            current.assignees, owner, current.labels, claim_contract) == "self" then
           table.insert(numbers, current.number)
         end
       end
@@ -514,13 +528,17 @@ function C.production(_M)
       return grant_adapter.compare_and_swap_grant(repo, owner, expected_sha, record)
     end,
     release_claim_if_self = function(repo, issue_number, _owner, reason)
+      local claim_contract = claims.new_label_claim_contract(
+        base_ids.issue_source_ref(repo, issue_number)
+      )
       return claims.release_issue_claim_if_self(
         nil,
         "admission",
         repo,
         issue_number,
         base_ids.proposal_id(repo, issue_number),
-        reason
+        reason,
+        claim_contract
       )
     end,
     log_decision = function(proposal_id, grant, outcome, reason)

@@ -4,6 +4,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local marker_builders = require("devloop.markers.builders")
 local premise_correction = require("devloop.premise_correction")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 local t = h.t
 
 local repo = "owner/repo"
@@ -89,6 +90,7 @@ end
 local function run(comments, name)
   h.mock_bot_env()
   mock_repo_env()
+  claim_contract_mocks.mock_binding(t)
   mock_issue(comments)
   return t.run_department("departments/admission/main.lua", entity_changed(), h.opts(name))
 end

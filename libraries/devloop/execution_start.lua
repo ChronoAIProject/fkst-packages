@@ -80,7 +80,7 @@ function E.build_execution_start_proposal(repo, issue_number, request, current, 
   return v_validate_proposal.validate_proposal(proposal) and proposal or nil
 end
 
-function E.build_execution_start_effects(output_language, repo, issue_number, request, current, event_ts, dept)
+function E.build_execution_start_effects(output_language, repo, issue_number, request, current, event_ts, dept, claim_contract)
   local proposal = E.build_execution_start_proposal(repo, issue_number, request, current, event_ts, dept)
   if proposal == nil then
     return nil
@@ -92,8 +92,10 @@ function E.build_execution_start_effects(output_language, repo, issue_number, re
   }
   return {
     proposal = proposal,
-    thinking_comment_request = requests_lifecycle.build_observe_comment_request(output_language, issue_ref, proposal),
-    thinking_label_request = requests_labels.build_thinking_label_request(issue_ref, proposal),
+    thinking_comment_request = requests_lifecycle.build_observe_comment_request(
+      output_language, issue_ref, proposal, claim_contract),
+    thinking_label_request = requests_labels.build_thinking_label_request(
+      issue_ref, proposal, claim_contract),
   }
 end
 

@@ -539,6 +539,8 @@ function M.new(deps)
     for _ = 1, 8 do
       t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"',
         command_result(0, "", value or "fkst-test-bot"))
+      t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', command_result(0))
+      t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', command_result(0))
     end
     t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', command_result(0, "", "dev"))
     t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', command_result(0))

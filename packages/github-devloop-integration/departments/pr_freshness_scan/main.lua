@@ -319,7 +319,7 @@ local function in_managed_scope(repo, branches, pr, origin)
 end
 
 local function process_pr(repo, branches, listed_pr, pr, origin, issue)
-  if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id, m_claims.new_label_claim_contract(base_ids.issue_source_ref(origin.repo, origin.issue_number))) then
     return
   end
   local state = require("devloop.entity").current_entity_state(pr.comments, origin.proposal_id)

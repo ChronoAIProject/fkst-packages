@@ -242,8 +242,11 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   return restart_policy.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
 end
 
-local function ensure_managed_issue_claim(issue, proposal_id, current, state)
-  local admission, detail = m_claims.claim_admission_precheck(current, m_claims.claim_admission_inputs(current, issue.repo))
+local function ensure_managed_issue_claim(issue, proposal_id, current, state, claim_contract)
+  local admission, detail = m_claims.claim_admission_precheck(
+    current,
+    m_claims.claim_admission_inputs(current, issue.repo, nil, claim_contract)
+  )
   if admission == "held" then
     return true
   end
@@ -276,7 +279,16 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
     m_claims.log_claim_admission_skip("observe_issue", proposal_id, detail)
     return false
   end
-  return m_claims.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id)
+  return m_claims.claim_issue_for_management(
+    "observe_issue",
+    issue.repo,
+    issue.number,
+    current,
+    proposal_id,
+    admission,
+    detail,
+    claim_contract
+  )
 end
 
 local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
@@ -442,6 +454,9 @@ local function reconcile_issue_event(event, opts)
   end
 
   local proposal_id = base_ids.proposal_id(issue.repo, issue.number)
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(issue.repo, issue.number)
+  )
   devloop_logging.log_entry("observe_issue", event, proposal_id, issue.dedup_key)
   local lock_key = entity_lib.observe_lock_key(issue.repo, issue.number)
   local options = opts or {}
@@ -481,7 +496,7 @@ local function reconcile_issue_event(event, opts)
         local current_delegation = m_facts.pr_delegation_fact(current.comments, proposal_id)
         local claim_verified = false
         if current_delegation ~= nil then
-          if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
+          if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state, claim_contract) then
             return
           end
           claim_verified = true
@@ -496,7 +511,8 @@ local function reconcile_issue_event(event, opts)
         end
         local handoff_transition = awaiting_pr_replay.implementing_to_awaiting_pr_transition_status(issue, proposal_id, issue_state)
         if handoff_transition == "apply" or handoff_transition == "idempotent" then
-          if not claim_verified and not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
+          if not claim_verified and not ensure_managed_issue_claim(
+              issue, proposal_id, current, issue_state, claim_contract) then
             return
           end
           local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, issue_state.version)
@@ -514,7 +530,7 @@ local function reconcile_issue_event(event, opts)
         devloop_logging.log_cas_decision("observe_issue", proposal_id, issue_state, "awaiting-pr", "awaiting-pr", "skip-foreign(parent-not-awaiting-pr)", "PR entity change only replays parent awaiting-pr")
         return
       end
-      if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
+      if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state, claim_contract) then
         return
       end
       local row = replay_fields.restart_transition_row(restart_transition_table(), "awaiting-pr")
@@ -529,7 +545,7 @@ local function reconcile_issue_event(event, opts)
     end
     local claim_checked = false
     if issue_state.state ~= nil then
-      if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
+      if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state, claim_contract) then
         return
       end
       claim_checked = true
@@ -595,7 +611,8 @@ local function reconcile_issue_event(event, opts)
     if state.state ~= nil then
       local close_current_pr = nil
       local close_delegation = nil
-      if not claim_checked and not ensure_managed_issue_claim(issue, proposal_id, current, state) then
+      if not claim_checked and not ensure_managed_issue_claim(
+          issue, proposal_id, current, state, claim_contract) then
         return
       end
       if state.state ~= "awaiting-pr" then
@@ -690,8 +707,8 @@ local function reconcile_issue_event(event, opts)
       error("github-devloop: restart-effect-decision-illegal: observe issue entry decision rejected: "
         .. tostring(decision.reason_code))
     end
-    if not m_claims.claim_issue_for_management("observe_issue", issue.repo,
-      issue.number, current, proposal_id) then
+    if not m_claims.claim_issue_for_management(
+        "observe_issue", issue.repo, issue.number, current, proposal_id, nil, nil, claim_contract) then
       return
     end
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state,

@@ -39,7 +39,8 @@ function C.build_entity_comment_request(target, body, dedup_key, source_ref, opt
   end
   if target.kind == "issue" then
     request.issue_number = target.number
-    m_claims.attach_issue_claim(request, request.source_ref)
+    m_claims.attach_issue_label_claim(request, target.repo, target.number,
+      type(opts) == "table" and opts.claim_contract or nil)
   elseif target.kind == "pr" then
     request.pr_number = target.number
   else

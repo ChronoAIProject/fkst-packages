@@ -3,12 +3,12 @@ local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local graph = require("testkit.graph")
 local t = fkst.test
-local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local author_policy = require("testkit_internal.github_author_policy")
 local h = require("tests.devloop_helpers")
+local claim_contract_mocks = require("tests.claim_contract_mock_helpers")
 
 local repo = "graph-fixture/admission-poll"
 local issue_number = 42
@@ -21,6 +21,8 @@ local function mock_env()
   for _ = 1, 8 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), { stdout = repo, stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_BOT_LOGIN"), { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_SUFFIX"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_PROXY_POLL_LABEL_PREFIX"', { stdout = "fkst-dev:,fkst-class:", stderr = "", exit_code = 0 })
@@ -86,6 +88,8 @@ local function mock_transient_peer_replay_env()
   for _ = 1, 12 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), { stdout = repo, stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_LABEL_SUFFIX"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_FORK_GRACE_HOURS"), { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), { stdout = "dev", stderr = "", exit_code = 0 })
@@ -131,6 +135,7 @@ return {
     mock_env()
     mock_proxy_poll_lists()
     mock_admission_issue_view()
+    claim_contract_mocks.mock_binding(t, repo)
     mock_empty_delivery_snapshot()
 
     local trace = graph.require_quiescent(graph.run("github-proxy.github_poll", { max_steps = 4 }))
@@ -178,6 +183,7 @@ return {
     mock_labelled_poll_snapshot()
     mock_other_authored_admission_view()
     mock_other_authored_admission_view()
+    claim_contract_mocks.mock_binding(t, repo)
     mock_empty_delivery_snapshot()
     t.mock_command("gh issue list --repo 'graph-fixture/admission-poll' --state all --limit 100 --json number,comments,author", {
       stdout = "",
@@ -194,20 +200,14 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command(core.gh_issue_view_state_cmd(repo, tostring(issue_number)), {
-      stdout = '{"title":"Fresh unmanaged issue","createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":["fkst-class:expedite"],"comments":[],"assignees":[],"author":{"login":"trusted-human"}}\n',
-      stderr = "",
-      exit_code = 0,
-    })
-
     local first = graph.run("github-proxy.github_poll", { max_steps = 4 })
     t.eq(trace_has_raise(first, "github-proxy.github_issue_create_request"), false)
     t.eq(trace_has_raise(first, "github-devloop-intake.devloop_intake_candidate"), false)
 
     local second = graph.run("github-proxy.github_poll", { max_steps = 4 })
-    graph.require_raise(second, "github-proxy.github_issue_create_request", function(item)
-      return item.payload.external_effect_saga == "fork-and-block"
-        and tonumber(item.payload.parent_comment_target.issue_number) == issue_number
+    graph.require_raise(second, "github-devloop-intake.devloop_intake_candidate", function(item)
+      return tonumber(item.payload.issue_number) == issue_number
     end)
+    t.eq(trace_has_raise(second, "github-proxy.github_issue_create_request"), false)
   end,
 }

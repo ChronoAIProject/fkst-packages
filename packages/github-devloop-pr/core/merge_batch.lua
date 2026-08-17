@@ -85,7 +85,12 @@ local function entry_issue_number(M, entry)
 end
 
 local function batch_entry_claim_ok(M, repo, entry)
-  return m_claims.verify_pr_review_issue_claim("merge_batch", repo, entry_issue_number(M, entry), nil, entry and entry.proposal_id)
+  local issue_number = entry_issue_number(M, entry)
+  local claim_contract = issue_number ~= nil
+    and m_claims.new_label_claim_contract(entity_lib.issue_source_ref(repo, issue_number))
+    or nil
+  return m_claims.verify_pr_review_issue_claim(
+    "merge_batch", repo, issue_number, nil, entry and entry.proposal_id, claim_contract)
 end
 
 local function find_queue_entry(entries, merge_ready)

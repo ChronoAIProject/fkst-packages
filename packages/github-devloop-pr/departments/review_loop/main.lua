@@ -114,7 +114,11 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-stale(head-advanced)", "PR head advanced since unresolved review")
     return
   end
-  if not m_claims.verify_pr_review_issue_claim("review_loop", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+  local claim_contract = m_claims.new_label_claim_contract(
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+  )
+  if not m_claims.verify_pr_review_issue_claim(
+      "review_loop", origin.repo, origin.issue_number, nil, origin.proposal_id, claim_contract) then
     return
   end
 
