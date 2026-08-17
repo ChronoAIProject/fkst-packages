@@ -35,7 +35,7 @@ function C.gh_dashboard_issue_add_label(repo, issue_number, label, timeout)
 function C.gh_dashboard_label_get(repo, label, timeout)
     local selected_label = validators.require_dashboard_label(label)
     return support.gh_result(function()
-      return support.github().api_method("GET", "repos/" .. tostring(repo) .. "/labels/" .. selected_label:gsub(":", "%%3A"), nil, nil, nil, timeout)
+      return support.github().label_rest_get(repo, selected_label, timeout)
     end)
   end
 

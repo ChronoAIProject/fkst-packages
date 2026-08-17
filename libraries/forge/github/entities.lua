@@ -362,8 +362,16 @@ local function label_rest_create_argv(repo, name, color, description)
   })
 end
 
+local function label_rest_path(repo, name)
+  return "repos/" .. tostring(repo) .. "/labels/" .. shell.url_encode(name)
+end
+
+local function label_rest_get_argv(repo, name)
+  return api_method_argv("GET", label_rest_path(repo, name))
+end
+
 local function label_rest_update_argv(repo, name, color, description)
-  return api_method_argv("PATCH", "repos/" .. tostring(repo) .. "/labels/" .. tostring(name):gsub(":", "%%3A"), {
+  return api_method_argv("PATCH", label_rest_path(repo, name), {
     "color=" .. tostring(color),
     "description=" .. tostring(description or ""),
   })
@@ -620,6 +628,10 @@ function M.install(handle)
 
   function handle.label_rest_create(repo, name, color, description, timeout)
     return handle._exec(label_rest_create_argv(repo, name, color, description), timeout, "gh label REST create", stdout_policy.write_response())
+  end
+
+  function handle.label_rest_get(repo, name, timeout)
+    return handle._exec(label_rest_get_argv(repo, name), timeout, "gh label REST get", stdout_policy.trusted_metadata_json())
   end
 
   function handle.label_rest_update(repo, name, color, description, timeout)
