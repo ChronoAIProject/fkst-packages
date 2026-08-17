@@ -19,6 +19,7 @@ local check_run_head_sha = shared.check_run_head_sha
 local parse_commit_check_runs = shared.parse_commit_check_runs
 local commit_check_runs_green = check_runs.commit_check_runs_green
 local pr_rollup_green = check_runs.pr_rollup_green
+local verification_subject_green = check_runs.verification_subject_green
 local pr_mergeable = check_runs.pr_mergeable
 local is_not_mergeable_reason = check_runs.is_not_mergeable_reason
 local required_head_check_run_status = shared.required_head_check_run_status
@@ -141,6 +142,12 @@ local function evaluate_ci_status_gate(pr, opts)
       green, green_reason, check_runs = commit_check_runs_merge_gate(opts.repo, head_sha, opts)
     end
   end
+  if green and type(opts) == "table" and opts.require_verification_subject == true then
+    green, green_reason = verification_subject_green(
+      check_runs or (type(pr) == "table" and pr.status_check_rollup or nil),
+      type(pr) == "table" and pr.base_ref_oid or nil
+    )
+  end
   return green, green_reason, check_runs
 end
 
@@ -158,7 +165,12 @@ local function evaluate_ci_merge_gate(pr, opts)
     end
     return false, mergeable_reason
   end
-  local green, green_reason = evaluate_ci_status_gate(pr, opts)
+  local status_opts = {}
+  for key, value in pairs(opts or {}) do
+    status_opts[key] = value
+  end
+  status_opts.require_verification_subject = true
+  local green, green_reason = evaluate_ci_status_gate(pr, status_opts)
   if not green then
     if green_reason == "rollup-red" then
       local classification = classify_pr_ci_gate(pr, opts)

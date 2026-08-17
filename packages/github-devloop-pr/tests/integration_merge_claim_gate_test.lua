@@ -109,14 +109,16 @@ local function mock_queue_list(pr_numbers)
 end
 
 local function mock_queue_pr(event, created_at, state, state_version, base_sha)
+  local current_base = base_sha or "abc123"
   entity_read_mocks.mock_pr_view_raw_selector(t, { number = event.pr_number }, entity_read_mocks.pr_merge_selector, {
     stdout = string.format(
-      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","baseRefOid":"%s","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}\n',
+      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","baseRefOid":"%s","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"verification-subject:%s","status":"COMPLETED","conclusion":"SUCCESS"}]}\n',
       json_string(branch_for_pr(event.pr_number)),
       json_string(event.reviewed_head_sha),
-      json_string(base_sha or "abc123"),
+      json_string(current_base),
       json_string(created_at),
-      comments_for(event, created_at, state, state_version)
+      comments_for(event, created_at, state, state_version),
+      json_string(current_base)
     ),
   })
 end

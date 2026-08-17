@@ -16,6 +16,7 @@ from avm_scoreboard import aggregate_avm_scoreboard
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SUBSTRATE_PIN = (REPO_ROOT / ".fkst/substrate-ref").read_text(encoding="utf-8").splitlines()[0]
 
 
 def write_executable(path: Path, text: str) -> None:
@@ -44,6 +45,10 @@ class BoardHarness:
             textwrap.dedent(
                 f"""\
 #!/bin/sh
+if [ "$1" = "init-package-repo" ]; then
+  printf '%s\\n' {json.dumps(SUBSTRATE_PIN)} > .fkst-substrate-ref
+  exit 0
+fi
 printf '%s\\n' "$*" >> {self.log}
 if [ "$1" = "--self-test" ]; then
   exit 0

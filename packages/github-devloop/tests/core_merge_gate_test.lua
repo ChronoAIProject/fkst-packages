@@ -10,12 +10,14 @@ local function pr(extra)
     head_sha = "def456",
     head_ref_name = "integration/dev",
     base_ref_name = "dev",
+    base_ref_oid = "abc123",
     head_repository = "owner/repo",
     is_cross_repository = false,
     mergeable = "MERGEABLE",
     merge_state_status = "CLEAN",
     status_check_rollup = {
       { name = "ci", state = "COMPLETED", conclusion = "SUCCESS" },
+      { name = "verification-subject:abc123", state = "COMPLETED", conclusion = "SUCCESS" },
     },
   }
   for key, field in pairs(extra or {}) do
@@ -72,6 +74,29 @@ return {
     local ok, reason = core.evaluate_ci_merge_gate(pr())
     t.eq(ok, true)
     t.eq(reason, "merge-gate-ok")
+  end,
+
+  test_current_base_attestation_invalidates_historical_green = function()
+    local base_0 = "aaa111"
+    local base_1 = "bbb222"
+    local green_at_base_0 = {
+      { name = "ci", state = "COMPLETED", conclusion = "SUCCESS" },
+      { name = "verification-subject:" .. base_0, state = "COMPLETED", conclusion = "SUCCESS" },
+    }
+
+    local ok, reason = core.evaluate_ci_status_gate(pr({
+      base_ref_oid = base_0,
+      status_check_rollup = green_at_base_0,
+    }), { require_verification_subject = true })
+    t.eq(ok, true)
+    t.eq(reason, "verification-subject-current")
+
+    ok, reason = core.evaluate_ci_status_gate(pr({
+      base_ref_oid = base_1,
+      status_check_rollup = green_at_base_0,
+    }), { require_verification_subject = true })
+    t.eq(ok, false)
+    t.eq(reason, "verification-subject-missing")
   end,
 
   test_evaluate_ci_merge_gate_false_cases = function()

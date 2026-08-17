@@ -236,6 +236,14 @@ function M.new(deps)
     })
   end
 
+  local function merge_rollup_json(base_sha, rollup_state, rollup_conclusion)
+    local state = rollup_state or "COMPLETED"
+    local conclusion = rollup_conclusion or "SUCCESS"
+    local subject = "verification-subject:" .. tostring(base_sha or "abc123")
+    return '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":' .. json_literal(conclusion) .. ',"detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":' .. json_literal(state) .. ',"workflowName":"test"},'
+      .. '{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:05Z","conclusion":' .. json_literal(conclusion) .. ',"detailsUrl":"https://example.invalid/checks/verification-subject","name":' .. json_literal(subject) .. ',"startedAt":"2026-06-03T02:04:04Z","status":' .. json_literal(state) .. ',"workflowName":"ci"}]'
+  end
+
   local function mock_pr_merge(comments, head, head_sha, state, head_repo, cross_repo, mergeable, merge_state, rollup_state, rollup_conclusion, merged_at, is_draft, base_sha)
     local input_comments = comments
     local cached = base.take_pr_phase_comments()
@@ -272,7 +280,7 @@ function M.new(deps)
       base_sha = base_sha or "abc123",
       mergeable = mergeable,
       merge_state = merge_state,
-      status_check_rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":' .. json_literal(rollup_conclusion or "SUCCESS") .. ',"detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":' .. json_literal(rollup_state or "COMPLETED") .. ',"workflowName":"test"}]',
+      status_check_rollup_json = merge_rollup_json(base_sha, rollup_state, rollup_conclusion),
       merge_view = true,
       register_merge_views = false,
     })
@@ -290,7 +298,7 @@ function M.new(deps)
       base_sha = base_sha or "abc123",
       mergeable = mergeable,
       merge_state = merge_state,
-      status_check_rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":' .. json_literal(rollup_conclusion or "SUCCESS") .. ',"detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":' .. json_literal(rollup_state or "COMPLETED") .. ',"workflowName":"test"}]',
+      status_check_rollup_json = merge_rollup_json(base_sha, rollup_state, rollup_conclusion),
     }, entity_read_mocks.pr_merge_selector)
     if tostring(state or "OPEN") ~= "MERGED" then
       last_merge_comments = input_comments

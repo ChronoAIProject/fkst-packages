@@ -6,11 +6,6 @@ on:
   pull_request:
     branches: [main, dev, integration, "integration-*", fkst-hosted]
   workflow_dispatch:
-    inputs:
-      substrate_ref:
-        description: "fkst-substrate ref to build fkst-framework from"
-        default: ""
-        required: false
 
 permissions:
   contents: read
@@ -31,6 +26,8 @@ jobs:
 
       - name: Checkout fkst-packages
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify Git 2.39 adapter compatibility
         run: |
@@ -44,25 +41,22 @@ jobs:
       - name: Checkout fkst-packages
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Ensure dev ref is available
+      - name: Ensure verification base ref is available
         run: |
-          git fetch --no-tags --prune origin +refs/heads/dev:refs/remotes/origin/dev
-          git rev-parse --verify refs/remotes/origin/dev^{commit}
+          base_ref="${{ github.base_ref || 'dev' }}"
+          git fetch --no-tags --prune origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          git rev-parse --verify "refs/remotes/origin/$base_ref^{commit}"
 
       - name: Resolve fkst-substrate source pin
         id: substrate_ref
         shell: bash
         run: |
           set -euo pipefail
-          ref="${{ github.event.inputs.substrate_ref }}"
-          if [ -z "$ref" ]; then
-            ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref 2>/dev/null || true)"
-          fi
-          if [ -z "$ref" ]; then
-            ref="dev"
-          fi
+          ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref)"
+          test -n "$ref"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "fkst-substrate ref: $ref"
 
@@ -89,6 +83,8 @@ jobs:
 
       - name: Build fkst-framework
         working-directory: fkst-substrate
+        env:
+          FKST_FRAMEWORK_SOURCE_PIN: ${{ steps.substrate_ref.outputs.ref }}
         run: cargo build -p fkst-framework
 
       - name: Run repository checks and package tests
@@ -142,3 +138,11 @@ jobs:
           name: lua-coverage
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  verification-subject:
+    needs: test
+    name: "verification-subject:${{ github.event.pull_request.base.sha || github.sha }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attest successful verification against the current base
+        run: test "${{ needs.test.result }}" = "success"

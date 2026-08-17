@@ -12,6 +12,7 @@ local mock_issue_review = h.mock_issue_review
 local mock_issue_merge = h.mock_issue_merge
 local mock_pr_origin = h.mock_pr_origin
 local mock_pr_merge = h.mock_pr_merge
+local mock_pr_merge_rollup = h.mock_pr_merge_rollup
 local mock_bot_env = h.mock_bot_env
 local mock_write_env = h.mock_write_env
 local merge_comments = h.merge_comments
@@ -117,5 +118,28 @@ return {
     t.eq(#result.raises, 0)
     t.is_true(count_calls("statusCheckRollup") >= 1)
     t.eq(count_calls("gh pr merge"), 0)
+  end,
+
+  test_merge_rejects_green_attested_for_the_previous_base = function()
+    local event = merge_ready()
+    local base_0 = "aaa111"
+    local base_1 = "bbb222"
+    local rollup = '[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"},'
+      .. '{"name":"verification-subject:' .. base_0 .. '","status":"COMPLETED","conclusion":"SUCCESS"}]'
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup, nil, nil, nil, nil, nil, nil, nil, nil, nil, base_1)
+
+    local result = run_merge(event, opts("merge-rejects-stale-base-attestation", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(count_calls("gh pr merge"), 0)
+    local wait = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait ~= nil)
+    t.is_true(wait.payload.body:find('reason="verification-subject-missing"', 1, true) ~= nil)
   end,
 }

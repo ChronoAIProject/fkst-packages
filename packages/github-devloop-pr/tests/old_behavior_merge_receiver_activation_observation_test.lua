@@ -356,7 +356,9 @@ local function capture(fixture)
         and "DIRTY" or (fixture.status_gate_red and "UNSTABLE" or "CLEAN"),
       status_check_rollup_json = '[{"__typename":"CheckRun","name":"' .. rollup_name
         .. '","status":"' .. rollup_status .. '","conclusion":' .. rollup_conclusion
-        .. ',"headSha":"' .. rollup_head_sha .. '"}]',
+        .. ',"headSha":"' .. rollup_head_sha .. '"},'
+        .. '{"__typename":"CheckRun","name":"verification-subject:' .. string.rep("a", 40)
+        .. '","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. head_sha .. '"}]',
     }
   end
   function ports.github.issue_view(repo, number, fields, timeout)

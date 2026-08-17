@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SUBSTRATE_PIN = (REPO_ROOT / ".fkst/substrate-ref").read_text(encoding="utf-8").splitlines()[0]
 
 
 def write_executable(path: Path, text: str) -> None:
@@ -31,8 +32,12 @@ class DoctorHarness:
         write_executable(
             self.framework,
             textwrap.dedent(
-                """\
+                f"""\
                 #!/bin/sh
+                if [ "$1" = "init-package-repo" ]; then
+                  printf '%s\\n' '{SUBSTRATE_PIN}' > .fkst-substrate-ref
+                  exit 0
+                fi
                 if [ "$1" = "--self-test" ]; then
                   exit 0
                 fi
@@ -77,7 +82,7 @@ class DoctorHarness:
                 """
             ),
         )
-        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed", "basename", "mkdir", "ln"]:
+        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed", "basename", "mkdir", "mktemp", "rm", "ln"]:
             path = shutil.which(tool)
             if path is None:
                 raise RuntimeError(f"required test tool missing: {tool}")

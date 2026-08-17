@@ -21,6 +21,22 @@ def write_executable(path: Path, text: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def write_framework_artifact(path: Path, pin: str) -> None:
+    write_executable(
+        path,
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env sh
+            if [ "$1" = "init-package-repo" ]; then
+              printf '%s\\n' '{pin}' > .fkst-substrate-ref
+              exit 0
+            fi
+            exit 0
+            """
+        ),
+    )
+
+
 class BootstrapHarness:
     def __init__(self, pin: str = "dev") -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -55,7 +71,7 @@ class BootstrapHarness:
         self.tmp.cleanup()
 
     def _install_required_tools(self, inherited_path: str) -> None:
-        commands = ("chmod", "cut", "dirname", "grep", "mkdir", "python3", "rm", "sed", "sh", "sleep", "tail")
+        commands = ("basename", "chmod", "cut", "dirname", "grep", "mkdir", "mktemp", "python3", "rm", "sed", "sh", "sleep", "tail")
         for command in commands:
             source = shutil.which(command, path=inherited_path)
             if source is None:
@@ -98,6 +114,7 @@ class BootstrapHarness:
                 checkout="${manifest%/Cargo.toml}"
                 mkdir -p "$checkout/target/debug"
                 printf '#!/usr/bin/env sh\\n' > "$checkout/target/debug/fkst-framework"
+                printf 'if [ "$1" = "init-package-repo" ]; then printf "%%s\\\\n" "%s" > .fkst-substrate-ref; exit 0; fi\\n' "$FKST_FRAMEWORK_SOURCE_PIN" >> "$checkout/target/debug/fkst-framework"
                 chmod +x "$checkout/target/debug/fkst-framework"
                 exit 0
                 """
@@ -144,13 +161,44 @@ class BootstrapHarness:
 
 
 class BinBootstrapTest(unittest.TestCase):
+    def test_matching_explicit_bin_is_admitted_without_bootstrap(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            artifact = Path(h.tmp.name) / "matching-fkst-framework"
+            write_framework_artifact(artifact, pin)
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertIn("git -C ", h.calls())
+            self.assertNotIn("cargo ", h.calls())
+        finally:
+            h.close()
+
+    def test_mismatched_explicit_bin_resolves_through_declared_pin(self) -> None:
+        h = BootstrapHarness("declared-revision")
+        try:
+            artifact = Path(h.tmp.name) / "retired-fkst-framework"
+            write_framework_artifact(artifact, "retired-revision")
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.stdout.strip(), str(artifact))
+            self.assertIn("does not match declared .fkst/substrate-ref", result.stderr)
+            self.assertIn("checkout --detach declared-revision", h.calls())
+        finally:
+            h.close()
+
     def test_resolver_cold_cache_announces_pinned_build(self) -> None:
         pin = "issue-3585-log-pin"
         h = BootstrapHarness(pin)
         try:
             result = h.resolve()
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("binary not found in $BIN, .fkst/env, PATH, or ../fkst-substrate", result.stderr)
+            self.assertIn("no fkst-framework locator resolved to declared .fkst/substrate-ref", result.stderr)
             self.assertIn(
                 f"fkst-framework pinned source cache miss for {pin}; "
                 "bootstrapping pinned source (build starting)",
@@ -169,9 +217,11 @@ class BinBootstrapTest(unittest.TestCase):
             warm = h.resolve()
             self.assertEqual(warm.returncode, 0, warm.stderr)
             self.assertEqual(warm.stdout.strip(), cold.stdout.strip())
-            self.assertIn("binary not found in $BIN, .fkst/env, PATH, or ../fkst-substrate", warm.stderr)
+            self.assertIn("no fkst-framework locator resolved to declared .fkst/substrate-ref", warm.stderr)
             self.assertNotIn("bootstrapping pinned source", warm.stderr)
-            self.assertEqual(h.calls(), "")
+            self.assertNotIn("cargo ", h.calls())
+            self.assertNotIn(" clone ", h.calls())
+            self.assertNotIn(" fetch ", h.calls())
         finally:
             h.close()
 
@@ -201,7 +251,9 @@ class BinBootstrapTest(unittest.TestCase):
             second = h.bootstrap()
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(first.stdout.strip(), second.stdout.strip())
-            self.assertEqual(h.calls(), "")
+            self.assertNotIn("cargo ", h.calls())
+            self.assertNotIn(" clone ", h.calls())
+            self.assertNotIn(" fetch ", h.calls())
         finally:
             h.close()
 
@@ -211,7 +263,9 @@ class BinBootstrapTest(unittest.TestCase):
             result = h.bootstrap({"FKST_NO_AUTOBUILD": "1"})
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("FKST_NO_AUTOBUILD is set", result.stderr)
-            self.assertEqual(h.calls(), "")
+            self.assertNotIn("cargo ", h.calls())
+            self.assertNotIn(" clone ", h.calls())
+            self.assertNotIn(" fetch ", h.calls())
         finally:
             h.close()
 
@@ -251,9 +305,44 @@ class BinBootstrapTest(unittest.TestCase):
             self.assertEqual(waiter.returncode, 0, waiter.stderr)
             self.assertEqual(waiter.stdout.strip(), bin_path)
             self.assertNotIn("timed out waiting for fkst-framework bootstrap lock", waiter.stderr)
-            self.assertEqual(h.calls(), "")
+            self.assertNotIn("cargo ", h.calls())
+            self.assertNotIn(" clone ", h.calls())
+            self.assertNotIn(" fetch ", h.calls())
             # The waiter must not steal or remove the holder's lock.
             self.assertTrue(lock_dir.is_dir())
+        finally:
+            h.close()
+
+    def test_waiter_rejects_mismatched_binary_while_lock_is_held(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            first = h.bootstrap()
+            self.assertEqual(first.returncode, 0, first.stderr)
+            bin_path = Path(first.stdout.strip())
+            checkout_dir = str(bin_path)[: -len("/target/debug/fkst-framework")]
+            lock_dir = Path(checkout_dir + ".lock")
+            lock_dir.mkdir(parents=True)
+            write_framework_artifact(bin_path, "retired-revision")
+            (h.fake_bin / "sleep").unlink()
+            write_executable(
+                h.fake_bin / "sleep",
+                "#!/usr/bin/env sh\n"
+                'rm -rf "$FKST_TEST_LOCK_DIR"\n',
+            )
+            self.log_truncate(h.log)
+
+            waiter = h.bootstrap(
+                {
+                    "FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT": "2",
+                    "FKST_TEST_LOCK_DIR": str(lock_dir),
+                }
+            )
+
+            self.assertEqual(waiter.returncode, 0, waiter.stderr)
+            self.assertEqual(waiter.stdout.strip(), str(bin_path))
+            self.assertIn("cargo build --manifest-path", h.calls())
+            self.assertNotIn("timed out waiting for fkst-framework bootstrap lock", waiter.stderr)
         finally:
             h.close()
 

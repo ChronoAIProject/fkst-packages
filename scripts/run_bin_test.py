@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BIN_BOOTSTRAP = REPO_ROOT / "scripts" / "bin_bootstrap.sh"
 RUN_BIN = REPO_ROOT / "scripts" / "run_bin.sh"
 
 
@@ -56,6 +57,7 @@ class RunBinTest(unittest.TestCase):
             f"""\
             set -euo pipefail
             ROOT={shlex.quote(str(REPO_ROOT))}
+            source {shlex.quote(str(BIN_BOOTSTRAP))}
             source {shlex.quote(str(RUN_BIN))}
             local_iteration_result_fail() {{ :; }}
             BIN={shlex.quote(str(self.framework))}

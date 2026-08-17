@@ -89,6 +89,22 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_declared_pin_is_the_only_engine_revision_selector(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertNotIn("substrate_ref:", workflow)
+        self.assertNotIn("github.event.inputs.substrate_ref", workflow)
+        self.assertNotRegex(workflow, r'(?m)^\s*ref="dev"\s*$')
+        self.assertIn('ref="$(sed -n \'1{s/[[:space:]]//g;p;q}\' .fkst/substrate-ref)"', workflow)
+        self.assertIn('test -n "$ref"', workflow)
+
+    def test_pull_request_verification_is_head_and_current_base_bound(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertIn("github.event.pull_request.head.sha || github.sha", workflow)
+        self.assertIn("verification-subject:${{ github.event.pull_request.base.sha || github.sha }}", workflow)
+        self.assertRegex(workflow, r"verification-subject:\n\s+needs: test")
+
 
 if __name__ == "__main__":
     unittest.main()

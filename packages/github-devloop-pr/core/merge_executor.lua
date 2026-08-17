@@ -601,6 +601,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     repo = repo,
     dept = "merge",
     proposal_id = merge_ready.proposal_id,
+    require_verification_subject = true,
   })
   if not rollup_green then
     if rollup_reason == "rollup-red" then

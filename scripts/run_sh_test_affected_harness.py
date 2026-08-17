@@ -86,6 +86,7 @@ class TestAffectedHarness:
                 "host_entry.sh",
                 "composed_manifest.sh",
                 "composed_conformance.sh",
+                "verify_engine_revision.py",
                 "test_parallel.sh", "test_coverage.sh",
                 "test_deadline.sh",
                 "run_department.sh",
@@ -145,6 +146,10 @@ class TestAffectedHarness:
                     command="${1:-}"
                     shift || true
                     case "$command" in
+                      init-package-repo)
+                        printf '%s\n' 'fixture-pin' > .fkst-substrate-ref
+                        exit 0
+                        ;;
                       manifest) exit 10 ;;
                       conformance) exit 0 ;;
                       --self-test)
@@ -284,6 +289,7 @@ class TestAffectedHarness:
             'libraries = ["workflow"]\n',
         )
         self._write("scripts/helper.sh", "#!/bin/sh\n")
+        self._write(".fkst/substrate-ref", "fixture-pin\n")
         self._write("README.md", "fixture\n")
         self._git("add", ".")
         self._git("commit", "-m", "initial")

@@ -157,6 +157,48 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
+function C.verification_subject_check_name(base_ref_oid)
+  if not gitref.is_git_sha(base_ref_oid) then
+    return nil
+  end
+  return "verification-subject:" .. tostring(base_ref_oid):lower()
+end
+
+function C.verification_subject_green(entries, base_ref_oid)
+  local expected = C.verification_subject_check_name(base_ref_oid)
+  if expected == nil then
+    return false, "verification-subject-base-invalid"
+  end
+  local pending = false
+  local red = false
+  for _, entry in ipairs(check_run_entries(entries)) do
+    if check_name(entry) == expected then
+      local state, conclusion = check_entry_state(entry)
+      if state == "COMPLETED" and conclusion == "SUCCESS" then
+        return true, "verification-subject-current"
+      elseif state == "COMPLETED" then
+        red = true
+      else
+        pending = true
+      end
+    end
+  end
+  if red then
+    return false, "rollup-red"
+  end
+  if pending then
+    return false, "rollup-pending"
+  end
+  return false, "verification-subject-missing"
+end
+
+function C.pr_verification_subject_green(pr)
+  return C.verification_subject_green(
+    type(pr) == "table" and pr.status_check_rollup or nil,
+    type(pr) == "table" and pr.base_ref_oid or nil
+  )
+end
+
 function C.rollup_failure_gate_sha(pr)
   local entries = type(pr) == "table" and pr.status_check_rollup or nil
   if type(entries) ~= "table" or #entries == 0 then

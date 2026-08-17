@@ -190,7 +190,8 @@ return {
   test_merge_legacy_status_context_success_merges = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
-    local legacy_rollup = '[{"__typename":"StatusContext","context":"ci","state":"SUCCESS"}]'
+    local legacy_rollup = '[{"__typename":"StatusContext","context":"ci","state":"SUCCESS"},'
+      .. '{"__typename":"CheckRun","name":"verification-subject:abc123","status":"COMPLETED","conclusion":"SUCCESS"}]'
     mock_bot_env()
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))

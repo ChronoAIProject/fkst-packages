@@ -67,9 +67,8 @@
 #       fkst-framework. test/run/supervise ensure a traceable local BIN is built
 #       from the current fkst-substrate working tree before running.
 #
-# fkst-framework binary resolution (priority): $BIN > repo .fkst/env `BIN=` > PATH >
-# sibling ../fkst-substrate/target/debug/fkst-framework > pinned source cache
-# clone/build fallback.
+# $BIN, repo .fkst/env `BIN=`, PATH, and the sibling checkout are artifact
+# locators. The commit's .fkst/substrate-ref is the only revision selector.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -133,6 +132,25 @@ competence_gate_base_ref() {
     return 0
   fi
   return 1
+}
+
+verify_engine_revision_subject() {
+  local base_ref="" rc=0
+  if [ "${GITHUB_EVENT_NAME:-}" != "push" ]; then
+    base_ref="$(competence_gate_base_ref 2>/dev/null || true)"
+  fi
+  if [ -n "$base_ref" ]; then
+    python3 -B "$ROOT/scripts/verify_engine_revision.py" --repo-root "$ROOT" --base-ref "$base_ref" || rc=$?
+  else
+    python3 -B "$ROOT/scripts/verify_engine_revision.py" --repo-root "$ROOT" || rc=$?
+  fi
+  case "$rc" in
+    0) return 0 ;;
+    10) local_iteration_result_fail "SEMANTIC" ;;
+    11) local_iteration_result_fail "CONFIGURATION" ;;
+    *) local_iteration_result_unknown ;;
+  esac
+  return "$rc"
 }
 
 ensure_package_view() {
@@ -208,6 +226,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_restart_preflight_test.py"'
     'python3 -B "$ROOT/scripts/bin_cache_test.py"'
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
+    'python3 -B "$ROOT/scripts/verify_engine_revision_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/run_bin_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
@@ -749,13 +768,14 @@ main() {
     test|test-affected) local_iteration_result_arm; arm_test_deadline ;;
   esac
   case "${1:-}" in
-    check) shift; cmd_check "$@" ;;
+    check) shift; verify_engine_revision_subject; cmd_check "$@" ;;
     host) shift; cmd_host "$@" ;;
     doctor) shift; cmd_doctor "$@" ;;
     board) shift; resolve_bin; ensure_fresh_bin; cmd_board "$@" ;;
     health) shift; resolve_bin; ensure_fresh_bin; cmd_health "$@" ;;
     ratchet-migration-dry-run) shift; cmd_ratchet_migration_dry_run "$@" ;;
     test) shift
+      verify_engine_revision_subject
       # Quiet cmd_check's advisory warnings during a test run unless verbose;
       # surface its full output only when it hard-fails (non-zero). `run.sh check`
       # and `test -v`/FKST_TEST_VERBOSE=1 still show every warning.
@@ -772,8 +792,8 @@ main() {
         printf '%s\n' "$_chk_out"; return 1
       fi
       resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
-    test-affected) shift; cmd_test_affected "$@" ;;
-    test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
+    test-affected) shift; verify_engine_revision_subject; cmd_test_affected "$@" ;;
+    test-composed) shift; verify_engine_revision_subject; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
     run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
     supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
     build) shift; cmd_build "$@" ;;

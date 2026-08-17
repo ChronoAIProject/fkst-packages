@@ -16,21 +16,6 @@ resolve_bin() {
   export BIN
 }
 
-# Resolve a path to its physical location, following file symlinks too (portable:
-# no realpath / `readlink -f` dependency, works with macOS BSD readlink).
-resolve_phys_path() {
-  local p="$1" target dir
-  while [ -L "$p" ]; do
-    target="$(readlink "$p")" || break
-    case "$target" in
-      /*) p="$target" ;;
-      *)  p="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$target" ;;
-    esac
-  done
-  dir="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 1
-  printf '%s/%s\n' "$dir" "$(basename "$p")"
-}
-
 warn_if_substrate_behind() {
   local substrate="$1" behind
   behind="$(git -C "$substrate" rev-list --count HEAD..origin/dev 2>/dev/null)" || behind=""
@@ -83,7 +68,7 @@ ensure_fresh_bin() {
     cargo_bin="cargo"
     echo "warning: FKST_CARGO is not set; falling back to cargo from PATH for this local freshness build" >&2
   fi
-  if ! build_out="$("$cargo_bin" build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
+  if ! build_out="$(FKST_FRAMEWORK_SOURCE_PIN="$(bootstrap_read_pin "$ROOT")" "$cargo_bin" build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
     local_iteration_result_fail "TOOLCHAIN"
     printf '%s\n' "$build_out" >&2
     echo "error: fkst-framework freshness build failed; refusing to continue with a potentially stale BIN" >&2
