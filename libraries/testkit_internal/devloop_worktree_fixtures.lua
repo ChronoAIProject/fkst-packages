@@ -531,8 +531,9 @@ function M.new(deps)
   end
 
   local function mock_write_env(value)
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", value))
-    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", value))
+    for _ = 1, 8 do
+      t.mock_command('printf %s "$FKST_GITHUB_WRITE"', command_result(0, "", value))
+    end
   end
 
   local function mock_bot_env(value)
