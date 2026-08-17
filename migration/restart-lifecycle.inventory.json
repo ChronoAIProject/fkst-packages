@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "bc08c510c41750304540ac6e885ce46c549a12a97b4c5efd86deb9661aadc4bf",
+  "artifact_sha256": "d559d3c486b620b26ce28bbef95a956f3e1fb78c6f0d7db60a53d36e2e57a706",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -23860,9 +23860,39 @@
       },
       "old_outcome": {
         "cas_outcome": "skip-pending(rollup-receipt-missing)",
-        "emitted_effects": [],
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:issue:awaiting-pr-terminal",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
         "handoff_direct_lookup_count": 0,
-        "observable_writes": [],
+        "observable_writes": [
+          {
+            "effect_id": "comment:issue:awaiting-pr-terminal",
+            "payload": {
+              "body": "github-devloop recorded delegated child PR integration merge receipt\n\nChild PR: #9808\nIntegration branch: integration/dev\nWaiting for promotion to upstream branch: dev\nMerge commit: 1111111111111111111111111111111111111111\n\n<!-- fkst:github-devloop:integration-merge-receipt:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"9808\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" merge_commit_sha=\"1111111111111111111111111111111111111111\" -->",
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "awaiting-pr/integration-merge-receipt/github-devloop/issue/owner/repo/42/9808/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/1111111111111111111111111111111111111111",
+              "issue_number": 42,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              }
+            },
+            "queue": "github-proxy.github_issue_comment_request"
+          }
+        ],
         "reason_code": "skip-pending(rollup-receipt-missing)",
         "status": "skip-pending",
         "timeout_evidence_source": null
