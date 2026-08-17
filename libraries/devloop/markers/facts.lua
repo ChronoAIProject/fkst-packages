@@ -517,6 +517,39 @@ function C.has_merged_marker(comments, issue_proposal_id, pr_number, version, he
   return fact ~= nil and tostring(fact.head_sha) == tostring(head_sha)
 end
 
+function C.integration_merge_receipt_fact(comments, issue_proposal_id, pr_number, version)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:integration%-merge%-receipt:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_issue = marker:match('proposal="([^"]+)"')
+      local marker_pr = marker:match('pr="([^"]+)"')
+      local marker_version = marker:match('version="([^"]*)"')
+      local marker_merge_commit_sha = marker:match('merge_commit_sha="([^"]+)"')
+      if marker_issue == tostring(issue_proposal_id)
+        and tostring(marker_pr) == tostring(pr_number)
+        and (version == nil or tostring(marker_version) == tostring(version))
+        and forge_validators.is_git_sha(marker_merge_commit_sha) then
+        return {
+          proposal_id = marker_issue,
+          pr_number = tonumber(marker_pr),
+          version = marker_version,
+          merge_commit_sha = marker_merge_commit_sha,
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+      end
+    end
+  end
+  return nil
+end
+
+function C.has_integration_merge_receipt_marker(comments, issue_proposal_id, pr_number, version, merge_commit_sha)
+  local fact = C.integration_merge_receipt_fact(comments, issue_proposal_id, pr_number, version)
+  return fact ~= nil and tostring(fact.merge_commit_sha) == tostring(merge_commit_sha)
+end
+
 function C.has_review_result_marker(comments, review_proposal_id, issue_proposal_id, decision, dedup_key)
   if type(comments) ~= "table" then
     return false

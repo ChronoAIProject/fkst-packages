@@ -340,6 +340,17 @@ function C.merged_marker(issue_proposal_id, pr_number, version, head_sha, autono
     .. '" head_sha="' .. tostring(head_sha) .. '"' .. autonomy_attrs .. ' -->'
 end
 
+function C.integration_merge_receipt_marker(issue_proposal_id, pr_number, version, merge_commit_sha)
+  if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(merge_commit_sha) then
+    error("github-devloop: pr-merge-identity-invalid: invalid integration merge receipt marker")
+  end
+  return '<!-- fkst:github-devloop:integration-merge-receipt:v1 proposal="' .. tostring(issue_proposal_id)
+    .. '" pr="' .. tostring(pr_number)
+    .. '" version="' .. tostring(version)
+    .. '" merge_commit_sha="' .. tostring(merge_commit_sha)
+    .. '" -->'
+end
+
 function C.merging_marker(issue_proposal_id, pr_number, version, head_sha)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
     error("github-devloop: pr-head-identity-invalid: invalid merging marker")
