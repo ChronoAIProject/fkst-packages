@@ -7,6 +7,7 @@ local C, replay_fields, sweep_bounds = {}, require("devloop.replay_fields"), req
 local entity_list_cache = require("devloop.entity_list_cache")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local error_facts = require("contract.error_facts")
 
 local LIVENESS_SCAN_MAX_PER_TICK = 100
 local LIVENESS_SCAN_CALL_TIMEOUT = 10
@@ -120,6 +121,7 @@ function C.liveness_scan_build_failure_observe_payload(repo, entity, kind, failu
   payload.failure = {
     error_class = error_class,
     fingerprint = fingerprint,
+    message = tostring(failure),
   }
   return payload
 end
@@ -131,16 +133,20 @@ function C.liveness_scan_fail_observe_payload(payload)
   end
   local error_class = type(failure) == "table" and tostring(failure.error_class or "") or ""
   local fingerprint = type(failure) == "table" and tostring(failure.fingerprint or "") or ""
+  local message = type(failure) == "table" and failure.message or nil
   if payload.source ~= "liveness-scan"
     or not error_class:match("^[a-z0-9][a-z0-9-]*$")
-    or not fingerprint:match("^fp%-%d+$") then
+    or not fingerprint:match("^fp%-%d+$")
+    or type(message) ~= "string"
+    or message == "" then
     error("github-devloop: liveness-scan-failure-envelope-invalid: malformed entity failure observation", 0)
   end
   error("github-devloop: liveness-scan-entity-failure: liveness scan entity failure"
     .. " cause_error_class=" .. error_class
     .. " proposal_id=" .. tostring(payload.proposal_id or "unknown")
     .. " entity_updated_at=" .. tostring(payload.updated_at or "unknown")
-    .. " fingerprint=" .. fingerprint, 0)
+    .. " fingerprint=" .. fingerprint
+    .. " cause_error=" .. error_facts.one_line(message), 0)
 end
 
 local function liveness_scan_state_is_non_terminal(M, state)

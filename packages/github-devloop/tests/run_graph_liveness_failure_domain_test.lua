@@ -380,6 +380,12 @@ return {
       exit_code = 1,
       error = "cause_error_class=timeout-redrive-stuck",
     }), 1)
+    t.eq(count_steps(trace, {
+      queue = "github-devloop.devloop_observe_issue",
+      consumer = "github-devloop.observe_issue",
+      exit_code = 1,
+      error = "replay did not emit a consumable redrive; outcome=",
+    }), 1)
     -- The entity-local failure and terminal-tombstone suppression are separate
     -- surfaced dead letters under the current engine contract.
     t.eq(count_steps(trace, {
@@ -398,6 +404,11 @@ return {
       true
     ) ~= nil)
     t.eq(stuck_observations[1].source_ref.ref, repo .. "#issue/" .. tostring(stuck_number))
+    t.is_true(stuck_observations[1].failure.message:find(
+      "replay did not emit a consumable redrive; outcome=",
+      1,
+      true
+    ) ~= nil)
     t.eq(timeout_attempt_receipts(trace, stuck_number), 0)
 
     local healthy_reads = 0
