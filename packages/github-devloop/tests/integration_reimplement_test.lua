@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 local payloads_builders = require("devloop.payloads.builders")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local m_facts = require("devloop.markers.facts")
@@ -150,7 +151,11 @@ local function run_initial_typed_failure(event, outcome, name, base_outcome)
     h.projected_state_comment(event.proposal_id, "ready", ready.dedup_key),
   }, 3)
   local worktree = mock_fresh_implement_worktree()
-  t.mock_command("codex exec", { stdout = "implemented", stderr = "", exit_code = 0 })
+  t.mock_command("codex exec", {
+    stdout = codex_jsonl.final_message("implemented"),
+    stderr = "",
+    exit_code = 0,
+  })
   mock_git_status(" M packages/github-devloop/core.lua\n")
   mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
   t.mock_command("scripts/run.sh test-affected", {

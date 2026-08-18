@@ -183,7 +183,7 @@ function M.new(rendering)
       return gh_api_paginate("repos/" .. tostring(repo) .. "/issues?state=open&per_page=100")
     end
     core.gh_dashboard_label_get_cmd = core.gh_dashboard_label_get_cmd or function(repo, label)
-      return "gh api --method GET " .. shell_single_quote("repos/" .. tostring(repo) .. "/labels/" .. tostring(label):gsub(":", "%%3A"))
+      return "gh api --method GET " .. shell_single_quote("repos/" .. tostring(repo) .. "/labels/" .. url_encode(label))
     end
     core.gh_dashboard_issue_get_cmd = core.gh_dashboard_issue_get_cmd or function(repo, issue_number)
       return "gh api --method GET --include " .. shell_single_quote("repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number))
@@ -204,7 +204,7 @@ function M.new(rendering)
         .. " -f " .. shell_single_quote("description=" .. tostring(description or ""))
     end
     core.gh_repo_label_update_cmd = core.gh_repo_label_update_cmd or function(repo, name, color, description)
-      return "gh api --method PATCH " .. shell_single_quote("repos/" .. tostring(repo) .. "/labels/" .. tostring(name):gsub(":", "%%3A"))
+      return "gh api --method PATCH " .. shell_single_quote("repos/" .. tostring(repo) .. "/labels/" .. url_encode(name))
         .. " -f " .. shell_single_quote("color=" .. tostring(color))
         .. " -f " .. shell_single_quote("description=" .. tostring(description or ""))
     end
