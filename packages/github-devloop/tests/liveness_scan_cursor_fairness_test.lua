@@ -63,6 +63,17 @@ return {
     t.eq(first.source_ref.ref, "owner/liveness-scan-fairness#issue/7")
     t.eq(first.failure.error_class, "timeout-redrive-stuck")
     t.is_true(type(first.failure.fingerprint) == "string" and first.failure.fingerprint ~= "")
+    t.eq(first.failure.message, failure)
+
+    local untyped_failure = "distinctive upstream failure without a semantic envelope"
+    local untyped = liveness_scan.liveness_scan_build_failure_observe_payload(
+      repo,
+      entity,
+      "issue",
+      untyped_failure
+    )
+    t.eq(untyped.failure.error_class, "caught-failure")
+    t.eq(untyped.failure.message, untyped_failure)
 
     local changed_lineage = liveness_scan.liveness_scan_build_failure_observe_payload(repo, {
       number = entity.number,
