@@ -42,6 +42,44 @@ def commit_file(root: Path, path: str, text: str, message: str) -> str:
 
 
 class RatchetBaseTest(unittest.TestCase):
+    def test_git_spawn_failure_is_typed_at_the_producer(self) -> None:
+        with mock.patch.object(
+            ratchet_base.subprocess,
+            "run",
+            side_effect=FileNotFoundError(2, "No such file or directory", "git"),
+        ):
+            with self.assertRaises(ratchet_base.GitInvocationFailure) as raised:
+                ratchet_base._git(Path("/unused"), ["status"])
+
+        self.assertEqual(raised.exception.fault_class, "TOOLCHAIN")
+        self.assertIn("git status", str(raised.exception))
+        self.assertIn("No such file or directory", str(raised.exception))
+
+    def test_git_operating_system_failure_is_typed_as_infrastructure(self) -> None:
+        with mock.patch.object(
+            ratchet_base.subprocess,
+            "run",
+            side_effect=OSError(11, "Resource temporarily unavailable"),
+        ):
+            with self.assertRaises(ratchet_base.GitInvocationFailure) as raised:
+                ratchet_base._git(Path("/unused"), ["status"])
+
+        self.assertEqual(raised.exception.fault_class, "INFRASTRUCTURE")
+        self.assertIn("Resource temporarily unavailable", str(raised.exception))
+
+    def test_missing_git_working_directory_is_typed_as_infrastructure(self) -> None:
+        with mock.patch.object(
+            ratchet_base.subprocess,
+            "run",
+            side_effect=FileNotFoundError(
+                2, "No such file or directory", "/missing/repository"
+            ),
+        ):
+            with self.assertRaises(ratchet_base.GitInvocationFailure) as raised:
+                ratchet_base._git(Path("/missing/repository"), ["status"])
+
+        self.assertEqual(raised.exception.fault_class, "INFRASTRUCTURE")
+
     def test_env_override_wins_over_origin_dev(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

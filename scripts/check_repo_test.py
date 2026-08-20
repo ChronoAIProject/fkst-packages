@@ -798,6 +798,26 @@ class ViolationExitCodeTest(unittest.TestCase):
         self.assertNotEqual(check_repo.CONFIGURATION_EXIT, 1)
         self.assertNotEqual(check_repo.CONFIGURATION_EXIT, check_repo.VIOLATIONS_EXIT)
 
+    def test_producer_typed_git_failures_return_their_typed_codes(self):
+        for fault_class, expected in (
+            ("TOOLCHAIN", check_repo.TOOLCHAIN_EXIT),
+            ("INFRASTRUCTURE", check_repo.INFRASTRUCTURE_EXIT),
+        ):
+            with self.subTest(fault_class=fault_class):
+                self._with_runner(
+                    lambda *_args, fault_class=fault_class: (_ for _ in ()).throw(
+                        check_repo.ratchet_base.GitInvocationFailure(
+                            fault_class, "git status", OSError("producer failed")
+                        )
+                    )
+                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    result = check_repo.main([])
+
+                self.assertEqual(result, expected)
+                self.assertIn("producer failed", stderr.getvalue())
+
     def test_a_checker_crash_propagates_instead_of_becoming_the_typed_code(self):
         def boom(*_a, **_k):
             raise RuntimeError("checker exploded")

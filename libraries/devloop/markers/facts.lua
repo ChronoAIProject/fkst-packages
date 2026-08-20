@@ -676,12 +676,12 @@ function C.implementing_fact(comments, proposal_id, dedup_key)
   return nil
 end
 
-function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
+local function implement_checkpoint_facts(comments, proposal_id, dedup_key)
+  local facts = {}
   if type(comments) ~= "table" then
-    return nil
+    return facts
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-checkpoint:v1.-%-%->"
-  local best = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker_attr(marker, "proposal")
@@ -701,7 +701,7 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
         and attempt ~= nil
         and attempt >= 1
         and attempt == math.floor(attempt) then
-        local fact = {
+        table.insert(facts, {
           proposal_id = marker_proposal,
           dedup_key = marker_dedup,
           branch = marker_branch,
@@ -711,14 +711,29 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
           reason = marker_reason,
           attempt = attempt,
           comment_created_at = parsers_misc._comment_created_at(comment),
-        }
-        if best == nil or fact.attempt > best.attempt then
-          best = fact
-        end
+        })
       end
     end
   end
+  return facts
+end
+
+function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
+  local best = nil
+  for _, fact in ipairs(implement_checkpoint_facts(comments, proposal_id, dedup_key)) do
+    if best == nil or fact.attempt > best.attempt then
+      best = fact
+    end
+  end
   return best
+end
+
+function C.consecutive_implement_checkpoint_count(comments, proposal_id, dedup_key, reason)
+  local count = 0
+  for _, fact in ipairs(implement_checkpoint_facts(comments, proposal_id, dedup_key)) do
+    count = fact.reason == reason and count + 1 or 0
+  end
+  return count
 end
 
 function C.pr_link_fact(comments, proposal_id, version_lineage)

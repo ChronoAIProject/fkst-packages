@@ -244,6 +244,8 @@ cmd_check() {
   case "${RUN_UNITS_FAIL_CODES:-}" in
     10) local_iteration_result_fail "SEMANTIC" ;;
     11) local_iteration_result_fail "CONFIGURATION" ;;
+    12) local_iteration_result_fail "TOOLCHAIN" ;;
+    13) local_iteration_result_fail "INFRASTRUCTURE" ;;
   esac
   # engine workspace dependency validation runs only after the ratchets pass, exactly
   # as before: resolve_bin may exit on an unresolvable BIN, so it must not preempt the
