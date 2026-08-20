@@ -25,6 +25,7 @@ end
 local function mock_contract_env(exclusive, write_mode, managed)
   mock_env("FKST_GITHUB_BOT_LOGIN", "APP/FKST-Test-Bot", 64)
   mock_env("FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE", exclusive, 64)
+  mock_env("FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH", "", 64)
   mock_env("FKST_GITHUB_CLAIM_LABEL_SUFFIX", "", 64)
   mock_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS", managed, 64)
   mock_env("FKST_GITHUB_WRITE", write_mode, 64)
@@ -70,7 +71,7 @@ end
 return {
   test_explicit_contract_drives_complete_label_lifecycle_without_claim_mode = function()
     mock_contract_env("", "1", "peer-bot")
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     mock_binding(spec, nil, 8)
     t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. spec.name .. "'", {
       stdout = "", stderr = "", exit_code = 0,
@@ -139,7 +140,7 @@ return {
     t.eq(m_claims.issue_claim_state({}, contract.owner, { contract.label }, contract), "self")
     t.eq(m_claims.issue_claim_state({}, contract.owner, {
       contract.label,
-      claim_carriers.derived_label("peer-bot"),
+      claim_carriers.derived_label("peer-bot", 32),
     }, contract), "other")
     t.eq(m_claims.issue_claim_state({ { login = "peer-bot" } }, contract.owner, {
       contract.label,
@@ -171,7 +172,7 @@ return {
 
   test_explicit_contract_fails_closed_on_label_owner_collision_before_add = function()
     mock_contract_env("", "1", "")
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     mock_binding(spec, "fkst-dev-label-mode-ownership-claim owner=peer-bot")
     local contract = m_claims.new_label_claim_contract(source_ref)
     local current = {
