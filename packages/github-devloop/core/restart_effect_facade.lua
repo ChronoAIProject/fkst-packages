@@ -52,7 +52,8 @@ local function serialize_implement_activation_comment(args)
     args.base_sha,
     args.attempt,
     args.started_at,
-    args.exec_ref
+    args.exec_ref,
+    args.operator_reimplement_command_key
   )
 end
 
