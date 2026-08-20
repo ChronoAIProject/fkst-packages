@@ -51,6 +51,7 @@ local function claim_contract_carrier(claim, repo, issue_number)
     local normalized, reason = claim_carriers.validate_label_contract(claim, {
       owner = github_author_policy.claim_owner(),
       naming = config.claim_label_naming(),
+      owner_digest_hex_length = config.claim_label_owner_digest_hex_length(),
       source_ref = issue_source_ref(repo, issue_number),
     })
     if normalized == nil then
@@ -72,17 +73,12 @@ local function claim_contract_carrier(claim, repo, issue_number)
   if type(claim.label) ~= "string" or not claim_carriers.is_claim_family(claim.label) then
     return nil, nil, "claim-contract-invalid"
   end
-<<<<<<< HEAD
   if claim.label ~= claim_carriers.active_label(
     config.claim_label_naming(),
     owner,
     config.claim_label_owner_digest_hex_length()
   ) then
-    return nil
-=======
-  if claim.label ~= claim_carriers.active_label(config.claim_label_naming(), owner) then
     return nil, nil, "claim-contract-invalid"
->>>>>>> d8c2d56babf16257706c3641f2b231f6047351b4
   end
   return carrier, claim, nil
 end

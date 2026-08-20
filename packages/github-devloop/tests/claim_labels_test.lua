@@ -118,7 +118,6 @@ return {
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
   end,
 
-<<<<<<< HEAD
   test_short_derived_claim_label_binding_rejects_a_shared_name_for_another_owner = function()
     local labels = claim_carriers()
     local alpha = labels.active_label_spec({ kind = "derived" }, "alpha", 1)
@@ -132,18 +131,19 @@ return {
     }, test_bot)
     t.eq(ok, false)
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
-=======
+  end,
+
   test_label_claim_contract_is_versioned_canonical_and_source_bound = function()
     local labels = claim_carriers()
     local source_ref = {
       kind = "external",
       ref = "owner/repo#issue/42",
     }
-    local contract = labels.new_label_contract({ kind = "derived" }, "APP/ElonSG", source_ref)
+    local contract = labels.new_label_contract({ kind = "derived" }, "APP/ElonSG", 8, source_ref)
 
     t.eq(contract.schema, "github-devloop.claim-label.v1")
     t.eq(contract.owner, "elonsg")
-    t.eq(contract.label, labels.derived_label("elonsg"))
+    t.eq(contract.label, labels.derived_label("elonsg", 8))
     t.eq(contract.source_ref.kind, "external")
     t.eq(contract.source_ref.ref, "owner/repo#issue/42")
     t.is_true(contract.source_ref ~= source_ref)
@@ -158,9 +158,10 @@ return {
     local expected = {
       owner = "elonsg",
       naming = { kind = "derived" },
+      owner_digest_hex_length = 8,
       source_ref = source_ref,
     }
-    local valid = labels.new_label_contract({ kind = "derived" }, "elonsg", source_ref)
+    local valid = labels.new_label_contract({ kind = "derived" }, "elonsg", 8, source_ref)
     local normalized, reason = labels.validate_label_contract(valid, expected)
     t.eq(reason, nil)
     t.eq(normalized.owner, "elonsg")
@@ -187,7 +188,7 @@ return {
         claim = {
           schema = labels.label_contract_schema,
           owner = "peer-bot",
-          label = labels.derived_label("peer-bot"),
+          label = labels.derived_label("peer-bot", 8),
           source_ref = source_ref,
         },
         reason = "claim-owner-mismatch",
@@ -196,7 +197,7 @@ return {
         claim = {
           schema = labels.label_contract_schema,
           owner = "elonsg",
-          label = labels.derived_label("peer-bot"),
+          label = labels.derived_label("peer-bot", 8),
           source_ref = source_ref,
         },
         reason = "claim-label-mismatch",
@@ -224,7 +225,6 @@ return {
       t.eq(rejected, nil)
       t.eq(rejection_reason, case.reason)
     end
->>>>>>> d8c2d56babf16257706c3641f2b231f6047351b4
   end,
 
   test_claim_label_family_requires_exact_colon_boundary_and_suffix = function()

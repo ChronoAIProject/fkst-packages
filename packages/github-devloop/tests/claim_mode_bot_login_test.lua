@@ -31,6 +31,11 @@ local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
       stdout = suffix or "",
       stderr = "",
@@ -116,11 +121,8 @@ end
 local bare_claimed_label = "fkst-dev:claimed"
 local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
 local derived_claimed_label = derived_claim_spec.name
-<<<<<<< HEAD
-local peer_claimed_label = claim_carriers.derived_label("peer-bot", 32)
-=======
 local derived_claimed_label_encoded = "fkst-dev%3Aclaimed%3A881cb233d76686282e06df2ecace1311"
-local peer_claimed_label = claim_carriers.derived_label("peer-bot")
+local peer_claimed_label = claim_carriers.derived_label("peer-bot", 32)
 local declared_claim_suffix = "team/A + Ω%"
 local declared_claimed_label = "fkst-dev:claimed:" .. declared_claim_suffix
 local declared_claimed_label_encoded = "fkst-dev%3Aclaimed%3Ateam%2FA%20%2B%20%CE%A9%25"
@@ -128,7 +130,6 @@ local declared_claimed_label_encoded = "fkst-dev%3Aclaimed%3Ateam%2FA%20%2B%20%C
 local function label_rest_get_command(encoded_label)
   return "gh api --method GET 'repos/owner/repo/labels/" .. encoded_label .. "'"
 end
->>>>>>> d8c2d56babf16257706c3641f2b231f6047351b4
 
 local function mock_claim_label_binding(description, times)
   for _ = 1, times or 1 do

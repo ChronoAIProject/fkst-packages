@@ -17,9 +17,6 @@ local function canonical_owner(owner)
   return canonical
 end
 
-<<<<<<< HEAD
-function C.derived_label(owner, owner_digest_hex_length)
-=======
 local function copy_source_ref(source_ref)
   if type(source_ref) ~= "table"
     or source_ref.kind ~= "external"
@@ -33,8 +30,7 @@ local function copy_source_ref(source_ref)
   }
 end
 
-function C.derived_label(owner)
->>>>>>> d8c2d56babf16257706c3641f2b231f6047351b4
+function C.derived_label(owner, owner_digest_hex_length)
   local digest = sha256.hex(canonical_owner(owner))
   return C.bare_label .. ":" .. digest:sub(1, owner_digest_hex_length)
 end
@@ -85,7 +81,7 @@ function C.active_label(naming, owner, owner_digest_hex_length)
   return C.active_label_spec(naming, owner, owner_digest_hex_length).name
 end
 
-function C.new_label_contract(naming, owner, source_ref)
+function C.new_label_contract(naming, owner, owner_digest_hex_length, source_ref)
   local normalized_owner = canonical_owner(owner)
   local normalized_source_ref = copy_source_ref(source_ref)
   if normalized_source_ref == nil then
@@ -94,7 +90,7 @@ function C.new_label_contract(naming, owner, source_ref)
   return {
     schema = C.label_contract_schema,
     owner = normalized_owner,
-    label = C.active_label(naming, normalized_owner),
+    label = C.active_label(naming, normalized_owner, owner_digest_hex_length),
     source_ref = normalized_source_ref,
   }
 end
@@ -123,7 +119,11 @@ function C.validate_label_contract(claim, expected)
   if type(claim.label) ~= "string" or claim.label == "" then
     return nil, "claim-contract-label-missing"
   end
-  if claim.label ~= C.active_label(expected and expected.naming, owner) then
+  if claim.label ~= C.active_label(
+    expected and expected.naming,
+    owner,
+    expected and expected.owner_digest_hex_length
+  ) then
     return nil, "claim-label-mismatch"
   end
   if claim.source_ref == nil then
