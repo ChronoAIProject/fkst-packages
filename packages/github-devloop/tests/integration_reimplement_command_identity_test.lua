@@ -35,6 +35,19 @@ local function command_key(command)
   return operator_commands.operator_command_fact({ command }, "reimplement").key
 end
 
+local function implementing_state_dedup_key(version)
+  return base_ids.dedup_key({
+    "implement",
+    "comment",
+    "implementing-state",
+    tostring(version),
+  })
+end
+
+local function proxy_comment_marker(dedup_key)
+  return "<!-- fkst:github-proxy:comment:" .. tostring(dedup_key) .. " -->"
+end
+
 local function render_comment(body)
   return string.format(
     '{"body":"%s","author":{"login":"fkst-test-bot"},"createdAt":"2026-08-01T00:00:00Z"}',
@@ -120,7 +133,10 @@ local function admit_reimplementation(event, ready, name)
   local logical_version = ready.implementation_version
   local worktree_version = core.implementation_attempt_version(logical_version, ready.impl_retry_attempt)
   local branch_version = core.implementation_branch_version(logical_version, ready.impl_retry_attempt)
+  local prior_implementing_dedup_key = implementing_state_dedup_key(logical_version)
   local comments = {
+    core.state_marker(event.proposal_id, "implementing", logical_version),
+    proxy_comment_marker(prior_implementing_dedup_key),
     core.state_marker(event.proposal_id, "impl-failed", logical_version),
     core.impl_failure_marker(event.proposal_id, logical_version, "codex-failed", 2, "UNKNOWN", true),
   }
@@ -150,6 +166,8 @@ local function admit_reimplementation(event, ready, name)
     name .. ": lifecycle admission state fact is missing")
   t.is_true(worktree_ready.payload.body:find('outcome="applied"', 1, true) ~= nil,
     name .. ": lifecycle admission did not acknowledge the command")
+  t.is_true(worktree_ready.payload.dedup_key ~= prior_implementing_dedup_key,
+    name .. ": reentry lifecycle comment reused the prior implementing dedup key")
   return worktree_ready.payload
 end
 

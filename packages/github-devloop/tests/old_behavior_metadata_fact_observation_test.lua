@@ -57,7 +57,7 @@ local CURRENT_SINK_FAMILIES = {
   ["comment:issue:dependency-canonicalization"] =
     "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
   ["comment:issue:implementation-start"] =
-    "state:v1/implementing+implement-attempt:v1+optional-operator-command:v1/reimplement;dedup=implement/comment/implementing-state",
+    "state:v1/implementing+implement-attempt:v1+optional-operator-command:v1/reimplement;dedup=implement/comment/implementing-state+operator-command-key",
   ["label:issue:dependency-canonicalization"] =
     "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
   ["label:issue:awaiting-pr-terminal"] =

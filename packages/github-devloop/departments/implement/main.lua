@@ -114,7 +114,9 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
     end
     local payloads, args = {}, { core = core, issue = { repo = repo, number = issue_number }, ready = ready,
       worktree = worktree, branch = branch, base_branch = base_branch, base_sha = base_sha,
-      attempt = attempt, started_at = started_at, exec_ref = exec_ref }
+      attempt = attempt, started_at = started_at, exec_ref = exec_ref,
+      operator_reimplement_command_key = operator_reimplement_delivery ~= nil
+        and operator_reimplement_delivery.command_key or nil }
     for _, effect_id in ipairs(decision.granted_effect_ids) do
       local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
       if payload == nil then
@@ -126,7 +128,8 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
     comment_request = payloads["github-proxy.github_issue_comment_request"]
     label_request = payloads["github-proxy.github_issue_label_request"]
   else
-    comment_request = requests_lifecycle.build_implementing_state_comment_request(implement_caps.implement_attempt_marker, implement_caps.output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
+    comment_request = requests_lifecycle.build_implementing_state_comment_request(implement_caps.implement_attempt_marker, implement_caps.output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref,
+      operator_reimplement_delivery ~= nil and operator_reimplement_delivery.command_key or nil)
     label_request = requests_labels.build_implementing_label_request(repo, issue_number, ready)
   end
   if operator_reimplement_delivery ~= nil then

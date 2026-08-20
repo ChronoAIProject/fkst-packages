@@ -56,7 +56,7 @@ add("comment:issue:thinking-state", "execute_start", "raise_execution_start.thin
 add("label:issue:thinking-state", "execute_start", "raise_execution_start.thinking_label", "label", "lifecycle-authoritative", "state-label:thinking;dedup=execution-start/label")
 add("comment:issue:implementation-failed", "implement", "raise_impl_failed.comment", "comment", "lifecycle-authoritative", "state:v1/impl-failed+impl-failure:v1;dedup=implement/comment/failure")
 add("label:issue:implementation-failed", "implement", "raise_impl_failed.label", "label", "lifecycle-authoritative", "state-label:impl-failed;dedup=implement/label/impl-failed")
-add("comment:issue:implementation-start", "implement", "raise_implementing_state.comment", "comment", "lifecycle-authoritative", "state:v1/implementing+implement-attempt:v1+optional-operator-command:v1/reimplement;dedup=implement/comment/implementing-state")
+add("comment:issue:implementation-start", "implement", "raise_implementing_state.comment", "comment", "lifecycle-authoritative", "state:v1/implementing+implement-attempt:v1+optional-operator-command:v1/reimplement;dedup=implement/comment/implementing-state+operator-command-key")
 add("label:issue:implementation-start", "implement", "raise_implementing_state.label", "label", "lifecycle-authoritative", "state-label:implementing;dedup=implement/label/implementing")
 add("comment:issue:implementation-progress", "implement", "raise_implementing.comment", "comment", "lifecycle-authoritative", "implementing:v1+implement-attempt:v1;dedup=implement/comment/implementing")
 add("comment:issue:implementation-attempt", "implement", "raise_implement_attempt.comment", "comment", "lifecycle-authoritative", "implement-attempt:v1;dedup=implement/comment/attempt")
