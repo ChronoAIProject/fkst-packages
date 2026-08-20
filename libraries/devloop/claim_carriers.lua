@@ -8,8 +8,6 @@ C.bare_label = "fkst-dev:claimed"
 C.label_contract_schema = "github-devloop.claim-label.v1"
 
 local claim_description = "fkst-dev-label-mode-ownership-claim"
--- A 128-bit SHA-256 prefix keeps the complete label at 49 characters.
-local owner_digest_hex_length = 32
 
 local function canonical_owner(owner)
   local canonical = parsers_misc.canonical_login(owner)
@@ -32,12 +30,12 @@ local function copy_source_ref(source_ref)
   }
 end
 
-function C.derived_label(owner)
+function C.derived_label(owner, owner_digest_hex_length)
   local digest = sha256.hex(canonical_owner(owner))
   return C.bare_label .. ":" .. digest:sub(1, owner_digest_hex_length)
 end
 
-function C.active_label_spec(naming, owner)
+function C.active_label_spec(naming, owner, owner_digest_hex_length)
   if type(naming) ~= "table" then
     error("devloop.claim_carriers: claim-label-naming-invalid: claim label naming posture is invalid")
   end
@@ -47,7 +45,7 @@ function C.active_label_spec(naming, owner)
     name = C.bare_label
   elseif naming.kind == "derived" then
     bound_owner = canonical_owner(owner)
-    name = C.derived_label(bound_owner)
+    name = C.derived_label(bound_owner, owner_digest_hex_length)
   elseif naming.kind == "declared_suffix" and type(naming.suffix) == "string" then
     bound_owner = canonical_owner(owner)
     name = C.bare_label .. ":" .. naming.suffix
@@ -79,11 +77,11 @@ function C.assert_owner_binding(existing, desired)
   end
 end
 
-function C.active_label(naming, owner)
-  return C.active_label_spec(naming, owner).name
+function C.active_label(naming, owner, owner_digest_hex_length)
+  return C.active_label_spec(naming, owner, owner_digest_hex_length).name
 end
 
-function C.new_label_contract(naming, owner, source_ref)
+function C.new_label_contract(naming, owner, owner_digest_hex_length, source_ref)
   local normalized_owner = canonical_owner(owner)
   local normalized_source_ref = copy_source_ref(source_ref)
   if normalized_source_ref == nil then
@@ -92,7 +90,7 @@ function C.new_label_contract(naming, owner, source_ref)
   return {
     schema = C.label_contract_schema,
     owner = normalized_owner,
-    label = C.active_label(naming, normalized_owner),
+    label = C.active_label(naming, normalized_owner, owner_digest_hex_length),
     source_ref = normalized_source_ref,
   }
 end
@@ -121,7 +119,11 @@ function C.validate_label_contract(claim, expected)
   if type(claim.label) ~= "string" or claim.label == "" then
     return nil, "claim-contract-label-missing"
   end
-  if claim.label ~= C.active_label(expected and expected.naming, owner) then
+  if claim.label ~= C.active_label(
+    expected and expected.naming,
+    owner,
+    expected and expected.owner_digest_hex_length
+  ) then
     return nil, "claim-label-mismatch"
   end
   if claim.source_ref == nil then

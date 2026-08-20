@@ -15,6 +15,7 @@ local function explicit_payload(exclusive, owner)
     claim = claim_carriers.new_label_contract(
       { kind = exclusive == true and "exclusive" or "derived" },
       owner or "fkst-test-bot",
+      32,
       source_ref
     ),
   }
@@ -26,6 +27,11 @@ local function mock_explicit_env(exclusive, times)
   for _ = 1, count do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE"', {
       stdout = exclusive and "1" or "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH"', {
+      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -60,7 +66,7 @@ return {
   test_proxy_accepts_explicit_derived_contract_independently_of_claim_mode = function()
     mock_explicit_env(false)
     local payload = explicit_payload(false)
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     local issue = {
       assignees = { { login = "human" } },
       labels = { { name = spec.name, description = spec.description } },
@@ -81,7 +87,7 @@ return {
   test_proxy_guarded_write_freshly_rereads_explicit_contract_claim = function()
     mock_explicit_env(false)
     local payload = explicit_payload(false)
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     t.mock_command("gh api repos/owner/x/issues/42", {
       stdout = '{"assignees":[{"login":"human"}],"labels":[{"name":"'
         .. spec.name .. '","description":"' .. spec.description .. '"}]}\n',
@@ -163,7 +169,7 @@ return {
         claim = {
           schema = claim_carriers.label_contract_schema,
           owner = "peer-bot",
-          label = claim_carriers.derived_label("peer-bot"),
+          label = claim_carriers.derived_label("peer-bot", 32),
           source_ref = source_ref,
         },
         reason = "claim-owner-mismatch",
@@ -172,7 +178,7 @@ return {
         claim = {
           schema = claim_carriers.label_contract_schema,
           owner = valid.owner,
-          label = claim_carriers.derived_label("peer-bot"),
+          label = claim_carriers.derived_label("peer-bot", 32),
           source_ref = source_ref,
         },
         reason = "claim-label-mismatch",
@@ -206,7 +212,7 @@ return {
     mock_explicit_env(false)
     local payload = explicit_payload(false)
     local own = payload.claim.label
-    local peer = claim_carriers.derived_label("peer-bot")
+    local peer = claim_carriers.derived_label("peer-bot", 32)
 
     local foreign_accepted, foreign_reason = core.verify_issue_claim_in_issue({
       assignees = {},
