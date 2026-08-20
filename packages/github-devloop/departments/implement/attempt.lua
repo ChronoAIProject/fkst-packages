@@ -187,6 +187,7 @@ local function run_attempt(args)
 end
 
 M.run = run_attempt
+M.bound_verification_checkpoint = harvest.bound_verification_checkpoint
 
 function M.resume(args)
   return harvest.after_codex_success(

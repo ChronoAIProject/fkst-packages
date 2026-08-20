@@ -13,6 +13,7 @@ local allowed_env = {
   FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS = true,
   FKST_GITHUB_AUTHORIZE_ORG_MEMBERS = true,
   FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = true,
+  FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH = true,
   FKST_GITHUB_CLAIM_LABEL_SUFFIX = true,
   FKST_GITHUB_CLAIM_MODE = true,
   FKST_GITHUB_REPO = true,
@@ -116,6 +117,18 @@ function C.claim_label_naming(exec)
     return { kind = "exclusive" }
   end
   return { kind = "derived" }
+end
+
+function C.claim_label_owner_digest_hex_length(exec)
+  local raw = strings.trim(C.read_env("FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH", exec) or "")
+  if raw == "" then
+    return 32
+  end
+  local parsed = tonumber(raw)
+  if raw:find("^%d+$") == nil or parsed == nil or parsed < 1 or parsed > 32 then
+    error("github-devloop: claim-label-owner-digest-hex-length-invalid: invalid FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH")
+  end
+  return parsed
 end
 
 -- Rollup auto-fix is opt-in and additive: default (unset/anything-but-"1") is

@@ -480,7 +480,7 @@ return {
   end,
 
   test_exhausted_original_pr_fails_closed_on_claim_label_owner_collision = function()
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, BOT)
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, BOT, 32)
     local fixture = baseline({
       claim_mode = "label",
       assignees = { "human" },

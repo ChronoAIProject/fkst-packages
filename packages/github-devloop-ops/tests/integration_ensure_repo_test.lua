@@ -76,7 +76,7 @@ local function mock_env(write_mode, integration)
   end
 end
 
-local function mock_claim_label_env(exclusive, suffix, claim_mode)
+local function mock_claim_label_env(exclusive, suffix, claim_mode, digest_hex_length)
   for _ = 1, 2 do
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
       stdout = claim_mode or "label",
@@ -91,6 +91,11 @@ local function mock_claim_label_env(exclusive, suffix, claim_mode)
   })
   t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
     stdout = suffix or "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH"', {
+    stdout = digest_hex_length or "",
     stderr = "",
     exit_code = 0,
   })
@@ -338,7 +343,7 @@ return {
   end,
 
   test_label_mode_provisions_derived_active_claim_label = function()
-    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     local claim_label = claim_spec.name
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
@@ -369,7 +374,7 @@ return {
   end,
 
   test_assignee_mode_provisions_derived_active_claim_label = function()
-    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     local claim_command = core.gh_repo_label_create_cmd(
       "owner/repo",
       claim_spec.name,
@@ -382,7 +387,7 @@ return {
     mock_dashboard_anchor(true)
     mock_topology(0)
     t.mock_command(claim_command, {
-      stdout = '{"name":"' .. claim_spec.name .. '"}\n',
+      stdout = '{"name":"' .. claim_label .. '"}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -391,6 +396,38 @@ return {
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_CLAIM_MODE = "assignee",
       FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST"), 1)
+    t.eq(count_calls(claim_command), 1)
+  end,
+
+  test_label_mode_provisions_configured_short_derived_claim_label = function()
+    local claim_label = "fkst-dev:claimed:881cb233"
+    local description = "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
+    local claim_command = core.gh_repo_label_create_cmd(
+      "owner/repo",
+      claim_label,
+      "0E8A16",
+      description
+    )
+    mock_env("1")
+    mock_claim_label_env("", nil, "label", "8")
+    mock_labels(canonical_labels_with_dashboard())
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+    t.mock_command(claim_command, {
+      stdout = '{"name":"' .. claim_spec.name .. '"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_ensure(opts("ensure-short-derived-claim-label", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_CLAIM_MODE = "label",
+      FKST_GITHUB_CLAIM_LABEL_EXCLUSIVE = "",
+      FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH = "8",
     }))
 
     t.eq(result.exit_code, 0)
@@ -557,7 +594,7 @@ return {
   end,
 
   test_label_mode_fails_closed_when_derived_label_is_bound_to_another_owner = function()
-    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+    local claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
     local repo_labels = canonical_labels_with_dashboard()
     table.insert(repo_labels, {
       name = claim_spec.name,

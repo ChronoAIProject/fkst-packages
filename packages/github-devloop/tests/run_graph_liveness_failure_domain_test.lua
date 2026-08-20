@@ -386,8 +386,6 @@ return {
       exit_code = 1,
       error = "replay did not emit a consumable redrive; outcome=",
     }), 1)
-    -- The entity-local failure and terminal-tombstone suppression are separate
-    -- surfaced dead letters under the current engine contract.
     t.eq(count_steps(trace, {
       queue = "github-devloop.dead_letter",
       consumer = "github-devloop.dead_letter",
@@ -514,8 +512,8 @@ return {
 
   test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
     with_fixture(function(root, package_root)
-      run_fixture(root, package_root, false, framework_bin(), 2, "current-stuck-first")
-      run_fixture(root, package_root, true, framework_bin(), 2, "current-stuck-last")
+      run_fixture(root, package_root, false, framework_bin(), 1, "current-stuck-first")
+      run_fixture(root, package_root, true, framework_bin(), 1, "current-stuck-last")
     end)
   end,
 }

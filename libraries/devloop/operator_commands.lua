@@ -574,23 +574,12 @@ function C.build_operator_issue_reready_comment_request(repo, issue_number, comm
   }), source_ref)
 end
 
-function C.build_operator_issue_reimplement_comment_request(repo, issue_number, command, attempt, source_ref)
+function C.operator_reimplement_applied_body(command, attempt)
   local marker = C.operator_command_marker(command, "applied", "reimplement")
-  return entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = repo,
-    number = issue_number,
-  }, "github-devloop operator command accepted: reimplement"
+  return "github-devloop operator command accepted: reimplement"
     .. "\n\nRetry attempt: " .. tostring(attempt)
     .. "\n\n" .. marker
-    .. "\n" .. ai_sentinel, base_ids.dedup_key({
-    "operator-command",
-    "comment",
-    tostring(command.key),
-    "applied",
-    "reimplement",
-    tostring(attempt),
-  }), source_ref)
+    .. "\n" .. ai_sentinel
 end
 
 function C.build_operator_issue_dependency_waiver_comment_request(dependency_waiver_marker, repo, issue_number, command, proposal_id, version, blocker_number, source_ref)
