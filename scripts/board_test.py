@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -35,7 +36,30 @@ class BoardHarness:
         self.log = self.root / "calls.log"
         if observe is not None:
             self.observe_path.write_text(json.dumps(observe), encoding="utf-8")
-        self.framework = self.root / "fkst-framework"
+        self.source = self.root / "fkst-substrate"
+        self.framework = self.source / "target" / "debug" / "fkst-framework"
+        self.framework.parent.mkdir(parents=True)
+        (self.source / ".git").mkdir()
+        (self.source / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+        self.tools = self.root / "tools"
+        self.tools.mkdir()
+        self.real_git = shutil.which("git")
+        if self.real_git is None:
+            raise RuntimeError("required board test tool not found: git")
+        write_executable(
+            self.tools / "git",
+            "#!/bin/sh\n"
+            'if [ "$1" = "-C" ] && [ "$2" = "$FKST_TEST_REPO_ROOT" ] && [ "$3" = "show" ]; then\n'
+            '  exec "$FKST_TEST_REAL_GIT" "$@"\n'
+            "fi\n"
+            'if [ "$1" = "-C" ] && [ "$2" = "$FKST_TEST_SOURCE_ROOT" ]; then\n'
+            '  case "$3" in\n'
+            '    status) exit 0 ;;\n'
+            '    rev-parse) printf "%s\\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; exit 0 ;;\n'
+            '  esac\n'
+            "fi\n"
+            'exec "$FKST_TEST_REAL_GIT" "$@"\n',
+        )
         if exit_code == 0:
             body = f"cat {self.observe_path}\n"
         else:
@@ -61,10 +85,17 @@ fi
     def close(self) -> None:
         self.tmp.cleanup()
 
-    def run_board(self, *extra: str) -> subprocess.CompletedProcess[str]:
+    def command_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env["BIN"] = str(self.framework)
         env["FKST_NO_AUTOBUILD"] = "1"
+        env["FKST_TEST_REAL_GIT"] = self.real_git
+        env["FKST_TEST_REPO_ROOT"] = str(REPO_ROOT.resolve())
+        env["FKST_TEST_SOURCE_ROOT"] = str(self.source.resolve())
+        env["PATH"] = str(self.tools) + os.pathsep + env.get("PATH", "")
+        return env
+
+    def run_board(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 "/bin/bash",
@@ -79,7 +110,7 @@ fi
                 *extra,
             ],
             cwd=REPO_ROOT,
-            env=env,
+            env=self.command_env(),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -87,9 +118,6 @@ fi
         )
 
     def run_health(self, *extra: str) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
-        env["BIN"] = str(self.framework)
-        env["FKST_NO_AUTOBUILD"] = "1"
         return subprocess.run(
             [
                 "/bin/bash",
@@ -104,7 +132,7 @@ fi
                 *extra,
             ],
             cwd=REPO_ROOT,
-            env=env,
+            env=self.command_env(),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

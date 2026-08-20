@@ -196,18 +196,22 @@ local function ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds,
     key = self_heal_keys.ci_selfheal_once_key(repo, pr_number, head_sha)
   end
   local ran = once(key, function()
-    local rerequested, rerequest_reason = rerequest_head_check_runs(
-      repo,
-      pr_number,
-      head_sha,
-      runs,
-      proposal_id,
-      first_observed_seconds,
-      age_seconds,
-      key
-    )
-    if rerequested then
-      return
+    local rerequest_reason = "ci-selfheal-rerequest-not-applicable"
+    if not verification_missing then
+      local rerequested
+      rerequested, rerequest_reason = rerequest_head_check_runs(
+        repo,
+        pr_number,
+        head_sha,
+        runs,
+        proposal_id,
+        first_observed_seconds,
+        age_seconds,
+        key
+      )
+      if rerequested then
+        return
+      end
     end
     local nudged, nudge_reason = nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_seconds, age_seconds, key)
     if not nudged then

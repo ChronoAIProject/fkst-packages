@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref)"
+          ref="$(git show HEAD:.fkst/substrate-ref | sed -n '1{s/[[:space:]]//g;p;q}')"
           test -n "$ref"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "fkst-substrate ref: $ref"

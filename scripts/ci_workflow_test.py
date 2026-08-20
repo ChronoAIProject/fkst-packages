@@ -95,7 +95,8 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertNotIn("substrate_ref:", workflow)
         self.assertNotIn("github.event.inputs.substrate_ref", workflow)
         self.assertNotRegex(workflow, r'(?m)^\s*ref="dev"\s*$')
-        self.assertIn('ref="$(sed -n \'1{s/[[:space:]]//g;p;q}\' .fkst/substrate-ref)"', workflow)
+        self.assertIn('ref="$(git show HEAD:.fkst/substrate-ref', workflow)
+        self.assertNotIn("sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref", workflow)
         self.assertIn('test -n "$ref"', workflow)
 
     def test_pull_request_verification_is_head_and_current_base_bound(self) -> None:

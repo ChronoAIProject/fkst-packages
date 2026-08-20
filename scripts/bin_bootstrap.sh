@@ -24,14 +24,14 @@ bootstrap_cache_root() {
 }
 
 bootstrap_read_pin() {
-  local repo_root="$1" pin_file pin
-  pin_file="$repo_root/.fkst/substrate-ref"
-  [ -f "$pin_file" ] || bootstrap_die "missing fkst-substrate source pin: $pin_file"
-  pin="$(sed -n '1p' "$pin_file")"
+  local repo_root="$1" pin_source="HEAD:.fkst/substrate-ref" raw pin
+  raw="$(git -C "$repo_root" show "$pin_source" 2>/dev/null)" \
+    || bootstrap_die "cannot read fkst-substrate source pin: $pin_source"
+  pin="$(printf '%s\n' "$raw" | sed -n '1p')"
   pin="${pin%%#*}"
   pin="${pin#"${pin%%[![:space:]]*}"}"
   pin="${pin%"${pin##*[![:space:]]}"}"
-  [ -n "$pin" ] || bootstrap_die "empty fkst-substrate source pin: $pin_file"
+  [ -n "$pin" ] || bootstrap_die "empty fkst-substrate source pin: $pin_source"
   printf '%s\n' "$pin"
 }
 
@@ -96,10 +96,10 @@ bootstrap_candidate_source_matches_pin() {
   phys="$(resolve_phys_path "$candidate")" || return 1
   case "$phys" in
     *"$suffix") source_root="${phys%"$suffix"}" ;;
-    *) return 0 ;;
+    *) return 1 ;;
   esac
   if [ ! -e "$source_root/.git" ] || [ ! -f "$source_root/Cargo.toml" ]; then
-    return 0
+    return 1
   fi
   status="$(git -C "$source_root" status --porcelain 2>/dev/null)" || return 1
   [ -z "$status" ] || return 1
@@ -117,13 +117,13 @@ bootstrap_candidate_source_matches_pin() {
 
 bootstrap_candidate_matches_pin() {
   local candidate="$1" pin="$2" source="$3" artifact_pin
+  if ! bootstrap_candidate_source_matches_pin "$candidate" "$pin"; then
+    echo "warning: $source fkst-framework source checkout does not resolve cleanly to declared .fkst/substrate-ref: $pin" >&2
+    return 1
+  fi
   artifact_pin="$(bootstrap_read_artifact_pin "$candidate" 2>/dev/null)" || artifact_pin=""
   if [ "$artifact_pin" != "$pin" ]; then
     echo "warning: $source fkst-framework does not match declared .fkst/substrate-ref: artifact=${artifact_pin:-unknown} declared=$pin" >&2
-    return 1
-  fi
-  if ! bootstrap_candidate_source_matches_pin "$candidate" "$pin"; then
-    echo "warning: $source fkst-framework source checkout does not resolve cleanly to declared .fkst/substrate-ref: $pin" >&2
     return 1
   fi
   return 0
@@ -181,7 +181,7 @@ resolve_bin_contract() {
   fi
 
   if [ "$mode" = "readonly" ]; then
-    if [ -z "${FKST_NO_AUTOBUILD:-}" ] && [ -f "$repo_root/.fkst/substrate-ref" ]; then
+    if [ -z "${FKST_NO_AUTOBUILD:-}" ]; then
       if [ -n "$pin" ]; then
         {
           IFS= read -r owner

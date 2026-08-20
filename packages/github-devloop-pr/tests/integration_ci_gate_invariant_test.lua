@@ -1,6 +1,8 @@
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
+require("tests.cache_seed_helpers")
 local m_builders = require("devloop.markers.builders")
+local self_heal_keys = require("forge.merge.self_heal_keys")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -141,5 +143,50 @@ return {
     local wait = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(wait ~= nil)
     t.is_true(wait.payload.body:find('reason="verification-subject-missing"', 1, true) ~= nil)
+  end,
+
+  test_base_advance_self_heal_creates_fresh_head_without_rerequesting_old_runs = function()
+    local event = merge_ready()
+    local base_0 = string.rep("a", 40)
+    local base_1 = string.rep("b", 40)
+    local fresh_head = string.rep("d", 40)
+    local branch = "devloop-owner-repo-42-01HY"
+    local runtime_root = "/tmp/fkst-packages-test/github-devloop/runtime"
+    local rollup = '[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"},'
+      .. '{"id":123,"name":"verification-subject:' .. base_0 .. ':' .. event.reviewed_head_sha
+      .. '","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. event.reviewed_head_sha .. '"}]'
+    local run_opts = opts("base-advance-self-heal-fresh-attestation", {
+      FKST_GITHUB_WRITE = "1",
+    })
+    local seeded = t.run_department("tests/cache_seed_helpers.lua", {
+      queue = "test_cache_seed",
+      payload = {
+        key = self_heal_keys.ci_verification_selfheal_first_observed_key(
+          "owner/repo", event.pr_number, event.reviewed_head_sha, base_1),
+        value = tostring(now() - 300),
+      },
+    }, run_opts)
+    t.eq(seeded.exit_code, 0, tostring(seeded.error or seeded.stderr))
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup, nil, nil, nil, nil, nil, nil, nil, nil, nil, base_1)
+    t.mock_command("check-runs/123/rerequest", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = runtime_root, stderr = "", exit_code = 0 })
+    t.mock_command("[ -d ", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git worktree add --detach", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("commit --allow-empty", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("push origin HEAD:refs/heads/" .. branch, { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("rev-parse HEAD", { stdout = fresh_head .. "\n", stderr = "", exit_code = 0 })
+
+    local result = run_merge(event, run_opts)
+
+    t.eq(result.exit_code, 0, tostring(result.error or result.stderr))
+    t.eq(count_calls("gh pr merge"), 0)
+    t.eq(count_calls("check-runs/123/rerequest"), 0)
+    t.eq(count_calls("commit --allow-empty"), 1)
+    t.eq(count_calls("push origin HEAD:refs/heads/" .. branch), 1)
   end,
 }

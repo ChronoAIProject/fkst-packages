@@ -81,11 +81,18 @@ class VerifyEngineRevisionTest(unittest.TestCase):
             declared = "3333333333333333333333333333333333333333"
             harness.write_pin(declared)
 
-            result = harness.verify()
+            uncommitted = harness.verify()
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(f"engine revision subject: head={declared}", result.stdout)
-            self.assertIn("base=2222222222222222222222222222222222222222", result.stdout)
+            self.assertNotEqual(uncommitted.returncode, 0)
+            self.assertIn("head=1111111111111111111111111111111111111111", uncommitted.stderr)
+
+            git(harness.root, "add", ".fkst/substrate-ref")
+            git(harness.root, "commit", "--quiet", "-m", "declare engine transition")
+            committed = harness.verify()
+
+            self.assertEqual(committed.returncode, 0, committed.stderr)
+            self.assertIn(f"engine revision subject: head={declared}", committed.stdout)
+            self.assertIn("base=2222222222222222222222222222222222222222", committed.stdout)
         finally:
             harness.close()
 

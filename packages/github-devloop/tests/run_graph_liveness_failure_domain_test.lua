@@ -58,6 +58,11 @@ local function bootstrap_framework_bin(root, ref)
   run_command("ln -s " .. shell_quote(source_root .. "/scripts")
     .. " " .. shell_quote(resolver_root .. "/scripts"))
   file.write(resolver_root .. "/.fkst/substrate-ref", ref .. "\n")
+  run_command("git -C " .. shell_quote(resolver_root) .. " init -q")
+  run_command("git -C " .. shell_quote(resolver_root) .. " add .fkst/substrate-ref")
+  run_command("git -C " .. shell_quote(resolver_root)
+    .. " -c user.name=fkst-test -c user.email=fkst-test@example.invalid"
+    .. " commit -qm 'fixture: pin engine revision'")
 
   local script = "source " .. shell_quote(source_root .. "/scripts/bin_bootstrap.sh")
     .. "; bootstrap_bin_on_total_miss " .. shell_quote(resolver_root)

@@ -52,6 +52,17 @@ class BootstrapHarness:
         self.log = Path(self.tmp.name) / "calls.log"
         self.env = os.environ.copy()
         inherited_path = self.env.get("PATH", "")
+        self.real_git = shutil.which("git", path=inherited_path)
+        if self.real_git is None:
+            raise RuntimeError("required bootstrap test tool not found: git")
+        for args in (
+            ("init", "--quiet"),
+            ("config", "user.email", "test@example.invalid"),
+            ("config", "user.name", "Test User"),
+            ("add", ".fkst/substrate-ref"),
+            ("commit", "--quiet", "-m", "fixture pin"),
+        ):
+            subprocess.run([self.real_git, *args], cwd=self.root, check=True)
         for name in tuple(self.env):
             if name.startswith("BASH_FUNC_"):
                 self.env.pop(name)
@@ -62,6 +73,9 @@ class BootstrapHarness:
             {
                 "FKST_BIN_CACHE_ROOT": str(self.cache),
                 "FKST_TEST_COMMAND_LOG": str(self.log),
+                "FKST_TEST_REAL_GIT": self.real_git,
+                "FKST_TEST_REPO_ROOT": str(self.root),
+                "FKST_TEST_SOURCE_SHA": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "PATH": str(self.fake_bin),
             }
         )
@@ -85,12 +99,19 @@ class BootstrapHarness:
                 """\
                 #!/usr/bin/env sh
                 echo "git $*" >> "$FKST_TEST_COMMAND_LOG"
+                if [ "$1" = "-C" ] && [ "$2" = "$FKST_TEST_REPO_ROOT" ] && [ "$3" = "show" ]; then
+                  exec "$FKST_TEST_REAL_GIT" "$@"
+                fi
                 if [ "$1" = "clone" ]; then
                   dir="$4"
                   mkdir -p "$dir/.git"
+                  printf '[workspace]\n' > "$dir/Cargo.toml"
                   exit 0
                 fi
                 if [ "$1" = "-C" ]; then
+                  if [ "$3" = "rev-parse" ]; then
+                    printf '%s\n' "$FKST_TEST_SOURCE_SHA"
+                  fi
                   exit 0
                 fi
                 exit 1
@@ -161,7 +182,7 @@ class BootstrapHarness:
 
 
 class BinBootstrapTest(unittest.TestCase):
-    def test_matching_explicit_bin_is_admitted_without_bootstrap(self) -> None:
+    def test_untraceable_matching_explicit_bin_resolves_through_declared_pin(self) -> None:
         pin = "declared-revision"
         h = BootstrapHarness(pin)
         try:
@@ -171,16 +192,54 @@ class BinBootstrapTest(unittest.TestCase):
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.stdout.strip(), str(artifact))
+            self.assertIn("source checkout does not resolve cleanly", result.stderr)
+            self.assertIn("checkout --detach declared-revision", h.calls())
+        finally:
+            h.close()
+
+    def test_matching_artifact_from_declared_clean_checkout_is_admitted(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), str(artifact))
-            self.assertIn("git -C ", h.calls())
             self.assertNotIn("cargo ", h.calls())
+        finally:
+            h.close()
+
+    def test_resolver_uses_committed_pin_when_worktree_pin_is_modified(self) -> None:
+        committed = "committed-revision"
+        h = BootstrapHarness(committed)
+        try:
+            (h.root / ".fkst" / "substrate-ref").write_text("uncommitted-revision\n", encoding="utf-8")
+
+            result = h.resolve()
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/committed-revision/", result.stdout.strip())
+            self.assertIn("checkout --detach committed-revision", h.calls())
+            self.assertNotIn("uncommitted-revision", result.stdout + result.stderr + h.calls())
         finally:
             h.close()
 
     def test_mismatched_explicit_bin_resolves_through_declared_pin(self) -> None:
         h = BootstrapHarness("declared-revision")
         try:
-            artifact = Path(h.tmp.name) / "retired-fkst-framework"
+            checkout = Path(h.tmp.name) / "retired-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
             write_framework_artifact(artifact, "retired-revision")
 
             result = h.resolve({"BIN": str(artifact)})

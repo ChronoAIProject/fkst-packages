@@ -74,9 +74,13 @@ class TestAffectedHarness:
             self.check_log = Path(self.tmp) / "check.log"
             self.engine_log = Path(self.tmp) / "engine.log"
             self.runner = Path(self.tmp) / "runner.sh"
-            self.engine = Path(self.tmp) / "fkst-framework"
+            self.substrate = Path(self.tmp) / "fkst-substrate"
+            self.engine = self.substrate / "target" / "debug" / "fkst-framework"
             self.root.mkdir()
             self.scripts.mkdir()
+            self.engine.parent.mkdir(parents=True)
+            (self.substrate / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            (self.substrate / ".gitignore").write_text("target/\n", encoding="utf-8")
             for name in (
                 "run.sh",
                 "bin_bootstrap.sh",
@@ -211,6 +215,7 @@ class TestAffectedHarness:
                 encoding="utf-8",
             )
             self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
+            self._init_engine_checkout()
             self._init_repo(extra_packages)
         except BaseException:
             _robust_rmtree(self.tmp)
@@ -236,6 +241,17 @@ class TestAffectedHarness:
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+
+    def _init_engine_checkout(self) -> None:
+        for args in (
+            ("init", "--quiet"),
+            ("config", "user.email", "test@example.invalid"),
+            ("config", "user.name", "Test Engine"),
+            ("add", "Cargo.toml", ".gitignore"),
+            ("commit", "--quiet", "-m", "fixture engine source"),
+            ("branch", "fixture-pin"),
+        ):
+            subprocess.run(["git", *args], cwd=self.substrate, check=True)
 
     def _init_repo(self, extra_packages: tuple[str, ...]) -> None:
         self._git("init")

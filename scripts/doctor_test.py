@@ -28,7 +28,11 @@ class DoctorHarness:
         shutil.copytree(REPO_ROOT, self.root, ignore=shutil.ignore_patterns(".git"))
         self.fake_bin = Path(self.tmp.name) / "fake-bin"
         self.fake_bin.mkdir()
-        self.framework = Path(self.tmp.name) / "fkst-framework"
+        self.source = Path(self.tmp.name) / "fkst-substrate"
+        self.framework = self.source / "target" / "debug" / "fkst-framework"
+        self.framework.parent.mkdir(parents=True)
+        (self.source / ".git").mkdir()
+        (self.source / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
         write_executable(
             self.framework,
             textwrap.dedent(
@@ -54,6 +58,8 @@ class DoctorHarness:
             "PATH": str(self.fake_bin),
             "BIN": str(self.framework),
             "HOME": str(Path(self.tmp.name) / "home"),
+            "FKST_TEST_REPO_ROOT": str(self.root.resolve()),
+            "FKST_TEST_SOURCE_ROOT": str(self.source.resolve()),
         }
         self._install_default_tools()
 
@@ -61,7 +67,25 @@ class DoctorHarness:
         self.tmp.cleanup()
 
     def _install_default_tools(self) -> None:
-        write_executable(self.fake_bin / "git", "#!/bin/sh\necho 'git version test'\n")
+        write_executable(
+            self.fake_bin / "git",
+            textwrap.dedent(
+                f"""\
+                #!/bin/sh
+                if [ "$1" = "-C" ] && [ "$2" = "$FKST_TEST_REPO_ROOT" ] && [ "$3" = "show" ]; then
+                  printf '%s\n' '{SUBSTRATE_PIN}'
+                  exit 0
+                fi
+                if [ "$1" = "-C" ] && [ "$2" = "$FKST_TEST_SOURCE_ROOT" ]; then
+                  case "$3" in
+                    status) exit 0 ;;
+                    rev-parse) printf '%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; exit 0 ;;
+                  esac
+                fi
+                echo 'git version test'
+                """
+            ),
+        )
         write_executable(self.fake_bin / "cargo", "#!/bin/sh\necho 'cargo 1.0.0'\n")
         write_executable(self.fake_bin / "rustc", "#!/bin/sh\necho 'rustc 1.0.0'\n")
         write_executable(self.fake_bin / "codex", "#!/bin/sh\necho 'codex test'\n")

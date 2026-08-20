@@ -40,22 +40,13 @@ def normalize_pin(raw: str, source: str) -> str:
     return pin
 
 
-def read_worktree_pin(repo_root: Path) -> str:
-    path = repo_root / PIN_PATH
-    try:
-        raw = path.read_text(encoding="utf-8").splitlines()[0]
-    except (OSError, IndexError) as error:
-        raise VerificationConfigurationError(f"cannot read fkst-substrate pin: {path}: {error}") from error
-    return normalize_pin(raw, str(path))
-
-
 def read_commit_pin(repo_root: Path, commit: str) -> str:
     return normalize_pin(git(repo_root, "show", f"{commit}:{PIN_PATH}"), f"{commit}:{PIN_PATH}")
 
 
 def verify(repo_root: Path, base_ref: str | None) -> int:
-    head_pin = read_worktree_pin(repo_root)
     head_commit = git(repo_root, "rev-parse", "--verify", "HEAD^{commit}")
+    head_pin = read_commit_pin(repo_root, head_commit)
     if not base_ref:
         print(f"engine revision subject: head={head_pin} commit={head_commit} base=not-applicable")
         return 0
