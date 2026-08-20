@@ -186,7 +186,7 @@ local function capture_runtime(fixture)
     return payload
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
-    if dept == "observe_issue" and outcome == "applied(operator-reimplement)" then
+    if dept == "observe_issue" and outcome == "handoff(operator-reimplement)" then
       table.insert(decisions, {
         proposal_id = proposal_id,
         current = copy_value(current),

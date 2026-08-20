@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local operator_commands = require("devloop.operator_commands")
 local payloads_builders = require("devloop.payloads.builders")
 local h = require("tests.devloop_helpers")
@@ -19,6 +20,7 @@ local mock_git_commit = h.mock_git_commit
 local find_raise = h.find_raise
 
 local issue_state_selector = "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+local issue_implement_selector = "title,body,labels,comments,state,author"
 
 local function trusted_command(id, created_at)
   return {
@@ -33,14 +35,59 @@ local function command_key(command)
   return operator_commands.operator_command_fact({ command }, "reimplement").key
 end
 
+local function implementing_state_dedup_key(version)
+  return base_ids.dedup_key({
+    "implement",
+    "comment",
+    "implementing-state",
+    tostring(version),
+  })
+end
+
+local function proxy_comment_marker(dedup_key)
+  return "<!-- fkst:github-proxy:comment:" .. tostring(dedup_key) .. " -->"
+end
+
+local function render_comment(body)
+  return string.format(
+    '{"body":"%s","author":{"login":"fkst-test-bot"},"createdAt":"2026-08-01T00:00:00Z"}',
+    tostring(body or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+  )
+end
+
+local function mock_wip_cap_reached()
+  local holder_number = 51
+  local holder_proposal = base_ids.proposal_id("owner/repo", holder_number)
+  local holder_version = "ready/github-devloop/issue/owner/repo/51/intake/1"
+  t.mock_command('printf %s "$FKST_DEVLOOP_MAX_INFLIGHT"', {
+    stdout = "1", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "integration", stderr = "", exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_list_wip_cmd("owner/repo"), {
+    stdout = '[{"number":51}]\n', stderr = "", exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_view_state_cmd("owner/repo", holder_number), {
+    stdout = string.format(
+      '{"title":"WIP holder","state":"OPEN","labels":[{"name":"fkst-dev:implementing"}],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      render_comment(core.state_marker(holder_proposal, "implementing", holder_version))
+    ),
+    stderr = "", exit_code = 0,
+  })
+end
+
 local function impl_failed_comments(event, ready_version, command, earlier_comments)
-  local comments = {
-    core.state_marker(event.proposal_id, "impl-failed", ready_version),
-    core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true),
-  }
+  local comments = {}
   for _, comment in ipairs(earlier_comments or {}) do
     table.insert(comments, comment)
   end
+  table.insert(comments, core.state_marker(event.proposal_id, "impl-failed", ready_version))
+  table.insert(comments,
+    core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2, "UNKNOWN", true))
   table.insert(comments, command)
   return comments
 end
@@ -58,13 +105,18 @@ local function operator_ready_source(event, key)
 end
 
 local function observe_reimplement(event, ready_version, command, earlier_comments, name)
+  local entity_version = command.created_at
   entity_read_mocks.mock_issue_view_selector(t, {
     labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
     comments = impl_failed_comments(event, ready_version, command, earlier_comments),
     state = "OPEN",
   }, issue_state_selector, 1)
   local result = run_observe(
-    issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+    issue({
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      updated_at = entity_version,
+      dedup_key = "owner/repo#issue#42@" .. entity_version,
+    }),
     opts(name)
   )
   t.eq(result.exit_code, 0)
@@ -73,25 +125,36 @@ local function observe_reimplement(event, ready_version, command, earlier_commen
     return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
   end)
   t.is_true(ready ~= nil, name .. ": reimplement did not raise devloop_ready")
-  t.is_true(response ~= nil, name .. ": reimplement did not raise an applied response")
-  return ready.payload, response.payload
+  t.eq(response, nil, name .. ": observe_issue emitted applied before lifecycle admission")
+  return ready.payload
 end
 
 local function admit_reimplementation(event, ready, name)
   local logical_version = ready.implementation_version
+  local worktree_version = core.implementation_attempt_version(logical_version, ready.impl_retry_attempt)
+  local branch_version = core.implementation_branch_version(logical_version, ready.impl_retry_attempt)
+  local prior_implementing_dedup_key = implementing_state_dedup_key(logical_version)
   local comments = {
+    core.state_marker(event.proposal_id, "implementing", logical_version),
+    proxy_comment_marker(prior_implementing_dedup_key),
     core.state_marker(event.proposal_id, "impl-failed", logical_version),
     core.impl_failure_marker(event.proposal_id, logical_version, "codex-failed", 2, "UNKNOWN", true),
   }
-  for _ = 1, 3 do
-    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
-  end
+  entity_read_mocks.mock_issue_view_selector(t, {
+    labels = { "fkst-dev:impl-failed" },
+    comments = comments,
+    state = "OPEN",
+  }, issue_implement_selector, 3)
+  entity_read_mocks.mock_issue_view_selector(t, {
+    title = "Implement decision recorder",
+    author_login = "fkst-test-bot",
+  }, "number,title,author", 1)
   mock_existing_empty_implement_worktree({
-    impl_version = logical_version .. "/reimplement/2",
+    impl_version = worktree_version,
   })
   mock_implement_codex(0, "implemented")
   mock_git_status(" M packages/github-devloop/core.lua\n")
-  mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", logical_version))
+  mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", branch_version))
 
   local result = run_implement(ready, opts(name))
   t.eq(result.exit_code, 0)
@@ -99,9 +162,49 @@ local function admit_reimplementation(event, ready, name)
     return tostring(payload.body or ""):find("github-devloop implementation worktree ready", 1, true) ~= nil
   end)
   t.is_true(worktree_ready ~= nil, name .. ": implement did not admit the reimplementation")
+  t.is_true(worktree_ready.payload.body:find('state="implementing"', 1, true) ~= nil,
+    name .. ": lifecycle admission state fact is missing")
+  t.is_true(worktree_ready.payload.body:find('outcome="applied"', 1, true) ~= nil,
+    name .. ": lifecycle admission did not acknowledge the command")
+  t.is_true(worktree_ready.payload.dedup_key ~= prior_implementing_dedup_key,
+    name .. ": reentry lifecycle comment reused the prior implementing dedup key")
+  return worktree_ready.payload
 end
 
 return {
+  test_reimplement_does_not_report_applied_when_wip_admission_has_no_postcondition = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(event).dedup_key
+    local command = trusted_command("IC_reimplement_wip_held")
+    local comments = impl_failed_comments(event, ready_version, command)
+    entity_read_mocks.mock_issue_view_selector(t, {
+      labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      comments = comments,
+      state = "OPEN",
+    }, issue_state_selector, 1)
+
+    local observed = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-reimplement-before-wip-hold")
+    )
+    t.eq(observed.exit_code, 0)
+    local ready = find_raise(observed.raises, "devloop_ready")
+    t.is_true(ready ~= nil)
+    local early_applied = find_raise(observed.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('outcome="applied"', 1, true) ~= nil
+    end)
+
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+    mock_wip_cap_reached()
+    local implemented = run_implement(ready.payload, opts("implement-reimplement-wip-held"))
+
+    t.eq(implemented.exit_code, 0)
+    t.eq(find_raise(implemented.raises, "github-proxy.github_issue_comment_request"), nil,
+      "WIP-held reimplement must not emit a lifecycle postcondition or applied response")
+    t.eq(early_applied, nil,
+      "observe_issue reported applied before the lifecycle owner admitted work")
+  end,
+
   test_operator_reimplement_delivery_identity_is_replay_stable_and_command_distinct = function()
     local event = reached()
     local normal_ready = payloads_builders.build_devloop_ready_payload(event)
@@ -128,14 +231,19 @@ return {
     local first_command = trusted_command("IC_reimplement_delivery_first", "2026-08-01T01:00:00Z")
     local second_command = trusted_command("IC_reimplement_delivery_second", "2026-08-01T01:02:00Z")
 
-    local first, first_response = observe_reimplement(
+    local first = observe_reimplement(
       event,
       ready_version,
       first_command,
       nil,
       "observe-reimplement-first-command"
     )
-    local second = observe_reimplement(event, ready_version, second_command, {
+    local first_response = admit_reimplementation(event, first, "implement-reimplement-first-command")
+    local second_ready_version = core.implementation_attempt_version(
+      first.implementation_version,
+      first.impl_retry_attempt
+    )
+    local second = observe_reimplement(event, second_ready_version, second_command, {
       first_command,
       {
         id = "IC_reimplement_delivery_first_response",
@@ -146,14 +254,13 @@ return {
     }, "observe-reimplement-second-command")
 
     t.eq(first.impl_retry_attempt, 2)
-    t.eq(second.impl_retry_attempt, 2)
+    t.eq(second.impl_retry_attempt, 3)
     t.eq(first.implementation_version, ready_version)
-    t.eq(second.implementation_version, ready_version)
+    t.eq(second.implementation_version, second_ready_version)
     t.eq(first.operator_reimplement_delivery.command_key, command_key(first_command))
     t.eq(second.operator_reimplement_delivery.command_key, command_key(second_command))
     t.is_true(first.dedup_key ~= second.dedup_key)
 
-    admit_reimplementation(event, first, "implement-reimplement-first-command")
     admit_reimplementation(event, second, "implement-reimplement-second-command")
   end,
 }
