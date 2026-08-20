@@ -106,17 +106,22 @@ end
 local function mock_pr_view(state, comments, extra)
   local fields = extra or {}
   local head_repo = fields.head_repo or "owner/repo"
+  local head_sha = fields.head_sha or branch_sha
+  local base_sha = fields.base_sha or integration_sha
   t.mock_command("gh pr view '7'", {
     stdout = string.format(
-      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"integration/dev","state":"%s","updatedAt":"2026-06-03T02:03:04Z","isDraft":%s,"headRepository":{"nameWithOwner":"%s"},"isCrossRepository":%s,"mergeable":"%s","mergeStateStatus":"%s","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"comments":[%s]}\n',
+      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"integration/dev","baseRefOid":"%s","state":"%s","updatedAt":"2026-06-03T02:03:04Z","isDraft":%s,"headRepository":{"nameWithOwner":"%s"},"isCrossRepository":%s,"mergeable":"%s","mergeStateStatus":"%s","statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"verification-subject:%s:%s","status":"COMPLETED","conclusion":"SUCCESS"}],"labels":[],"comments":[%s]}\n',
       encode_json_string(fields.head or branch),
-      encode_json_string(fields.head_sha or branch_sha),
+      encode_json_string(head_sha),
+      encode_json_string(base_sha),
       encode_json_string(fields.state or "OPEN"),
       fields.is_draft and "true" or "false",
       encode_json_string(head_repo),
       fields.cross_repo and "true" or "false",
       encode_json_string(fields.mergeable or "MERGEABLE"),
       encode_json_string(fields.merge_state_status or "CLEAN"),
+      encode_json_string(base_sha),
+      encode_json_string(head_sha),
       render_comments(comments or pr_comments(state))
     ):gsub(
       '"updatedAt":"2026%-06%-03T02:03:04Z"',
@@ -414,6 +419,7 @@ return {
       })
       mock_pr_view("merge-ready", nil, {
         merge_state_status = "CLEAN",
+        base_sha = observation.integration_head,
         updated_at = observation.pr_updated_at,
       })
       mock_issue_view({}, nil, nil, nil, { updated_at = observation.issue_updated_at })

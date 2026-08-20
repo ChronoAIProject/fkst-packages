@@ -21,6 +21,7 @@ local version = "ready/consensus-" .. parent .. "/2026-06-03T01-02-03Z"
 local child_head_sha = "0123456789abcdef0123456789abcdef01234567"
 local child_merge_commit_sha = "1111111111111111111111111111111111111111"
 local rollup_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
+local rollup_base_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 local integration_branch = "integration-elonsg"
 local upstream_branch = "dev"
 local child_branch = "devloop-rollup-owner-rollup-repo-4242-01HY"
@@ -94,7 +95,9 @@ local function rollup_observe_sample_comments()
 end
 
 local function status_rollup_success()
-  return '[{"name":"ci","state":"COMPLETED","conclusion":"SUCCESS"}]'
+  return '[{"name":"ci","state":"COMPLETED","conclusion":"SUCCESS"},'
+    .. '{"name":"verification-subject:' .. rollup_base_sha .. ':' .. rollup_head_sha
+    .. '","state":"COMPLETED","conclusion":"SUCCESS"}]'
 end
 
 local function initial_event()
@@ -196,6 +199,7 @@ local function mock_rollup_merge_success()
     head = integration_branch,
     head_sha = rollup_head_sha,
     base_branch = upstream_branch,
+    base_sha = rollup_base_sha,
     state = "OPEN",
     head_repo = repo,
     comments = rollup_observe_sample_comments(),
@@ -207,6 +211,7 @@ local function mock_rollup_merge_success()
     head = integration_branch,
     head_sha = rollup_head_sha,
     base_branch = upstream_branch,
+    base_sha = rollup_base_sha,
     state = "OPEN",
     head_repo = repo,
     comments = rollup_observe_sample_comments(),
@@ -226,6 +231,7 @@ local function mock_rollup_merge_success()
     head = integration_branch,
     head_sha = rollup_head_sha,
     base_branch = upstream_branch,
+    base_sha = rollup_base_sha,
     state = "MERGED",
     head_repo = repo,
     merged_at = "2026-06-03T02:03:04Z",

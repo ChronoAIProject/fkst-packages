@@ -424,7 +424,11 @@ local function mock_bump_pr_view(comments, extra)
   local is_draft = extra.is_draft == true and "true" or "false"
   local mergeable = extra.mergeable or "MERGEABLE"
   local merge_state = extra.merge_state or "CLEAN"
-  local rollup = extra.rollup or '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]'
+  local rollup = extra.rollup or string.format(
+    '[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"verification-subject:%s:%s","status":"COMPLETED","conclusion":"SUCCESS"}]',
+    base_sha,
+    head_sha
+  )
   t.mock_command("gh pr view '27' --repo 'owner/repo' --json headRefName,headRefOid,baseRefName,baseRefOid,state,updatedAt,isDraft,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup", {
     stdout = string.format(
       '{"headRefName":"chore/substrate-ref-bump","headRefOid":"%s","baseRefName":"dev","baseRefOid":"%s","state":"%s","updatedAt":"2026-06-16T22:10:00Z","isDraft":%s,"mergedAt":"%s","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"headRepositoryOwner":{"login":"owner"},"isCrossRepository":false,"mergeable":"%s","mergeStateStatus":"%s","statusCheckRollup":%s}\n',
