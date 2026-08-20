@@ -230,7 +230,7 @@ return {
     local reconciled = { count = 0 }
     local result = with_immediate_once(function()
       return testing.run_fake_outcome(
-        replay_department({ claim_carriers.derived_label(owner) }, reconciled),
+        replay_department({ claim_carriers.derived_label(owner, 32) }, reconciled),
         observed_issue()
       )
     end)

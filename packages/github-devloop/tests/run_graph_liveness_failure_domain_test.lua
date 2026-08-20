@@ -1,6 +1,8 @@
 local t = fkst.test
 
 local fixture_prefix = "/tmp/fkst-liveness-failure-domain."
+local pre_advance_engine_ref = "2446d908d3deea35ab750740ca12d05049f80309"
+local post_advance_engine_ref = "7079c95edd3e1d3ff4ddbc48f916ad4536e02802"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -30,6 +32,55 @@ local function framework_bin()
     error("liveness failure-domain fixture requires BIN")
   end
   return bin
+end
+
+local function trim(value)
+  return tostring(value or ""):gsub("%s+$", "")
+end
+
+local function framework_bin_ref(bin)
+  local source_root = tostring(bin):match("^(.*)/target/debug/fkst%-framework$")
+  if source_root == nil then
+    return nil
+  end
+  local output, ok = command_output("git -C " .. shell_quote(source_root) .. " rev-parse HEAD")
+  if not ok then
+    return nil
+  end
+  return trim(output)
+end
+
+local function bootstrap_framework_bin(root, ref)
+  local source_root = project_root()
+  local resolver_root = root .. "/engine-" .. ref
+  local bootstrap_log = resolver_root .. "/bootstrap.log"
+  run_command("mkdir -p " .. shell_quote(resolver_root .. "/.fkst"))
+  run_command("ln -s " .. shell_quote(source_root .. "/scripts")
+    .. " " .. shell_quote(resolver_root .. "/scripts"))
+  file.write(resolver_root .. "/.fkst/substrate-ref", ref .. "\n")
+
+  local script = "source " .. shell_quote(source_root .. "/scripts/bin_bootstrap.sh")
+    .. "; bootstrap_bin_on_total_miss " .. shell_quote(resolver_root)
+  local output, ok = command_output("{ /bin/bash -c " .. shell_quote(script)
+    .. " 2>" .. shell_quote(bootstrap_log) .. "; }")
+  if not ok then
+    local log_output = command_output("cat " .. shell_quote(bootstrap_log))
+    error("failed to resolve fkst-framework at " .. ref .. "\n" .. tostring(output) .. tostring(log_output))
+  end
+
+  local bin = trim(output)
+  if framework_bin_ref(bin) ~= ref then
+    error("resolved fkst-framework does not match requested ref: " .. ref)
+  end
+  return bin
+end
+
+local function framework_bin_for_ref(root, ref)
+  local provided = framework_bin()
+  if framework_bin_ref(provided) == ref then
+    return provided
+  end
+  return bootstrap_framework_bin(root, ref)
 end
 
 local function remove_fixture(root)
@@ -127,6 +178,10 @@ local graph = require("testkit.graph")
 local t = fkst.test
 local repo = "owner/repo"
 local stuck_last = os.getenv("FKST_FIXTURE_STUCK_LAST") == "1"
+local expected_dead_letters = assert(
+  tonumber(os.getenv("FKST_FIXTURE_EXPECTED_DEAD_LETTERS")),
+  "FKST_FIXTURE_EXPECTED_DEAD_LETTERS is required"
+)
 local stuck_number = stuck_last and 2 or 1
 local healthy_number = stuck_last and 1 or 2
 local updated_at = "2026-06-03T01:02:03Z"
@@ -326,11 +381,17 @@ return {
       error = "cause_error_class=timeout-redrive-stuck",
     }), 1)
     t.eq(count_steps(trace, {
+      queue = "github-devloop.devloop_observe_issue",
+      consumer = "github-devloop.observe_issue",
+      exit_code = 1,
+      error = "replay did not emit a consumable redrive; outcome=",
+    }), 1)
+    t.eq(count_steps(trace, {
       queue = "github-devloop.dead_letter",
       consumer = "github-devloop.dead_letter",
       exit_code = 0,
-    }), 1)
-    t.eq(trace.final.dead_letters, 1)
+    }), expected_dead_letters)
+    t.eq(trace.final.dead_letters, expected_dead_letters)
 
     local stuck_observations = raised_observations(trace, stuck_number)
     t.eq(#stuck_observations, 2)
@@ -341,6 +402,11 @@ return {
       true
     ) ~= nil)
     t.eq(stuck_observations[1].source_ref.ref, repo .. "#issue/" .. tostring(stuck_number))
+    t.is_true(stuck_observations[1].failure.message:find(
+      "replay did not emit a consumable redrive; outcome=",
+      1,
+      true
+    ) ~= nil)
     t.eq(timeout_attempt_receipts(trace, stuck_number), 0)
 
     local healthy_reads = 0
@@ -357,38 +423,97 @@ return {
   return package_root
 end
 
-local function run_fixture(root, package_root, stuck_last)
-  local command = table.concat({
-    "FKST_RUNTIME_ROOT=" .. shell_quote(root .. "/runtime-" .. tostring(stuck_last)),
-    "FKST_DURABLE_ROOT=" .. shell_quote(root .. "/durable-" .. tostring(stuck_last)),
+local function fixture_command(root, package_root, stuck_last, bin, expected_dead_letters, run_id)
+  return table.concat({
+    "FKST_RUNTIME_ROOT=" .. shell_quote(root .. "/runtime-" .. run_id),
+    "FKST_DURABLE_ROOT=" .. shell_quote(root .. "/durable-" .. run_id),
     "FKST_RETRY_DEFAULT_MAX_ATTEMPTS=1",
     "FKST_RETRY_DEFAULT_BASE=1s",
     "FKST_RETRY_DEFAULT_CAP=1s",
     "FKST_FIXTURE_STUCK_LAST=" .. shell_quote(stuck_last and "1" or "0"),
-    shell_quote(framework_bin()),
+    "FKST_FIXTURE_EXPECTED_DEAD_LETTERS=" .. shell_quote(expected_dead_letters),
+    shell_quote(bin),
     "test",
     "--project-root", shell_quote(root),
     "--package-root", shell_quote(package_root),
     "--package-root", shell_quote(root .. "/packages/github-proxy"),
     "--package-root", shell_quote(root .. "/packages/github-devloop-decompose"),
   }, " ")
-  read_command(command)
+end
+
+local function run_fixture(root, package_root, stuck_last, bin, expected_dead_letters, run_id)
+  read_command(fixture_command(root, package_root, stuck_last, bin, expected_dead_letters, run_id))
+end
+
+local function assert_fixture_fails(
+  root,
+  package_root,
+  bin,
+  expected_dead_letters,
+  run_id,
+  expected_error
+)
+  local output, ok = command_output(fixture_command(
+    root,
+    package_root,
+    false,
+    bin,
+    expected_dead_letters,
+    run_id
+  ))
+  if ok then
+    error("compatibility mismatch unexpectedly passed: " .. run_id)
+  end
+  if tostring(output):find(expected_error, 1, true) == nil then
+    error("compatibility mismatch did not report " .. expected_error .. "\n" .. tostring(output))
+  end
+end
+
+local function with_fixture(fn)
+  local root = read_command("mktemp -d " .. shell_quote(fixture_prefix .. "XXXXXX")):gsub("%s+$", "")
+  local ok, err = pcall(function()
+    fn(root, write_fixture(root))
+  end)
+  local cleanup_ok, cleanup_err = pcall(remove_fixture, root)
+  if not ok then
+    error(err)
+  end
+  if not cleanup_ok then
+    error(cleanup_err)
+  end
 end
 
 return {
-  test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
-    local root = read_command("mktemp -d " .. shell_quote(fixture_prefix .. "XXXXXX")):gsub("%s+$", "")
-    local ok, err = pcall(function()
-      local package_root = write_fixture(root)
-      run_fixture(root, package_root, false)
-      run_fixture(root, package_root, true)
+  test_engine_advance_has_bidirectional_expectation_compatibility_witness = function()
+    with_fixture(function(root, package_root)
+      local pre_advance_bin = framework_bin_for_ref(root, pre_advance_engine_ref)
+      local post_advance_bin = framework_bin_for_ref(root, post_advance_engine_ref)
+
+      run_fixture(root, package_root, false, pre_advance_bin, 1, "pre-engine-pre-expectation")
+      run_fixture(root, package_root, false, post_advance_bin, 2, "post-engine-post-expectation")
+      assert_fixture_fails(
+        root,
+        package_root,
+        post_advance_bin,
+        1,
+        "post-engine-pre-expectation",
+        "eq: expected 1, got 2"
+      )
+      assert_fixture_fails(
+        root,
+        package_root,
+        pre_advance_bin,
+        2,
+        "pre-engine-post-expectation",
+        "eq: expected 2, got 1"
+      )
     end)
-    local cleanup_ok, cleanup_err = pcall(remove_fixture, root)
-    if not ok then
-      error(err)
-    end
-    if not cleanup_ok then
-      error(cleanup_err)
-    end
+  end,
+
+  test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
+    with_fixture(function(root, package_root)
+      run_fixture(root, package_root, false, framework_bin(), 1, "current-stuck-first")
+      run_fixture(root, package_root, true, framework_bin(), 1, "current-stuck-last")
+    end)
   end,
 }

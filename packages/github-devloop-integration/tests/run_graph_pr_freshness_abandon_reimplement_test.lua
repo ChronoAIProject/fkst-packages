@@ -254,7 +254,7 @@ local function make_github(fixture)
   local github = github_fake.new(model)
   fixture.github_model = model
   local original_read_issue = github.read_issue
-  local original_api_get = github.api_get
+  local original_label_rest_get = github.label_rest_get
   local original_close = github.pr_close
   local pr_reads = 0
   local parent_reads = 0
@@ -292,8 +292,8 @@ local function make_github(fixture)
     record(model, "issue_read", { source_ref = copy(source_ref), opts = copy(opts), read = parent_reads })
     return original_read_issue(source_ref, opts)
   end
-  function github.api_get(repo, path, timeout)
-    if fixture.claim_label ~= nil and path == "labels/" .. fixture.claim_label.name then
+  function github.label_rest_get(repo, name, timeout)
+    if fixture.claim_label ~= nil and name == fixture.claim_label.name then
       return {
         stdout = '{"name":"' .. json_string(fixture.claim_label.name)
           .. '","description":"' .. json_string(fixture.claim_label.description) .. '"}',
@@ -301,7 +301,7 @@ local function make_github(fixture)
         exit_code = 0,
       }
     end
-    return original_api_get(repo, path, timeout)
+    return original_label_rest_get(repo, name, timeout)
   end
   function github.pr_close(repo, pr_number, timeout)
     local result = original_close(repo, pr_number, timeout)
@@ -480,7 +480,7 @@ return {
   end,
 
   test_exhausted_original_pr_fails_closed_on_claim_label_owner_collision = function()
-    local spec = claim_carriers.active_label_spec({ kind = "derived" }, BOT)
+    local spec = claim_carriers.active_label_spec({ kind = "derived" }, BOT, 32)
     local fixture = baseline({
       claim_mode = "label",
       assignees = { "human" },

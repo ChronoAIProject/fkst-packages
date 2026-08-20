@@ -793,13 +793,20 @@ def check_saga_handler_ratchet(
 
 VIOLATIONS_EXIT = 10
 CONFIGURATION_EXIT = 11
+TOOLCHAIN_EXIT = 12
+INFRASTRUCTURE_EXIT = 13
 
 def main(argv: list[str] | None = None) -> int:
     config = check_repo_config.parse_args(argv)
     configuration_failures: list[str] = []
     violations = RoutedViolations(configuration_failures)
     warnings: list[str] = []
-    __import__("check_repo_runner").run(sys.modules[__name__], config, violations, warnings)
+    try:
+        __import__("check_repo_runner").run(sys.modules[__name__], config, violations, warnings)
+    except ratchet_base.GitInvocationFailure as failure:
+        print("repository check failed:", file=sys.stderr)
+        print(f"  {failure}", file=sys.stderr)
+        return TOOLCHAIN_EXIT if failure.fault_class == "TOOLCHAIN" else INFRASTRUCTURE_EXIT
     for warning in warnings: print(f"warning: {warning}", file=sys.stderr)
     if violations or configuration_failures:
         print("repository check failed:", file=sys.stderr)

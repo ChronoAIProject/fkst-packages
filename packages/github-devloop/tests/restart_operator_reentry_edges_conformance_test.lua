@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_rounds = require("devloop.convergence.rounds")
@@ -118,7 +119,32 @@ local function raises_summary(raises)
   return table.concat(items, ";")
 end
 
-local function assert_department_ok(result, site)
+local assert_department_ok
+
+local function admit_reimplement(ready, comments, labels, name)
+  for _ = 1, 3 do
+    h.mock_issue_implement_raw(labels, comments)
+  end
+  local attempt_version = core.implementation_attempt_version(
+    ready.implementation_version,
+    ready.impl_retry_attempt
+  )
+  h.mock_existing_empty_implement_worktree({ impl_version = attempt_version })
+  h.mock_implement_codex(0, "implemented")
+  h.mock_git_status(" M packages/github-devloop/core.lua\n")
+  h.mock_git_commit(nil,
+    devloop_base.implement_branch("owner/repo", "42", ready.implementation_version))
+
+  local result = h.run_implement(ready, h.opts(name .. "-implement"))
+  assert_department_ok(result, name .. "-implement")
+  local response = find_issue_comment(result.raises, "operator command accepted: reimplement")
+  t.is_true(response ~= nil, name .. ": lifecycle owner did not emit applied with admission")
+  t.is_true(tostring(response.payload.body):find('state="implementing"', 1, true) ~= nil,
+    name .. ": applied certificate is not co-located with the implementing fact")
+  return response
+end
+
+assert_department_ok = function(result, site)
   if result.exit_code ~= 0 then
     error("restart operator reentry conformance: " .. site .. " failed: "
       .. tostring(result.error or result.stderr or "unknown department failure"))
@@ -202,9 +228,10 @@ local function run_reimplement_case(case)
   assert_department_ok(result, case.name)
 
   local ready = h.find_raise(result.raises, "devloop_ready")
-  local response = find_issue_comment(result.raises, "operator command accepted: reimplement")
+  local early_response = find_issue_comment(result.raises, "operator command accepted: reimplement")
   t.is_true(ready ~= nil, case.name .. ": devloop_ready was not emitted")
-  t.is_true(response ~= nil, case.name .. ": applied response was not emitted")
+  t.eq(early_response, nil, case.name .. ": observe_issue emitted applied before lifecycle admission")
+  local response = admit_reimplement(ready.payload, case.comments, case.labels, case.name)
 
   local target_row = row_by_state("implementing")
   t.is_true(target_row ~= nil, case.name .. ": implementing restart row is missing")

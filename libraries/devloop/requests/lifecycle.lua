@@ -252,7 +252,7 @@ function C.build_implementing_comment_request(implement_attempt_marker, output_l
   }, ready.source_ref)
 end
 
-function C.build_implementing_state_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
+function C.build_implementing_state_comment_request(implement_attempt_marker, output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref, operator_reimplement_command_key)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: git-ref-invalid: invalid implementing branch")
   end
@@ -264,6 +264,22 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
   end
   local state_marker = devloop_state.state_marker(ready.proposal_id, "implementing", ready.dedup_key)
   local attempt_marker = implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
+  local dedup_key = base_ids.dedup_key({
+    "implement",
+    "comment",
+    "implementing-state",
+    tostring(ready.dedup_key),
+  })
+  if operator_reimplement_command_key ~= nil then
+    if not strings.is_path_safe_key(operator_reimplement_command_key, devloop_base._max_dedup_len) then
+      error("github-devloop: operator-reimplement-command-key-invalid: invalid lifecycle comment command key")
+    end
+    dedup_key = base_ids.dedup_key({
+      dedup_key,
+      "operator-reimplement",
+      tostring(operator_reimplement_command_key),
+    })
+  end
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
@@ -275,12 +291,7 @@ function C.build_implementing_state_comment_request(implement_attempt_marker, ou
       .. "\n" .. comment_strings.comment_string(output_language, "base_head_label") .. tostring(base_sha)
       .. "\n\n" .. state_marker
       .. "\n" .. attempt_marker,
-    dedup_key = base_ids.dedup_key({
-      "implement",
-      "comment",
-      "implementing-state",
-      tostring(ready.dedup_key),
-    }),
+    dedup_key = dedup_key,
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)
 end

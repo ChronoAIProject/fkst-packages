@@ -16,19 +16,38 @@ class ConfigurationFailure(str):
     """A producer-owned diagnostic for an unevaluable repository-check configuration."""
 
 
+class GitInvocationFailure(RuntimeError):
+    """A producer-typed failure to start the git observation instrument."""
+
+    def __init__(self, fault_class: str, command: str, cause: OSError) -> None:
+        if fault_class not in {"TOOLCHAIN", "INFRASTRUCTURE"}:
+            raise ValueError(f"unsupported git invocation fault class: {fault_class}")
+        self.fault_class = fault_class
+        self.command = command
+        self.cause = cause
+        super().__init__(
+            f"{command} could not start: {type(cause).__name__}: {cause}"
+        )
+
+
 def configuration_failure(message: str) -> ConfigurationFailure:
     return ConfigurationFailure(message)
 
 
 def _git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=root,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    command = "git " + " ".join(args)
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        fault_class = "TOOLCHAIN" if exc.filename == "git" else "INFRASTRUCTURE"
+        raise GitInvocationFailure(fault_class, command, exc) from exc
 
 
 def resolve_dev_ref(root: Path) -> str | None:

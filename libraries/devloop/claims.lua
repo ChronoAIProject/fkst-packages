@@ -61,7 +61,11 @@ function C.claimed_label()
 end
 
 function C.claimed_label_spec()
-  return claim_carriers.active_label_spec(config.claim_label_naming(), C.claim_owner())
+  return claim_carriers.active_label_spec(
+    config.claim_label_naming(),
+    C.claim_owner(),
+    config.claim_label_owner_digest_hex_length()
+  )
 end
 
 local function resolve_explicit_label_claim(claim, source_ref)
@@ -72,6 +76,7 @@ local function resolve_explicit_label_claim(claim, source_ref)
   local normalized, reason = claim_carriers.validate_label_contract(claim, {
     owner = C.claim_owner(),
     naming = config.claim_label_naming(),
+    owner_digest_hex_length = config.claim_label_owner_digest_hex_length(),
     source_ref = normalized_source_ref,
   })
   if normalized == nil then
@@ -89,6 +94,7 @@ function C.new_label_claim_contract(source_ref)
   return claim_carriers.new_label_contract(
     config.claim_label_naming(),
     C.claim_owner(),
+    config.claim_label_owner_digest_hex_length(),
     normalized
   )
 end
@@ -100,12 +106,16 @@ end
 function C.assert_current_claim_label_binding(repo, github_handle, claim)
   local explicit = resolve_explicit_label_claim(claim)
   local desired = explicit ~= nil
-    and claim_carriers.active_label_spec(config.claim_label_naming(), explicit.owner)
+    and claim_carriers.active_label_spec(
+      config.claim_label_naming(),
+      explicit.owner,
+      config.claim_label_owner_digest_hex_length()
+    )
     or C.claimed_label_spec()
   if desired.owner == nil then
     return
   end
-  local response = (github_handle or github()).api_get(repo, "labels/" .. desired.name, 30)
+  local response = (github_handle or github()).label_rest_get(repo, desired.name, 30)
   local existing = json.decode(response.stdout or "{}")
   if type(existing) ~= "table" or tostring(existing.name or "") ~= desired.name then
     error("github-devloop: claim-label-binding-missing: claim label binding is absent")

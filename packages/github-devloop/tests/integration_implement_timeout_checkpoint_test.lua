@@ -19,6 +19,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+local codex_jsonl = require("testkit_internal.codex_jsonl")
 
 local function stale_started_at()
   return tostring(now() - 7201)
@@ -586,6 +587,60 @@ return {
     t.is_true(final ~= nil)
     local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+
+  test_second_consecutive_indeterminate_checkpoint_holds_for_operator = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    local prior_checkpoint = m_builders.implement_checkpoint_marker(
+      event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1,
+      "verification-indeterminate")
+    local comments = {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      prior_checkpoint,
+    }
+    mock_issue_implement({ "fkst-dev:implementing" }, comments)
+    mock_remote_branch(branch, checkpoint_head)
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
+    t.mock_command("codex exec", {
+      stdout = codex_jsonl.final_message("finished from checkpoint"),
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
+      stdout = "",
+      stderr = "first untyped verifier failure\n",
+      exit_code = 2,
+    })
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
+      stdout = "",
+      stderr = "second untyped verifier failure\n",
+      exit_code = 2,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, comments)
+
+    local result = run_implement(event, opts("implement-indeterminate-checkpoint-exhaustion"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(checkpoint_comment(result), nil)
+    local failure = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find(
+        "github-devloop implementation failed: local-iteration-attribution-indeterminate", 1, true) ~= nil
+    end)
+    t.is_true(failure ~= nil, "second indeterminate checkpoint did not publish the operator-held failure")
+    local failure_body = failure.payload.body
+    t.is_true(failure_body:find('fault_class="UNKNOWN"', 1, true) ~= nil,
+      "operator-held failure did not preserve UNKNOWN")
+    t.is_true(failure_body:find('retryable="false"', 1, true) ~= nil,
+      "operator-held failure was retryable")
+    t.is_true(failure_body:find("consecutive_indeterminate_checkpoints=2/2", 1, true) ~= nil,
+      "operator-held failure omitted its exhausted checkpoint streak")
   end,
 
   test_unmarked_remote_progress_is_retried_not_handed_off = function()

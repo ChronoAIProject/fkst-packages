@@ -6,6 +6,7 @@ local branch_progress = require("departments.implement.branch_progress")
 local substrate_pin = require("departments.implement.substrate_pin")
 local local_iteration_result = require("departments.implement.local_iteration_result")
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
+local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local durable_impl_failure = require("devloop.impl_failure")
 local workflow_codex = require("workflow_internal.codex")
@@ -17,6 +18,8 @@ local M = {}
 
 -- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
 local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
+-- One checkpoint permits one outer recovery; a second consecutive checkpoint holds for an operator.
+local MAX_CONSECUTIVE_INDETERMINATE_CHECKPOINTS = 2
 local WORKTREE_MISSING_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING"
 local WORKTREE_ENTERED_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED"
 
@@ -94,6 +97,26 @@ local function impl_failed_outcome(
 end
 
 M.impl_failed_outcome = impl_failed_outcome
+
+function M.bound_verification_checkpoint(outcome, comments)
+  if type(outcome) ~= "table"
+    or outcome.kind ~= "implement-checkpoint"
+    or outcome.reason ~= "verification-indeterminate" then
+    return outcome
+  end
+  local count = m_facts.consecutive_implement_checkpoint_count(
+      comments, outcome.ready.proposal_id, outcome.ready.dedup_key, outcome.reason) + 1
+  local detail = "consecutive_indeterminate_checkpoints=" .. tostring(count)
+    .. "/" .. tostring(MAX_CONSECUTIVE_INDETERMINATE_CHECKPOINTS)
+    .. "\n" .. tostring(outcome.detail or "")
+  if count < MAX_CONSECUTIVE_INDETERMINATE_CHECKPOINTS then
+    outcome.detail = detail
+    return outcome
+  end
+  return impl_failed_outcome(
+    outcome.ready, "local-iteration-attribution-indeterminate", "UNKNOWN", false, detail,
+    outcome.attempt, outcome.started_at, outcome.exec_ref, outcome.base_sha)
+end
 
 local function worktree_unavailable_outcome(ready, worktree, reason, attempt, started_at, exec_ref, base_sha)
   return {

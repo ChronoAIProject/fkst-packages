@@ -31,6 +31,11 @@ local function mock_env(login, claim_mode, write_mode, reads, exclusive, managed
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_OWNER_DIGEST_HEX_LENGTH"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command('printf %s "$FKST_GITHUB_CLAIM_LABEL_SUFFIX"', {
       stdout = suffix or "",
       stderr = "",
@@ -114,13 +119,21 @@ local function ownership_json(logins, author_login, labels)
 end
 
 local bare_claimed_label = "fkst-dev:claimed"
-local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot")
+local derived_claim_spec = claim_carriers.active_label_spec({ kind = "derived" }, "fkst-test-bot", 32)
 local derived_claimed_label = derived_claim_spec.name
-local peer_claimed_label = claim_carriers.derived_label("peer-bot")
+local derived_claimed_label_encoded = "fkst-dev%3Aclaimed%3A881cb233d76686282e06df2ecace1311"
+local peer_claimed_label = claim_carriers.derived_label("peer-bot", 32)
+local declared_claim_suffix = "team/A + Ω%"
+local declared_claimed_label = "fkst-dev:claimed:" .. declared_claim_suffix
+local declared_claimed_label_encoded = "fkst-dev%3Aclaimed%3Ateam%2FA%20%2B%20%CE%A9%25"
+
+local function label_rest_get_command(encoded_label)
+  return "gh api --method GET 'repos/owner/repo/labels/" .. encoded_label .. "'"
+end
 
 local function mock_claim_label_binding(description, times)
   for _ = 1, times or 1 do
-    t.mock_command("gh api repos/owner/repo/labels/" .. derived_claimed_label, {
+    t.mock_command(label_rest_get_command(derived_claimed_label_encoded), {
       stdout = '{"name":"' .. derived_claimed_label
         .. '","description":"' .. tostring(description or derived_claim_spec.description) .. '"}\n',
       stderr = "",
@@ -339,24 +352,34 @@ return {
     t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 0)
   end,
 
-  test_label_mode_claim_uses_declared_label_suffix = function()
-    local claim_label = "fkst-dev:claimed:macstudio-4"
+  test_label_mode_claim_lifecycle_preserves_declared_label_suffix = function()
     local description = "fkst-dev-label-mode-ownership-claim owner=fkst-test-bot"
-    mock_env("fkst-test-bot", "label", "1", 12, "", nil, "macstudio-4")
-    for _ = 1, 2 do
-      t.mock_command("gh api repos/owner/repo/labels/" .. claim_label, {
-        stdout = '{"name":"' .. claim_label .. '","description":"' .. description .. '"}\n',
+    mock_env("fkst-test-bot", "label", "1", 24, "", nil, declared_claim_suffix)
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { derived_claimed_label }), "other")
+    for _ = 1, 3 do
+      t.mock_command(label_rest_get_command(declared_claimed_label_encoded), {
+        stdout = '{"name":"' .. declared_claimed_label .. '","description":"' .. description .. '"}\n',
         stderr = "",
         exit_code = 0,
       })
     end
-    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claim_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. declared_claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
-      stdout = ownership_json({}, "fkst-test-bot", { claim_label }),
+      stdout = ownership_json({}, "fkst-test-bot", { declared_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "fkst-test-bot", { declared_claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. declared_claimed_label .. "'", {
+      stdout = "",
       stderr = "",
       exit_code = 0,
     })
@@ -368,15 +391,31 @@ return {
       { assignees = {}, labels = {}, author_login = "fkst-test-bot", comments = {} },
       "github-devloop/issue/owner/repo/42"
     )
+    local released = m_claims.release_issue_claim_if_self(core,
+      "admission",
+      "owner/repo",
+      42,
+      "github-devloop/issue/owner/repo/42",
+      "inactive-intake-claim"
+    )
 
     t.eq(ok, true)
-    t.eq(count_adapter_calls("--add-label", claim_label), 1)
+    t.eq(released, true)
+    t.eq(count_calls(label_rest_get_command(declared_claimed_label_encoded)), 3)
+    t.eq(count_adapter_calls("--add-label", declared_claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", declared_claimed_label), 1)
     t.eq(count_adapter_calls("--add-label", derived_claimed_label), 0)
+    t.eq(count_adapter_calls("--remove-label", derived_claimed_label), 0)
   end,
 
-  test_label_mode_claim_fails_closed_before_add_when_derived_label_is_bound_to_another_owner = function()
-    mock_env("fkst-test-bot", "label", "1")
-    mock_claim_label_binding("fkst-dev-label-mode-ownership-claim owner=peer-bot")
+  test_label_mode_claim_fails_closed_before_mutation_when_declared_label_is_bound_to_another_owner = function()
+    mock_env("fkst-test-bot", "label", "1", 12, "", nil, declared_claim_suffix)
+    t.mock_command(label_rest_get_command(declared_claimed_label_encoded), {
+      stdout = '{"name":"' .. declared_claimed_label
+        .. '","description":"fkst-dev-label-mode-ownership-claim owner=peer-bot"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
 
     local ok, err = pcall(m_claims.claim_issue_for_management,
       "claim_mode",
@@ -388,7 +427,8 @@ return {
 
     t.eq(ok, false)
     t.is_true(tostring(err):find("claim-label-owner-collision", 1, true) ~= nil, tostring(err))
-    t.eq(count_adapter_calls("--add-label", derived_claimed_label), 0)
+    t.eq(count_adapter_calls("--add-label", declared_claimed_label), 0)
+    t.eq(count_adapter_calls("--remove-label", declared_claimed_label), 0)
   end,
 
   test_label_mode_claim_race_rolls_back_only_own_label = function()
