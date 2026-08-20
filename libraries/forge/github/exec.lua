@@ -37,6 +37,10 @@ local function is_issue_assign_permission_denied(result, context)
 end
 
 function M.error_class(result, context)
+  local upstream_class = type(result) == "table" and result.error_class or nil
+  if upstream_class == "provider-unavailable" or upstream_class == "auth-degraded" then
+    return upstream_class
+  end
   if is_rate_limited(result) then
     return "gh-rate-limited"
   end
