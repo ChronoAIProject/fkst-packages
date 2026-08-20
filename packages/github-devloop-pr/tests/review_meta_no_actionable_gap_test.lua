@@ -6,6 +6,7 @@ local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local replay_fields = require("devloop.replay_fields")
 local devloop_state = require("devloop.state")
+local v_review_meta = require("devloop.validators.review_meta")
 local replayer
 local t = h.t
 local core = h.core
@@ -209,5 +210,109 @@ return {
     t.is_nil(comment.body:find("fkst:github-devloop:merge-ready:v1", 1, true))
     t.eq(label.add_labels[1], "fkst-dev:reviewing")
     t.eq(h.find_raise(raised, "devloop_merge_ready"), nil)
+  end,
+
+  test_review_meta_redrive_requeues_receiver_with_fresh_delivery_identity = function()
+    h.mock_bot_env()
+    local event = h.review_meta_event()
+    local exit_version = devloop_state.next_review_meta_action_version(event.version)
+    local replay_review_proposal_id = event.review_proposal_id
+    local replay_review_dedup_key = devloop_base.pr_review_consensus_dedup_key(replay_review_proposal_id)
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local comments = {
+      {
+        body = core.state_marker(event.proposal_id, "review-meta", event.version),
+        author_login = core._test_bot_login,
+      },
+      {
+        body = m_builders.pr_link_marker(event.proposal_id, 7, branch, event.version, "dev"),
+        author_login = core._test_bot_login,
+      },
+      {
+        body = m_builders.review_meta_marker(event.proposal_id, event.dedup_key,
+          "no-actionable-gap", exit_version, nil, "The old decision is visible.", {
+            review_proposal_id = replay_review_proposal_id,
+            review_dedup_key = replay_review_dedup_key,
+            reviewed_head_sha = "def456",
+          }),
+        author_login = core._test_bot_login,
+      },
+    }
+    local issue = {
+      repo = "owner/repo",
+      number = 42,
+      source_ref = entity_lib.issue_source_ref("owner/repo", 42),
+    }
+    local state = {
+      state = "review-meta",
+      version = event.version,
+      proposal_id = event.proposal_id,
+    }
+    local link = {
+      proposal_id = event.proposal_id,
+      pr_number = 7,
+      branch = branch,
+      impl_version = event.version,
+      base_branch = "dev",
+    }
+    local current_pr = {
+      number = 7,
+      state = "OPEN",
+      head_ref_name = branch,
+      base_ref_name = "dev",
+      head_sha = "def456",
+      comments = comments,
+    }
+    local row = replay_fields.restart_transition_row(core.restart_transition_table(), "review-meta")
+    local redrive_delivery = {
+      generation_key = "restart-liveness-v2/review-meta/review_meta.actionable/attempt-1",
+      attempt = 1,
+    }
+    local raised = replay_raises(function()
+      local result = replayer.replay_from_table_classified("liveness_scan", issue, state, row, {
+        proposal_id = event.proposal_id,
+        source_ref = entity_lib.pr_source_ref("owner/repo", 7),
+        link = link,
+        current = current_pr,
+        current_pr = current_pr,
+        redrive_delivery = redrive_delivery,
+      })
+      if result.issued ~= true then
+        error("review-meta redrive did not issue: " .. tostring(result.outcome)
+          .. " reason=" .. tostring(result.reason), 0)
+      end
+    end)
+
+    local receiver = h.find_raise(raised, "devloop_review_meta")
+    if receiver == nil then error("redrive receiver payload was not raised", 0) end
+    t.eq(receiver.payload.version, event.version)
+    t.eq(receiver.payload.redrive_delivery.generation_key, redrive_delivery.generation_key)
+    t.eq(receiver.payload.redrive_delivery.attempt, redrive_delivery.attempt)
+    t.eq(v_review_meta.is_supported_review_meta(receiver.payload), true)
+    if receiver.payload.dedup_key == event.dedup_key then
+      error("redrive receiver reused the original dedup key", 0)
+    end
+    local mismatched = {}
+    for key, value in pairs(receiver.payload) do mismatched[key] = value end
+    mismatched.dedup_key = mismatched.dedup_key .. "/different"
+    t.eq(v_review_meta.is_supported_review_meta(mismatched), false)
+    local malformed = {}
+    for key, value in pairs(receiver.payload) do malformed[key] = value end
+    malformed.redrive_delivery = {
+      generation_key = receiver.payload.redrive_delivery.generation_key,
+      attempt = 0,
+    }
+    t.eq(v_review_meta.is_supported_review_meta(malformed), false)
+
+    local successor_version = exit_version
+    h.mock_issue_review_meta({ "fkst-dev:review-meta" }, comments)
+    mock_meta_codex(h.action_label .. " no-actionable-gap\n"
+      .. h.reason_label .. " The recovered receiver completed the review-meta decision.")
+    local result = h.run_review_meta(receiver.payload, h.opts("review-meta-redrive-successor"))
+    t.eq(result.exit_code, 0)
+    local successor = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    if successor == nil then error("redrive receiver did not emit a successor transition", 0) end
+    t.eq(successor.payload.handoff.version, successor_version)
+    t.is_true(successor.payload.handoff.version ~= event.version)
   end,
 }

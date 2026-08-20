@@ -348,7 +348,8 @@ local function replay_review_meta(R, tools, dept, issue, state, row, facts)
   if not forge_validators.is_git_sha(current_pr.head_sha) then
     return log_skip(R, dept, proposal_id, state, "review-meta", "review-meta", "skip-foreign(head)", "linked PR head sha is missing")
   end
-  local fact = R.restart_policy.review_meta_replay_fact(facts.snapshot.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
+  local fact = facts.review_meta
+    or R.restart_policy.review_meta_replay_fact(facts.snapshot.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
   if fact == nil then
     return log_skip(R, dept, proposal_id, state, "review-meta", "review-meta", "skip-foreign(review-meta)", "review-meta recovery facts are not visible")
   end
@@ -361,10 +362,10 @@ local function replay_review_meta(R, tools, dept, issue, state, row, facts)
   })
   local payload = nil
   if fact.mode == "fix-reflection" then
-    payload = payloads_builders.build_devloop_fix_reflection_payload(fact, proposal_id, fields.version, fields.pr_number, fact.fix_round or fact.n, fields.source_ref)
+    payload = payloads_builders.build_devloop_fix_reflection_payload(fact, proposal_id, fields.version, fields.pr_number, fact.fix_round or fact.n, fields.source_ref, facts.redrive_delivery)
     payload.blocking_gap = fact.blocking_gap
   else
-    payload = payloads_builders.build_devloop_review_meta_payload(fact, proposal_id, fields.version, fields.pr_number, fact.n, fields.source_ref)
+    payload = payloads_builders.build_devloop_review_meta_payload(fact, proposal_id, fields.version, fields.pr_number, fact.n, fields.source_ref, facts.redrive_delivery)
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "review-meta", "applied(replay)", "trusted review-meta fact is visible")
   return raise_effects(dept, proposal_id, "review-meta", state.version, { add = {}, remove = {} }, {

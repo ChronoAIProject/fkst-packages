@@ -318,8 +318,8 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
   return payload
 end
 
-function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
-  return {
+function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref, redrive_delivery)
+  local payload = {
     schema = resolve_payload_token("literal:github-devloop.review-meta.v1"),
     proposal_id = issue_proposal_id,
     review_proposal_id = unresolved.proposal_id,
@@ -339,6 +339,18 @@ function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issu
       source_ref = source_ref or unresolved.source_ref,
     }),
   }
+  if redrive_delivery ~= nil then
+    payload.redrive_delivery = {
+      generation_key = redrive_delivery.generation_key,
+      attempt = redrive_delivery.attempt,
+    }
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      issue_proposal_id,
+      payload.dedup_key,
+      payload.redrive_delivery
+    )
+  end
+  return payload
 end
 
 function C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
@@ -352,7 +364,7 @@ function C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number,
   })
 end
 
-function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
+function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, issue_version, pr_number, fix_round, source_ref, redrive_delivery)
   local review_dedup_key = unresolved.review_dedup_key or unresolved.dedup_key
   local payload = C.build_devloop_review_meta_payload({
     proposal_id = unresolved.proposal_id,
@@ -362,6 +374,13 @@ function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, i
   payload.mode = "fix-reflection"
   payload.fix_round = fix_round
   payload.dedup_key = C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
+  if redrive_delivery ~= nil then
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
+      issue_proposal_id,
+      payload.dedup_key,
+      payload.redrive_delivery
+    )
+  end
   return payload
 end
 
