@@ -149,7 +149,7 @@ return {
     mock_claim_env("label")
     local authorization, reason = authorize(current_issue(
       {},
-      { claim_carriers.derived_label(owner) }
+      { claim_carriers.derived_label(owner, 32) }
     ))
 
     t.is_true(type(authorization) == "table")
