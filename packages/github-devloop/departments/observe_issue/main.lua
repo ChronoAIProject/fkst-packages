@@ -417,18 +417,10 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     }
   end
   local payload = payloads_builders.build_devloop_ready_payload(payload_source)
-  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
-    issue.number,
-    command,
-    attempt,
-    issue.source_ref
-  )
-  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "applied(operator-reimplement)", "trusted operator command requested implementation retry")
+  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "handoff(operator-reimplement)", "trusted operator command requested implementation retry")
   devloop_logging.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
-    "github-proxy.github_issue_comment_request",
     "devloop_ready",
   })
-  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   devloop_logging.log_raise("observe_issue", proposal_id, "devloop_ready", payload)
   return true
 end
