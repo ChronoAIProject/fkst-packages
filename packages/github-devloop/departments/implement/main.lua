@@ -48,6 +48,7 @@ local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local operator_commands = require("devloop.operator_commands")
 local MAX_IMPLEMENT_ATTEMPTS = 2
 -- Single source of truth lives in core (implement_attempt.lua); the liveness anti-spin
 -- (libraries/devloop/liveness/timeout.lua) reads the same constant so re-drive and
@@ -102,7 +103,7 @@ local function raise_impl_failed(repo, issue_number, ready, reason, fault_class,
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
-local function raise_implementing_state(repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref, snapshot, decision)
+local function raise_implementing_state(repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref, snapshot, decision, operator_reimplement_delivery)
   local comment_request, label_request
   if decision ~= nil then
     local grant = implement_caps.restart_effects.mint_grant(snapshot, decision, "comment:issue:implementation-start")
@@ -127,6 +128,13 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
   else
     comment_request = requests_lifecycle.build_implementing_state_comment_request(implement_caps.implement_attempt_marker, implement_caps.output_language, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
     label_request = requests_labels.build_implementing_label_request(repo, issue_number, ready)
+  end
+  if operator_reimplement_delivery ~= nil then
+    comment_request.body = comment_request.body .. "\n\n"
+      .. operator_commands.operator_reimplement_applied_body({
+        command = "reimplement",
+        key = operator_reimplement_delivery.command_key,
+      }, attempt)
   end
   local add_labels, remove_labels = devloop_state.state_label_changes("implementing")
   devloop_logging.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -242,7 +250,7 @@ local function implementing_mismatch_is_durable(current, proposal_id, state)
     or m_facts.implementing_fact(current and current.comments, proposal_id, version) ~= nil
 end
 
-local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key)
+local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key, operator_reimplement_delivery)
   local worktree = bridge_marker ~= nil and completed_result == nil
     and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
     or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
@@ -257,7 +265,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
   cache_preparation.run(worktree)
 
   raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration,
-    base_head, attempt, codex_started_at, exec_ref, snapshot, decision)
+    base_head, attempt, codex_started_at, exec_ref, snapshot, decision, operator_reimplement_delivery)
   local receiver_authorization = restart_sink_grants.implement_receiver(implement_caps, {
     repo = repo, issue_number = issue_number, ready = ready,
     receiver_state = receiver_state, lock_key = lock_key,
@@ -515,6 +523,7 @@ local function process_ready_event(event)
   end
 
   local delivery_dedup_key = ready.dedup_key
+  local operator_reimplement_delivery = ready.operator_reimplement_delivery
   if ready.implementation_version ~= nil then
     local logical = {}
     for key, value in pairs(ready) do
@@ -792,6 +801,7 @@ local function process_ready_event(event)
       expected_from_states = expected_states,
       accepted_ready_hand_off = accepted_ready_hand_off,
       bridge_marker = external_pr_bridge.detect(current, repo, managed),
+      operator_reimplement_delivery = operator_reimplement_delivery,
     }
   end)
   if attempt_plan == nil then
@@ -833,7 +843,7 @@ local function process_ready_event(event)
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
         attempt_plan.bridge_marker, attempt_plan.checkpoint, attempt_plan.completed_result, pre_spawn_state,
-        activation_snapshot, activation_decision, lock_key)
+        activation_snapshot, activation_decision, lock_key, attempt_plan.operator_reimplement_delivery)
     end
   end)
   if worktree == nil then

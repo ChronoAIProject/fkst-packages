@@ -56,6 +56,8 @@ local CURRENT_SINK_FAMILIES = {
     "state-label:visible-marker-repair:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
   ["comment:issue:dependency-canonicalization"] =
     "state:v1/ready|dependency_wait+ready-split-canonicalized:v1+projected-label-handoff",
+  ["comment:issue:implementation-start"] =
+    "state:v1/implementing+implement-attempt:v1+optional-operator-command:v1/reimplement;dedup=implement/comment/implementing-state",
   ["label:issue:dependency-canonicalization"] =
     "state-label:ready|dependency_wait|declined+optional-label:fkst-dev:blocked-on-dependency;dedup=embedded-label-request",
   ["label:issue:awaiting-pr-terminal"] =
@@ -352,7 +354,14 @@ local function committed_records()
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
-      record.old_inputs.current_fact.record_count = 86
+      record.old_inputs.current_fact.record_count = 85
+      local retained = json_array()
+      for _, sink in ipairs(record.old_outcome.observable_writes) do
+        if sink.effect_id ~= "comment:issue:operator-reimplement" then
+          table.insert(retained, sink)
+        end
+      end
+      record.old_outcome.observable_writes = retained
       table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(PRECURSOR_BLOCKED_BY_REPLAY_ADAPTER_SINK))
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
