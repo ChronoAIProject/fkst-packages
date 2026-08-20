@@ -1,8 +1,8 @@
 local t = fkst.test
 
 local fixture_prefix = "/tmp/fkst-liveness-failure-domain."
-local pre_advance_engine_ref = "2446d908d3deea35ab750740ca12d05049f80309"
-local post_advance_engine_ref = "7079c95edd3e1d3ff4ddbc48f916ad4536e02802"
+local pre_advance_engine_ref = "7079c95edd3e1d3ff4ddbc48f916ad4536e02802"
+local post_advance_engine_ref = "1b6052095d8a6e51bb342217999f79c0c2450b42"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -386,8 +386,8 @@ return {
       exit_code = 1,
       error = "replay did not emit a consumable redrive; outcome=",
     }), 1)
-    -- The entity-local failure and terminal-tombstone suppression are separate
-    -- surfaced dead letters under the current engine contract.
+    -- The expected count pins whether terminal-tombstone suppression is surfaced
+    -- as a separate dead letter by the selected engine revision.
     t.eq(count_steps(trace, {
       queue = "github-devloop.dead_letter",
       consumer = "github-devloop.dead_letter",
@@ -491,31 +491,31 @@ return {
       local pre_advance_bin = framework_bin_for_ref(root, pre_advance_engine_ref)
       local post_advance_bin = framework_bin_for_ref(root, post_advance_engine_ref)
 
-      run_fixture(root, package_root, false, pre_advance_bin, 1, "pre-engine-pre-expectation")
-      run_fixture(root, package_root, false, post_advance_bin, 2, "post-engine-post-expectation")
+      run_fixture(root, package_root, false, pre_advance_bin, 2, "pre-engine-pre-expectation")
+      run_fixture(root, package_root, false, post_advance_bin, 1, "post-engine-post-expectation")
       assert_fixture_fails(
         root,
         package_root,
         post_advance_bin,
-        1,
+        2,
         "post-engine-pre-expectation",
-        "eq: expected 1, got 2"
+        "eq: expected 2, got 1"
       )
       assert_fixture_fails(
         root,
         package_root,
         pre_advance_bin,
-        2,
+        1,
         "pre-engine-post-expectation",
-        "eq: expected 2, got 1"
+        "eq: expected 1, got 2"
       )
     end)
   end,
 
   test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
     with_fixture(function(root, package_root)
-      run_fixture(root, package_root, false, framework_bin(), 2, "current-stuck-first")
-      run_fixture(root, package_root, true, framework_bin(), 2, "current-stuck-last")
+      run_fixture(root, package_root, false, framework_bin(), 1, "current-stuck-first")
+      run_fixture(root, package_root, true, framework_bin(), 1, "current-stuck-last")
     end)
   end,
 }
