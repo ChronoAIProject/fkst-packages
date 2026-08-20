@@ -77,6 +77,29 @@ class RunScriptContractTest(unittest.TestCase):
         self.assertIn("printf '%s\\n' \"$_chk_out\"; return 1", source)
         self.assertLess(source.index("cmd_check"), source.index("resolve_bin; ensure_fresh_bin; cmd_test"))
 
+    def test_repository_check_maps_producer_typed_exit_codes(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        for exit_code, expected in ((12, "FAIL:TOOLCHAIN"), (13, "FAIL:INFRASTRUCTURE")):
+            with self.subTest(exit_code=exit_code):
+                script = f'''
+source "{root / "scripts/run.sh"}"
+competence_gate_base_ref() {{ printf '%s\n' dev; }}
+run_units_parallel() {{ RUN_UNITS_FAIL_CODES="{exit_code}"; return 1; }}
+cmd_check >/dev/null 2>&1 || true
+printf '%s:%s\n' "$LOCAL_ITERATION_RESULT_VERDICT" "$LOCAL_ITERATION_RESULT_FAULT_CLASS"
+'''
+                result = subprocess.run(
+                    ["/bin/bash", "-c", script],
+                    cwd=root,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+
     def test_full_test_fails_on_g1_before_bin_resolution(self) -> None:
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

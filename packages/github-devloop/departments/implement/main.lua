@@ -402,7 +402,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
       devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation state marker already visible")
       return false
     end
-    return true, receiver_state
+    return true, receiver_state, current
   end
   if state.state == "impl-failed" and tostring(state.version or "") == tostring(marker_ready.dedup_key or "") then
     devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, state, "implementing", "impl-failed", "skip-idempotent(already failed)", "implementation failure marker already visible")
@@ -411,7 +411,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
   local structural_match = false
   for _, expected in ipairs(expected_from_states or {}) do
     if transitions.expected_state_matches(state, expected) then
-      if (type(expected) == "table" and expected.state or expected) == "implementing" then return true, receiver_state end
+      if (type(expected) == "table" and expected.state or expected) == "implementing" then return true, receiver_state, current end
       structural_match = true
     end
   end
@@ -425,7 +425,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
         version = marker_ready.dedup_key,
         stage_rank = devloop_state.stage_rank("ready"),
       }, "ready", "implementing", "apply(own-ready-hand-off)", "write-time ready hand-off still matches this generation")
-      return true, receiver_state
+      return true, receiver_state, current
     end
     devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, state, "ready", "implementing", decision.cas_outcome, "write-time issue state changed")
     return false
@@ -436,7 +436,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
     }, "ready", "implementing",
       "apply(own-ready-hand-off)", "write-time ready hand-off still matches this generation")
   end
-  return true, receiver_state
+  return true, receiver_state, current
 end
 
 local function precheck_implementation_write_gate(repo, issue_number, lock_key, marker_ready, expected_from_states, accepted_ready_hand_off)
@@ -847,10 +847,10 @@ local function process_ready_event(event)
     attempt_plan.completed_result)
   if outcome == nil then return end
   with_lock(lock_key, function()
-    local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,
-      attempt_plan.marker_ready, attempt_plan.expected_from_states,
-      attempt_plan.accepted_ready_hand_off, true)
+    local write_gate_ok, publish_state, publish_current = recheck_implementation_write_gate(repo, issue_number, lock_key,
+      attempt_plan.marker_ready, attempt_plan.expected_from_states, attempt_plan.accepted_ready_hand_off, true)
     if write_gate_ok then
+      outcome = attempt_runner.bound_verification_checkpoint(outcome, publish_current.comments)
       local publish_authorization = nil
       if outcome.kind == "implementing" or outcome.kind == "implement-checkpoint" then
         publish_authorization = restart_sink_grants.implementation_publish(implement_caps, {
