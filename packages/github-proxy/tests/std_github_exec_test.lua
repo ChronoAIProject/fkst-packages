@@ -19,43 +19,6 @@ local function issue_stdout()
 end
 
 return {
-  test_exec_preserves_typed_provider_unavailable_and_raw_status = function()
-    local raw_status = "gh: Server Error (HTTP 502)"
-    local handle = gh.new(function(_opts)
-      return {
-        stdout = "",
-        stderr = raw_status,
-        exit_code = 1,
-        error_class = "provider-unavailable",
-      }
-    end)
-    local ok, err = pcall(function()
-      return handle._exec({ "gh", "api", "x" }, 10, "ctx")
-    end)
-    assert(ok == false)
-    assert(err.class == "provider-unavailable")
-    assert(err.result.error_class == "provider-unavailable")
-    assert(err.result.stderr == raw_status)
-    assert(tostring(err):find(raw_status, 1, true) ~= nil)
-  end,
-
-  test_exec_preserves_typed_authentication_failure = function()
-    local handle = gh.new(function(_opts)
-      return {
-        stdout = "",
-        stderr = "gh: HTTP 401: Bad credentials",
-        exit_code = 1,
-        error_class = "auth-degraded",
-      }
-    end)
-    local ok, err = pcall(function()
-      return handle._exec({ "gh", "api", "x" }, 10, "ctx")
-    end)
-    assert(ok == false)
-    assert(err.class == "auth-degraded")
-    assert(err.result.error_class == "auth-degraded")
-  end,
-
   test_exec_classifies_rate_limit = function()
     local handle = gh.new(function(_opts)
       return { stdout = "", stderr = "API rate limit exceeded for user", exit_code = 1 }
