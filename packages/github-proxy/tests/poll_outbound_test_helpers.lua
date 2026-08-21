@@ -52,11 +52,12 @@ local function delivery_snapshot(deliveries, dead_letters)
       read_semantics = "single read transaction",
       history_semantics = "mutable delivery queue snapshot",
     },
-    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
-    truncated = { deliveries = false, dead_letters = false },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000, max_terminal_suppressions = 10000 },
+    truncated = { deliveries = false, dead_letters = false, terminal_suppressions = false },
     queues = json.decode("[]"),
     deliveries = deliveries or json.decode("[]"),
     dead_letters = dead_letters or json.decode("[]"),
+    terminal_suppressions = json.decode("[]"),
   }
 end
 

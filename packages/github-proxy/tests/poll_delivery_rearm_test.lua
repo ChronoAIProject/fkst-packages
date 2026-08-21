@@ -1,4 +1,5 @@
 local sha256 = require("contract.sha256")
+local capture_warn_logs = require("testkit_internal.testing").capture_warn_logs
 local t = fkst.test
 
 local queue = "github-proxy.github_entity_changed"
@@ -59,7 +60,7 @@ local function terminal_row(dedup_key, delivery_id)
   }
 end
 
-local function snapshot(deliveries, dead_letters)
+local function snapshot(deliveries, dead_letters, terminal_suppressions)
   return {
     schema_version = 1,
     generated_at_ms = 1785574920000,
@@ -69,11 +70,12 @@ local function snapshot(deliveries, dead_letters)
       read_semantics = "single read transaction",
       history_semantics = "mutable delivery queue snapshot",
     },
-    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
-    truncated = { deliveries = false, dead_letters = false },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000, max_terminal_suppressions = 10000 },
+    truncated = { deliveries = false, dead_letters = false, terminal_suppressions = false },
     queues = {},
     deliveries = deliveries or {},
     dead_letters = dead_letters or {},
+    terminal_suppressions = terminal_suppressions or {},
   }
 end
 
@@ -92,6 +94,71 @@ return {
       index.key_for(queue, base_key),
       base_key .. "/rearm/" .. sha256.hex(terminal_id)
     )
+  end,
+
+  test_compacted_terminal_suppression_advances_to_one_deterministic_rearm_generation = function()
+    local rearm = load_rearm()
+    local index = rearm.index(snapshot({}, {}, {
+      {
+        delivery_id = terminal_id,
+        queue = queue,
+        dept = "github-devloop-intake.admission",
+        terminal_at_ms = 1785574860000,
+        dedup_key = base_key,
+      },
+    }))
+
+    t.eq(
+      index.key_for(queue, base_key),
+      base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    )
+  end,
+
+  test_legacy_snapshot_without_terminal_suppressions_uses_base_generation_and_warns = function()
+    local rearm = load_rearm()
+    local legacy = snapshot()
+    legacy.limits.max_terminal_suppressions = nil
+    legacy.truncated.terminal_suppressions = nil
+    legacy.terminal_suppressions = nil
+
+    local index, warnings = capture_warn_logs(function()
+      return rearm.index(legacy)
+    end)
+
+    t.eq(index.key_for(queue, base_key), base_key)
+    t.eq(#warnings, 1)
+    t.eq(
+      warnings[1],
+      "github-proxy: delivery-rearm-observe-legacy: engine predates terminal_suppressions; treating suppression facts as empty"
+    )
+  end,
+
+  test_json_null_terminal_suppressions_uses_base_generation_and_warns = function()
+    local rearm = load_rearm()
+    local json_null = snapshot()
+    json_null.terminal_suppressions = json.decode("null")
+
+    local index, warnings = capture_warn_logs(function()
+      return rearm.index(json_null)
+    end)
+
+    t.eq(index.key_for(queue, base_key), base_key)
+    t.eq(#warnings, 1)
+    t.eq(
+      warnings[1],
+      "github-proxy: delivery-rearm-observe-legacy: engine predates terminal_suppressions; treating suppression facts as empty"
+    )
+  end,
+
+  test_present_non_table_terminal_suppressions_fails_closed = function()
+    local rearm = load_rearm()
+    local malformed = snapshot()
+    malformed.terminal_suppressions = "not-a-table"
+
+    local ok, err = pcall(rearm.index, malformed)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("observe-malformed", 1, true) ~= nil)
+    t.is_true(tostring(err):find("invalid terminal_suppressions section type", 1, true) ~= nil)
   end,
 
   test_live_rearm_generation_is_reused_instead_of_creating_another_generation = function()
@@ -161,5 +228,39 @@ return {
     local index = rearm.current({ queue })
 
     t.eq(index.key_for(queue, base_key), base_key)
+  end,
+
+  test_current_terminal_suppression_truncation_falls_back_to_the_base_generation_and_warns = function()
+    local rearm = load_rearm()
+    local truncated = snapshot(json.decode("[]"), json.decode("[]"))
+    truncated.truncated.terminal_suppressions = true
+    t.mock_observe(truncated)
+
+    local index, warnings = capture_warn_logs(function()
+      return rearm.current({ queue })
+    end)
+
+    t.eq(index.key_for(queue, base_key), base_key)
+    t.eq(#warnings, 1)
+    t.eq(
+      warnings[1],
+      "github-proxy: delivery-rearm-observe-truncated: delivery snapshot truncated; falling back to base generation"
+    )
+  end,
+
+  test_index_terminal_suppression_truncation_errors = function()
+    local rearm = load_rearm()
+    local truncated = snapshot({}, {}, {
+      {
+        delivery_id = terminal_id,
+        queue = queue,
+        dedup_key = base_key,
+      },
+    })
+    truncated.truncated.terminal_suppressions = true
+
+    local ok, err = pcall(rearm.index, truncated)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("observe-truncated", 1, true) ~= nil)
   end,
 }

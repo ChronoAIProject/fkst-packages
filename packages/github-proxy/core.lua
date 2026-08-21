@@ -438,6 +438,8 @@ local function nil_if_json_null(value)
   return value
 end
 
+M.nil_if_json_null = nil_if_json_null
+
 function M.parse_pr_view_head_state(gh_json_stdout, target_repo)
   local decoded = json.decode(gh_json_stdout or "{}")
   if decoded.headRefOid == nil and decoded.head_ref_oid == nil and decoded.head ~= nil then

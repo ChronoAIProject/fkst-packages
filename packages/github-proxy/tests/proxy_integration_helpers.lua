@@ -120,11 +120,12 @@ local function mock_issue_list(stdout, exit_code, stderr)
       read_semantics = "single read transaction",
       history_semantics = "mutable delivery queue snapshot",
     },
-    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
-    truncated = { deliveries = false, dead_letters = false },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000, max_terminal_suppressions = 10000 },
+    truncated = { deliveries = false, dead_letters = false, terminal_suppressions = false },
     queues = json.decode("[]"),
     deliveries = json.decode("[]"),
     dead_letters = json.decode("[]"),
+    terminal_suppressions = json.decode("[]"),
   })
   t.mock_command("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100", {
     stdout = stdout or issue_list_json(),
