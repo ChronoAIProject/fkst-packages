@@ -366,12 +366,15 @@ local function review_meta_decision_fact(facts, current_pr)
     comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
 end
 
-local function review_meta_receiver_fact(issue, link, fact)
+local function review_meta_receiver_fact(issue, link, fact, receiver_fact)
   return {
     proposal_id = fact.review_proposal_id,
     dedup_key = fact.review_dedup_key,
     source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number),
     n = 0,
+    mode = receiver_fact and receiver_fact.mode,
+    fix_round = receiver_fact and receiver_fact.fix_round,
+    blocking_gap = receiver_fact and receiver_fact.blocking_gap,
   }
 end
 
@@ -382,7 +385,7 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
   if facts.redrive_delivery ~= nil then
     local fact = review_meta_decision_fact(facts, current_pr)
     if fact ~= nil then
-      facts.review_meta = review_meta_receiver_fact(issue, link, fact)
+      facts.review_meta = review_meta_receiver_fact(issue, link, fact, facts.review_meta)
     end
     return tools.replay_review_meta_receiver(dept, issue, state, row, facts)
   end
