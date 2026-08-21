@@ -1,4 +1,6 @@
 local sha256 = require("contract.sha256")
+local core = require("core")
+local nil_if_json_null = core.nil_if_json_null
 
 local R = {}
 
@@ -13,7 +15,11 @@ end
 local function snapshot_is_truncated(snapshot)
   local truncated = type(snapshot) == "table" and snapshot.truncated or nil
   return type(truncated) == "table"
-    and (truncated.deliveries == true or truncated.dead_letters == true)
+    and (
+      truncated.deliveries == true
+      or truncated.dead_letters == true
+      or truncated.terminal_suppressions == true
+    )
 end
 
 local function require_complete_snapshot(snapshot)
@@ -22,12 +28,24 @@ local function require_complete_snapshot(snapshot)
     or type(snapshot.dead_letters) ~= "table" then
     error("github-proxy: delivery-rearm-observe-malformed: delivery snapshot is missing required sections")
   end
+  local terminal_suppressions = nil_if_json_null(snapshot.terminal_suppressions)
+  if terminal_suppressions ~= nil and type(terminal_suppressions) ~= "table" then
+    error("github-proxy: delivery-rearm-observe-malformed: delivery snapshot has invalid terminal_suppressions section type")
+  end
   local truncated = snapshot.truncated
   if type(truncated) ~= "table"
     or truncated.deliveries ~= false
-    or truncated.dead_letters ~= false then
+    or truncated.dead_letters ~= false
+    or (terminal_suppressions ~= nil and truncated.terminal_suppressions ~= false) then
     error("github-proxy: delivery-rearm-observe-truncated: complete delivery facts are required")
   end
+  if terminal_suppressions == nil then
+    log.warn(
+      "github-proxy: delivery-rearm-observe-legacy: engine predates terminal_suppressions; treating suppression facts as empty"
+    )
+    return {}
+  end
+  return terminal_suppressions
 end
 
 local function lineage_key(dedup_key)
@@ -148,8 +166,30 @@ local function record_terminal(entries, row, allowed)
   end
 end
 
+local function record_terminal_suppression(entries, row, allowed)
+  local queue = tostring(row.queue or "")
+  if queue == "" or (allowed ~= nil and allowed[queue] ~= true) then
+    return
+  end
+  local dedup_key = row.dedup_key
+  if type(dedup_key) ~= "string" or dedup_key == "" then
+    return
+  end
+  local entry = entry_for(entries, queue, row.dept, dedup_key)
+  if entry.terminal_id == nil or newer(
+    row.terminal_at_ms,
+    row.delivery_id,
+    entry.terminal_at_ms,
+    entry.terminal_id
+  ) then
+    entry.terminal_id = tostring(row.delivery_id)
+    entry.terminal_key = dedup_key
+    entry.terminal_at_ms = row.terminal_at_ms
+  end
+end
+
 function R.index(snapshot, queues)
-  require_complete_snapshot(snapshot)
+  local terminal_suppressions = require_complete_snapshot(snapshot)
   local entries = {}
   local allowed = selected_queues(queues)
   for _, row in ipairs(snapshot.deliveries) do
@@ -157,6 +197,9 @@ function R.index(snapshot, queues)
   end
   for _, row in ipairs(snapshot.dead_letters) do
     record_terminal(entries, row, allowed)
+  end
+  for _, row in ipairs(terminal_suppressions) do
+    record_terminal_suppression(entries, row, allowed)
   end
 
   return {
@@ -236,6 +279,9 @@ function R.current(queues)
   end
   local snapshot = fkst.observe({ limit = 10000 })
   if snapshot_is_truncated(snapshot) then
+    log.warn(
+      "github-proxy: delivery-rearm-observe-truncated: delivery snapshot truncated; falling back to base generation"
+    )
     return base_generation_index()
   end
   return R.index(snapshot, queues)
