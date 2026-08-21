@@ -68,6 +68,7 @@ local function build_ops(ctx)
       or not strings.is_bounded_string(issue_version, ctx._max_dedup_len) then
       return nil
     end
+    local ordinary_fact
     local marker_pattern = "<!%-%- fkst:github%-devloop:review%-meta:v1.-%-%->"
     for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
       for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
@@ -80,7 +81,7 @@ local function build_ops(ctx)
           and review_version == transition_version.safe_version_segment(ctx._strip_latest_fix_version_suffix(issue_version))
           and tostring(reviewed_head_sha or "") == tostring(head_sha)
           and devloop_base.is_safe_pr_review_result_ref(review_proposal, marker_dedup) then
-          return {
+          ordinary_fact = ordinary_fact or {
             proposal_id = review_proposal,
             dedup_key = marker_dedup,
             source_ref = entity_lib.pr_source_ref(repo, pr_number),
@@ -129,6 +130,9 @@ local function build_ops(ctx)
           }
         end
       end
+    end
+    if ordinary_fact ~= nil then
+      return ordinary_fact
     end
     local reject_fact = m_facts.review_reject_fact(comments, issue_proposal_id, issue_version)
     local _, reject_pr_number, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(reject_fact and reject_fact.review_proposal_id)
