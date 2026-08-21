@@ -2,7 +2,7 @@ local h = require("tests.proxy_integration_helpers")
 local sha256 = require("contract.sha256")
 local t = h.t
 
-local function delivery_snapshot(deliveries, dead_letters)
+local function delivery_snapshot(deliveries, dead_letters, terminal_suppressions)
   return {
     schema_version = 1,
     generated_at_ms = 1785575100000,
@@ -12,11 +12,12 @@ local function delivery_snapshot(deliveries, dead_letters)
       read_semantics = "single read transaction",
       history_semantics = "mutable delivery queue snapshot",
     },
-    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
-    truncated = { deliveries = false, dead_letters = false },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000, max_terminal_suppressions = 10000 },
+    truncated = { deliveries = false, dead_letters = false, terminal_suppressions = false },
     queues = json.decode("[]"),
     deliveries = deliveries or json.decode("[]"),
     dead_letters = dead_letters or json.decode("[]"),
+    terminal_suppressions = terminal_suppressions or json.decode("[]"),
   }
 end
 
@@ -45,6 +46,36 @@ local function mock_poll_inputs(intake)
 end
 
 return {
+  test_poll_rearms_from_a_populated_terminal_suppression_snapshot = function()
+    local run_opts = h.opts("terminal-suppression-rearm", {
+      FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
+    })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local queue = "github-proxy.github_entity_changed"
+    local base_key = "owner/x#issue#50@2026-06-03T01:04:00Z"
+    local suppression_id = "delivery/v3/raised/queue/github-proxy.github_entity_changed/dept/github-devloop-intake.admission/dedup/base"
+    local expected_rearm_key = base_key .. "/rearm/" .. sha256.hex(suppression_id)
+    local suppression = {
+      delivery_id = suppression_id,
+      queue = queue,
+      dept = "github-devloop-intake.admission",
+      terminal_at_ms = 1785575040000,
+      dedup_key = base_key,
+    }
+
+    mock_poll_inputs(intake)
+    t.mock_observe(delivery_snapshot(json.decode("[]"), json.decode("[]"), { suppression }))
+    local result = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-terminal-suppression-rearm",
+    }, run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].payload.dedup_key, expected_rearm_key)
+  end,
+
   test_poll_reuses_a_live_rearm_generation_before_requeueing_after_drain = function()
     local run_opts = h.opts("bounded-repeated-level-rearm", {
       FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
