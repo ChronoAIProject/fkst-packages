@@ -41,18 +41,25 @@ end
 
 local event_source_ref = error_facts.event_source_ref
 
+local function is_engine_lock_busy(err)
+  return type(err) == "userdata"
+    and tostring(err):find("with_lock lock busy: ", 1, true) == 1
+end
+
 function C.wrap_pipeline_failure(dept, fn)
   return function(event)
     local ok, err = pcall(fn, event)
     if ok then
       return err
     end
-    local payload = type(event) == "table" and event.payload or nil
-    local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
-    C.log_error_fact("error", dept, proposal_id, "FAILURE", C.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
-      source_ref = event_source_ref(event),
-      attempt = type(event) == "table" and event.attempt or nil,
-    })
+    if not is_engine_lock_busy(err) then
+      local payload = type(event) == "table" and event.payload or nil
+      local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
+      C.log_error_fact("error", dept, proposal_id, "FAILURE", C.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
+        source_ref = event_source_ref(event),
+        attempt = type(event) == "table" and event.attempt or nil,
+      })
+    end
     error(err, 0)
   end
 end
