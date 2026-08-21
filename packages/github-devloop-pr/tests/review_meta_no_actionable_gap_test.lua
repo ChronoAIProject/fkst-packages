@@ -352,7 +352,7 @@ return {
 
     local exit_version = devloop_state.next_review_meta_action_version(issue_version)
     table.insert(comments, {
-      body = m_builders.review_meta_marker(issue_proposal_id, review_meta.dedup_key,
+      body = m_builders.review_meta_marker(issue_proposal_id, review_dedup_key,
         "fix", exit_version, blocking_gap, "The older reflection decision is visible.", {
           review_proposal_id = review_proposal_id,
           review_dedup_key = review_dedup_key,
@@ -400,7 +400,6 @@ return {
           link = link,
           current = current_pr,
           current_pr = current_pr,
-          review_meta = review_meta,
           redrive_delivery = redrive_delivery,
         })
       if result.issued ~= true then
