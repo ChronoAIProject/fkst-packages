@@ -136,6 +136,10 @@ function M.new(deps)
       t.mock_command("git worktree list --porcelain",
         opts.owner_list_result or command_result(0))
     end
+    if opts.owner_process_result ~= nil then
+      t.mock_command("sh -c", opts.parent_process_result or command_result(0, "", "4242\n"))
+      t.mock_command("ps -axww", opts.owner_process_result)
+    end
     if opts.locked_remove_result ~= nil then
       t.mock_command("git worktree remove --force --force", opts.locked_remove_result)
     end
@@ -228,6 +232,10 @@ function M.new(deps)
     mock_force_clean(worktree, {
       remove_result = command_result(128, "fatal: cannot remove a locked working tree"),
       owner_list_result = command_result(0, "", locked_registration),
+      owner_process_result = opts.initializer_liveness == "live"
+        and command_result(0, "", " 4242 fkst-framework run github-devloop/implement\n"
+          .. " 4343 git worktree add " .. tostring(worktree) .. " " .. tostring(branch) .. "\n")
+        or command_result(0, "", " 4242 fkst-framework run github-devloop/implement\n"),
       locked_remove_result = command_result(0),
     })
     mock_worktree_parent_mkdir()

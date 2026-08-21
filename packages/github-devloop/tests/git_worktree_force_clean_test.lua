@@ -32,6 +32,14 @@ local function path_entry_exists_cmd(path)
   return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
 end
 
+local function process_snapshot(path)
+  local snapshot = " 4242 fkst-framework run github-devloop/implement\n"
+  if path ~= nil then
+    snapshot = snapshot .. " 4343 git worktree add " .. tostring(path) .. " devloop/test\n"
+  end
+  return snapshot
+end
+
 local function mock_force_clean(options)
   local opts = options or {}
   local remove_result = opts.remove_result or result(0)
@@ -43,6 +51,10 @@ local function mock_force_clean(options)
   t.mock_command("git worktree remove --force", remove_result)
   if opts.owner_list_result ~= nil then
     t.mock_command("git worktree list --porcelain", opts.owner_list_result)
+  end
+  if opts.owner_process_result ~= nil then
+    t.mock_command("sh -c", opts.parent_process_result or result(0, "", "4242\n"))
+    t.mock_command("ps -axww", opts.owner_process_result)
   end
   if opts.locked_remove_result ~= nil then
     t.mock_command("git worktree remove --force --force", opts.locked_remove_result)
@@ -175,6 +187,7 @@ return {
     mock_force_clean({
       remove_result = result(128, "fatal: cannot remove a locked working tree"),
       owner_list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
+      owner_process_result = result(0, "", process_snapshot()),
       locked_remove_result = result(0),
     })
 
@@ -191,6 +204,7 @@ return {
     mock_force_clean({
       remove_result = result(128, "fatal: cannot remove a locked working tree"),
       owner_list_result = result(0, "", locked_initializing_worktree_list_without_branch(worktree)),
+      owner_process_result = result(0, "", process_snapshot()),
       locked_remove_result = result(0),
     })
 
@@ -220,20 +234,54 @@ return {
     t.eq(count_calls("rm -rf --"), 0)
   end,
 
-  test_force_clean_preserves_a_live_locked_owner = function()
+  test_force_clean_preserves_a_live_locked_initializing_owner_across_runtime_replay = function()
     mock_force_clean({
       remove_result = result(128, "fatal: cannot remove a locked working tree"),
-      owner_list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "active-owner")),
-      list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "active-owner")),
+      owner_list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
+      owner_process_result = result(0, "", process_snapshot(worktree)),
+      list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
     })
 
     local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60, {
       locked_initializing_branch = "devloop/test",
     })
 
-    assert_failure(actual, "owner-check", "not the exact locked initializing owner")
+    assert_failure(actual, "owner-liveness", "initializer is still running")
     t.eq(count_calls("git worktree remove --force --force"), 0)
     t.eq(count_calls("rm -rf --"), 0)
+  end,
+
+  test_force_clean_preserves_locked_initializing_owner_when_liveness_is_indeterminate = function()
+    mock_force_clean({
+      remove_result = result(128, "fatal: cannot remove a locked working tree"),
+      owner_list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
+      owner_process_result = result(2, "process snapshot unavailable"),
+      list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
+    })
+
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60, {
+      locked_initializing_branch = "devloop/test",
+    })
+
+    assert_failure(actual, "owner-liveness", "indeterminate")
+    t.eq(count_calls("git worktree remove --force --force"), 0)
+    t.eq(count_calls("rm -rf --"), 0)
+  end,
+
+  test_force_clean_does_not_confuse_another_initializer_path_with_the_owner = function()
+    mock_force_clean({
+      remove_result = result(128, "fatal: cannot remove a locked working tree"),
+      owner_list_result = result(0, "", locked_worktree_list(worktree, "devloop/test", "initializing")),
+      owner_process_result = result(0, "", process_snapshot(worktree .. "-other")),
+      locked_remove_result = result(0),
+    })
+
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60, {
+      locked_initializing_branch = "devloop/test",
+    })
+
+    t.eq(actual.exit_code, 0)
+    t.eq(count_calls("git worktree remove --force --force"), 1)
   end,
 
   test_force_clean_preserves_a_mismatched_initializing_owner = function()

@@ -101,6 +101,75 @@ local function worktree_is_exact_locked_initializing_owner(stdout, worktree, bra
     and (record.branch == nil or record.branch == expected_branch)
 end
 
+local function worktree_initializer_command_matches(command, worktree, branch)
+  local executable, args = tostring(command or ""):match("^(%S+)%s+(.+)$")
+  if executable == nil or executable:match("([^/]+)$") ~= "git" then
+    return false
+  end
+  local add_args = args:match("^worktree%s+add%s+(.+)$")
+  if add_args == nil then
+    return false
+  end
+
+  local expected_path = tostring(worktree or "")
+  local expected_branch = tostring(branch or "")
+  local option, actual_branch, path = add_args:match("^(%-%-force)%s+%-B%s+(%S+)%s+(.+)%s+%S+$")
+  if option == "--force" then
+    return path == expected_path and actual_branch == expected_branch
+  end
+  actual_branch, path = add_args:match("^%-[bB]%s+(%S+)%s+(.+)%s+%S+$")
+  if actual_branch ~= nil then
+    return path == expected_path and actual_branch == expected_branch
+  end
+  path = add_args:match("^%-%-detach%s+(.+)%s+%S+$")
+  if path ~= nil then
+    return path == expected_path
+  end
+  path, actual_branch = add_args:match("^(.+)%s+(%S+)$")
+  return path == expected_path and actual_branch == expected_branch
+end
+
+local function worktree_initializer_liveness(worktree, branch, timeout)
+  local parent = exec_argv({
+    argv = { "sh", "-c", 'printf "%s\\n" "$PPID"' },
+    timeout = timeout,
+  })
+  if command_failed(parent) then
+    return { status = "indeterminate", detail = "current process identity unavailable: " .. command_detail(parent) }
+  end
+  local parent_pid = tostring(parent.stdout or ""):match("^%s*(%d+)%s*$")
+  if parent_pid == nil then
+    return { status = "indeterminate", detail = "current process identity is invalid" }
+  end
+
+  local snapshot = exec_argv({
+    argv = { "ps", "-axww", "-o", "pid=", "-o", "command=" },
+    timeout = timeout,
+  })
+  if command_failed(snapshot) then
+    return { status = "indeterminate", detail = "process snapshot unavailable: " .. command_detail(snapshot) }
+  end
+
+  local positive_control = false
+  local live_owner = false
+  for line in (tostring(snapshot.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local pid, command = line:match("^%s*(%d+)%s+(.+)$")
+    if pid == parent_pid then
+      positive_control = true
+    end
+    if command ~= nil and worktree_initializer_command_matches(command, worktree, branch) then
+      live_owner = true
+    end
+  end
+  if live_owner then
+    return { status = "live", detail = "initializer is still running" }
+  end
+  if not positive_control then
+    return { status = "indeterminate", detail = "process snapshot positive control is absent" }
+  end
+  return { status = "dead", detail = "initializer process is absent" }
+end
+
 local function path_entry_exists_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
@@ -300,6 +369,15 @@ end
         )
       end
       if worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch) then
+        local liveness = worktree_initializer_liveness(value, locked_branch, timeout)
+        if liveness.status ~= "dead" then
+          return cleanup_failure(
+            "owner-liveness",
+            { stdout = "", stderr = "", exit_code = 1 },
+            remove_result,
+            tostring(liveness.status) .. ": " .. tostring(liveness.detail)
+          )
+        end
         local locked_remove = support.git().worktree_remove_locked(value, timeout)
         if command_failed(locked_remove) then
           return cleanup_failure("owner-remove", locked_remove, remove_result)
