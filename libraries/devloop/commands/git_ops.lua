@@ -95,10 +95,11 @@ local function worktree_is_exact_locked_initializing_owner(stdout, worktree, bra
       end
     end
   end
-  return matches == 1
+  local exact_owner = matches == 1
     and record ~= nil
     and record.lock_reason == "initializing"
     and (record.branch == nil or record.branch == expected_branch)
+  return exact_owner, exact_owner and record.branch or nil
 end
 
 local function worktree_initializer_command_matches(command, worktree, branch)
@@ -112,21 +113,21 @@ local function worktree_initializer_command_matches(command, worktree, branch)
   end
 
   local expected_path = tostring(worktree or "")
-  local expected_branch = tostring(branch or "")
+  local expected_branch = branch ~= nil and tostring(branch) or nil
   local option, actual_branch, path = add_args:match("^(%-%-force)%s+%-B%s+(%S+)%s+(.+)%s+%S+$")
   if option == "--force" then
-    return path == expected_path and actual_branch == expected_branch
+    return path == expected_path and (expected_branch == nil or actual_branch == expected_branch)
   end
   actual_branch, path = add_args:match("^%-[bB]%s+(%S+)%s+(.+)%s+%S+$")
   if actual_branch ~= nil then
-    return path == expected_path and actual_branch == expected_branch
+    return path == expected_path and (expected_branch == nil or actual_branch == expected_branch)
   end
   path = add_args:match("^%-%-detach%s+(.+)%s+%S+$")
   if path ~= nil then
     return path == expected_path
   end
   path, actual_branch = add_args:match("^(.+)%s+(%S+)$")
-  return path == expected_path and actual_branch == expected_branch
+  return path == expected_path and (expected_branch == nil or actual_branch == expected_branch)
 end
 
 local function worktree_initializer_liveness(worktree, branch, timeout)
@@ -359,8 +360,10 @@ end
       if command_failed(owner_list) then
         return cleanup_failure("owner-check", owner_list, remove_result)
       end
+      local exact_owner, registered_branch =
+        worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch)
       if worktree_is_registered(owner_list.stdout, value)
-        and not worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch) then
+        and not exact_owner then
         return cleanup_failure(
           "owner-check",
           { stdout = "", stderr = "", exit_code = 1 },
@@ -368,8 +371,9 @@ end
           "registered worktree is not the exact locked initializing owner: " .. value
         )
       end
-      if worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch) then
-        local liveness = worktree_initializer_liveness(value, locked_branch, timeout)
+      if exact_owner then
+        local liveness_branch = registered_branch ~= nil and locked_branch or nil
+        local liveness = worktree_initializer_liveness(value, liveness_branch, timeout)
         if liveness.status ~= "dead" then
           return cleanup_failure(
             "owner-liveness",

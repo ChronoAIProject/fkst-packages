@@ -32,10 +32,11 @@ local function path_entry_exists_cmd(path)
   return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
 end
 
-local function process_snapshot(path)
+local function process_snapshot(path, branch)
   local snapshot = " 4242 fkst-framework run github-devloop/implement\n"
   if path ~= nil then
-    snapshot = snapshot .. " 4343 git worktree add " .. tostring(path) .. " devloop/test\n"
+    snapshot = snapshot .. " 4343 git worktree add " .. tostring(path)
+      .. " " .. tostring(branch or "devloop/test") .. "\n"
   end
   return snapshot
 end
@@ -214,6 +215,25 @@ return {
 
     t.eq(actual.exit_code, 0)
     t.eq(count_calls("git worktree remove --force --force"), 1)
+  end,
+
+  test_force_clean_preserves_a_live_branchless_locked_initializing_owner = function()
+    local branchless_registration = locked_initializing_worktree_list_without_branch(worktree)
+    mock_force_clean({
+      remove_result = result(128, "fatal: cannot remove a locked working tree"),
+      owner_list_result = result(0, "", branchless_registration),
+      owner_process_result = result(0, "", process_snapshot(worktree, "devloop/other")),
+      locked_remove_result = result(0),
+      list_result = result(0, "", branchless_registration),
+    })
+
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60, {
+      locked_initializing_branch = "devloop/test",
+    })
+
+    assert_failure(actual, "owner-liveness", "initializer is still running")
+    t.eq(count_calls("git worktree remove --force --force"), 0)
+    t.eq(count_calls("rm -rf --"), 0)
   end,
 
   test_force_clean_preserves_a_non_unique_locked_owner_identity = function()
