@@ -17,6 +17,7 @@ local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local mock_existing_fix_worktree = h.mock_existing_fix_worktree
+local mock_implement_codex = h.mock_implement_codex
 
 local function mock_real_write_env_reads()
   for _ = 1, 4 do
@@ -189,7 +190,61 @@ local function find_attempt_fact(result)
   end)
 end
 
+local function run_queue_position_free_ci_repair(event, feedback_comments, name)
+  local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+  mock_bot_env()
+  mock_real_write_env_reads()
+  mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, feedback_comments, branch, event.version)
+  local pr_comments = {
+    m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev"),
+  }
+  for _, comment in ipairs(feedback_comments) do
+    table.insert(pr_comments, comment)
+  end
+  local own_ci_rollup = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"test","headSha":"def456"}]'
+  mock_pr_fix(pr_comments, branch, "def456", nil, nil, nil, nil, own_ci_rollup)
+  h.mock_required_check_runs_for("def456", "failure", "owner/repo")
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_existing_fix_worktree(branch, "def456")
+  -- Admission reads the queue before dispatch, then re-derives it after worktree setup
+  -- because a rejected current entry cannot be cached as a predecessor list.
+  mock_merge_queue_list({})
+  mock_merge_queue_list({})
+  mock_implement_codex(0, "checked canonical own-CI repair authority")
+  h.mock_git_status("")
+  t.mock_command("rev-list --count", {
+    stdout = "0\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_pr_fix(pr_comments, branch, "def456")
+  local result
+  with_codex_runs({}, function()
+    result = run_fix(event, opts(name, { FKST_GITHUB_WRITE = "1" }))
+  end)
+  return result
+end
+
 return {
+  test_canonical_own_ci_repair_progresses_without_merge_queue_position = function()
+    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local event = fixing_at_round(1, { ci_failure_key = ci_failure_key })
+    local result = run_queue_position_free_ci_repair(
+      event,
+      speculative_feedback_comments(event, ci_failure_key),
+      "fix-ci-queue-position-free"
+    )
+    if result.exit_code ~= 0 then
+      error("queue-position-free own-CI repair failed: " .. tostring(result.error))
+    end
+    t.eq(count_calls("codex"), 1)
+    t.is_true(find_attempt_fact(result) ~= nil)
+  end,
+
   test_stale_fixing_handoff_with_green_current_ci_dispatches_zero_repair_codex = function()
     local stale_key = "head:def456/checks:digest-0000000101"
     local event = fixing({

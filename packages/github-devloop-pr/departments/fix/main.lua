@@ -49,6 +49,7 @@ local merge_integration_for_fix = merge_mechanics.merge_integration_for_fix
 local current_predecessors_for_fix = merge_mechanics.current_predecessors_for_fix
 local merge_predecessor_entries_for_fix = merge_mechanics.merge_predecessor_entries_for_fix
 local merge_speculative_predecessors_for_fix = merge_mechanics.merge_speculative_predecessors_for_fix
+local speculative_rejection_route = merge_mechanics.speculative_rejection_route
 local assert_no_unmerged_paths = merge_mechanics.assert_no_unmerged_paths
 local assert_candidate_diff_clean = merge_mechanics.assert_candidate_diff_clean
 local assert_staged_diff_clean = merge_mechanics.assert_staged_diff_clean
@@ -222,16 +223,26 @@ local function run_fix_attempt(plan)
       plan.current_pr
     )
   end
-  if merge_context == nil and speculative_reason ~= "not-speculative" then
-    if speculative_reason == "predecessor-set-mismatch" then
+  if merge_context == nil then
+    local rejection_route = speculative_rejection_route(
+      speculative_reason,
+      plan.fix,
+      plan.merge_gate_fact
+    )
+    if rejection_route == "refix" then
       return {
         kind = "refix",
         current_predecessor_set = speculative_current_set or "none",
         reason = "speculative predecessor set changed",
       }
     end
-    devloop_logging.log_cas_decision("fix", plan.fix.proposal_id, plan.state, "fixing", "reviewing", "skip-stale(" .. tostring(speculative_reason) .. ")", "speculative predecessor set is no longer current")
-    return nil
+    if rejection_route == "reject" then
+      devloop_logging.log_cas_decision("fix", plan.fix.proposal_id, plan.state, "fixing", "reviewing", "skip-stale(" .. tostring(speculative_reason) .. ")", "speculative predecessor set is no longer current")
+      return nil
+    end
+    if rejection_route == "queue-position-free" then
+      devloop_logging.log_cas_decision("fix", plan.fix.proposal_id, plan.state, "fixing", "fixing", "admitted(queue-position-free-own-ci-repair)", "canonical own-CI repair authority does not require merge queue position")
+    end
   end
   if merge_context == nil then
     merge_context = merge_integration_for_fix(

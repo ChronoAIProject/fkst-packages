@@ -55,8 +55,102 @@ local mock_queue_list = fixture.mock_queue_list
 local predecessor_set_for = fixture.predecessor_set_for
 local observation = require("testkit_internal.old_behavior_observation_support")
 local sha256 = require("contract.sha256")
+local fix_merge_mechanics = require("departments.fix.merge_mechanics").make(core)
+
+local function trusted_comments(values)
+  local comments = {}
+  for _, body in ipairs(values or {}) do
+    table.insert(comments, {
+      body = body,
+      author_login = "fkst-test-bot",
+      created_at = "2026-06-03T01:00:00Z",
+    })
+  end
+  return comments
+end
+
+local function current_pr(event, comments, overrides)
+  local pr = {
+    state = "OPEN",
+    base_ref_name = "dev",
+    base_ref_oid = "abc123",
+    head_ref_name = branch_for_pr(event.pr_number),
+    head_sha = event.reviewed_head_sha,
+    comments = trusted_comments(comments),
+  }
+  for key, value in pairs(overrides or {}) do
+    pr[key] = value
+  end
+  return pr
+end
+
+local function assert_current_entry_rejection(event, comments, overrides, expected_reason)
+  mock_bot_env()
+  mock_queue_list({})
+  local predecessors, reason = m_mq.merge_queue_predecessors("owner/repo", "dev", {
+    pr_number = event.pr_number,
+    pr = current_pr(event, comments, overrides),
+  })
+  t.eq(predecessors, nil)
+  t.eq(reason, expected_reason)
+end
 
 return {
+  test_merge_queue_predecessors_preserves_pr_not_open_rejection = function()
+    local event = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
+    assert_current_entry_rejection(event, merge_comments_for_event(event), {
+      state = "CLOSED",
+    }, "pr-not-open")
+  end,
+
+  test_merge_queue_predecessors_preserves_pr_base_mismatch_rejection = function()
+    local event = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
+    assert_current_entry_rejection(event, merge_comments_for_event(event), {
+      base_ref_name = "main",
+    }, "pr-base-mismatch")
+  end,
+
+  test_merge_queue_predecessors_preserves_outside_lane_rejection = function()
+    local event = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
+    assert_current_entry_rejection(event, {
+      m_builders.pr_origin_marker(event.proposal_id, "42", branch_for_pr(event.pr_number), event.version, "dev"),
+      core.state_marker(event.proposal_id, "reviewing", event.version),
+    }, nil, "pr-outside-merge-queue-lane")
+  end,
+
+  test_merge_queue_predecessors_preserves_missing_merge_ready_fact_rejection = function()
+    local event = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
+    local fixing_version = devloop_state.next_fix_version(event.version)
+    assert_current_entry_rejection(event, {
+      m_builders.pr_origin_marker(event.proposal_id, "42", branch_for_pr(event.pr_number), event.version, "dev"),
+      core.state_marker(event.proposal_id, "fixing", fixing_version),
+    }, nil, "merge-ready-fact-missing")
+  end,
+
+  test_fix_routes_each_merge_queue_entry_rejection_explicitly = function()
+    local route = fix_merge_mechanics.speculative_rejection_route
+    t.eq(route("pr-not-open", {}, nil), "reject")
+    t.eq(route("pr-base-mismatch", {}, nil), "reject")
+    t.eq(route("pr-outside-merge-queue-lane", {}, nil), "reject")
+    t.eq(route("merge-ready-fact-missing", {
+      repair_input = "review-feedback",
+    }, nil), "reject")
+  end,
+
+  test_fix_requires_matching_canonical_own_ci_authority_for_queue_position_free_progress = function()
+    local route = fix_merge_mechanics.speculative_rejection_route
+    local fix = {
+      repair_input = "ci-failure",
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    }
+    t.eq(route("merge-ready-fact-missing", fix, {
+      ci_failure_key = fix.ci_failure_key,
+    }), "queue-position-free")
+    t.eq(route("merge-ready-fact-missing", fix, {
+      ci_failure_key = "head:def456/checks:digest-0000000202",
+    }), "reject")
+  end,
+
   test_slice6_merge_queue_order_and_entry_bytes_are_frozen = function()
     local older = event_for_pr(9, 44, "2026-06-03T00-00-00Z", "aaa111")
     local newer = event_for_pr(7, 42, "2026-06-03T01-02-03Z", "def456")
