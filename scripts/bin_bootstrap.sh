@@ -71,26 +71,20 @@ resolve_phys_path() {
   printf '%s/%s\n' "$dir" "$(basename "$p")"
 }
 
-bootstrap_read_artifact_pin() {
-  local candidate="$1" probe_dir artifact_pin="" rc=1
-  probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-bin-provenance.XXXXXX")" || return 1
-  if git -C "$probe_dir" init --quiet >/dev/null 2>&1 \
-    && (cd "$probe_dir" && "$candidate" init-package-repo >/dev/null 2>&1) \
-    && [ -f "$probe_dir/.fkst-substrate-ref" ]; then
-    artifact_pin="$(sed -n '1p' "$probe_dir/.fkst-substrate-ref")"
-    artifact_pin="${artifact_pin%%#*}"
-    artifact_pin="${artifact_pin#"${artifact_pin%%[![:space:]]*}"}"
-    artifact_pin="${artifact_pin%"${artifact_pin##*[![:space:]]}"}"
-    if [ -n "$artifact_pin" ]; then
-      printf '%s\n' "$artifact_pin"
-      rc=0
-    fi
-  fi
-  rm -rf "$probe_dir"
-  return "$rc"
+bootstrap_artifact_sha256() {
+  python3 -B - "$1" <<'PY'
+import hashlib
+import sys
+
+digest = hashlib.sha256()
+with open(sys.argv[1], "rb") as artifact:
+    for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
 }
 
-bootstrap_candidate_source_matches_pin() {
+bootstrap_candidate_source_commit() {
   local candidate="$1" pin="$2" phys suffix source_root ref head target status
   suffix="/target/debug/fkst-framework"
   phys="$(resolve_phys_path "$candidate")" || return 1
@@ -112,18 +106,57 @@ bootstrap_candidate_source_matches_pin() {
   target="$(git -C "$source_root" rev-parse --verify "$ref^{commit}" 2>/dev/null)" \
     || target="$(git -C "$source_root" rev-parse --verify "origin/$ref^{commit}" 2>/dev/null)" \
     || return 1
-  [ "$head" = "$target" ]
+  [ "$head" = "$target" ] || return 1
+  printf '%s\n' "$head"
+}
+
+bootstrap_artifact_provenance_path() {
+  printf '%s.fkst-provenance-v1\n' "$1"
+}
+
+bootstrap_record_artifact_provenance() {
+  local candidate="$1" pin="$2" source_commit digest provenance pending
+  [ -x "$candidate" ] || return 1
+  source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || return 1
+  digest="$(bootstrap_artifact_sha256 "$candidate")" || return 1
+  provenance="$(bootstrap_artifact_provenance_path "$candidate")"
+  pending="$provenance.tmp.$$"
+  printf '%s\n' \
+    "schema=fkst-framework-artifact-provenance.v1" \
+    "declared_pin=$pin" \
+    "source_commit=$source_commit" \
+    "artifact_sha256=$digest" > "$pending" || return 1
+  mv "$pending" "$provenance"
+}
+
+bootstrap_artifact_provenance_matches() {
+  local candidate="$1" pin="$2" source_commit="$3" provenance schema declared source digest actual
+  provenance="$(bootstrap_artifact_provenance_path "$candidate")"
+  [ -f "$provenance" ] && [ ! -L "$provenance" ] || return 1
+  schema="$(sed -n '1p' "$provenance")"
+  declared="$(sed -n '2p' "$provenance")"
+  source="$(sed -n '3p' "$provenance")"
+  digest="$(sed -n '4p' "$provenance")"
+  [ "$schema" = "schema=fkst-framework-artifact-provenance.v1" ] || return 1
+  [ "$declared" = "declared_pin=$pin" ] || return 1
+  [ "$source" = "source_commit=$source_commit" ] || return 1
+  case "$digest" in
+    artifact_sha256=????????????????????????????????????????????????????????????????) ;;
+    *) return 1 ;;
+  esac
+  actual="$(bootstrap_artifact_sha256 "$candidate")" || return 1
+  [ "$digest" = "artifact_sha256=$actual" ]
 }
 
 bootstrap_candidate_matches_pin() {
-  local candidate="$1" pin="$2" source="$3" artifact_pin
-  if ! bootstrap_candidate_source_matches_pin "$candidate" "$pin"; then
+  local candidate="$1" pin="$2" source="$3" source_commit
+  source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || source_commit=""
+  if [ -z "$source_commit" ]; then
     echo "warning: $source fkst-framework source checkout does not resolve cleanly to declared .fkst/substrate-ref: $pin" >&2
     return 1
   fi
-  artifact_pin="$(bootstrap_read_artifact_pin "$candidate" 2>/dev/null)" || artifact_pin=""
-  if [ "$artifact_pin" != "$pin" ]; then
-    echo "warning: $source fkst-framework does not match declared .fkst/substrate-ref: artifact=${artifact_pin:-unknown} declared=$pin" >&2
+  if ! bootstrap_artifact_provenance_matches "$candidate" "$pin" "$source_commit"; then
+    echo "warning: $source fkst-framework lacks builder provenance binding its bytes to declared .fkst/substrate-ref: $pin" >&2
     return 1
   fi
   return 0
@@ -316,6 +349,8 @@ bootstrap_bin_on_total_miss() {
     bootstrap_checkout_ref "$checkout_dir" "$ref" || exit $?
     FKST_FRAMEWORK_SOURCE_PIN="$pin" cargo build --manifest-path "$checkout_dir/Cargo.toml" -p fkst-framework 1>&2 || exit $?
     [ -x "$bin_path" ] || bootstrap_die "fkst-framework bootstrap did not produce an executable binary: $bin_path"
+    bootstrap_record_artifact_provenance "$bin_path" "$pin" \
+      || bootstrap_die "fkst-framework bootstrap could not record artifact provenance: $bin_path"
     bootstrap_candidate_matches_pin "$bin_path" "$pin" "fresh pinned build" \
       || bootstrap_die "fkst-framework bootstrap produced an artifact with mismatched source provenance: $bin_path"
     printf '%s\n' "$bin_path"

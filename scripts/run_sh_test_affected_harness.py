@@ -216,6 +216,7 @@ class TestAffectedHarness:
             )
             self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
             self._init_engine_checkout()
+            self._record_engine_provenance()
             self._init_repo(extra_packages)
         except BaseException:
             _robust_rmtree(self.tmp)
@@ -252,6 +253,21 @@ class TestAffectedHarness:
             ("branch", "fixture-pin"),
         ):
             subprocess.run(["git", *args], cwd=self.substrate, check=True)
+
+    def _record_engine_provenance(self) -> None:
+        command = (
+            f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
+            f'bootstrap_record_artifact_provenance "{self.engine}" "fixture-pin"'
+        )
+        result = subprocess.run(
+            ["/bin/bash", "-c", command],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AssertionError(result.stderr + result.stdout)
 
     def _init_repo(self, extra_packages: tuple[str, ...]) -> None:
         self._git("init")

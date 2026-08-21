@@ -27,16 +27,33 @@ class RunBinTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        self.package_root = self.root / "fkst-packages"
+        (self.package_root / ".fkst").mkdir(parents=True)
+        (self.package_root / ".fkst" / "substrate-ref").write_text(
+            "fixture-pin\n", encoding="utf-8"
+        )
+        self.init_git(self.package_root, ".fkst/substrate-ref", "fixture package pin")
         self.substrate = self.root / "fkst-substrate"
-        (self.substrate / ".git").mkdir(parents=True)
         (self.substrate / "target" / "debug").mkdir(parents=True)
         (self.substrate / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+        (self.substrate / ".gitignore").write_text("target/\n", encoding="utf-8")
+        self.init_git(self.substrate, "Cargo.toml", ".gitignore", "fixture engine source")
+        subprocess.run(["git", "branch", "fixture-pin"], cwd=self.substrate, check=True)
         self.framework = self.substrate / "target" / "debug" / "fkst-framework"
         write_executable(self.framework, "#!/bin/sh\n")
         self.log = self.root / "cargo.log"
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    @staticmethod
+    def init_git(root: Path, *tracked_and_message: str) -> None:
+        *tracked, message = tracked_and_message
+        subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True)
+        subprocess.run(["git", "add", *tracked], cwd=root, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=root, check=True)
 
     def write_cargo(self, directory: Path) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -56,7 +73,7 @@ class RunBinTest(unittest.TestCase):
         script = textwrap.dedent(
             f"""\
             set -euo pipefail
-            ROOT={shlex.quote(str(REPO_ROOT))}
+            ROOT={shlex.quote(str(self.package_root))}
             source {shlex.quote(str(BIN_BOOTSTRAP))}
             source {shlex.quote(str(RUN_BIN))}
             local_iteration_result_fail() {{ :; }}

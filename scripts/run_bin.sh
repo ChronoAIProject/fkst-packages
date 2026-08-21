@@ -61,17 +61,23 @@ ensure_fresh_bin() {
   fi
 
   echo "ensuring fkst-framework is built from current source: $substrate" >&2
-  local build_out cargo_bin
+  local build_out cargo_bin pin
   if [ -n "${FKST_CARGO:-}" ]; then
     cargo_bin="$FKST_CARGO"
   else
     cargo_bin="cargo"
     echo "warning: FKST_CARGO is not set; falling back to cargo from PATH for this local freshness build" >&2
   fi
-  if ! build_out="$(FKST_FRAMEWORK_SOURCE_PIN="$(bootstrap_read_pin "$ROOT")" "$cargo_bin" build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
+  pin="$(bootstrap_read_pin "$ROOT")"
+  if ! build_out="$(FKST_FRAMEWORK_SOURCE_PIN="$pin" "$cargo_bin" build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
     local_iteration_result_fail "TOOLCHAIN"
     printf '%s\n' "$build_out" >&2
     echo "error: fkst-framework freshness build failed; refusing to continue with a potentially stale BIN" >&2
+    exit 1
+  fi
+  if ! bootstrap_record_artifact_provenance "$BIN" "$pin"; then
+    local_iteration_result_fail "TOOLCHAIN"
+    echo "error: fkst-framework freshness build could not record artifact provenance: $BIN" >&2
     exit 1
   fi
 }

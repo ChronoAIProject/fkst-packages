@@ -85,7 +85,7 @@ class BootstrapHarness:
         self.tmp.cleanup()
 
     def _install_required_tools(self, inherited_path: str) -> None:
-        commands = ("basename", "chmod", "cut", "dirname", "grep", "mkdir", "mktemp", "python3", "rm", "sed", "sh", "sleep", "tail")
+        commands = ("basename", "chmod", "cut", "dirname", "grep", "mkdir", "mktemp", "mv", "python3", "rm", "sed", "sh", "sleep", "tail")
         for command in commands:
             source = shutil.which(command, path=inherited_path)
             if source is None:
@@ -177,6 +177,20 @@ class BootstrapHarness:
             check=False,
         )
 
+    def record_provenance(self, artifact: Path, pin: str) -> subprocess.CompletedProcess[str]:
+        command = (
+            f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
+            f'bootstrap_record_artifact_provenance "{artifact}" "{pin}"'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", command],
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
     def calls(self) -> str:
         return self.log.read_text(encoding="utf-8") if self.log.exists() else ""
 
@@ -198,7 +212,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_matching_artifact_from_declared_clean_checkout_is_admitted(self) -> None:
+    def test_self_reporting_artifact_in_declared_clean_checkout_is_rejected(self) -> None:
         pin = "declared-revision"
         h = BootstrapHarness(pin)
         try:
@@ -212,8 +226,54 @@ class BinBootstrapTest(unittest.TestCase):
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.stdout.strip(), str(artifact))
+            self.assertIn("checkout --detach declared-revision", h.calls())
+            self.assertIn("cargo build --manifest-path", h.calls())
+        finally:
+            h.close()
+
+    def test_builder_attested_artifact_from_declared_clean_checkout_is_admitted(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+            attested = h.record_provenance(artifact, pin)
+            self.assertEqual(attested.returncode, 0, attested.stderr)
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), str(artifact))
             self.assertNotIn("cargo ", h.calls())
+        finally:
+            h.close()
+
+    def test_artifact_modified_after_attestation_resolves_through_declared_pin(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+            attested = h.record_provenance(artifact, pin)
+            self.assertEqual(attested.returncode, 0, attested.stderr)
+            write_framework_artifact(artifact, pin)
+            with artifact.open("a", encoding="utf-8") as handle:
+                handle.write("# modified after attestation\n")
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.stdout.strip(), str(artifact))
+            self.assertIn("cargo build --manifest-path", h.calls())
         finally:
             h.close()
 
@@ -246,7 +306,7 @@ class BinBootstrapTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotEqual(result.stdout.strip(), str(artifact))
-            self.assertIn("does not match declared .fkst/substrate-ref", result.stderr)
+            self.assertIn("lacks builder provenance binding its bytes", result.stderr)
             self.assertIn("checkout --detach declared-revision", h.calls())
         finally:
             h.close()
