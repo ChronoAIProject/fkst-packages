@@ -370,7 +370,7 @@ function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, i
     proposal_id = unresolved.proposal_id,
     dedup_key = review_dedup_key,
     source_ref = unresolved.source_ref,
-  }, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
+  }, issue_proposal_id, issue_version, pr_number, fix_round, source_ref, redrive_delivery)
   payload.mode = "fix-reflection"
   payload.fix_round = fix_round
   payload.dedup_key = C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
