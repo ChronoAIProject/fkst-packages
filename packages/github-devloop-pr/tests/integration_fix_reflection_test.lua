@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local codex_jsonl = require("testkit_internal.codex_jsonl")
 local payloads_builders = require("devloop.payloads.builders")
+local payloads_shared = require("devloop.payloads.shared")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
 local canonical_json = require("testkit_internal.old_behavior_observation_support").canonical_json
@@ -151,6 +152,18 @@ return {
     t.eq(replay_payload.mode, fresh_payload.mode)
     t.eq(replay_payload.fix_round, fresh_payload.fix_round)
     t.eq(replay_payload.blocking_gap, fresh_payload.blocking_gap)
+
+    local redrive_delivery = {
+      generation_key = "restart-liveness-v2/review-meta/fix-reflection/attempt-2",
+      attempt = 2,
+    }
+    local redrive_payload = payloads_builders.build_devloop_fix_reflection_payload(
+      fact, "github-devloop/issue/owner/repo/42", issue_version, fact.pr_number,
+      fact.fix_round, fact.source_ref, redrive_delivery)
+    t.eq(redrive_payload.redrive_delivery.generation_key, redrive_delivery.generation_key)
+    t.eq(redrive_payload.redrive_delivery.attempt, redrive_delivery.attempt)
+    t.eq(redrive_payload.dedup_key, payloads_shared.issue_redrive_delivery_dedup_key(
+      "github-devloop/issue/owner/repo/42", fresh_payload.dedup_key, redrive_delivery))
   end,
 
   test_pr_review_replay_facts_typed_ops_preserve_golden_facts = function()
