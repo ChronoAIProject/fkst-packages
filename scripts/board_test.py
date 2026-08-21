@@ -61,6 +61,20 @@ class BoardHarness:
             "fi\n"
             'exec "$FKST_TEST_REAL_GIT" "$@"\n',
         )
+        write_executable(
+            self.tools / "cargo",
+            "#!/bin/sh\n"
+            'manifest=""\n'
+            'while [ "$#" -gt 0 ]; do\n'
+            '  if [ "$1" = "--manifest-path" ]; then manifest="$2"; break; fi\n'
+            '  shift\n'
+            'done\n'
+            'checkout="${manifest%/Cargo.toml}"\n'
+            'target="${CARGO_TARGET_DIR:-$checkout/target}"\n'
+            'mkdir -p "$target/debug"\n'
+            'cp "$FKST_TEST_FRAMEWORK_SOURCE" "$target/debug/fkst-framework"\n'
+            'chmod +x "$target/debug/fkst-framework"\n',
+        )
         if exit_code == 0:
             body = f"cat {self.observe_path}\n"
         else:
@@ -111,6 +125,8 @@ fi
         env["FKST_TEST_REAL_GIT"] = self.real_git
         env["FKST_TEST_REPO_ROOT"] = str(REPO_ROOT.resolve())
         env["FKST_TEST_SOURCE_ROOT"] = str(self.source.resolve())
+        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.framework.resolve())
+        env["FKST_CARGO"] = str((self.tools / "cargo").resolve())
         env["PATH"] = str(self.tools) + os.pathsep + env.get("PATH", "")
         return env
 

@@ -61,6 +61,7 @@ class DoctorHarness:
             "HOME": str(Path(self.tmp.name) / "home"),
             "FKST_TEST_REPO_ROOT": str(self.root.resolve()),
             "FKST_TEST_SOURCE_ROOT": str(self.source.resolve()),
+            "FKST_TEST_FRAMEWORK_SOURCE": str(self.framework.resolve()),
         }
         self._install_default_tools()
         self._record_framework_provenance()
@@ -88,7 +89,21 @@ class DoctorHarness:
                 """
             ),
         )
-        write_executable(self.fake_bin / "cargo", "#!/bin/sh\necho 'cargo 1.0.0'\n")
+        write_executable(
+            self.fake_bin / "cargo",
+            "#!/bin/sh\n"
+            'manifest=""\n'
+            'while [ "$#" -gt 0 ]; do\n'
+            '  if [ "$1" = "--manifest-path" ]; then manifest="$2"; break; fi\n'
+            '  shift\n'
+            'done\n'
+            'if [ -z "$manifest" ]; then echo "cargo 1.0.0"; exit 0; fi\n'
+            'checkout="${manifest%/Cargo.toml}"\n'
+            'target="${CARGO_TARGET_DIR:-$checkout/target}"\n'
+            'mkdir -p "$target/debug"\n'
+            'cp "$FKST_TEST_FRAMEWORK_SOURCE" "$target/debug/fkst-framework"\n'
+            'chmod +x "$target/debug/fkst-framework"\n',
+        )
         write_executable(self.fake_bin / "rustc", "#!/bin/sh\necho 'rustc 1.0.0'\n")
         write_executable(self.fake_bin / "codex", "#!/bin/sh\necho 'codex test'\n")
         write_executable(
@@ -108,7 +123,7 @@ class DoctorHarness:
                 """
             ),
         )
-        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed", "basename", "mkdir", "mktemp", "mv", "python3", "rm", "ln"]:
+        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed", "basename", "mkdir", "mktemp", "mv", "python3", "rm", "ln", "cp", "chmod"]:
             path = shutil.which(tool)
             if path is None:
                 raise RuntimeError(f"required test tool missing: {tool}")

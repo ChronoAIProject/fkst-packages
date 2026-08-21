@@ -76,6 +76,7 @@ class TestAffectedHarness:
             self.runner = Path(self.tmp) / "runner.sh"
             self.substrate = Path(self.tmp) / "fkst-substrate"
             self.engine = self.substrate / "target" / "debug" / "fkst-framework"
+            self.cargo = Path(self.tmp) / "cargo"
             self.root.mkdir()
             self.scripts.mkdir()
             self.engine.parent.mkdir(parents=True)
@@ -215,6 +216,22 @@ class TestAffectedHarness:
                 encoding="utf-8",
             )
             self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
+            self.cargo.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "manifest=''\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = \"--manifest-path\" ]; then manifest=\"$2\"; break; fi\n"
+                "  shift\n"
+                "done\n"
+                "checkout=\"${manifest%/Cargo.toml}\"\n"
+                "target=\"${CARGO_TARGET_DIR:-$checkout/target}\"\n"
+                "mkdir -p \"$target/debug\"\n"
+                "cp \"$FKST_TEST_FRAMEWORK_SOURCE\" \"$target/debug/fkst-framework\"\n"
+                "chmod +x \"$target/debug/fkst-framework\"\n",
+                encoding="utf-8",
+            )
+            self.cargo.chmod(self.cargo.stat().st_mode | stat.S_IXUSR)
             self._init_engine_checkout()
             self._record_engine_provenance()
             self._init_repo(extra_packages)
@@ -259,8 +276,12 @@ class TestAffectedHarness:
             f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
             f'bootstrap_record_artifact_provenance "{self.engine}" "fixture-pin"'
         )
+        env = os.environ.copy()
+        env["FKST_CARGO"] = str(self.cargo)
+        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.engine)
         result = subprocess.run(
             ["/bin/bash", "-c", command],
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

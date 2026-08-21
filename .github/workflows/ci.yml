@@ -86,7 +86,6 @@ jobs:
         env:
           FKST_FRAMEWORK_SOURCE_PIN: ${{ steps.substrate_ref.outputs.ref }}
         run: |
-          cargo build -p fkst-framework
           source "$GITHUB_WORKSPACE/scripts/bin_bootstrap.sh"
           bootstrap_record_artifact_provenance "$PWD/target/debug/fkst-framework" "$FKST_FRAMEWORK_SOURCE_PIN"
 

@@ -85,13 +85,13 @@ PY
 }
 
 bootstrap_candidate_source_commit() {
-  local candidate="$1" pin="$2" phys suffix source_root ref head target status
+  local candidate="$1" pin="$2" suffix source_root ref head target status
   suffix="/target/debug/fkst-framework"
-  phys="$(resolve_phys_path "$candidate")" || return 1
-  case "$phys" in
-    *"$suffix") source_root="${phys%"$suffix"}" ;;
+  case "$candidate" in
+    *"$suffix") source_root="${candidate%"$suffix"}" ;;
     *) return 1 ;;
   esac
+  source_root="$(cd "$source_root" 2>/dev/null && pwd -P)" || return 1
   if [ ! -e "$source_root/.git" ] || [ ! -f "$source_root/Cargo.toml" ]; then
     return 1
   fi
@@ -110,13 +110,43 @@ bootstrap_candidate_source_commit() {
   printf '%s\n' "$head"
 }
 
+bootstrap_build_artifact() {
+  local candidate="$1" pin="$2" source_root source_commit cargo_bin build_root built pending
+  case "$candidate" in
+    */target/debug/fkst-framework) source_root="${candidate%/target/debug/fkst-framework}" ;;
+    *) return 1 ;;
+  esac
+  source_root="$(cd "$source_root" 2>/dev/null && pwd -P)" || return 1
+  source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || return 1
+  cargo_bin="${FKST_CARGO:-cargo}"
+  command -v "$cargo_bin" >/dev/null 2>&1 || return 1
+  build_root="$(mktemp -d "${TMPDIR:-/tmp}/fkst-framework-build.XXXXXX")" || return 1
+  if ! FKST_FRAMEWORK_SOURCE_PIN="$pin" CARGO_TARGET_DIR="$build_root/target" \
+    "$cargo_bin" build --manifest-path "$source_root/Cargo.toml" -p fkst-framework 1>&2; then
+    rm -rf "$build_root"
+    return 1
+  fi
+  built="$build_root/target/debug/fkst-framework"
+  pending="$candidate.tmp.$$"
+  if [ ! -x "$built" ] \
+      || ! mkdir -p "$(dirname "$candidate")" \
+      || ! cp "$built" "$pending" \
+      || ! mv "$pending" "$candidate"; then
+    rm -f "$pending"
+    rm -rf "$build_root"
+    return 1
+  fi
+  rm -rf "$build_root"
+  return 0
+}
+
 bootstrap_artifact_provenance_path() {
   printf '%s.fkst-provenance-v1\n' "$1"
 }
 
 bootstrap_record_artifact_provenance() {
   local candidate="$1" pin="$2" source_commit digest provenance pending
-  [ -x "$candidate" ] || return 1
+  bootstrap_build_artifact "$candidate" "$pin" || return 1
   source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || return 1
   digest="$(bootstrap_artifact_sha256 "$candidate")" || return 1
   provenance="$(bootstrap_artifact_provenance_path "$candidate")"
@@ -347,8 +377,6 @@ bootstrap_bin_on_total_miss() {
     fi
 
     bootstrap_checkout_ref "$checkout_dir" "$ref" || exit $?
-    FKST_FRAMEWORK_SOURCE_PIN="$pin" cargo build --manifest-path "$checkout_dir/Cargo.toml" -p fkst-framework 1>&2 || exit $?
-    [ -x "$bin_path" ] || bootstrap_die "fkst-framework bootstrap did not produce an executable binary: $bin_path"
     bootstrap_record_artifact_provenance "$bin_path" "$pin" \
       || bootstrap_die "fkst-framework bootstrap could not record artifact provenance: $bin_path"
     bootstrap_candidate_matches_pin "$bin_path" "$pin" "fresh pinned build" \

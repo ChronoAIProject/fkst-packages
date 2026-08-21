@@ -66,7 +66,7 @@ class BootstrapHarness:
         for name in tuple(self.env):
             if name.startswith("BASH_FUNC_"):
                 self.env.pop(name)
-        for name in ("BASH_ENV", "BIN", "CI", "ENV", "GITHUB_ACTIONS", "FKST_NO_AUTOBUILD"):
+        for name in ("BASH_ENV", "BIN", "CI", "ENV", "GITHUB_ACTIONS", "FKST_CARGO", "FKST_NO_AUTOBUILD"):
             self.env.pop(name, None)
         self._install_required_tools(inherited_path)
         self.env.update(
@@ -85,7 +85,7 @@ class BootstrapHarness:
         self.tmp.cleanup()
 
     def _install_required_tools(self, inherited_path: str) -> None:
-        commands = ("basename", "chmod", "cut", "dirname", "grep", "mkdir", "mktemp", "mv", "python3", "rm", "sed", "sh", "sleep", "tail")
+        commands = ("basename", "chmod", "cp", "cut", "dirname", "grep", "mkdir", "mktemp", "mv", "python3", "rm", "sed", "sh", "sleep", "tail")
         for command in commands:
             source = shutil.which(command, path=inherited_path)
             if source is None:
@@ -133,10 +133,11 @@ class BootstrapHarness:
                   shift
                 done
                 checkout="${manifest%/Cargo.toml}"
-                mkdir -p "$checkout/target/debug"
-                printf '#!/usr/bin/env sh\\n' > "$checkout/target/debug/fkst-framework"
-                printf 'if [ "$1" = "init-package-repo" ]; then printf "%%s\\\\n" "%s" > .fkst-substrate-ref; exit 0; fi\\n' "$FKST_FRAMEWORK_SOURCE_PIN" >> "$checkout/target/debug/fkst-framework"
-                chmod +x "$checkout/target/debug/fkst-framework"
+                target="${CARGO_TARGET_DIR:-$checkout/target}"
+                mkdir -p "$target/debug"
+                printf '#!/usr/bin/env sh\\n' > "$target/debug/fkst-framework"
+                printf 'if [ "$1" = "init-package-repo" ]; then printf "%%s\\\\n" "%s" > .fkst-substrate-ref; exit 0; fi\\n' "$FKST_FRAMEWORK_SOURCE_PIN" >> "$target/debug/fkst-framework"
+                chmod +x "$target/debug/fkst-framework"
                 exit 0
                 """
             ),
@@ -242,14 +243,16 @@ class BinBootstrapTest(unittest.TestCase):
             (checkout / ".git").mkdir()
             (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
             write_framework_artifact(artifact, pin)
+            original_inode = artifact.stat().st_ino
             attested = h.record_provenance(artifact, pin)
             self.assertEqual(attested.returncode, 0, attested.stderr)
+            self.assertNotEqual(artifact.stat().st_ino, original_inode)
 
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), str(artifact))
-            self.assertNotIn("cargo ", h.calls())
+            self.assertIn("cargo build --manifest-path", h.calls())
         finally:
             h.close()
 

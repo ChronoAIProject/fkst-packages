@@ -64,6 +64,16 @@ class RunBinTest(unittest.TestCase):
                 """\
                 #!/bin/sh
                 printf '%s\n' "$*" > "$FKST_TEST_CARGO_LOG"
+                manifest=""
+                while [ "$#" -gt 0 ]; do
+                  if [ "$1" = "--manifest-path" ]; then manifest="$2"; break; fi
+                  shift
+                done
+                checkout="${manifest%/Cargo.toml}"
+                target="${CARGO_TARGET_DIR:-$checkout/target}"
+                mkdir -p "$target/debug"
+                cp "$FKST_TEST_FRAMEWORK_SOURCE" "$target/debug/fkst-framework"
+                chmod +x "$target/debug/fkst-framework"
                 """
             ),
         )
@@ -95,6 +105,7 @@ class RunBinTest(unittest.TestCase):
         for name in ("CI", "GITHUB_ACTIONS", "FKST_CARGO", "FKST_NO_AUTOBUILD"):
             env.pop(name, None)
         env["FKST_TEST_CARGO_LOG"] = str(self.log)
+        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.framework)
         return env
 
     def test_freshness_build_uses_carried_cargo_with_launchd_path(self) -> None:
