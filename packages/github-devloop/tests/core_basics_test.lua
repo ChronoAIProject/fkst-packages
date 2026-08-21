@@ -254,6 +254,35 @@ return {
     t.is_nil(captured[1]:find("terminal=", 1, true))
     t.is_true(captured[1]:find("queue=devloop_ready", 1, true) ~= nil)
   end,
+  test_wrapped_pipeline_failure_does_not_trust_a_lua_lock_busy_message = function()
+    local captured = {}
+    local old_log = log
+    log = {
+      error = function(message)
+        table.insert(captured, tostring(message))
+      end,
+    }
+
+    local wrapped = core.wrap_pipeline_failure("implement", function(_event)
+      error("with_lock lock busy: github-devloop/transition/owner/repo/issue/42")
+    end)
+    local ok, err = pcall(function()
+      wrapped({
+        queue = "devloop_ready",
+        payload = {
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          source_ref = source_ref(),
+        },
+      })
+    end)
+
+    log = old_log
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("with_lock lock busy:", 1, true) ~= nil)
+    t.eq(#captured, 1)
+    t.is_true(captured[1]:find("tag=FAILURE", 1, true) ~= nil)
+    t.is_true(captured[1]:find("error_class=caught-failure", 1, true) ~= nil)
+  end,
   test_error_class_from_message_prefers_inner_codex_failure = function()
     t.eq(
       core.error_class_from_message("github-devloop: fix codex failed: bad sha abcdef1234567890"),

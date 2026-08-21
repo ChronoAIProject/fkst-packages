@@ -281,6 +281,16 @@ return {
       deferred_output:find("with_lock lock busy: github-devloop/git/owner/repo/fetch", 1, true) ~= nil,
       deferred_output
     )
+    t.is_true(
+      deferred_output:find(
+        "event=with_lock_busy error_class=lock_busy lock=github-devloop/git/owner/repo/fetch outcome=deferred",
+        1,
+        true
+      ) ~= nil,
+      deferred_output
+    )
+    t.is_nil(deferred_output:find("tag=FAILURE", 1, true), deferred_output)
+    t.is_nil(deferred_output:find("error_class=caught-failure", 1, true), deferred_output)
     local violations = io.open(state_dir .. "/violations", "r")
     if violations ~= nil then
       local body = violations:read("*a")
