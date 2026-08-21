@@ -27,7 +27,8 @@ local function assert_canonical_registration(porcelain, branch, worktree)
     end
   end
   if devloop_commands.worktree_registered(porcelain, worktree)
-    and not devloop_commands.worktree_registered_for_branch(porcelain, worktree, branch) then
+    and not devloop_commands.worktree_registered_for_branch(porcelain, worktree, branch)
+    and not devloop_commands.worktree_is_exact_locked_initializing_owner(porcelain, worktree, branch) then
     error("github-devloop: worktree-registration-conflict: deterministic worktree is registered to another branch at "
       .. tostring(worktree))
   end

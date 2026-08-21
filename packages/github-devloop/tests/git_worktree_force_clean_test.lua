@@ -202,6 +202,24 @@ return {
     t.eq(count_calls("git worktree remove --force --force"), 1)
   end,
 
+  test_force_clean_preserves_a_non_unique_locked_owner_identity = function()
+    local duplicate_registration = locked_worktree_list(worktree, "devloop/test", "initializing")
+      .. locked_worktree_list(worktree, "devloop/test", "initializing")
+    mock_force_clean({
+      remove_result = result(128, "fatal: cannot remove a locked working tree"),
+      owner_list_result = result(0, "", duplicate_registration),
+      list_result = result(0, "", duplicate_registration),
+    })
+
+    local actual = devloop_git_ops.git_worktree_force_clean(worktree, 60, {
+      locked_initializing_branch = "devloop/test",
+    })
+
+    assert_failure(actual, "owner-check", "not the exact locked initializing owner")
+    t.eq(count_calls("git worktree remove --force --force"), 0)
+    t.eq(count_calls("rm -rf --"), 0)
+  end,
+
   test_force_clean_preserves_a_live_locked_owner = function()
     mock_force_clean({
       remove_result = result(128, "fatal: cannot remove a locked working tree"),

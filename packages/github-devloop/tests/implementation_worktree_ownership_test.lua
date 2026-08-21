@@ -13,7 +13,7 @@ return {
 
     local result = h.run_implement(event, h.opts("implement-reclaim-dead-initializing-worktree"))
 
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code == 0, tostring(result.error or result.stderr or "implementation failed"))
     t.eq(h.count_calls("git worktree remove --force --force"), 1)
     t.eq(h.count_calls("git worktree add"), 1)
     t.eq(h.count_calls("codex exec"), 1)
