@@ -233,7 +233,6 @@ class TestAffectedHarness:
             )
             self.cargo.chmod(self.cargo.stat().st_mode | stat.S_IXUSR)
             self._init_engine_checkout()
-            self._record_engine_provenance()
             self._init_repo(extra_packages)
         except BaseException:
             _robust_rmtree(self.tmp)
@@ -270,25 +269,6 @@ class TestAffectedHarness:
             ("branch", "fixture-pin"),
         ):
             subprocess.run(["git", *args], cwd=self.substrate, check=True)
-
-    def _record_engine_provenance(self) -> None:
-        command = (
-            f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
-            f'bootstrap_record_artifact_provenance "{self.engine}" "fixture-pin"'
-        )
-        env = os.environ.copy()
-        env["FKST_CARGO"] = str(self.cargo)
-        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.engine)
-        result = subprocess.run(
-            ["/bin/bash", "-c", command],
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise AssertionError(result.stderr + result.stdout)
 
     def _init_repo(self, extra_packages: tuple[str, ...]) -> None:
         self._git("init")
@@ -379,6 +359,8 @@ class TestAffectedHarness:
         env["FKST_TEST_AFFECTED_RUNNER_EXIT"] = str(runner_exit)
         env["BIN"] = str(self.engine)
         env["FKST_NO_AUTOBUILD"] = "1"
+        env["FKST_CARGO"] = str(self.cargo)
+        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.engine)
         if use_run_sh:
             env["FKST_TEST_AFFECTED_USE_RUN_SH"] = "1"
         else:
@@ -415,6 +397,8 @@ class TestAffectedHarness:
         env.pop("FKST_LOCAL_ITERATION_RESULT_FILE", None)
         env["BIN"] = str(self.engine)
         env["FKST_NO_AUTOBUILD"] = "1"
+        env["FKST_CARGO"] = str(self.cargo)
+        env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.engine)
         env["FKST_TEST_ENGINE_RESULT"] = engine_result
         env["FKST_TEST_CHECK_LOG"] = str(self.check_log)
         env["FKST_TEST_ENGINE_LOG"] = str(self.engine_log)

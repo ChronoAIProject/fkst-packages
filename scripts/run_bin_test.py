@@ -79,7 +79,7 @@ class RunBinTest(unittest.TestCase):
         )
         return cargo
 
-    def run_freshness_build(self, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    def run_resolution(self, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
         script = textwrap.dedent(
             f"""\
             set -euo pipefail
@@ -88,6 +88,7 @@ class RunBinTest(unittest.TestCase):
             source {shlex.quote(str(RUN_BIN))}
             local_iteration_result_fail() {{ :; }}
             BIN={shlex.quote(str(self.framework))}
+            resolve_bin
             ensure_fresh_bin
             """
         )
@@ -108,13 +109,13 @@ class RunBinTest(unittest.TestCase):
         env["FKST_TEST_FRAMEWORK_SOURCE"] = str(self.framework)
         return env
 
-    def test_freshness_build_uses_carried_cargo_with_launchd_path(self) -> None:
+    def test_resolution_build_uses_carried_cargo_with_launchd_path(self) -> None:
         carried_cargo = self.write_cargo(self.root / "carried-tools")
         env = self.base_env()
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         env["FKST_CARGO"] = str(carried_cargo)
 
-        result = self.run_freshness_build(env)
+        result = self.run_resolution(env)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
@@ -123,17 +124,17 @@ class RunBinTest(unittest.TestCase):
         )
         self.assertNotIn("falling back to cargo from PATH", result.stderr)
 
-    def test_missing_carried_cargo_warns_before_path_fallback(self) -> None:
+    def test_resolution_build_uses_cargo_from_path_without_carried_cargo(self) -> None:
         ambient_dir = self.root / "ambient-tools"
         self.write_cargo(ambient_dir)
         env = self.base_env()
         env["PATH"] = f"{ambient_dir}:/usr/bin:/bin:/usr/sbin:/sbin"
 
-        result = self.run_freshness_build(env)
+        result = self.run_resolution(env)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.log.exists())
-        self.assertIn("FKST_CARGO is not set; falling back to cargo from PATH", result.stderr)
+        self.assertNotIn("freshness build", result.stderr)
 
 
 if __name__ == "__main__":

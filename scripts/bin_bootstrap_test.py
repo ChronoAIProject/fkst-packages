@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import stat
@@ -160,13 +161,17 @@ class BootstrapHarness:
             check=False,
         )
 
-    def resolve(self, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def resolve(
+        self,
+        extra_env: dict[str, str] | None = None,
+        mode: str = "bootstrap",
+    ) -> subprocess.CompletedProcess[str]:
         env = self.env.copy()
         if extra_env:
             env.update(extra_env)
         command = (
             f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
-            f'resolve_bin_contract "{self.root}"; '
+            f'resolve_bin_contract "{self.root}" "{mode}"; '
             'rc=$?; printf "%s\\n" "$RESOLVED_BIN"; exit "$rc"'
         )
         return subprocess.run(
@@ -178,25 +183,29 @@ class BootstrapHarness:
             check=False,
         )
 
-    def record_provenance(self, artifact: Path, pin: str) -> subprocess.CompletedProcess[str]:
-        command = (
-            f'. "{REPO_ROOT / "scripts" / "bin_bootstrap.sh"}"; '
-            f'bootstrap_record_artifact_provenance "{artifact}" "{pin}"'
-        )
-        return subprocess.run(
-            ["/bin/bash", "-c", command],
-            env=self.env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-
     def calls(self) -> str:
         return self.log.read_text(encoding="utf-8") if self.log.exists() else ""
 
 
 class BinBootstrapTest(unittest.TestCase):
+    def test_missing_canonical_explicit_bin_is_built_before_ci_admission(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            (checkout / ".git").mkdir(parents=True)
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+
+            result = h.resolve({"BIN": str(artifact), "CI": "1"})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertTrue(os.access(artifact, os.X_OK))
+            self.assertIn("cargo build --manifest-path", h.calls())
+        finally:
+            h.close()
+
     def test_untraceable_matching_explicit_bin_resolves_through_declared_pin(self) -> None:
         pin = "declared-revision"
         h = BootstrapHarness(pin)
@@ -213,27 +222,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_self_reporting_artifact_in_declared_clean_checkout_is_rejected(self) -> None:
-        pin = "declared-revision"
-        h = BootstrapHarness(pin)
-        try:
-            checkout = Path(h.tmp.name) / "traceable-source"
-            artifact = checkout / "target" / "debug" / "fkst-framework"
-            artifact.parent.mkdir(parents=True)
-            (checkout / ".git").mkdir()
-            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
-            write_framework_artifact(artifact, pin)
-
-            result = h.resolve({"BIN": str(artifact)})
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotEqual(result.stdout.strip(), str(artifact))
-            self.assertIn("checkout --detach declared-revision", h.calls())
-            self.assertIn("cargo build --manifest-path", h.calls())
-        finally:
-            h.close()
-
-    def test_builder_attested_artifact_from_declared_clean_checkout_is_admitted(self) -> None:
+    def test_self_reporting_artifact_in_declared_clean_checkout_is_rebuilt(self) -> None:
         pin = "declared-revision"
         h = BootstrapHarness(pin)
         try:
@@ -244,19 +233,17 @@ class BinBootstrapTest(unittest.TestCase):
             (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
             write_framework_artifact(artifact, pin)
             original_inode = artifact.stat().st_ino
-            attested = h.record_provenance(artifact, pin)
-            self.assertEqual(attested.returncode, 0, attested.stderr)
-            self.assertNotEqual(artifact.stat().st_ino, original_inode)
 
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertNotEqual(artifact.stat().st_ino, original_inode)
             self.assertIn("cargo build --manifest-path", h.calls())
         finally:
             h.close()
 
-    def test_artifact_modified_after_attestation_resolves_through_declared_pin(self) -> None:
+    def test_forged_local_provenance_cannot_bypass_the_declared_source_build(self) -> None:
         pin = "declared-revision"
         h = BootstrapHarness(pin)
         try:
@@ -266,16 +253,90 @@ class BinBootstrapTest(unittest.TestCase):
             (checkout / ".git").mkdir()
             (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
             write_framework_artifact(artifact, pin)
-            attested = h.record_provenance(artifact, pin)
-            self.assertEqual(attested.returncode, 0, attested.stderr)
-            write_framework_artifact(artifact, pin)
-            with artifact.open("a", encoding="utf-8") as handle:
-                handle.write("# modified after attestation\n")
+            original_inode = artifact.stat().st_ino
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            Path(f"{artifact}.fkst-provenance-v1").write_text(
+                "schema=fkst-framework-artifact-provenance.v1\n"
+                f"declared_pin={pin}\n"
+                f"source_commit={h.env['FKST_TEST_SOURCE_SHA']}\n"
+                f"artifact_sha256={digest}\n",
+                encoding="utf-8",
+            )
 
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotEqual(result.stdout.strip(), str(artifact))
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertNotEqual(artifact.stat().st_ino, original_inode)
+            self.assertIn("cargo build --manifest-path", h.calls())
+        finally:
+            h.close()
+
+    def test_traceable_artifact_is_rebuilt_before_admission(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+            original_inode = artifact.stat().st_ino
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertNotEqual(artifact.stat().st_ino, original_inode)
+            self.assertIn("cargo build --manifest-path", h.calls())
+        finally:
+            h.close()
+
+    def test_readonly_resolution_does_not_rebuild_existing_candidate(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+            original_inode = artifact.stat().st_ino
+
+            result = h.resolve({"BIN": str(artifact)}, mode="readonly")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertEqual(artifact.stat().st_ino, original_inode)
+            self.assertNotIn("cargo ", h.calls())
+        finally:
+            h.close()
+
+    def test_artifact_modified_after_admission_is_rebuilt_on_next_admission(self) -> None:
+        pin = "declared-revision"
+        h = BootstrapHarness(pin)
+        try:
+            checkout = Path(h.tmp.name) / "traceable-source"
+            artifact = checkout / "target" / "debug" / "fkst-framework"
+            artifact.parent.mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+            write_framework_artifact(artifact, pin)
+            first = h.resolve({"BIN": str(artifact)})
+            self.assertEqual(first.returncode, 0, first.stderr)
+            write_framework_artifact(artifact, pin)
+            with artifact.open("a", encoding="utf-8") as handle:
+                handle.write("# modified after admission\n")
+            modified_inode = artifact.stat().st_ino
+            self.log_truncate(h.log)
+
+            result = h.resolve({"BIN": str(artifact)})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertNotEqual(artifact.stat().st_ino, modified_inode)
             self.assertIn("cargo build --manifest-path", h.calls())
         finally:
             h.close()
@@ -295,7 +356,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_mismatched_explicit_bin_resolves_through_declared_pin(self) -> None:
+    def test_arbitrary_explicit_bin_in_declared_checkout_is_rebuilt(self) -> None:
         h = BootstrapHarness("declared-revision")
         try:
             checkout = Path(h.tmp.name) / "retired-source"
@@ -304,13 +365,14 @@ class BinBootstrapTest(unittest.TestCase):
             (checkout / ".git").mkdir()
             (checkout / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
             write_framework_artifact(artifact, "retired-revision")
+            original_inode = artifact.stat().st_ino
 
             result = h.resolve({"BIN": str(artifact)})
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotEqual(result.stdout.strip(), str(artifact))
-            self.assertIn("lacks builder provenance binding its bytes", result.stderr)
-            self.assertIn("checkout --detach declared-revision", h.calls())
+            self.assertEqual(result.stdout.strip(), str(artifact))
+            self.assertNotEqual(artifact.stat().st_ino, original_inode)
+            self.assertIn("cargo build --manifest-path", h.calls())
         finally:
             h.close()
 
@@ -329,7 +391,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_resolver_warm_cache_reports_source_miss_without_build_claim(self) -> None:
+    def test_resolver_warm_cache_rebuilds_without_refetching_source(self) -> None:
         h = BootstrapHarness("dev")
         try:
             cold = h.bootstrap()
@@ -341,7 +403,7 @@ class BinBootstrapTest(unittest.TestCase):
             self.assertEqual(warm.stdout.strip(), cold.stdout.strip())
             self.assertIn("no fkst-framework locator resolved to declared .fkst/substrate-ref", warm.stderr)
             self.assertNotIn("bootstrapping pinned source", warm.stderr)
-            self.assertNotIn("cargo ", h.calls())
+            self.assertIn("cargo build --manifest-path", h.calls())
             self.assertNotIn(" clone ", h.calls())
             self.assertNotIn(" fetch ", h.calls())
         finally:
@@ -364,7 +426,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_second_run_reuses_warm_binary_without_git_or_cargo(self) -> None:
+    def test_second_run_reuses_source_checkout_but_rebuilds_binary(self) -> None:
         h = BootstrapHarness("dev")
         try:
             first = h.bootstrap()
@@ -373,7 +435,7 @@ class BinBootstrapTest(unittest.TestCase):
             second = h.bootstrap()
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(first.stdout.strip(), second.stdout.strip())
-            self.assertNotIn("cargo ", h.calls())
+            self.assertIn("cargo build --manifest-path", h.calls())
             self.assertNotIn(" clone ", h.calls())
             self.assertNotIn(" fetch ", h.calls())
         finally:
@@ -410,7 +472,7 @@ class BinBootstrapTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_waiter_reuses_binary_produced_while_lock_is_held(self) -> None:
+    def test_waiter_rebuilds_after_lock_holder_releases(self) -> None:
         h = BootstrapHarness("dev")
         try:
             first = h.bootstrap()
@@ -421,17 +483,27 @@ class BinBootstrapTest(unittest.TestCase):
             # Simulate a concurrent bootstrap holding the lock while the binary
             # it produces is already on disk.
             lock_dir.mkdir(parents=True)
+            (h.fake_bin / "sleep").unlink()
+            write_executable(
+                h.fake_bin / "sleep",
+                "#!/usr/bin/env sh\n"
+                'rm -rf "$FKST_TEST_LOCK_DIR"\n',
+            )
             self.log_truncate(h.log)
 
-            waiter = h.bootstrap({"FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT": "2"})
+            waiter = h.bootstrap(
+                {
+                    "FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT": "2",
+                    "FKST_TEST_LOCK_DIR": str(lock_dir),
+                }
+            )
             self.assertEqual(waiter.returncode, 0, waiter.stderr)
             self.assertEqual(waiter.stdout.strip(), bin_path)
             self.assertNotIn("timed out waiting for fkst-framework bootstrap lock", waiter.stderr)
-            self.assertNotIn("cargo ", h.calls())
+            self.assertIn("cargo build --manifest-path", h.calls())
             self.assertNotIn(" clone ", h.calls())
             self.assertNotIn(" fetch ", h.calls())
-            # The waiter must not steal or remove the holder's lock.
-            self.assertTrue(lock_dir.is_dir())
+            self.assertFalse(lock_dir.exists())
         finally:
             h.close()
 

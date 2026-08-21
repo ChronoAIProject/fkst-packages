@@ -98,7 +98,8 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('ref="$(git show HEAD:.fkst/substrate-ref', workflow)
         self.assertNotIn("sed -n '1{s/[[:space:]]//g;p;q}' .fkst/substrate-ref", workflow)
         self.assertIn('test -n "$ref"', workflow)
-        self.assertIn("bootstrap_record_artifact_provenance", workflow)
+        self.assertIn("BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework", workflow)
+        self.assertNotIn("bootstrap_record_artifact_provenance", workflow)
 
     def test_pull_request_verification_is_head_and_current_base_bound(self) -> None:
         workflow = self.read_workflow()

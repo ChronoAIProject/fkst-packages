@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import stat
 import subprocess
@@ -96,25 +95,6 @@ fi
 """
             ),
         )
-        self._record_framework_provenance()
-
-    def _record_framework_provenance(self) -> None:
-        command = (
-            f'. {shlex.quote(str(REPO_ROOT / "scripts" / "bin_bootstrap.sh"))}; '
-            f'bootstrap_record_artifact_provenance {shlex.quote(str(self.framework))} '
-            f'{shlex.quote(SUBSTRATE_PIN)}'
-        )
-        result = subprocess.run(
-            ["/bin/bash", "-c", command],
-            env=self.command_env(),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise AssertionError(result.stderr + result.stdout)
-
     def close(self) -> None:
         self.tmp.cleanup()
 

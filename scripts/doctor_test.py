@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import shlex
 import shutil
 import stat
 import subprocess
@@ -64,7 +63,6 @@ class DoctorHarness:
             "FKST_TEST_FRAMEWORK_SOURCE": str(self.framework.resolve()),
         }
         self._install_default_tools()
-        self._record_framework_provenance()
 
     def close(self) -> None:
         self.tmp.cleanup()
@@ -128,23 +126,6 @@ class DoctorHarness:
             if path is None:
                 raise RuntimeError(f"required test tool missing: {tool}")
             write_executable(self.fake_bin / tool, f"#!/bin/sh\n{path} \"$@\"\n")
-
-    def _record_framework_provenance(self) -> None:
-        command = (
-            f'. {shlex.quote(str(REPO_ROOT / "scripts" / "bin_bootstrap.sh"))}; '
-            f'bootstrap_record_artifact_provenance {shlex.quote(str(self.framework))} '
-            f'{shlex.quote(SUBSTRATE_PIN)}'
-        )
-        result = subprocess.run(
-            ["/bin/bash", "-c", command],
-            env=self.env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise AssertionError(result.stderr + result.stdout)
 
     def run_doctor(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

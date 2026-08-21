@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fkst-framework BIN resolution and local-source freshness for scripts/run.sh.
+# fkst-framework BIN resolution and source-checkout context for scripts/run.sh.
 
 BIN_REPOSITORY_ROOT=""
 
@@ -48,31 +48,10 @@ ensure_fresh_bin() {
 
   if [ -z "$substrate" ]; then
     if [ -z "${FKST_NO_AUTOBUILD:-}" ]; then
-      echo "warning: cannot trace BIN to an fkst-substrate checkout; skipping freshness build: $BIN" >&2
+      echo "warning: cannot trace BIN to an fkst-substrate checkout: $BIN" >&2
     fi
     return 0
   fi
 
   warn_if_substrate_behind "$substrate"
-
-  if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then
-    echo "warning: FKST_NO_AUTOBUILD set; skipping fkst-framework freshness build" >&2
-    return 0
-  fi
-
-  echo "ensuring fkst-framework is built from current source: $substrate" >&2
-  local build_out cargo_bin pin
-  if [ -n "${FKST_CARGO:-}" ]; then
-    cargo_bin="$FKST_CARGO"
-  else
-    cargo_bin="cargo"
-    echo "warning: FKST_CARGO is not set; falling back to cargo from PATH for this local freshness build" >&2
-  fi
-  pin="$(bootstrap_read_pin "$ROOT")"
-  if ! build_out="$(FKST_CARGO="$cargo_bin" bootstrap_record_artifact_provenance "$BIN" "$pin" 2>&1)"; then
-    local_iteration_result_fail "TOOLCHAIN"
-    printf '%s\n' "$build_out" >&2
-    echo "error: fkst-framework freshness build could not record artifact provenance: $BIN" >&2
-    exit 1
-  fi
 }

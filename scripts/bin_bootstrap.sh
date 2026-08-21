@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Resolve fkst-framework locators only when the artifact proves it was built
-# from the repository's declared fkst-substrate revision.
+# Resolve fkst-framework locators only after rebuilding the artifact from the
+# repository's declared fkst-substrate revision.
 
 bootstrap_die() {
   echo "error: $*" >&2
@@ -71,19 +71,6 @@ resolve_phys_path() {
   printf '%s/%s\n' "$dir" "$(basename "$p")"
 }
 
-bootstrap_artifact_sha256() {
-  python3 -B - "$1" <<'PY'
-import hashlib
-import sys
-
-digest = hashlib.sha256()
-with open(sys.argv[1], "rb") as artifact:
-    for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
-        digest.update(chunk)
-print(digest.hexdigest())
-PY
-}
-
 bootstrap_candidate_source_commit() {
   local candidate="$1" pin="$2" suffix source_root ref head target status
   suffix="/target/debug/fkst-framework"
@@ -140,56 +127,33 @@ bootstrap_build_artifact() {
   return 0
 }
 
-bootstrap_artifact_provenance_path() {
-  printf '%s.fkst-provenance-v1\n' "$1"
-}
-
-bootstrap_record_artifact_provenance() {
-  local candidate="$1" pin="$2" source_commit digest provenance pending
-  bootstrap_build_artifact "$candidate" "$pin" || return 1
-  source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || return 1
-  digest="$(bootstrap_artifact_sha256 "$candidate")" || return 1
-  provenance="$(bootstrap_artifact_provenance_path "$candidate")"
-  pending="$provenance.tmp.$$"
-  printf '%s\n' \
-    "schema=fkst-framework-artifact-provenance.v1" \
-    "declared_pin=$pin" \
-    "source_commit=$source_commit" \
-    "artifact_sha256=$digest" > "$pending" || return 1
-  mv "$pending" "$provenance"
-}
-
-bootstrap_artifact_provenance_matches() {
-  local candidate="$1" pin="$2" source_commit="$3" provenance schema declared source digest actual
-  provenance="$(bootstrap_artifact_provenance_path "$candidate")"
-  [ -f "$provenance" ] && [ ! -L "$provenance" ] || return 1
-  schema="$(sed -n '1p' "$provenance")"
-  declared="$(sed -n '2p' "$provenance")"
-  source="$(sed -n '3p' "$provenance")"
-  digest="$(sed -n '4p' "$provenance")"
-  [ "$schema" = "schema=fkst-framework-artifact-provenance.v1" ] || return 1
-  [ "$declared" = "declared_pin=$pin" ] || return 1
-  [ "$source" = "source_commit=$source_commit" ] || return 1
-  case "$digest" in
-    artifact_sha256=????????????????????????????????????????????????????????????????) ;;
-    *) return 1 ;;
-  esac
-  actual="$(bootstrap_artifact_sha256 "$candidate")" || return 1
-  [ "$digest" = "artifact_sha256=$actual" ]
-}
-
-bootstrap_candidate_matches_pin() {
+bootstrap_candidate_source_matches_pin() {
   local candidate="$1" pin="$2" source="$3" source_commit
   source_commit="$(bootstrap_candidate_source_commit "$candidate" "$pin")" || source_commit=""
   if [ -z "$source_commit" ]; then
     echo "warning: $source fkst-framework source checkout does not resolve cleanly to declared .fkst/substrate-ref: $pin" >&2
     return 1
   fi
-  if ! bootstrap_artifact_provenance_matches "$candidate" "$pin" "$source_commit"; then
-    echo "warning: $source fkst-framework lacks builder provenance binding its bytes to declared .fkst/substrate-ref: $pin" >&2
+  return 0
+}
+
+bootstrap_rebuild_candidate() {
+  local candidate="$1" pin="$2" source="$3"
+  bootstrap_candidate_source_matches_pin "$candidate" "$pin" "$source" || return 1
+  if ! bootstrap_build_artifact "$candidate" "$pin"; then
+    echo "warning: $source fkst-framework could not be rebuilt from declared .fkst/substrate-ref: $pin" >&2
     return 1
   fi
   return 0
+}
+
+bootstrap_admit_candidate() {
+  local candidate="$1" pin="$2" source="$3" mode="$4"
+  if [ "$mode" = "readonly" ]; then
+    bootstrap_candidate_source_matches_pin "$candidate" "$pin" "$source"
+  else
+    bootstrap_rebuild_candidate "$candidate" "$pin" "$source"
+  fi
 }
 
 resolve_bin_contract() {
@@ -200,10 +164,16 @@ resolve_bin_contract() {
 
   if [ -n "${BIN:-}" ]; then
     if [ ! -x "$BIN" ]; then
+      if [ "$mode" != "readonly" ] \
+          && bootstrap_candidate_source_commit "$BIN" "$pin" >/dev/null 2>&1 \
+          && bootstrap_rebuild_candidate "$BIN" "$pin" "explicit BIN"; then
+        RESOLVED_BIN="$BIN"
+        return 0
+      fi
       RESOLVE_BIN_ERROR="explicit BIN is not executable: $BIN"
       return 1
     fi
-    if bootstrap_candidate_matches_pin "$BIN" "$pin" "explicit BIN"; then
+    if bootstrap_admit_candidate "$BIN" "$pin" "explicit BIN" "$mode"; then
       RESOLVED_BIN="$BIN"
       return 0
     fi
@@ -217,10 +187,16 @@ resolve_bin_contract() {
     candidate="${candidate%\"}"; candidate="${candidate#\"}"; candidate="${candidate%\'}"; candidate="${candidate#\'}"
     if [ -n "$candidate" ]; then
       if [ ! -x "$candidate" ]; then
+        if [ "$mode" != "readonly" ] \
+            && bootstrap_candidate_source_commit "$candidate" "$pin" >/dev/null 2>&1 \
+            && bootstrap_rebuild_candidate "$candidate" "$pin" ".fkst/env BIN"; then
+          RESOLVED_BIN="$candidate"
+          return 0
+        fi
         RESOLVE_BIN_ERROR=".fkst/env BIN is not executable: $candidate"
         return 1
       fi
-      if bootstrap_candidate_matches_pin "$candidate" "$pin" ".fkst/env BIN"; then
+      if bootstrap_admit_candidate "$candidate" "$pin" ".fkst/env BIN" "$mode"; then
         RESOLVED_BIN="$candidate"
         return 0
       fi
@@ -229,7 +205,7 @@ resolve_bin_contract() {
 
   if command -v fkst-framework >/dev/null 2>&1; then
     candidate="$(command -v fkst-framework)"
-    if bootstrap_candidate_matches_pin "$candidate" "$pin" "PATH"; then
+    if bootstrap_admit_candidate "$candidate" "$pin" "PATH" "$mode"; then
       RESOLVED_BIN="$candidate"
       return 0
     fi
@@ -237,7 +213,7 @@ resolve_bin_contract() {
 
   candidate="$repo_root/../fkst-substrate/target/debug/fkst-framework"
   if [ -x "$candidate" ]; then
-    if bootstrap_candidate_matches_pin "$candidate" "$pin" "sibling checkout"; then
+    if bootstrap_admit_candidate "$candidate" "$pin" "sibling checkout" "$mode"; then
       RESOLVED_BIN="$candidate"
       return 0
     fi
@@ -254,7 +230,7 @@ resolve_bin_contract() {
         cache_root="$(bootstrap_cache_root 2>/dev/null || true)"
         if [ -n "${owner:-}" ] && [ -n "${repo:-}" ] && [ -n "${ref:-}" ] && [ -n "$cache_root" ]; then
           cache_bin="$(bootstrap_cache_bin_path "$repo_root" "$cache_root" "$owner" "$repo" "$ref" 2>/dev/null || true)"
-          if [ -x "$cache_bin" ] && bootstrap_candidate_matches_pin "$cache_bin" "$pin" "pinned cache"; then
+          if [ -x "$cache_bin" ] && bootstrap_candidate_source_matches_pin "$cache_bin" "$pin" "pinned cache"; then
             RESOLVED_BIN="$cache_bin"
             return 0
           fi
@@ -275,20 +251,11 @@ resolve_bin_contract() {
   return 0
 }
 
-# Single flight: exactly one process builds the pinned binary; every other
-# process reuses the artifact it produces. Returns 0 holding the lock, or
-# BOOTSTRAP_LOCK_ARTIFACT_READY when the holder finished and "$bin_path" is
-# usable — waiting out the whole timeout and dying would discard a binary that
-# already exists.
-BOOTSTRAP_LOCK_ARTIFACT_READY=2
+# Serialize verifier-controlled rebuilds of the shared pinned source checkout.
 
 bootstrap_with_lock() {
-  local lock_dir="$1" bin_path="$2" pin="$3" timeout="${FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT:-600}" waited=0
+  local lock_dir="$1" timeout="${FKST_BIN_BOOTSTRAP_LOCK_TIMEOUT:-600}" waited=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
-    if [ -x "$bin_path" ] \
-      && bootstrap_candidate_matches_pin "$bin_path" "$pin" "pinned cache under bootstrap lock" 2>/dev/null; then
-      return "$BOOTSTRAP_LOCK_ARTIFACT_READY"
-    fi
     if [ "$waited" -ge "$timeout" ]; then
       bootstrap_die "timed out waiting for fkst-framework bootstrap lock: $lock_dir"
     fi
@@ -330,37 +297,20 @@ bootstrap_bin_on_total_miss() {
   } < <(bootstrap_parse_pin "$pin")
   cache_root="$(bootstrap_cache_root)"
   bin_path="$(bootstrap_cache_bin_path "$repo_root" "$cache_root" "$owner" "$repo" "$ref")"
-  if [ -x "$bin_path" ] && bootstrap_candidate_matches_pin "$bin_path" "$pin" "pinned cache"; then
-    bootstrap_set_result "$result_var" hit
-    printf '%s\n' "$bin_path"
-    return 0
-  fi
 
   checkout_dir="${bin_path%/target/debug/fkst-framework}"
   parent_dir="$(dirname "$checkout_dir")"
   mkdir -p "$parent_dir"
   lock_dir="$checkout_dir.lock"
 
-  local lock_rc
-  while true; do
-    lock_rc=0
-    bootstrap_with_lock "$lock_dir" "$bin_path" "$pin" || lock_rc=$?
-    if [ "$lock_rc" -eq "$BOOTSTRAP_LOCK_ARTIFACT_READY" ]; then
-      if [ -x "$bin_path" ] && bootstrap_candidate_matches_pin "$bin_path" "$pin" "pinned cache"; then
-        bootstrap_set_result "$result_var" hit
-        printf '%s\n' "$bin_path"
-        return 0
-      fi
-      continue
+  bootstrap_with_lock "$lock_dir"
+  if bootstrap_candidate_source_commit "$bin_path" "$pin" >/dev/null 2>&1; then
+    if ! bootstrap_build_artifact "$bin_path" "$pin"; then
+      rm -rf "$lock_dir"
+      return 1
     fi
-    if [ "$lock_rc" -ne 0 ]; then
-      return "$lock_rc"
-    fi
-    break
-  done
-  if [ -x "$bin_path" ] && bootstrap_candidate_matches_pin "$bin_path" "$pin" "pinned cache"; then
     rm -rf "$lock_dir"
-    bootstrap_set_result "$result_var" hit
+    bootstrap_set_result "$result_var" build
     printf '%s\n' "$bin_path"
     return 0
   fi
@@ -377,10 +327,8 @@ bootstrap_bin_on_total_miss() {
     fi
 
     bootstrap_checkout_ref "$checkout_dir" "$ref" || exit $?
-    bootstrap_record_artifact_provenance "$bin_path" "$pin" \
-      || bootstrap_die "fkst-framework bootstrap could not record artifact provenance: $bin_path"
-    bootstrap_candidate_matches_pin "$bin_path" "$pin" "fresh pinned build" \
-      || bootstrap_die "fkst-framework bootstrap produced an artifact with mismatched source provenance: $bin_path"
+    bootstrap_build_artifact "$bin_path" "$pin" \
+      || bootstrap_die "fkst-framework bootstrap could not build the declared source: $bin_path"
     printf '%s\n' "$bin_path"
   ); then
     rm -rf "$lock_dir"

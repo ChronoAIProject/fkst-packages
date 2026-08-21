@@ -81,21 +81,12 @@ jobs:
         with:
           workspaces: fkst-substrate
 
-      - name: Build fkst-framework
-        working-directory: fkst-substrate
-        env:
-          FKST_FRAMEWORK_SOURCE_PIN: ${{ steps.substrate_ref.outputs.ref }}
-        run: |
-          source "$GITHUB_WORKSPACE/scripts/bin_bootstrap.sh"
-          bootstrap_record_artifact_provenance "$PWD/target/debug/fkst-framework" "$FKST_FRAMEWORK_SOURCE_PIN"
-
       - name: Run repository checks and package tests
         env:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
           FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
-          test -x "$BIN"
           scripts/run.sh test
 
       # Per-test outcomes exist in every run as `--report-json` files and were discarded with
