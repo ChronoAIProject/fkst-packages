@@ -35,9 +35,19 @@ To regenerate this page after an adapter change:
 | Metadata | Read | Mandatory GitHub App metadata access; GitHub grants it automatically. |
 | Pull requests | Read and write | Read open PR lists (including base/head filters), closed PRs by head, individual PRs, and `gh pr view\|diff`; write with `gh pr create\|ready\|close`, PR labels and assignees, and `gh pr merge --merge --match-head-commit <sha>`. |
 
-Administration deliberately stays at read. Merge admission depends on branch-protection required
-checks and on the appliance having no administrative override. Granting Administration write would
-remove the no-bypass property on which the authorization model depends.
+Administration is listed at read because that is the intent, and the intent is that merge admission
+depends on branch-protection required checks and on the appliance having no administrative
+override. **That intent is not currently enforced.** On 2026-08-21 an appliance installation
+created an active repository ruleset by API and the rule took effect, blocking a direct push to
+`dev`. An actor that can create a ruleset can delete one, so the no-bypass property this paragraph
+relies on is not established by the permission set as it stands.
+
+The repository permissions object is not a reliable check here either: it reported `admin: false`,
+`maintain: false` and `push: false` for an installation that pushes branches continuously.
+
+Tracked as `ChronoAIProject/fkst-ops#72`. Either the installation permissions are narrowed until
+this paragraph is true, or the admission model stops depending on a property the token does not
+provide; that choice is the maintainer's.
 
 ## Organization Permission
 
