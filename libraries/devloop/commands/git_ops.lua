@@ -72,6 +72,35 @@ local function worktree_is_registered(stdout, worktree)
   return false
 end
 
+local function worktree_is_exact_locked_initializing_owner(stdout, worktree, branch)
+  local expected_path = tostring(worktree or "")
+  local expected_branch = "refs/heads/" .. tostring(branch or "")
+  local record = nil
+  local matches = 0
+  local current = nil
+  for line in (tostring(stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    if line == "" then
+      current = nil
+    else
+      local path = line:match("^worktree%s+(.+)$")
+      if path ~= nil then
+        current = { path = path, branch = nil, lock_reason = nil }
+        if path == expected_path then
+          record = current
+          matches = matches + 1
+        end
+      elseif current ~= nil then
+        current.branch = line:match("^branch%s+(.+)$") or current.branch
+        current.lock_reason = line:match("^locked%s+(.+)$") or current.lock_reason
+      end
+    end
+  end
+  return matches == 1
+    and record ~= nil
+    and record.lock_reason == "initializing"
+    and (record.branch == nil or record.branch == expected_branch)
+end
+
 local function path_entry_exists_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
@@ -248,12 +277,35 @@ end
     return support.git().switch_branch(worktree, validators.require_safe_branch("branch", branch), timeout)
   end
 
-  function C.git_worktree_force_clean(worktree, timeout)
+  function C.git_worktree_force_clean(worktree, timeout, options)
     local value = tostring(worktree or "")
     if value == "" or value:find("[\r\n]") ~= nil then
       error("github-devloop: worktree-path-invalid: invalid worktree path")
     end
     local remove_result = support.git().worktree_remove(value, timeout)
+    local locked_branch = type(options) == "table" and options.locked_initializing_branch or nil
+    if command_failed(remove_result) and locked_branch ~= nil then
+      locked_branch = validators.require_safe_branch("locked initializing owner branch", locked_branch)
+      local owner_list = C.git_worktree_list(timeout)
+      if command_failed(owner_list) then
+        return cleanup_failure("owner-check", owner_list, remove_result)
+      end
+      if worktree_is_registered(owner_list.stdout, value)
+        and not worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch) then
+        return cleanup_failure(
+          "owner-check",
+          { stdout = "", stderr = "", exit_code = 1 },
+          remove_result,
+          "registered worktree is not the exact locked initializing owner: " .. value
+        )
+      end
+      if worktree_is_exact_locked_initializing_owner(owner_list.stdout, value, locked_branch) then
+        local locked_remove = support.git().worktree_remove_locked(value, timeout)
+        if command_failed(locked_remove) then
+          return cleanup_failure("owner-remove", locked_remove, remove_result)
+        end
+      end
+    end
     local directory_result = exec_argv({
       argv = { "rm", "-rf", "--", value },
       timeout = timeout,
@@ -428,6 +480,10 @@ end
       end
     end
     return false
+  end
+
+  function C.worktree_is_exact_locked_initializing_owner(stdout, worktree, branch)
+    return worktree_is_exact_locked_initializing_owner(stdout, worktree, branch)
   end
 
   function C.find_worktree_for_branch_under_root(stdout, branch, root)

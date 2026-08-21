@@ -52,6 +52,10 @@ local function implementation_worktree_path(durable_root, event)
   )
 end
 
+local function implementation_lock_key(event)
+  return devloop_base.implement_lock_key(event.proposal_id)
+end
+
 local function worktree_outcome(worktree)
   local event = h.ready()
   local branch = h.deterministic_branch_for(event)
@@ -196,7 +200,7 @@ return {
     })
 
     local worktree = worktree_lifecycle.prepare_worktree(
-      "owner/repo", 42, retry, branch, "abc123", nil)
+      "owner/repo", 42, retry, branch, "abc123", nil, implementation_lock_key(retry))
 
     t.eq(worktree, first_attempt_worktree)
     t.eq(h.count_calls("git worktree remove --force"), 0)
@@ -257,7 +261,7 @@ return {
 
     assert_error_contains(function()
       worktree_lifecycle.prepare_worktree(
-        "owner/repo", 42, event, branch, "abc123", nil)
+        "owner/repo", 42, event, branch, "abc123", nil, implementation_lock_key(event))
     end, "worktree-registration-conflict")
     t.eq(h.count_calls("git worktree remove --force"), 0)
   end,

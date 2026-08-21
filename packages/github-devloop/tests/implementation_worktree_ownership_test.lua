@@ -2,6 +2,23 @@ local h = require("tests.devloop_helpers")
 local t = h.t
 
 return {
+  test_implement_reclaims_its_dead_locked_initializing_worktree = function()
+    local event = h.ready()
+    local branch = h.deterministic_branch_for(event)
+    h.mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    h.mock_locked_initializing_implement_worktree()
+    h.mock_implement_codex(0, "implemented")
+    h.mock_git_status(" M packages/github-devloop/core.lua\n")
+    h.mock_git_commit("def456", branch)
+
+    local result = h.run_implement(event, h.opts("implement-reclaim-dead-initializing-worktree"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("git worktree remove --force --force"), 1)
+    t.eq(h.count_calls("git worktree add"), 1)
+    t.eq(h.count_calls("codex exec"), 1)
+  end,
+
   test_implement_does_not_reclaim_noncanonical_worktree = function()
     local event = h.ready()
     local branch = h.deterministic_branch_for(event)

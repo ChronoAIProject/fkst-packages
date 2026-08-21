@@ -132,6 +132,13 @@ function M.new(deps)
     local list_result = opts.list_result or command_result(0)
 
     t.mock_command("git worktree remove --force", remove_result)
+    if remove_result.exit_code ~= 0 then
+      t.mock_command("git worktree list --porcelain",
+        opts.owner_list_result or command_result(0))
+    end
+    if opts.locked_remove_result ~= nil then
+      t.mock_command("git worktree remove --force --force", opts.locked_remove_result)
+    end
     t.mock_command("rm -rf --", directory_result)
     t.mock_command("git worktree prune", prune_result)
     if directory_result.exit_code ~= 0 then
@@ -201,6 +208,37 @@ function M.new(deps)
       mock_harvest_worktree(
         worktree,
         implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
+    end
+    return worktree
+  end
+
+  local function mock_locked_initializing_implement_worktree(path)
+    local durable, opts = worktree_options(path)
+    local worktree = implement_worktree_for(durable, opts)
+    local branch = implement_branch_for(opts)
+    local locked_registration = "worktree " .. tostring(worktree) .. "\nlocked initializing\n\n"
+    mock_dev_base_head()
+    t.mock_command("show-ref --verify --quiet", command_result(0))
+    mock_durable_root(durable)
+    t.mock_command("git worktree list --porcelain",
+      command_result(0, "", locked_registration))
+    mock_force_clean(worktree, {
+      remove_result = command_result(128, "fatal: cannot remove a locked working tree"),
+      owner_list_result = command_result(0, "", locked_registration),
+      locked_remove_result = command_result(0),
+    })
+    mock_worktree_parent_mkdir()
+    t.mock_command("git worktree add", command_result(0))
+    mock_implement_worktree_reconcile()
+    t.mock_command("merge --no-edit 'abc123'", command_result(0, "", "Already up to date.\n"))
+    mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin)
+    if opts.harvest ~= false then
+      mock_harvest_worktree(
+        worktree,
+        branch,
         opts.additional_registrations,
         opts.harvest_checks
       )
@@ -588,6 +626,7 @@ function M.new(deps)
     mock_force_clean = mock_force_clean,
     deterministic_branch_for = deterministic_branch_for,
     mock_fresh_implement_worktree = mock_fresh_implement_worktree,
+    mock_locked_initializing_implement_worktree = mock_locked_initializing_implement_worktree,
     mock_fresh_external_pr_implement_worktree = mock_fresh_external_pr_implement_worktree,
     mock_existing_empty_implement_worktree = mock_existing_empty_implement_worktree,
     mock_existing_empty_implement_worktree_reuse = mock_existing_empty_implement_worktree_reuse,

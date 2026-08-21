@@ -124,7 +124,17 @@ local function canonical_worktree(repo, issue_number, dedup_key, retry_attempt, 
   return worktree, list_result.stdout
 end
 
-function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
+local function allocator_cleanup(worktree, ready, branch, lock_key)
+  local expected_lock_key = devloop_base.implement_lock_key(ready.proposal_id)
+  if tostring(lock_key or "") ~= expected_lock_key then
+    error("github-devloop: allocator-lock-mismatch: worktree recovery requires the implementation issue lock")
+  end
+  return devloop_commands.git_worktree_force_clean(worktree, 60, {
+    locked_initializing_branch = branch,
+  })
+end
+
+function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint, lock_key)
   local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
   local branch_exists = branch_ref.exit_code == 0
   local checkpoint_head = checkpoint_head_for_branch(checkpoint, branch)
@@ -135,7 +145,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
   local worktree, worktree_list = canonical_worktree(
     repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
   if checkpoint_head ~= nil then
-    local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
+    local clean_result = allocator_cleanup(worktree, ready, branch, lock_key)
     if clean_result.exit_code ~= 0 then
       error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
     end
@@ -146,7 +156,8 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       worktree,
       branch
     ) and worktree or nil
-    if existing_worktree ~= nil then
+    if existing_worktree ~= nil
+      and not devloop_commands.worktree_is_exact_locked_initializing_owner(worktree_list, worktree, branch) then
       worktree = existing_worktree
       devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
         "branch=" .. tostring(branch),
@@ -154,7 +165,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
         "reason=reusing canonical deterministic worktree",
       })
     else
-      local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
+      local clean_result = allocator_cleanup(worktree, ready, branch, lock_key)
       if clean_result.exit_code ~= 0 then
         error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
       end
@@ -164,7 +175,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       end
     end
   else
-    local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
+    local clean_result = allocator_cleanup(worktree, ready, branch, lock_key)
     if clean_result.exit_code ~= 0 then
       error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
     end
@@ -177,9 +188,9 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
   return worktree
 end
 
-function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
+function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head, lock_key)
   local worktree = canonical_worktree(repo, issue_number, ready.dedup_key, ready.impl_retry_attempt, branch)
-  local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
+  local clean_result = allocator_cleanup(worktree, ready, branch, lock_key)
   if clean_result.exit_code ~= 0 then
     error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
   end

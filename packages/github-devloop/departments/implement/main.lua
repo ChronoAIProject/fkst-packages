@@ -255,8 +255,8 @@ end
 
 local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, completed_result, receiver_state, snapshot, decision, lock_key, operator_reimplement_delivery)
   local worktree = bridge_marker ~= nil and completed_result == nil
-    and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-    or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
+    and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head, lock_key)
+    or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint, lock_key)
   local codex_started_at, exec_ref = now(), core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
   local merge_clean = worktree_lifecycle.merge_integration(
     implement_caps.git_handle, worktree, branches.integration, base_head)

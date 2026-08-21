@@ -249,6 +249,10 @@ local function worktree_remove_argv(worktree)
   return { "git", "worktree", "remove", "--force", tostring(worktree) }
 end
 
+local function worktree_remove_locked_argv(worktree)
+  return { "git", "worktree", "remove", "--force", "--force", tostring(worktree) }
+end
+
 local function worktree_list_argv()
   return { "git", "worktree", "list", "--porcelain" }
 end
@@ -607,6 +611,10 @@ function M.install(handle)
 
   function handle.worktree_remove(worktree, timeout)
     return exec_result(handle, worktree_remove_argv(worktree), timeout, "git worktree remove")
+  end
+
+  function handle.worktree_remove_locked(worktree, timeout)
+    return exec_result(handle, worktree_remove_locked_argv(worktree), timeout, "git worktree remove locked")
   end
 
   function handle.worktree_list(timeout)
