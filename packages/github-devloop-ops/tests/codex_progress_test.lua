@@ -1,10 +1,21 @@
 local progress = require("core.codex_progress")
+local progress_identity = require("devloop.codex_progress_identity")
 local t = fkst.test
 
 local card_refreshed_at = "2026-08-15T09:00:00Z"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local pr_proposal_id = "github-devloop/pr/owner/repo/7"
 local review_proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
+local review_cohort_id = string.rep("a", 64)
+local retry_cohort_id = string.rep("b", 64)
+
+local function progress_label(cohort_id)
+  return progress_identity.label(pr_proposal_id, cohort_id)
+end
+
+local function snapshot_id(cohort_id)
+  return progress_identity.parse_label(progress_label(cohort_id)).snapshot_id
+end
 
 local function running_row(extra)
   local row = {
@@ -44,7 +55,7 @@ local function pr_running_row(extra)
     role = "consensus",
     dept = "review_result",
     proposal_id = review_proposal_id,
-    label = pr_proposal_id,
+    label = progress_label(review_cohort_id),
     dedup_key = "convergence:consensus:review-v1:teleology",
     output_tail = "Reviewing pull request",
     started_at_ms = 1786622400000,
@@ -260,7 +271,7 @@ return {
 
     t.eq(#cards, 1)
     local card = cards[1]
-    t.eq(card.request.replace_snapshot.run_id, "codex-01ARZ3NDEKTSV4RRFFQ6000011")
+    t.eq(card.request.replace_snapshot.run_id, snapshot_id(review_cohort_id))
     t.eq(card.request.replace_snapshot.status, "running")
     t.is_true(card.request.body:find("- Runs: `5`", 1, true) ~= nil)
     for _, lane in ipairs({ "teleology", "parsimony", "fidelity", "natural-ownership", "proportional-containment" }) do
@@ -283,7 +294,7 @@ return {
     local cards = progress.project_pr_cards(running, recent, card_refreshed_at)
 
     t.eq(#cards, 1)
-    t.eq(cards[1].request.replace_snapshot.run_id, "codex-01ARZ3NDEKTSV4RRFFQ6000011")
+    t.eq(cards[1].request.replace_snapshot.run_id, snapshot_id(review_cohort_id))
     t.eq(cards[1].request.replace_snapshot.status, "running")
     t.is_true(cards[1].request.body:find("- Runs: `5`", 1, true) ~= nil)
     t.is_true(cards[1].request.body:find("fidelity done", 1, true) ~= nil)
@@ -304,14 +315,58 @@ return {
     local first = progress.project_pr_cards({}, recent, card_refreshed_at)[1]
     local second = progress.project_pr_cards({}, recent, "2026-08-15T10:00:00Z")[1]
 
-    t.eq(first.request.replace_snapshot.run_id, "codex-01ARZ3NDEKTSV4RRFFQ6000011")
+    t.eq(first.request.replace_snapshot.run_id, snapshot_id(review_cohort_id))
     t.eq(first.request.replace_snapshot.status, "failed")
     t.eq(first.request.body, second.request.body)
     t.eq(first.request.dedup_key, second.request.dedup_key)
     t.is_nil(first.request.body:find("Card last updated", 1, true))
     t.is_true(first.request.body:find("Outcome: `failed`", 1, true) ~= nil)
     t.is_true(first.request.body:find(progress.marker(
-      pr_proposal_id, "codex-01ARZ3NDEKTSV4RRFFQ6000011", "failed"), 1, true) ~= nil)
+      pr_proposal_id, first.request.replace_snapshot.run_id, "failed"), 1, true) ~= nil)
+  end,
+
+  test_failed_review_attempt_is_replaced_by_running_retry_then_success = function()
+    local failed = pr_terminal_row({
+      run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000021",
+      label = progress_label(review_cohort_id),
+      status = "failed",
+      exit_code = 17,
+      output_tail = "first attempt failed",
+      started_at_ms = 1786622400000,
+      ended_at_ms = 1786622525750,
+    })
+    local running_retry = pr_running_row({
+      run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000022",
+      label = progress_label(retry_cohort_id),
+      output_tail = "retry running",
+      started_at_ms = 1786622600000,
+    })
+
+    local failed_card = progress.project_pr_cards({}, { failed }, card_refreshed_at)[1]
+    local running_card = progress.project_pr_cards(
+      { running_retry }, { failed }, card_refreshed_at)[1]
+
+    t.eq(failed_card.request.replace_snapshot.status, "failed")
+    t.eq(running_card.request.replace_snapshot.status, "running")
+    t.eq(running_card.request.replace_snapshot.run_id == failed_card.request.replace_snapshot.run_id, false)
+    t.is_true(running_card.request.body:find("retry running", 1, true) ~= nil)
+    t.is_nil(running_card.request.body:find("first attempt failed", 1, true))
+    t.is_true(running_card.request.body:find("- Runs: `1`", 1, true) ~= nil)
+
+    local successful_retry = pr_terminal_row({
+      run_id = running_retry.run_id,
+      label = running_retry.label,
+      output_tail = "retry succeeded",
+      started_at_ms = running_retry.started_at_ms,
+      ended_at_ms = 1786622725750,
+    })
+    local success_card = progress.project_pr_cards(
+      {}, { failed, successful_retry }, card_refreshed_at)[1]
+
+    t.eq(success_card.request.replace_snapshot.run_id, running_card.request.replace_snapshot.run_id)
+    t.eq(success_card.request.replace_snapshot.status, "done")
+    t.is_true(success_card.request.body:find("retry succeeded", 1, true) ~= nil)
+    t.is_nil(success_card.request.body:find("first attempt failed", 1, true))
   end,
 
   test_pull_request_projection_requires_an_explicit_canonical_target_label = function()
@@ -320,6 +375,7 @@ return {
     local invalid = {
       missing_label,
       pr_running_row({ label = pr_proposal_id .. "/suffix" }),
+      pr_running_row({ label = pr_proposal_id }),
       pr_running_row({ label = proposal_id }),
       pr_running_row({ role = "implement" }),
       pr_running_row({ role = "release-notes" }),

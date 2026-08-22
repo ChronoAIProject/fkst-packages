@@ -1,5 +1,6 @@
 local consensus = require("consensus")
 local consensus_call = require("devloop.consensus_call")
+local progress_identity = require("devloop.codex_progress_identity")
 local t = fkst.test
 
 local function proposal()
@@ -79,9 +80,9 @@ return {
 
   test_pr_request_supplies_canonical_progress_target_to_consensus_runs = function()
     local original_reach = consensus.reach
-    local captured_options = nil
+    local captured_options = {}
     consensus.reach = function(value, options)
-      captured_options = options
+      table.insert(captured_options, options)
       return {
         status = "reached",
         schema = "consensus.consensus_reached.v1",
@@ -96,15 +97,22 @@ return {
     request.proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
     request.source_ref = { kind = "external", ref = "owner/repo#pr/7" }
     local ok, result = pcall(function()
-      return consensus_call.reach(request)
+      local first = consensus_call.reach(request)
+      consensus_call.reach(request)
+      return first
     end)
     consensus.reach = original_reach
     if not ok then
       error(result)
     end
 
-    t.eq(captured_options.invocation_id, request.proposal_id)
-    t.eq(captured_options.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(#captured_options, 2)
+    t.eq(captured_options[1].invocation_id, request.proposal_id)
+    local first_identity = progress_identity.parse_label(captured_options[1].run_label)
+    local second_identity = progress_identity.parse_label(captured_options[2].run_label)
+    t.eq(first_identity.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(second_identity.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(first_identity.cohort_id == second_identity.cohort_id, false)
     t.eq(result.proposal_id, request.proposal_id)
   end,
 }

@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
+local progress_identity = require("devloop.codex_progress_identity")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
@@ -275,7 +276,8 @@ local function run_fix_attempt(plan)
   }), {
     prompt = fix_caps.prompts.build_fix_prompt(plan.fix, plan.current_issue, plan.feedback_reason, plan.fix.framing, content_fetch, merge_context),
     worktree = worktree,
-    sync = true, label = entity_lib.pr_proposal_id(plan.repo, plan.fix.pr_number),
+    sync = true,
+    label = progress_identity.new_label(entity_lib.pr_proposal_id(plan.repo, plan.fix.pr_number)),
   })
   if type(result) == "table" and result.deferred then
     devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, "result=deferred", nil)

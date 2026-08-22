@@ -12,6 +12,7 @@ local m_builders = require("devloop.markers.builders")
 local m_claims = require("devloop.claims")
 local merge_queue = require("devloop.merge_queue")
 local payloads_builders = require("devloop.payloads.builders")
+local progress_identity = require("devloop.codex_progress_identity")
 local requests_review = require("devloop.requests.review")
 local testing = require("testkit_internal.testing")
 local transition_version = require("contract.transition_version")
@@ -287,6 +288,7 @@ local function capture(fixture)
   local ports = ra.fake_ports()
   local restorations = {}
   local captured = ra.capture_logging("fix", devloop_logging, restorations)
+  local codex_progress_label = nil
   local current_state = fixture.current_state or "fixing"
   if fixture.no_state then current_state = nil end
   local current_version = fixture.current_version or fix.version
@@ -464,7 +466,8 @@ local function capture(fixture)
       return nil, "not-in-merge-queue"
     end, restorations)
   end
-  ra.replace(workflow_codex, "dispatch", function()
+  ra.replace(workflow_codex, "dispatch", function(_, opts)
+    codex_progress_label = opts.label
     table.insert(captured.effect_sequence, { kind = "adapter", call = { kind = "codex", role = "fix",
       proposal_id = fix.proposal_id, work_unit_key = fix.work_unit_key } })
     if fixture.codex == "deferred" then return { deferred = true, reason = "live-exec-ref" } end
@@ -516,7 +519,7 @@ local function capture(fixture)
   fixture.effect_version = captured.applies[#captured.applies] and captured.applies[#captured.applies].version or nil
   fixture.issue_number = ISSUE_NUMBER
   return ra.record({ dept = "fix", fixture = fixture, result = result, captured = captured,
-    event = event, prefix = PREFIX, site = SITE, source_state = "fixing", boundary = "entry_acceptor" })
+    event = event, prefix = PREFIX, site = SITE, source_state = "fixing", boundary = "entry_acceptor" }), codex_progress_label
 end
 
 return {
@@ -534,11 +537,16 @@ return {
       if accepted then verified[effect_id] = true end
       return accepted
     end
-    local ok, failure = pcall(capture, sink_probe_fixture("grant-gated-fix-sinks", "review-reject"))
+    local ok, record, codex_progress_label = pcall(
+      capture,
+      sink_probe_fixture("grant-gated-fix-sinks", "review-reject")
+    )
     restart_effects.verify_grant = original
-    if not ok then error(failure, 0) end
+    if not ok then error(record, 0) end
     t.eq(verified[CODEX], true)
     t.eq(verified[PUSH], true)
+    local progress_target = progress_identity.parse_label(codex_progress_label)
+    t.eq(progress_target.target_proposal_id, entity_lib.pr_proposal_id(REPO, PR_NUMBER))
   end,
 
   test_fix_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()

@@ -34,6 +34,7 @@ public = [
   "devloop.commands.prs",
   "devloop.commands.support",
   "devloop.commands.validators",
+  "devloop.codex_progress_identity",
   "devloop.consensus_call",
   "devloop.comment_handoff",
   "devloop.config",

@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
+local progress_identity = require("devloop.codex_progress_identity")
 local entity = require("devloop.entity")
 local sha256 = require("contract.sha256")
 local strings = require("contract.strings")
@@ -181,17 +182,6 @@ function M.project_terminal_row(row)
   return projected_request(row, target, table.concat(body_lines, "\n"))
 end
 
-local function canonical_pr(row)
-  local target = entity.parse_entity_proposal_id(row and row.label)
-  if target == nil or target.kind ~= "pr" then
-    return nil
-  end
-  if entity.pr_proposal_id(target.repo, target.pr_number) ~= row.label then
-    return nil
-  end
-  return target
-end
-
 local function pr_candidate(row, statuses)
   if type(row) ~= "table"
     or pr_roles[row.role] ~= true
@@ -200,7 +190,7 @@ local function pr_candidate(row, statuses)
     or row.run_id:find("^[%w._-]+$") == nil then
     return nil
   end
-  return canonical_pr(row)
+  return progress_identity.parse_label(row.label)
 end
 
 local function validate_pr_display_row(row, card_refreshed_at)
@@ -248,7 +238,37 @@ local function newest_row(rows)
   return newest
 end
 
+local function row_observed_ms(row)
+  return tonumber(row.ended_at_ms) or tonumber(row.started_at_ms) or -1
+end
+
 local function select_pr_cohort(group)
+  local prefer_running = false
+  for _, candidate in pairs(group.cohorts) do
+    prefer_running = prefer_running or #candidate.running > 0
+  end
+
+  local selected = nil
+  local selected_reference = nil
+  for _, candidate in pairs(group.cohorts) do
+    local rows = prefer_running and candidate.running or candidate.recent
+    local reference = newest_row(rows)
+    if reference ~= nil
+      and (selected == nil
+        or row_observed_ms(reference) > row_observed_ms(selected_reference)
+        or (row_observed_ms(reference) == row_observed_ms(selected_reference)
+          and reference.run_id > selected_reference.run_id)
+        or (row_observed_ms(reference) == row_observed_ms(selected_reference)
+          and reference.run_id == selected_reference.run_id
+          and candidate.id > selected.id)) then
+      selected = candidate
+      selected_reference = reference
+    end
+  end
+  if selected == nil then
+    return {}, nil
+  end
+
   local cohort = {}
   local seen = {}
   local function append(row)
@@ -258,37 +278,15 @@ local function select_pr_cohort(group)
     end
   end
 
-  if #group.running > 0 then
-    local consensus_proposals = {}
-    for _, row in ipairs(group.running) do
-      append(row)
-      if row.role == "consensus" then
-        consensus_proposals[row.proposal_id] = true
-      end
-    end
-    for _, row in ipairs(group.recent) do
-      if row.role == "consensus" and consensus_proposals[row.proposal_id] == true then
-        append(row)
-      end
-    end
-  else
-    local newest = newest_row(group.recent)
-    if newest == nil then
-      return cohort
-    end
-    if newest.role == "consensus" then
-      for _, row in ipairs(group.recent) do
-        if row.role == newest.role and row.proposal_id == newest.proposal_id then
-          append(row)
-        end
-      end
-    else
-      append(newest)
-    end
+  for _, row in ipairs(selected.running) do
+    append(row)
+  end
+  for _, row in ipairs(selected.recent) do
+    append(row)
   end
 
   table.sort(cohort, row_order)
-  return cohort
+  return cohort, selected.snapshot_id
 end
 
 local function aggregate_status(cohort)
@@ -325,7 +323,7 @@ local function append_pr_run(lines, row)
   table.insert(lines, output_block(row.output_tail))
 end
 
-local function pr_body(target_proposal_id, cohort, status, card_refreshed_at)
+local function pr_body(target_proposal_id, cohort, snapshot_id, status, card_refreshed_at)
   local lines = {
     status == "running" and "### Pull request Codex progress" or "### Pull request Codex result",
     "",
@@ -339,12 +337,11 @@ local function pr_body(target_proposal_id, cohort, status, card_refreshed_at)
     append_pr_run(lines, row)
   end
   table.insert(lines, "")
-  table.insert(lines, M.marker(target_proposal_id, cohort[1].run_id, status))
+  table.insert(lines, M.marker(target_proposal_id, snapshot_id, status))
   return table.concat(lines, "\n")
 end
 
-local function projected_pr_request(target_proposal_id, target, cohort, status, body)
-  local run_id = cohort[1].run_id
+local function projected_pr_request(target_proposal_id, target, snapshot_id, status, body)
   return {
     queue = "github-proxy.github_pr_comment_request",
     proposal_id = target_proposal_id,
@@ -358,12 +355,12 @@ local function projected_pr_request(target_proposal_id, target, cohort, status, 
         "pr",
         target.repo,
         target.pr_number,
-        run_id,
+        snapshot_id,
         sha256.hex(body),
       }),
       replace_marker = M.replace_marker(target_proposal_id),
       replace_snapshot = {
-        run_id = run_id,
+        run_id = snapshot_id,
         status = status,
       },
       source_ref = entity.pr_source_ref(target.repo, target.pr_number),
@@ -377,17 +374,26 @@ function M.project_pr_cards(running, recent, card_refreshed_at)
   end
   local groups = {}
   local function collect(row, statuses, field)
-    local target = pr_candidate(row, statuses)
-    if target == nil then
+    local identity = pr_candidate(row, statuses)
+    if identity == nil then
       return
     end
-    local key = row.label
+    local key = identity.target_proposal_id
     groups[key] = groups[key] or {
-      target = target,
-      running = {},
-      recent = {},
+      target = identity.target,
+      cohorts = {},
     }
-    table.insert(groups[key][field], row)
+    local cohort = groups[key].cohorts[identity.cohort_id]
+    if cohort == nil then
+      cohort = {
+        id = identity.cohort_id,
+        snapshot_id = identity.snapshot_id,
+        running = {},
+        recent = {},
+      }
+      groups[key].cohorts[identity.cohort_id] = cohort
+    end
+    table.insert(cohort[field], row)
   end
   for _, row in ipairs(running) do
     collect(row, { running = true }, "running")
@@ -405,14 +411,14 @@ function M.project_pr_cards(running, recent, card_refreshed_at)
   local projected = {}
   for _, key in ipairs(keys) do
     local group = groups[key]
-    local cohort = select_pr_cohort(group)
+    local cohort, snapshot_id = select_pr_cohort(group)
     if #cohort > 0 then
       for _, row in ipairs(cohort) do
         validate_pr_display_row(row, card_refreshed_at)
       end
       local status = aggregate_status(cohort)
-      local body = pr_body(key, cohort, status, card_refreshed_at)
-      table.insert(projected, projected_pr_request(key, group.target, cohort, status, body))
+      local body = pr_body(key, cohort, snapshot_id, status, card_refreshed_at)
+      table.insert(projected, projected_pr_request(key, group.target, snapshot_id, status, body))
     end
   end
   return projected

@@ -11,6 +11,7 @@
 {"path":"libraries/devloop/config.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/conflict_telemetry.lua","owner":"shared","reason":"conflict telemetry parsing and logging are used by PR fix and issue-side hotspot patrol."}
 {"path":"libraries/devloop/consensus_call.lua","owner":"shared","reason":"issue and PR callers adapt caller-owned consensus lineage to the source-agnostic synchronous consensus library."}
+{"path":"libraries/devloop/codex_progress_identity.lua","owner":"shared","reason":"producer-authored PR progress cohort identity is shared by PR workers, consensus dispatch, and the ops projector."}
 {"path":"libraries/devloop/context_bundle.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/decompose.lua","owner":"shared","reason":"decompose marker grammar and child-completion facts are shared by the issue decompose saga and PR-side replay/observe."}
 {"path":"libraries/devloop/dependency_gate.lua","owner":"shared","reason":"native blockedBy graph evaluation is shared by issue activation and workflow-origin materialization gating."}
