@@ -28,7 +28,9 @@ FKST_DEVLOOP_INTEGRATION_BRANCH=integration-ElonSG  # integration-<bot-login>, o
 FKST_DEVLOOP_ROLLUP_MERGE=auto
 ```
 
-Keep `BIN`, `FKST_RUNTIME_ROOT`, `FKST_DURABLE_ROOT`, and `FKST_RATE_POOL_ROOT` configured as described in `.fkst/env.example` and the repository `README.md`.
+Keep `BIN` configured for repository checks and tests as described in `.fkst/env.example` and the
+repository `README.md`. Deployment declarations and the machine control set own runtime, durable,
+and rate-pool roots.
 
 ## Second-Machine Bootstrap
 
@@ -62,7 +64,9 @@ Run these steps once on each additional machine:
    export FKST_DEVLOOP_ROLLUP_MERGE=auto
    ```
 
-4. Launch `github-devloop` supervise from a worktree checked out to the merged `dev`, with the host's normal `BIN`, runtime, durable, and rate-pool env.
+4. Regenerate the machine control set from the deployment declarations, then preflight and restart
+   the declared deployment through the fkst-ops operator. Do not launch supervision through
+   fkst-packages.
 
 The `integration-<device>` branch must already exist before launch. By design, `github-devloop` holds instead of auto-creating a missing integration branch, because remote branch creation is an explicit host topology action.
 
