@@ -8,6 +8,41 @@ local M = {}
 
 function M.make(core)
   local git = git_adapter.production_handle
+  local entry_rejections = m_mq.merge_queue_entry_rejections
+  local speculative_rejection_routes = {
+    [entry_rejections.pr_not_open] = "reject",
+    [entry_rejections.pr_base_mismatch] = "reject",
+    [entry_rejections.pr_outside_lane] = "reject",
+    [entry_rejections.merge_ready_fact_missing] = "own-ci-authority",
+    ["not-in-merge-queue"] = "reject",
+    ["not-speculative"] = "integration",
+    ["predecessor-set-mismatch"] = "refix",
+  }
+
+  local function has_canonical_own_ci_repair_authority(fix, merge_gate_fact)
+    return type(fix) == "table"
+      and fix.repair_input == "ci-failure"
+      and type(fix.ci_failure_key) == "string"
+      and fix.ci_failure_key ~= ""
+      and type(merge_gate_fact) == "table"
+      and merge_gate_fact.ci_failure_key == fix.ci_failure_key
+  end
+
+  local function speculative_rejection_route(reason, fix, merge_gate_fact)
+    local route = speculative_rejection_routes[reason]
+    if route == nil then
+      error("github-devloop: speculative-predecessor-rejection-unrouted: unrecognized merge queue rejection: "
+        .. tostring(reason))
+    end
+    if route == "own-ci-authority" then
+      if has_canonical_own_ci_repair_authority(fix, merge_gate_fact) then
+        return "queue-position-free"
+      end
+      return "reject"
+    end
+    return route
+  end
+
   local function branch_worktree(repo, issue_number, version, branch, reviewed_head_sha)
     if not require("devloop.pr_safety").is_safe_head_sha(reviewed_head_sha) then
       error("github-devloop: reviewed-head-unsafe: unsafe reviewed head sha")
@@ -307,6 +342,7 @@ function M.make(core)
     current_predecessors_for_fix = current_predecessors_for_fix,
     merge_predecessor_entries_for_fix = merge_predecessor_entries_for_fix,
     merge_speculative_predecessors_for_fix = merge_speculative_predecessors_for_fix,
+    speculative_rejection_route = speculative_rejection_route,
     assert_no_unmerged_paths = assert_no_unmerged_paths,
     assert_candidate_diff_clean = assert_candidate_diff_clean,
     assert_staged_diff_clean = assert_staged_diff_clean,
