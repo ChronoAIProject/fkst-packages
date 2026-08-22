@@ -70,7 +70,7 @@ For a real foreground supervisor:
 ```sh
 FKST_GITHUB_REPO=owner/repo \
 FKST_RATE_POOL_ROOT=/var/lib/fkst/rate-pools \
-scripts/run.sh supervise github-proxy
+fkst-ops/host/supervise.sh --project-root . --platform-root . --platform-packages github-proxy
 ```
 
 `scripts/run.sh` resolves `fkst-framework` in this order: explicit `BIN`, `.fkst/env`, `PATH`,
@@ -226,7 +226,6 @@ scripts/run.sh test github-proxy
 scripts/run.sh test-affected
 scripts/run.sh test-composed
 scripts/run.sh run <package> <department> '{"payload":{}}'
-scripts/run.sh supervise <package>
 scripts/run.sh health
 scripts/run.sh doctor
 scripts/run.sh build

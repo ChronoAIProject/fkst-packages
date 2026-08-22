@@ -10,7 +10,7 @@ without rebuilding any infrastructure.
 | Plane | Lives in | Owns | Must NOT own |
 |---|---|---|---|
 | **PRODUCT** | `packages/`, `libraries/` | the platform itself: agent packages (the `github-devloop` trio + the rest), exact host-facing libraries (`contract` / `workflow` / `testkit`), and private implementation libraries (`workflow_internal` / `testkit_internal` / `forge` / `devloop`), targeting the engine ABI | how a host launches; multi-host orchestration |
-| **HOST-RUN contract** | `scripts/host_run.sh` (invoked via `scripts/run.sh supervise`) | ALL launch invariants for **one** host: BIN resolve + freshness rebuild, target `fkst.workspace.toml` package selection, trusted `--platform-root` provenance, runtime-scratch, `--durable-root` (mandatory, fail-closed — never defaulted), the 3-host-shape `--package-root` wiring, `FKST_GITHUB_WRITE` posture, pidfile-based `--restart` (kill -9 + verify-dead, refuses a 2nd supervise on the same durable root) | which hosts run; product logic |
+| **HOST-RUN contract** | `scripts/host_run.sh` (no longer invoked from this repository; the deployment mechanism in fkst-ops owns the supervise entry) | ALL launch invariants for **one** host: BIN resolve + freshness rebuild, target `fkst.workspace.toml` package selection, trusted `--platform-root` provenance, runtime-scratch, `--durable-root` (mandatory, fail-closed — never defaulted), the 3-host-shape `--package-root` wiring, `FKST_GITHUB_WRITE` posture, pidfile-based `--restart` (kill -9 + verify-dead, refuses a 2nd supervise on the same durable root) | which hosts run; product logic |
 
 ## 2. How a host repo composes the platform
 

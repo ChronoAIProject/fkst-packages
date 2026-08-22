@@ -98,13 +98,6 @@ class HostRunLocalIterationTest(unittest.TestCase):
         self.assertIn(validation, source)
         self.assertLess(source.index(validation), source.index(restart))
 
-    def test_package_local_activation_validates_before_creating_runtime_roots(self) -> None:
-        source = (REPO_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
-        validation = 'host_run_validate_local_iteration_test_command_for "$ROOT" "$pkg"'
-        runtime_setup = 'mkdir -p "$rt" "$durable"'
-
-        self.assertIn(validation, source)
-        self.assertLess(source.index(validation), source.index(runtime_setup))
 
     def test_default_command_is_runnable_from_deployed_repository(self) -> None:
         h = LocalIterationCommandHarness()

@@ -1,7 +1,8 @@
 # Global Host Profiles
 
 Global host profiles are host-local shell environment files that feed the existing
-`scripts/run.sh host` and `scripts/run.sh supervise` contracts. They are not a new resolver,
+`scripts/run.sh host` contract and the supervise entry the deployment mechanism owns. They are
+not a new resolver,
 registry, or named profile abstraction.
 
 The established practice is XDG-style user configuration with explicit command-line and
