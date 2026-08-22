@@ -89,6 +89,51 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_engine_compatibility_lane_provisions_both_historical_revisions(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertIn("id: liveness_engine_refs", workflow)
+        self.assertIn("liveness_failure_domain_engine_refs.env", workflow)
+        self.assertIn("ref: ${{ steps.liveness_engine_refs.outputs.pre_advance }}", workflow)
+        self.assertIn("ref: ${{ steps.liveness_engine_refs.outputs.post_advance }}", workflow)
+        self.assertIn("path: fkst-substrate-pre-advance", workflow)
+        self.assertIn("path: fkst-substrate-post-advance", workflow)
+        self.assertIn("Build historical fkst-framework compatibility binaries", workflow)
+        self.assertIn("scripts/run.sh test-engine-compatibility", workflow)
+        self.assertGreaterEqual(workflow.count('FKST_NO_AUTOBUILD: "1"'), 2)
+
+    def test_engine_compatibility_refs_are_single_sourced(self) -> None:
+        refs = (
+            REPO_ROOT
+            / "packages/github-devloop/tests/liveness_failure_domain_engine_refs.env"
+        ).read_text(encoding="utf-8")
+        values = {}
+        for line in refs.splitlines():
+            if not line or line.startswith("#"):
+                continue
+            name, value = line.split("=", 1)
+            values[name] = value
+
+        self.assertEqual(
+            set(values),
+            {"FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF", "FKST_LIVENESS_POST_ADVANCE_ENGINE_REF"},
+        )
+        self.assertRegex(values["FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF"], r"^[0-9a-f]{40}$")
+        self.assertRegex(values["FKST_LIVENESS_POST_ADVANCE_ENGINE_REF"], r"^[0-9a-f]{40}$")
+        self.assertNotEqual(
+            values["FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF"],
+            values["FKST_LIVENESS_POST_ADVANCE_ENGINE_REF"],
+        )
+        for path in (
+            REPO_ROOT / ".github/workflows/ci.yml",
+            REPO_ROOT / "scripts/run.sh",
+            REPO_ROOT / "scripts/test_engine_compatibility.sh",
+            REPO_ROOT / "packages/github-devloop/tests/run_graph_liveness_failure_domain_test.lua",
+        ):
+            source = path.read_text(encoding="utf-8")
+            for ref in values.values():
+                self.assertNotIn(ref, source, f"duplicate compatibility ref in {path}")
+
 
 if __name__ == "__main__":
     unittest.main()

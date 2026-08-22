@@ -94,11 +94,50 @@ jobs:
       - name: Run repository checks and package tests
         env:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+          FKST_NO_AUTOBUILD: "1"
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
           FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
           test -x "$BIN"
           scripts/run.sh test
+
+      - name: Resolve liveness engine compatibility refs
+        id: liveness_engine_refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          source packages/github-devloop/tests/liveness_failure_domain_engine_refs.env
+          echo "pre_advance=$FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF" >> "$GITHUB_OUTPUT"
+          echo "post_advance=$FKST_LIVENESS_POST_ADVANCE_ENGINE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pre-advance fkst-substrate
+        uses: actions/checkout@v4
+        with:
+          repository: ChronoAIProject/fkst-substrate
+          ref: ${{ steps.liveness_engine_refs.outputs.pre_advance }}
+          path: fkst-substrate-pre-advance
+
+      - name: Checkout post-advance fkst-substrate
+        uses: actions/checkout@v4
+        with:
+          repository: ChronoAIProject/fkst-substrate
+          ref: ${{ steps.liveness_engine_refs.outputs.post_advance }}
+          path: fkst-substrate-post-advance
+
+      - name: Build historical fkst-framework compatibility binaries
+        timeout-minutes: 30
+        run: |
+          cargo build --manifest-path fkst-substrate-pre-advance/Cargo.toml -p fkst-framework
+          cargo build --manifest-path fkst-substrate-post-advance/Cargo.toml -p fkst-framework
+
+      - name: Run historical engine compatibility witness
+        timeout-minutes: 30
+        env:
+          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+          FKST_NO_AUTOBUILD: "1"
+          FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN: ${{ github.workspace }}/fkst-substrate-pre-advance/target/debug/fkst-framework
+          FKST_LIVENESS_POST_ADVANCE_ENGINE_BIN: ${{ github.workspace }}/fkst-substrate-post-advance/target/debug/fkst-framework
+        run: scripts/run.sh test-engine-compatibility
 
       # Per-test outcomes exist in every run as `--report-json` files and were discarded with
       # their scratch dir, so a CI run's per-test results could not be inspected afterwards and

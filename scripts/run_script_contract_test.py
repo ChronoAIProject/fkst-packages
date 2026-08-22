@@ -77,6 +77,126 @@ class RunScriptContractTest(unittest.TestCase):
         self.assertIn("printf '%s\\n' \"$_chk_out\"; return 1", source)
         self.assertLess(source.index("cmd_check"), source.index("resolve_bin; ensure_fresh_bin; cmd_test"))
 
+    def test_standard_test_cannot_enable_engine_compatibility_from_ambient_env(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = f'''
+source "{root / "scripts/run.sh"}"
+local_iteration_result_arm() {{ :; }}
+arm_test_deadline() {{ :; }}
+cmd_check() {{ :; }}
+resolve_bin() {{ :; }}
+ensure_fresh_bin() {{ :; }}
+cmd_test() {{ printf '%s:%s\n' "${{FKST_LIVENESS_ENGINE_COMPATIBILITY:-unset}}" "$*"; }}
+cmd_test_affected() {{ printf '%s:%s\n' "${{FKST_LIVENESS_ENGINE_COMPATIBILITY:-unset}}" "test-affected"; }}
+export FKST_LIVENESS_ENGINE_COMPATIBILITY=1
+main test github-devloop
+export FKST_LIVENESS_ENGINE_COMPATIBILITY=1
+main test-affected
+'''
+        result = subprocess.run(
+            ["/bin/bash", "-c", script],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["unset:github-devloop", "unset:test-affected"])
+
+    def test_engine_compatibility_lane_requires_preprovisioned_binaries(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = f'''
+source "{root / "scripts/run.sh"}"
+cmd_test() {{ echo "unexpected package test"; }}
+unset FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN FKST_LIVENESS_POST_ADVANCE_ENGINE_BIN
+cmd_test_engine_compatibility
+'''
+        result = subprocess.run(
+            ["/bin/bash", "-c", script],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("unexpected package test", result.stdout)
+        self.assertIn("FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN", result.stderr)
+
+    def test_engine_compatibility_lane_selects_only_github_devloop(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            pre_bin = Path(tmp) / "pre" / "target" / "debug" / "fkst-framework"
+            post_bin = Path(tmp) / "post" / "target" / "debug" / "fkst-framework"
+            for path in (pre_bin, post_bin):
+                path.parent.mkdir(parents=True)
+                path.write_text("#!/bin/sh\n", encoding="utf-8")
+                path.chmod(0o755)
+            script = f'''
+source "{root / "scripts/run.sh"}"
+cmd_test() {{
+  printf '%s:%s:%s:%s\n' \
+    "$FKST_LIVENESS_ENGINE_COMPATIBILITY" \
+    "$FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF" \
+    "$FKST_LIVENESS_POST_ADVANCE_ENGINE_REF" \
+    "$*"
+}}
+liveness_engine_bin_ref() {{
+  case "$1" in
+    *pre*) printf '%s\n' "$FKST_LIVENESS_PRE_ADVANCE_ENGINE_REF" ;;
+    *post*) printf '%s\n' "$FKST_LIVENESS_POST_ADVANCE_ENGINE_REF" ;;
+  esac
+}}
+resolve_bin() {{ :; }}
+ensure_fresh_bin() {{ :; }}
+export FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN="{pre_bin}"
+export FKST_LIVENESS_POST_ADVANCE_ENGINE_BIN="{post_bin}"
+cmd_test_engine_compatibility
+'''
+            result = subprocess.run(
+                ["/bin/bash", "-c", script],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mode, pre_ref, post_ref, packages = result.stdout.strip().split(":")
+        self.assertEqual(mode, "1")
+        self.assertRegex(pre_ref, r"^[0-9a-f]{40}$")
+        self.assertRegex(post_ref, r"^[0-9a-f]{40}$")
+        self.assertNotEqual(pre_ref, post_ref)
+        self.assertEqual(packages, "github-devloop")
+
+    def test_liveness_compatibility_test_has_no_bootstrap_path(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (
+            root / "packages/github-devloop/tests/run_graph_liveness_failure_domain_test.lua"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("bootstrap_bin_on_total_miss", source)
+        self.assertIn("FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN", source)
+        self.assertIn("FKST_LIVENESS_POST_ADVANCE_ENGINE_BIN", source)
+
+    def test_help_names_the_explicit_engine_compatibility_lane(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            ["/bin/bash", "scripts/run.sh", "help"],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("scripts/run.sh test-engine-compatibility", result.stdout)
+
     def test_repository_check_maps_producer_typed_exit_codes(self) -> None:
         root = Path(__file__).resolve().parents[1]
         for exit_code, expected in ((12, "FAIL:TOOLCHAIN"), (13, "FAIL:INFRASTRUCTURE")):
@@ -111,7 +231,7 @@ printf '%s:%s\n' "$LOCAL_ITERATION_RESULT_VERDICT" "$LOCAL_ITERATION_RESULT_FAUL
             pkg.mkdir(parents=True)
             contract.mkdir(parents=True)
 
-            for name in ("run.sh", "test_affected.sh", "test_affected.py", "test_parallel.sh", "test_coverage.sh", "test_deadline.sh", "run_department.sh", "bin_bootstrap.sh", "local_iteration_result.sh", "run_bin.sh", "host_entry.sh", "host_run.sh", "composed_manifest.sh", "check_repo.py", "check_repo_bot_login_mediation.py", "check_repo_config.py", "check_repo_runner.py", "check_repo_codex_timeout.py", "check_repo_content_truncation.py", "check_repo_fanout_only.py", "check_repo_coverage.py", "check_repo_cross_package.py", "check_repo_dead_letter.py", "check_repo_dead_locals.py", "check_repo_dept_failure_surface.py", "check_repo_dependency_cycle.py", "check_repo_devloop_godlib.py", "check_repo_devloop_decouple.py", "check_repo_devloop_installer.py", "check_repo_service_locator.py", "check_repo_ambient_surface.py", "check_repo_core_param.py", "check_repo_dedup.py", "check_repo_error_class.py", "check_repo_gh_egress.py", "check_repo_gh_git_adapter.py", "check_repo_gh_handle_construction.py", "check_repo_github_content_ingress.py", "check_repo_hidden_state.py", "check_repo_ingress.py", "check_repo_intake_default_surface.py", "check_repo_intake_routing.py", "check_repo_intent_bounded_replay.py", "check_repo_intent_bounded_replay_trace_catalog.py", "check_repo_integration_coverage.py", "check_repo_library_layering.py", "check_repo_live_run_dispatch.py", "check_repo_lock_scope.py", "check_repo_lower_injected_m.py", "check_repo_lua.py", "check_repo_monotone_gate.py", "check_repo_namespaced_queue.py", "check_repo_ownership_gate.py", "check_repo_pagination.py", "check_repo_perm.py", "check_repo_producer_liveness.py", "check_repo_restart_lifecycle.py", "check_repo_saga_handler.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_shell_out_to_self.py", "check_repo_std_dependency_model.py", "check_repo_version_suffix.py", "ratchet_base.py"):
+            for name in ("run.sh", "test_affected.sh", "test_affected.py", "test_parallel.sh", "test_coverage.sh", "test_deadline.sh", "test_engine_compatibility.sh", "run_department.sh", "bin_bootstrap.sh", "local_iteration_result.sh", "run_bin.sh", "host_entry.sh", "host_run.sh", "composed_manifest.sh", "check_repo.py", "check_repo_bot_login_mediation.py", "check_repo_config.py", "check_repo_runner.py", "check_repo_codex_timeout.py", "check_repo_content_truncation.py", "check_repo_fanout_only.py", "check_repo_coverage.py", "check_repo_cross_package.py", "check_repo_dead_letter.py", "check_repo_dead_locals.py", "check_repo_dept_failure_surface.py", "check_repo_dependency_cycle.py", "check_repo_devloop_godlib.py", "check_repo_devloop_decouple.py", "check_repo_devloop_installer.py", "check_repo_service_locator.py", "check_repo_ambient_surface.py", "check_repo_core_param.py", "check_repo_dedup.py", "check_repo_error_class.py", "check_repo_gh_egress.py", "check_repo_gh_git_adapter.py", "check_repo_gh_handle_construction.py", "check_repo_github_content_ingress.py", "check_repo_hidden_state.py", "check_repo_ingress.py", "check_repo_intake_default_surface.py", "check_repo_intake_routing.py", "check_repo_intent_bounded_replay.py", "check_repo_intent_bounded_replay_trace_catalog.py", "check_repo_integration_coverage.py", "check_repo_library_layering.py", "check_repo_live_run_dispatch.py", "check_repo_lock_scope.py", "check_repo_lower_injected_m.py", "check_repo_lua.py", "check_repo_monotone_gate.py", "check_repo_namespaced_queue.py", "check_repo_ownership_gate.py", "check_repo_pagination.py", "check_repo_perm.py", "check_repo_producer_liveness.py", "check_repo_restart_lifecycle.py", "check_repo_saga_handler.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_shell_out_to_self.py", "check_repo_std_dependency_model.py", "check_repo_version_suffix.py", "ratchet_base.py"):
                 shutil.copy2(root / "scripts" / name, scripts / name)
             shutil.copy2(root / "scripts/check_repo_restart_preflight.py", scripts / "check_repo_restart_preflight.py")
             shutil.copy2(root / "libraries/contract/error_facts.lua", contract / "error_facts.lua")
