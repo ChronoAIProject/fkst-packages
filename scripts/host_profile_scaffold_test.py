@@ -26,18 +26,22 @@ class HostProfileScaffoldTest(unittest.TestCase):
                 names.add(match.group(1))
         return names
 
-    def test_global_host_profile_doc_pins_xdg_location_and_explicit_invocation(self) -> None:
+    def test_global_host_profile_doc_pins_xdg_location_and_check_test_invocation(self) -> None:
         doc = self.read("docs/user/global-host-profiles.md")
 
         self.assertIn("${XDG_CONFIG_HOME:-$HOME/.config}/fkst/host.env", doc)
-        self.assertIn('scripts/run.sh host --host-root "$FKST_HOST_ROOT"', doc)
+        self.assertIn('"$FKST_PLATFORM_ROOT/scripts/run.sh" host', doc)
+        self.assertIn('--host-root "$FKST_HOST_ROOT"', doc)
+        self.assertIn("-- check", doc)
+        self.assertIn("-- test", doc)
+        self.assertNotIn("-- supervise", doc)
         self.assertIn("fkst.workspace.toml", doc)
         self.assertIn("fkst.lock", doc)
         self.assertIn("There is no `--profile <name>`", doc)
         self.assertIn("Documentation beats scaffolds; explicit CLI/env beats documentation.", doc)
         self.assertNotIn("AI:FKST", doc)
 
-    def test_host_profile_scaffold_exports_existing_host_run_facts_only(self) -> None:
+    def test_host_profile_scaffold_excludes_operator_owned_deployment_roots(self) -> None:
         scaffold = self.read("docs/user/host-profile.env.example")
         assignments = self.uncommented_assignment_names(scaffold)
 
@@ -46,8 +50,6 @@ class HostProfileScaffoldTest(unittest.TestCase):
                 "BIN",
                 "FKST_HOST_ROOT",
                 "FKST_PLATFORM_ROOT",
-                "FKST_DURABLE_ROOT",
-                "FKST_RATE_POOL_ROOT",
                 "FKST_GITHUB_REPO",
                 "FKST_GITHUB_BOT_LOGIN",
                 "FKST_DEVLOOP_INTEGRATION_BRANCH",
@@ -55,6 +57,8 @@ class HostProfileScaffoldTest(unittest.TestCase):
         )
         self.assertNotIn("FKST_PROFILE", assignments)
         self.assertNotIn("FKST_PROFILE_NAME", assignments)
+        self.assertNotIn("FKST_DURABLE_ROOT", assignments)
+        self.assertNotIn("FKST_RATE_POOL_ROOT", assignments)
         self.assertNotRegex(scaffold, r"(?m)^FKST_RUNTIME_ROOT=")
         self.assertNotIn("chmod", scaffold)
 

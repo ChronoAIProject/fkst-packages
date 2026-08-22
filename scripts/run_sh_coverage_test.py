@@ -151,7 +151,6 @@ class RunShComposedConformanceHarness:
             "bin_bootstrap.sh",
             "local_iteration_result.sh",
             "run_bin.sh",
-            "host_run.sh",
             "host_entry.sh",
             "composed_manifest.sh",
             "test_affected.sh",

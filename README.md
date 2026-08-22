@@ -82,8 +82,8 @@ For host-local, no-repo-pollution runs, keep machine facts in an XDG-style profi
 `${XDG_CONFIG_HOME:-$HOME/.config}/fkst/host.env`; see
 [`docs/user/global-host-profiles.md`](docs/user/global-host-profiles.md) and
 [`docs/user/host-profile.env.example`](docs/user/host-profile.env.example). The profile feeds the
-existing explicit `scripts/run.sh host --host-root ... --platform-root ... -- ...` contract; it does
-not introduce a named profile resolver.
+explicit `scripts/run.sh host --host-root ... --platform-root ... -- check|test` contract; it does
+not introduce a named profile resolver or a supervision entrypoint.
 
 ## Package Layout
 

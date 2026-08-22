@@ -1,14 +1,14 @@
 # Global Host Profiles
 
-Global host profiles are host-local shell environment files that feed the existing
-`scripts/run.sh host` contract and the supervise entry the deployment mechanism owns. They are
-not a new resolver,
-registry, or named profile abstraction.
+Global host profiles are host-local shell environment files for the repository-owned
+`scripts/run.sh host` check and test contract. They are not deployment declarations, a new
+resolver, a registry, or a named profile abstraction. Long-running supervision and its machine
+roots belong to the deployment declarations and operator outside this repository.
 
 The established practice is XDG-style user configuration with explicit command-line and
 environment precedence. Keep machine-specific facts outside the target repository, keep
 `fkst.workspace.toml` and `fkst.lock` as the project source of truth for platform package selection,
-and pass normal `FKST_*` facts plus the trusted platform checkout to the shared runner.
+and pass normal `FKST_*` facts plus the trusted platform checkout to the shared check/test runner.
 
 ## Location
 
@@ -36,10 +36,10 @@ The precedence is deliberately boring:
 2. `fkst.workspace.toml` plus `fkst.lock` remains the source of truth for the host repository's
    platform package selection; executable provenance must still match the trusted `--platform-root`.
 3. `.fkst/compose/package-roots` remains the source of truth for the composed package roots loaded
-   by the host runner.
+   by the host check/test runner.
 4. The global host profile supplies user- and machine-local environment facts such as `BIN`,
-   `FKST_HOST_ROOT`, `FKST_PLATFORM_ROOT`, `FKST_DURABLE_ROOT`, `FKST_RATE_POOL_ROOT`,
-   `FKST_GITHUB_REPO`, `FKST_GITHUB_BOT_LOGIN`, and branch topology.
+   `FKST_HOST_ROOT`, `FKST_PLATFORM_ROOT`, `FKST_GITHUB_REPO`, `FKST_GITHUB_BOT_LOGIN`, and branch
+   topology.
 5. Inline shell assignments and command-line flags may override the profile for one launch.
 
 There is no `--profile <name>` and no `FKST_PROFILE` environment key. Add a novel named profile
@@ -48,15 +48,13 @@ insufficient.
 
 ## Schema
 
-The profile schema is the existing host-run environment surface:
+The profile schema is the existing repository check/test environment surface:
 
 | Key | Required | Meaning |
 |---|---:|---|
 | `BIN` | yes | Path to the `fkst-framework` binary. |
 | `FKST_HOST_ROOT` | yes | Host repository root passed to `scripts/run.sh host --host-root`. |
 | `FKST_PLATFORM_ROOT` | yes | `fkst-packages` checkout passed to `scripts/run.sh host --platform-root`. |
-| `FKST_DURABLE_ROOT` | yes for supervise | Stable durable delivery root passed as `--durable-root`. |
-| `FKST_RATE_POOL_ROOT` | yes for GitHub traffic | Host-stable external-command rate-pool root. |
 | `FKST_GITHUB_REPO` | package-dependent | GitHub repository identity such as `owner/repo`. |
 | `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. It is also the required anchor of the trusted-author allowlist, so the account named here is always an authorized author for this deployment — configuring a login here is what makes that account "the bot" to this host, whether it is a GitHub App identity or a person's own account. |
 | `FKST_DEVLOOP_MANAGED_BOT_LOGINS` | optional | Comma-separated logins this fleet treats as its own automation rather than outside contributions. Merged into the trusted-author allowlist alongside `FKST_GITHUB_BOT_LOGIN`. An App identity carries the `[bot]` suffix; a personal account does not. |
@@ -119,9 +117,9 @@ The platform never assigns domain meaning to a raw nonzero code. It retries only
 verification once, then fails closed without publishing or attributing the candidate. Repository-owned
 wrappers must aggregate nested results into one top-level declaration and leave diagnostics visible.
 
-Host activation validates the command from `FKST_HOST_ROOT` before replacing an existing supervisor.
-Activation fails closed when the direct executable is missing, non-executable, or the command shape is
-not safely preflightable; it does not execute the test suite during activation.
+The deployment operator validates the command from `FKST_HOST_ROOT` before replacing an existing
+supervisor. Activation fails closed when the direct executable is missing, non-executable, or the
+command shape is not safely preflightable; it does not execute the test suite during activation.
 
 ## Implementation cache preparation
 
@@ -138,9 +136,9 @@ candidate-controlled build scripts. Persistent cache ownership and reuse remain 
 so trusted base logic can use the repository's native cache mechanism without teaching
 `github-devloop` about `.lake`, `node_modules`, `target`, or other toolchain-specific directories.
 
-## Launch
+## Repository checks and tests
 
-For a host repository that delegates to the shared runner:
+For a host repository that delegates check/test orchestration to this repository:
 
 ```sh
 . "${XDG_CONFIG_HOME:-$HOME/.config}/fkst/host.env"
@@ -148,24 +146,17 @@ For a host repository that delegates to the shared runner:
 "$FKST_PLATFORM_ROOT/scripts/run.sh" host \
   --host-root "$FKST_HOST_ROOT" \
   --platform-root "$FKST_PLATFORM_ROOT" \
-  -- supervise \
-  --durable-root "$FKST_DURABLE_ROOT" \
-  --restart
+  -- check
+
+"$FKST_PLATFORM_ROOT/scripts/run.sh" host \
+  --host-root "$FKST_HOST_ROOT" \
+  --platform-root "$FKST_PLATFORM_ROOT" \
+  -- test
 ```
 
-For direct host-run contract use:
-
-```sh
-. "${XDG_CONFIG_HOME:-$HOME/.config}/fkst/host.env"
-
-scripts/run.sh host --host-root "$FKST_HOST_ROOT" --platform-root "$FKST_PLATFORM_ROOT" -- check
-scripts/run.sh host --host-root "$FKST_HOST_ROOT" --platform-root "$FKST_PLATFORM_ROOT" -- test
-scripts/run.sh host --host-root "$FKST_HOST_ROOT" --platform-root "$FKST_PLATFORM_ROOT" -- supervise --durable-root "$FKST_DURABLE_ROOT" --restart
-```
-
-`FKST_RUNTIME_ROOT` is intentionally absent from the scaffold. `scripts/run.sh host ... supervise`
-uses fresh runtime scratch by default while `FKST_DURABLE_ROOT` stays host-stable and reused across
-restarts.
+Supervision has no entrypoint in fkst-packages. `fkst-deployments` declares deployments and
+`fkst-ops` generates machine roots and launches them. Repository profiles must not duplicate those
+operator-owned paths.
 
 ## Boundaries
 
@@ -173,5 +164,6 @@ Global profiles must not replace repository facts:
 
 - Do not put platform package selectors in the profile; keep them in `fkst.workspace.toml` and `fkst.lock`.
 - Do not put package-root lists in the profile; keep them in `.fkst/compose/package-roots`.
+- Do not put operator-derived deployment roots in this repository check/test profile.
 - Do not use file permissions as a control mechanism.
 - Do not source issue text, comments, or other untrusted remote content as shell.

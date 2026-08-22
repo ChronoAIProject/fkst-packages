@@ -19,7 +19,7 @@ host_entry_engine_args() {
 
 host_entry_usage() {
   cat >&2 <<'EOF'
-usage: scripts/run.sh host --host-root <HOST> [--platform-root <PKGSRC>] [--local-packages <dir>] -- <check|test|supervise [args]>
+usage: scripts/run.sh host --host-root <HOST> [--platform-root <PKGSRC>] [--local-packages <dir>] -- <check|test [args]>
 EOF
 }
 
@@ -561,51 +561,12 @@ host_entry_cmd_test() {
   echo "OK: $ran host package(s)"
 }
 
-host_entry_join_names() {
-  local first=1 name
-  for name in "$@"; do
-    if [ "$first" -eq 1 ]; then
-      printf '%s' "$name"
-      first=0
-    else
-      printf ' %s' "$name"
-    fi
-  done
-}
-
-host_entry_cmd_supervise() {
-  host_entry_build_package_roots
-  resolve_bin
-  ensure_fresh_bin
-
-  local platform_names host_names args=()
-  platform_names=""
-  host_names=""
-  if [ "${#HOST_ENTRY_PLATFORM_PACKAGE_NAMES[@]}" -gt 0 ]; then
-    platform_names="$(host_entry_join_names "${HOST_ENTRY_PLATFORM_PACKAGE_NAMES[@]}")"
-  fi
-  if [ "${#HOST_ENTRY_HOST_PACKAGE_NAMES[@]}" -gt 0 ]; then
-    host_names="$(host_entry_join_names "${HOST_ENTRY_HOST_PACKAGE_NAMES[@]}")"
-  fi
-  if [ -z "$platform_names" ]; then
-    echo "error: host supervise requires at least one fkst-packages:<path> package root in .fkst/compose/package-roots" >&2
-    return 1
-  fi
-
-  args=(--project-root "$HOST_ENTRY_HOST_ROOT" --platform-root "$HOST_ENTRY_PLATFORM_ROOT" --local-packages "$HOST_ENTRY_LOCAL_PACKAGES" --platform-packages "$platform_names")
-  if [ -n "$host_names" ]; then
-    args+=(--host-packages "$host_names")
-  fi
-  args+=("$@")
-  host_run_supervise_contract "${args[@]}"
-}
-
 cmd_host() {
   host_entry_parse "$@" || return $?
   local subcommand="${HOST_ENTRY_COMMAND[0]}"
   # Bound host-delegated check/test like the top-level test family (see scripts/test_deadline.sh) so a
-  # SIGKILLed-parent orphan self-terminates; NOT supervise, which is long-running by design. Guarded by
-  # command -v so a host_entry.sh sourced without test_deadline.sh (isolated tests) is a no-op.
+  # SIGKILLed-parent orphan self-terminates. Guarded by command -v so a host_entry.sh sourced without
+  # test_deadline.sh (isolated tests) is a no-op.
   case "$subcommand" in
     check|test)
       if command -v arm_test_deadline >/dev/null 2>&1; then
@@ -624,12 +585,6 @@ cmd_host() {
         host_entry_cmd_test "${HOST_ENTRY_COMMAND[@]:1}"
       else
         host_entry_cmd_test
-      fi ;;
-    supervise)
-      if [ "${#HOST_ENTRY_COMMAND[@]}" -gt 1 ]; then
-        host_entry_cmd_supervise "${HOST_ENTRY_COMMAND[@]:1}"
-      else
-        host_entry_cmd_supervise
       fi ;;
     -h|--help|help)
       host_entry_usage
