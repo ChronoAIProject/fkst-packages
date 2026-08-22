@@ -20,10 +20,9 @@ scripts/run.sh test <package ...>
 scripts/run.sh test-composed
 scripts/run.sh doctor
 scripts/run.sh run <package> <department> '{"payload":{}}'
-scripts/run.sh supervise <package>
 ```
 
-`run` and `supervise` default to `.fkst/run/runtime` and `.fkst/run/durable` when the corresponding host
+`run` defaults to `.fkst/run/runtime` and `.fkst/run/durable` when the corresponding host
 facts are unset. `run` never sets `FKST_GITHUB_WRITE`. Real GitHub writes happen only when
 `FKST_GITHUB_WRITE=1`.
 

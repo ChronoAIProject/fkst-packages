@@ -31,13 +31,17 @@ class RunScriptContractTest(unittest.TestCase):
     def source(self) -> str:
         return Path(__file__).with_name("run.sh").read_text(encoding="utf-8")
 
-    def test_supervise_requires_shared_rate_pool_root(self) -> None:
+    def test_the_runner_offers_no_supervise_entry(self) -> None:
+        """Supervise is the deployment mechanism's entry, not this repository's.
+
+        The rate-pool guard this used to assert lived inside `cmd_supervise_old`. Asserting the
+        absence of the subcommand rather than deleting the case outright keeps the retirement
+        witnessed: reintroducing a supervise entry here fails, instead of silently passing.
+        """
         source = self.source()
 
-        self.assertIn('if [ -z "${FKST_RATE_POOL_ROOT:-}" ]; then', source)
-        self.assertIn("FKST_RATE_POOL_ROOT is required for supervise", source)
-        self.assertIn("FKST_RATE_POOL_ROOT must be an absolute host-stable directory path", source)
-        self.assertIn('echo "FKST_RATE_POOL_ROOT=$FKST_RATE_POOL_ROOT"', source)
+        self.assertNotIn("cmd_supervise", source)
+        self.assertNotIn("scripts/run.sh supervise", source)
 
     def test_python_repository_checks_do_not_write_bytecode_cache(self) -> None:
         source = self.source()
