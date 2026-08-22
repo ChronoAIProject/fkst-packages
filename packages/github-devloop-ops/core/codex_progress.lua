@@ -9,6 +9,11 @@ local terminal_statuses = {
   done = true,
   failed = true,
 }
+local pr_roles = {
+  consensus = true,
+  fix = true,
+  ["review-meta"] = true,
+}
 
 local function canonical_issue(row)
   local target = entity.parse_entity_proposal_id(row and row.proposal_id)
@@ -174,6 +179,243 @@ function M.project_terminal_row(row)
   end
 
   return projected_request(row, target, table.concat(body_lines, "\n"))
+end
+
+local function canonical_pr(row)
+  local target = entity.parse_entity_proposal_id(row and row.label)
+  if target == nil or target.kind ~= "pr" then
+    return nil
+  end
+  if entity.pr_proposal_id(target.repo, target.pr_number) ~= row.label then
+    return nil
+  end
+  return target
+end
+
+local function pr_candidate(row, statuses)
+  if type(row) ~= "table"
+    or pr_roles[row.role] ~= true
+    or statuses[row.status] ~= true
+    or type(row.run_id) ~= "string"
+    or row.run_id:find("^[%w._-]+$") == nil then
+    return nil
+  end
+  return canonical_pr(row)
+end
+
+local function validate_pr_display_row(row, card_refreshed_at)
+  local elapsed_ms = tonumber(row.elapsed_ms)
+  local exit_code = row.exit_code == nil and nil or tonumber(row.exit_code)
+  if type(row.dept) ~= "string" or row.dept == ""
+    or type(row.proposal_id) ~= "string" or row.proposal_id == ""
+    or elapsed_ms == nil or elapsed_ms < 0
+    or type(row.started_at) ~= "string" or row.started_at == ""
+    or (row.exit_code ~= nil and exit_code == nil) then
+    error("github-devloop-ops: codex-progress-row-invalid: matching PR row lacks display fields")
+  end
+  if row.status == "running" then
+    local timeout_seconds = tonumber(row.timeout_seconds)
+    if timeout_seconds == nil or timeout_seconds <= 0
+      or type(card_refreshed_at) ~= "string" or card_refreshed_at == "" then
+      error("github-devloop-ops: codex-progress-row-invalid: matching running PR row lacks display fields")
+    end
+  end
+end
+
+local function row_order(left, right)
+  if left.run_id ~= right.run_id then
+    return left.run_id < right.run_id
+  end
+  if left.role ~= right.role then
+    return left.role < right.role
+  end
+  return tostring(left.dedup_key or "") < tostring(right.dedup_key or "")
+end
+
+local function newest_row(rows)
+  local newest = nil
+  for _, row in ipairs(rows) do
+    local row_ms = tonumber(row.ended_at_ms) or tonumber(row.started_at_ms) or -1
+    local newest_ms = newest
+      and (tonumber(newest.ended_at_ms) or tonumber(newest.started_at_ms) or -1)
+      or -1
+    if newest == nil
+      or row_ms > newest_ms
+      or (row_ms == newest_ms and row.run_id > newest.run_id) then
+      newest = row
+    end
+  end
+  return newest
+end
+
+local function select_pr_cohort(group)
+  local cohort = {}
+  local seen = {}
+  local function append(row)
+    if seen[row.run_id] ~= true then
+      seen[row.run_id] = true
+      table.insert(cohort, row)
+    end
+  end
+
+  if #group.running > 0 then
+    local consensus_proposals = {}
+    for _, row in ipairs(group.running) do
+      append(row)
+      if row.role == "consensus" then
+        consensus_proposals[row.proposal_id] = true
+      end
+    end
+    for _, row in ipairs(group.recent) do
+      if row.role == "consensus" and consensus_proposals[row.proposal_id] == true then
+        append(row)
+      end
+    end
+  else
+    local newest = newest_row(group.recent)
+    if newest == nil then
+      return cohort
+    end
+    if newest.role == "consensus" then
+      for _, row in ipairs(group.recent) do
+        if row.role == newest.role and row.proposal_id == newest.proposal_id then
+          append(row)
+        end
+      end
+    else
+      append(newest)
+    end
+  end
+
+  table.sort(cohort, row_order)
+  return cohort
+end
+
+local function aggregate_status(cohort)
+  local failed = false
+  for _, row in ipairs(cohort) do
+    if row.status == "running" then
+      return "running"
+    end
+    failed = failed or row.status == "failed"
+  end
+  return failed and "failed" or "done"
+end
+
+local function append_pr_run(lines, row)
+  table.insert(lines, "")
+  table.insert(lines, "#### Run `" .. row.run_id .. "`")
+  table.insert(lines, "")
+  table.insert(lines, "- Role: `" .. row.role .. "`")
+  table.insert(lines, "- Department: `" .. row.dept .. "`")
+  table.insert(lines, "- Outcome: `" .. row.status .. "`")
+  table.insert(lines, "- Started: `" .. row.started_at .. "`")
+  if row.status == "running" then
+    table.insert(lines, "- Elapsed: `" .. format_seconds(tonumber(row.elapsed_ms))
+      .. " / " .. tostring(row.timeout_seconds) .. "s`")
+  elseif row.ended_at_ms ~= nil then
+    table.insert(lines, "- Duration: `" .. format_seconds(tonumber(row.elapsed_ms)) .. "`")
+  end
+  if row.exit_code ~= nil then
+    table.insert(lines, "- Exit code: `" .. tostring(tonumber(row.exit_code)) .. "`")
+  end
+  table.insert(lines, "")
+  table.insert(lines, "Output tail:")
+  table.insert(lines, "")
+  table.insert(lines, output_block(row.output_tail))
+end
+
+local function pr_body(target_proposal_id, cohort, status, card_refreshed_at)
+  local lines = {
+    status == "running" and "### Pull request Codex progress" or "### Pull request Codex result",
+    "",
+    "- Runs: `" .. tostring(#cohort) .. "`",
+    "- Outcome: `" .. status .. "`",
+  }
+  if status == "running" then
+    table.insert(lines, "- Card last updated: `" .. card_refreshed_at .. "`")
+  end
+  for _, row in ipairs(cohort) do
+    append_pr_run(lines, row)
+  end
+  table.insert(lines, "")
+  table.insert(lines, M.marker(target_proposal_id, cohort[1].run_id, status))
+  return table.concat(lines, "\n")
+end
+
+local function projected_pr_request(target_proposal_id, target, cohort, status, body)
+  local run_id = cohort[1].run_id
+  return {
+    queue = "github-proxy.github_pr_comment_request",
+    proposal_id = target_proposal_id,
+    request = {
+      schema = "github-proxy.v1",
+      repo = target.repo,
+      pr_number = target.pr_number,
+      body = body,
+      dedup_key = base_ids.dedup_key({
+        "codex-progress",
+        "pr",
+        target.repo,
+        target.pr_number,
+        run_id,
+        sha256.hex(body),
+      }),
+      replace_marker = M.replace_marker(target_proposal_id),
+      replace_snapshot = {
+        run_id = run_id,
+        status = status,
+      },
+      source_ref = entity.pr_source_ref(target.repo, target.pr_number),
+    },
+  }
+end
+
+function M.project_pr_cards(running, recent, card_refreshed_at)
+  if type(running) ~= "table" or type(recent) ~= "table" then
+    error("github-devloop-ops: codex-progress-invalid: PR projection requires run sets")
+  end
+  local groups = {}
+  local function collect(row, statuses, field)
+    local target = pr_candidate(row, statuses)
+    if target == nil then
+      return
+    end
+    local key = row.label
+    groups[key] = groups[key] or {
+      target = target,
+      running = {},
+      recent = {},
+    }
+    table.insert(groups[key][field], row)
+  end
+  for _, row in ipairs(running) do
+    collect(row, { running = true }, "running")
+  end
+  for _, row in ipairs(recent) do
+    collect(row, terminal_statuses, "recent")
+  end
+
+  local keys = {}
+  for key, _ in pairs(groups) do
+    table.insert(keys, key)
+  end
+  table.sort(keys)
+
+  local projected = {}
+  for _, key in ipairs(keys) do
+    local group = groups[key]
+    local cohort = select_pr_cohort(group)
+    if #cohort > 0 then
+      for _, row in ipairs(cohort) do
+        validate_pr_display_row(row, card_refreshed_at)
+      end
+      local status = aggregate_status(cohort)
+      local body = pr_body(key, cohort, status, card_refreshed_at)
+      table.insert(projected, projected_pr_request(key, group.target, cohort, status, body))
+    end
+  end
+  return projected
 end
 
 return M

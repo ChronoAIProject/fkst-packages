@@ -92,9 +92,10 @@ local function defer_live_run(identity)
   }
 end
 
-local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id)
+local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id, target_proposal_id)
   local run_identity = codex_identity(proposal, role, angle_lane, invocation_id)
   local dispatch_opts = codex_opts(proposal, prompt, worktree, run_identity.role)
+  dispatch_opts.label = target_proposal_id
   for key, value in pairs(opts or {}) do
     dispatch_opts[key] = value
   end
@@ -105,12 +106,21 @@ local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts
   return result
 end
 
-local function spawn_angle(proposal, angle, runtime_root, invocation_id)
+local function spawn_angle(proposal, angle, runtime_root, invocation_id, target_proposal_id)
   local prompt = core.build_angle_prompt(proposal, angle)
   local worktree = prepare_seat_worktree(proposal,
     judgment_scratch_worktree(runtime_root, "angle-" .. tostring(angle), proposal.dedup_key)
   )
-  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle), nil, invocation_id)
+  return dispatch_codex(
+    proposal,
+    prompt,
+    worktree,
+    "consensus",
+    tostring(angle),
+    nil,
+    invocation_id,
+    target_proposal_id
+  )
 end
 
 local function with_runtime_context_root(proposal, runtime_root)
@@ -122,7 +132,7 @@ local function with_runtime_context_root(proposal, runtime_root)
   return value
 end
 
-local function decide(proposal, invocation_id)
+local function decide(proposal, invocation_id, target_proposal_id)
   local angle_results = {}
   local handles = {}
   local angles = core.angles(proposal)
@@ -137,7 +147,7 @@ local function decide(proposal, invocation_id)
   local runtime_root = read_runtime_root()
   proposal = with_runtime_context_root(proposal, runtime_root)
   for _, angle in ipairs(angles) do
-    local handle = spawn_angle(proposal, angle, runtime_root, invocation_id)
+    local handle = spawn_angle(proposal, angle, runtime_root, invocation_id, target_proposal_id)
     if result_deferred(handle) then
       return handle
     end
@@ -189,7 +199,16 @@ local function decide(proposal, invocation_id)
         return judgment_scratch_worktree(root, kind, identity)
       end,
       dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
-        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane, nil, invocation_id)
+        return dispatch_codex(
+          target_proposal,
+          prompt,
+          worktree,
+          role,
+          angle_lane,
+          nil,
+          invocation_id,
+          target_proposal_id
+        )
       end,
     })
     for _, handle in ipairs(rebuttal_handles) do
@@ -238,7 +257,7 @@ local function decide(proposal, invocation_id)
       )
       return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
         sync = true,
-      }, invocation_id)
+      }, invocation_id, target_proposal_id)
     end,
   })
   if result_deferred(parsed) then
@@ -272,6 +291,7 @@ function M.reach(proposal, options)
     return nil
   end
   local invocation_id = type(options) == "table" and options.invocation_id or proposal.dedup_key
+  local target_proposal_id = type(options) == "table" and options.target_proposal_id or nil
 
   local cache_key = result_memo_key(proposal.dedup_key)
   local memoized = result_memo.load(cache_key, proposal.dedup_key)
@@ -279,7 +299,7 @@ function M.reach(proposal, options)
     return memoized
   end
 
-  local result = decide(proposal, invocation_id)
+  local result = decide(proposal, invocation_id, target_proposal_id)
   if result_deferred(result) then
     return nil
   end

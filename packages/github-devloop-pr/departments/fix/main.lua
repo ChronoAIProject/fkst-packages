@@ -275,7 +275,7 @@ local function run_fix_attempt(plan)
   }), {
     prompt = fix_caps.prompts.build_fix_prompt(plan.fix, plan.current_issue, plan.feedback_reason, plan.fix.framing, content_fetch, merge_context),
     worktree = worktree,
-    sync = true,
+    sync = true, label = entity_lib.pr_proposal_id(plan.repo, plan.fix.pr_number),
   })
   if type(result) == "table" and result.deferred then
     devloop_logging.log_codex_result("fix", plan.fix.proposal_id, "fix", result, "result=deferred", nil)

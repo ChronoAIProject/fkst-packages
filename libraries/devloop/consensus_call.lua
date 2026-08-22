@@ -1,4 +1,6 @@
 local consensus = require("consensus")
+local devloop_base = require("devloop.base")
+local entity = require("devloop.entity")
 local strings = require("contract.strings")
 
 local M = {}
@@ -27,6 +29,14 @@ local function attach_caller_lineage(result, proposal_id)
   return value
 end
 
+local function target_proposal_id(source_ref)
+  local repo, pr_number = devloop_base.parse_pr_source_ref(source_ref)
+  if repo == nil then
+    return nil
+  end
+  return entity.pr_proposal_id(repo, pr_number)
+end
+
 function M.reach(proposal)
   if type(proposal) ~= "table" then
     return consensus.reach(proposal)
@@ -37,6 +47,7 @@ function M.reach(proposal)
   end
   local result = consensus.reach(copy_for_consensus(proposal), {
     invocation_id = proposal.proposal_id,
+    target_proposal_id = target_proposal_id(proposal.source_ref),
   })
   if result == nil then
     return nil

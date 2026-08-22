@@ -5,7 +5,10 @@ local testing = require("testkit_internal.testing")
 local t = fkst.test
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
+local pr_proposal_id = "github-devloop/pr/owner/repo/7"
+local review_proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
 local edge = "github-proxy.github_issue_comment_request -> github-proxy.github_comment"
+local pr_edge = "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment"
 local comment_create = "gh api --method POST repos/owner/repo/issues/42/comments"
 local comment_edit = "gh api --method PATCH repos/owner/repo/issues/comments/"
 local comment_path = "/tmp/fkst-github-proxy-comment-owner_repo-issue-42.md"
@@ -152,7 +155,76 @@ local function progress_raise(trace)
   return found
 end
 
+local function pr_progress_raise(trace)
+  local found = nil
+  local count = 0
+  for _, raised in ipairs(trace.raised or {}) do
+    if raised.queue == "github-proxy.github_pr_comment_request" then
+      count = count + 1
+      found = raised
+    end
+  end
+  t.eq(count, 1)
+  return found
+end
+
 return {
+  test_concurrent_review_progress_reaches_real_pr_comment_consumer = function()
+    local log_root = top_level_log_root()
+    local releases = {}
+    for index, lane in ipairs({ "teleology", "fidelity" }) do
+      local tail_path = log_root .. "/codex/pr-progress-" .. lane .. ".tail"
+      releases[index] = testing.seed_running_codex_status({
+        env = { FKST_RUNTIME_LOG_DIR = log_root },
+      }, {
+        role = "consensus",
+        dept = "review_result",
+        proposal_id = review_proposal_id,
+        label = pr_proposal_id,
+        dedup_key = "convergence:consensus:review-v1:" .. lane,
+        status = "running",
+        started_at = "2026-08-13T12:00:00Z",
+        started_at_ms = now() * 1000 - 90000 + index,
+        timeout_seconds = 3600,
+        output_tail_path = tail_path,
+      })
+      write_file(tail_path, lane .. " reviewing\n")
+    end
+
+    local producer_trace = t.fire_raiser("codex_progress_poll")
+    for _, release in ipairs(releases) do
+      release()
+    end
+
+    local raised = pr_progress_raise(producer_trace)
+    t.eq(raised.payload.repo, "owner/repo")
+    t.eq(raised.payload.pr_number, 7)
+    t.eq(raised.payload.replace_marker,
+      '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="' .. pr_proposal_id .. '"')
+    t.is_true(raised.payload.body:find("- Runs: `2`", 1, true) ~= nil)
+
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    local trace = graph.require_quiescent(graph.run({
+      queue = raised.queue,
+      payload = raised.payload,
+      source_ref = {
+        kind = "external",
+        reference = "owner/repo#pr/7",
+      },
+    }, { max_steps = 2 }))
+    graph.assert_covers(trace, { pr_edge })
+    local proxy_step = graph.require_delivery(trace, {
+      queue = "github-proxy.github_pr_comment_request",
+      consumer = "github-proxy.github_pr_comment",
+    })
+    t.eq(proxy_step.exit_code, 0)
+    t.eq(#proxy_step.raises, 0)
+  end,
+
   test_running_codex_progress_raiser_reaches_real_proxy_consumer_in_dry_run = function()
     local log_root = top_level_log_root()
     local tail_path = log_root .. "/codex/progress-card.tail"

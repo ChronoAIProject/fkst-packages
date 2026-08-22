@@ -76,4 +76,35 @@ return {
     t.eq(result.effect_version, logical_version)
     t.eq(result.proposal_id, request.proposal_id)
   end,
+
+  test_pr_request_supplies_canonical_progress_target_to_consensus_runs = function()
+    local original_reach = consensus.reach
+    local captured_options = nil
+    consensus.reach = function(value, options)
+      captured_options = options
+      return {
+        status = "reached",
+        schema = "consensus.consensus_reached.v1",
+        decision = "approve",
+        body = "Ready.",
+        dedup_key = "consensus:" .. value.dedup_key,
+        source_ref = value.source_ref,
+      }
+    end
+
+    local request = proposal()
+    request.proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
+    request.source_ref = { kind = "external", ref = "owner/repo#pr/7" }
+    local ok, result = pcall(function()
+      return consensus_call.reach(request)
+    end)
+    consensus.reach = original_reach
+    if not ok then
+      error(result)
+    end
+
+    t.eq(captured_options.invocation_id, request.proposal_id)
+    t.eq(captured_options.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(result.proposal_id, request.proposal_id)
+  end,
 }

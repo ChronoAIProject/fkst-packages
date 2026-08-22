@@ -72,7 +72,7 @@ local function review_meta_codex_decision(plan)
     review_meta_caps.prompts.build_review_meta_prompt(plan.review_meta, plan.current_issue, plan.content_fetch),
     devloop_base.judgment_worktree_with_exec(exec_sync, "review-meta", plan.review_meta.dedup_key)
   )
-  codex_opts.sync = true
+  codex_opts.sync, codex_opts.label = true, entity_lib.pr_proposal_id(plan.repo, plan.review_meta.pr_number)
   restart_sink_grants.consume(review_meta_caps, plan.receiver_authorization,
     "codex.dispatch:review-meta", "github-devloop: review-meta codex dispatch grant")
   local result = workflow_codex.dispatch(convergence_identity.from_parts("review-meta", plan.review_meta.proposal_id, plan.review_meta.version, {
