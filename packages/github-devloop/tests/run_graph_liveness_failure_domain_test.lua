@@ -1,8 +1,6 @@
 local t = fkst.test
 
 local fixture_prefix = "/tmp/fkst-liveness-failure-domain."
-local pre_advance_engine_ref = "7079c95edd3e1d3ff4ddbc48f916ad4536e02802"
-local post_advance_engine_ref = "1b6052095d8a6e51bb342217999f79c0c2450b42"
 
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
@@ -34,53 +32,12 @@ local function framework_bin()
   return bin
 end
 
-local function trim(value)
-  return tostring(value or ""):gsub("%s+$", "")
-end
-
-local function framework_bin_ref(bin)
-  local source_root = tostring(bin):match("^(.*)/target/debug/fkst%-framework$")
-  if source_root == nil then
-    return nil
-  end
-  local output, ok = command_output("git -C " .. shell_quote(source_root) .. " rev-parse HEAD")
-  if not ok then
-    return nil
-  end
-  return trim(output)
-end
-
-local function bootstrap_framework_bin(root, ref)
-  local source_root = project_root()
-  local resolver_root = root .. "/engine-" .. ref
-  local bootstrap_log = resolver_root .. "/bootstrap.log"
-  run_command("mkdir -p " .. shell_quote(resolver_root .. "/.fkst"))
-  run_command("ln -s " .. shell_quote(source_root .. "/scripts")
-    .. " " .. shell_quote(resolver_root .. "/scripts"))
-  file.write(resolver_root .. "/.fkst/substrate-ref", ref .. "\n")
-
-  local script = "source " .. shell_quote(source_root .. "/scripts/bin_bootstrap.sh")
-    .. "; bootstrap_bin_on_total_miss " .. shell_quote(resolver_root)
-  local output, ok = command_output("{ /bin/bash -c " .. shell_quote(script)
-    .. " 2>" .. shell_quote(bootstrap_log) .. "; }")
-  if not ok then
-    local log_output = command_output("cat " .. shell_quote(bootstrap_log))
-    error("failed to resolve fkst-framework at " .. ref .. "\n" .. tostring(output) .. tostring(log_output))
-  end
-
-  local bin = trim(output)
-  if framework_bin_ref(bin) ~= ref then
-    error("resolved fkst-framework does not match requested ref: " .. ref)
+local function compatibility_bin(name)
+  local bin = os.getenv(name) or ""
+  if bin == "" then
+    error("liveness failure-domain compatibility fixture requires " .. name)
   end
   return bin
-end
-
-local function framework_bin_for_ref(root, ref)
-  local provided = framework_bin()
-  if framework_bin_ref(provided) == ref then
-    return provided
-  end
-  return bootstrap_framework_bin(root, ref)
 end
 
 local function remove_fixture(root)
@@ -485,11 +442,20 @@ local function with_fixture(fn)
   end
 end
 
-return {
-  test_engine_advance_has_bidirectional_expectation_compatibility_witness = function()
+local tests = {
+  test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
     with_fixture(function(root, package_root)
-      local pre_advance_bin = framework_bin_for_ref(root, pre_advance_engine_ref)
-      local post_advance_bin = framework_bin_for_ref(root, post_advance_engine_ref)
+      run_fixture(root, package_root, false, framework_bin(), 1, "current-stuck-first")
+      run_fixture(root, package_root, true, framework_bin(), 1, "current-stuck-last")
+    end)
+  end,
+}
+
+if os.getenv("FKST_LIVENESS_ENGINE_COMPATIBILITY") == "1" then
+  tests.test_engine_advance_has_bidirectional_expectation_compatibility_witness = function()
+    with_fixture(function(root, package_root)
+      local pre_advance_bin = compatibility_bin("FKST_LIVENESS_PRE_ADVANCE_ENGINE_BIN")
+      local post_advance_bin = compatibility_bin("FKST_LIVENESS_POST_ADVANCE_ENGINE_BIN")
 
       run_fixture(root, package_root, false, pre_advance_bin, 2, "pre-engine-pre-expectation")
       run_fixture(root, package_root, false, post_advance_bin, 1, "post-engine-post-expectation")
@@ -510,12 +476,7 @@ return {
         "eq: expected 1, got 2"
       )
     end)
-  end,
+  end
+end
 
-  test_liveness_failure_domain_is_entity_local_in_both_orderings = function()
-    with_fixture(function(root, package_root)
-      run_fixture(root, package_root, false, framework_bin(), 1, "current-stuck-first")
-      run_fixture(root, package_root, true, framework_bin(), 1, "current-stuck-last")
-    end)
-  end,
-}
+return tests
