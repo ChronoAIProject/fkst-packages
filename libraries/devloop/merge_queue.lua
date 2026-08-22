@@ -19,6 +19,13 @@ local config = require("devloop.config")
 local strings = require("contract.strings")
 local devloop_logging = require("devloop.logging")
 local markers_shared = require("devloop.markers.shared")
+C.merge_queue_entry_rejections = {
+  pr_not_open = "pr-not-open",
+  pr_base_mismatch = "pr-base-mismatch",
+  pr_outside_lane = "pr-outside-merge-queue-lane",
+  merge_ready_fact_missing = "merge-ready-fact-missing",
+}
+local entry_rejections = C.merge_queue_entry_rejections
 local wip_admission_classification
 local log_wip_exclusion
 
@@ -135,14 +142,14 @@ end
 
 local function merge_queue_entry_from_pr(repo, pr_number, pr, expected_base, allow_current_fixing)
   if type(pr) ~= "table" or tostring(pr.state or ""):upper() ~= "OPEN" then
-    return nil
+    return nil, entry_rejections.pr_not_open
   end
   if tostring(pr.base_ref_name or "") ~= tostring(expected_base or "") then
-    return nil
+    return nil, entry_rejections.pr_base_mismatch
   end
   local state = current_any_entity_state(pr.comments)
   if not is_merge_queue_lane_state(state.state, allow_current_fixing) then
-    return nil
+    return nil, entry_rejections.pr_outside_lane
   end
   local current_head_sha = tostring(pr.head_sha or "")
   local fact = m_facts.merge_ready_fact(pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(state), pr_number, current_head_sha)
@@ -167,7 +174,7 @@ local function merge_queue_entry_from_pr(repo, pr_number, pr, expected_base, all
     end
   end
   if fact == nil then
-    return nil
+    return nil, entry_rejections.merge_ready_fact_missing
   end
   return {
     pr_number = tonumber(pr_number),
@@ -186,11 +193,14 @@ end
 function C.merge_queue_head(repo, base_branch, current)
   local entries = {}
   local seen = {}
+  local current_rejection = nil
   if type(current) == "table" and current.pr_number ~= nil and type(current.pr) == "table" then
-    local entry = merge_queue_entry_from_pr(repo, current.pr_number, current.pr, base_branch, true)
+    local entry, rejection = merge_queue_entry_from_pr(repo, current.pr_number, current.pr, base_branch, true)
     if entry ~= nil then
       table.insert(entries, entry)
       seen[tostring(entry.pr_number)] = true
+    else
+      current_rejection = rejection
     end
   end
 
@@ -215,7 +225,7 @@ function C.merge_queue_head(repo, base_branch, current)
     end
   end
   table.sort(entries, compare_merge_queue_entries)
-  return entries[1], entries
+  return entries[1], entries, current_rejection
 end
 
 function C.merge_queue_starvation_candidate(entries, threshold_minutes, now_seconds)
@@ -235,7 +245,7 @@ function C.merge_queue_starvation_candidate(entries, threshold_minutes, now_seco
 end
 
 function C.merge_queue_predecessors(repo, base_branch, current)
-  local _, entries = C.merge_queue_head(repo, base_branch, current)
+  local _, entries, current_rejection = C.merge_queue_head(repo, base_branch, current)
   local predecessors = {}
   local found = false
   local current_pr_number = tostring((current or {}).pr_number or "")
@@ -247,7 +257,7 @@ function C.merge_queue_predecessors(repo, base_branch, current)
     table.insert(predecessors, entry)
   end
   if not found then
-    return nil, "not-in-merge-queue"
+    return nil, current_rejection or "not-in-merge-queue"
   end
   return predecessors, "ok"
 end
