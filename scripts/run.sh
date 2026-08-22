@@ -13,10 +13,11 @@
 #   scripts/run.sh check
 #       Run hermetic repository checks and engine workspace dependency validation.
 #
-#   scripts/run.sh host --host-root <HOST> [--platform-root <PKGSRC>] [--local-packages <dir>] -- <check|test|supervise [args]>
+#   scripts/run.sh host --host-root <HOST> [--platform-root <PKGSRC>] [--local-packages <dir>] -- <check|test [args]>
 #       Run shared fkst-packages orchestration for a host repo. The host passes
 #       only its root/config; this runner owns BIN resolution, source ratchets,
-#       engine package-root wiring, and host_run.sh supervise delegation.
+#       engine package-root wiring. Supervise is not run from here: the deployment
+#       mechanism owns that entry.
 #
 #   scripts/run.sh doctor
 #       Run read-only preflight checks for git/cargo/rustc, fkst-framework BIN,
@@ -51,24 +52,9 @@
 #       RAISED events, and dump the runtime scratch tree. Never sets
 #       FKST_GITHUB_WRITE.
 #
-#   scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
-#       Start the real fkst-framework supervise event loop for one host. Runtime
-#       root is scratch and defaults to a fresh temp dir; explicit --runtime-root
-#       is used as the fresh scratch root for this launch.
-#       Platform package roots are resolved from the target fkst.workspace.toml
-#       and fkst.lock, not from ad hoc package-root construction.
-#       Durable root is mandatory and reused. --restart SIGKILLs the prior host-run supervise
-#       recorded for that durable root. FKST_GITHUB_WRITE passes through
-#       (unset = dry-run).
-#
-#   scripts/run.sh supervise <package>
-#       Backward-compatible package-local supervise wrapper. Uses .fkst/run/runtime
-#       and .fkst/run/durable by default and requires FKST_RATE_POOL_ROOT from the
-#       host so named external-command rate pools are shared across instances.
-#
 #   scripts/run.sh build
 #       Local-only helper: update the fkst-substrate dev checkout and build
-#       fkst-framework. test/run/supervise ensure a traceable local BIN is built
+#       fkst-framework. test/run ensure a traceable local BIN is built
 #       from the current fkst-substrate working tree before running.
 #
 # fkst-framework binary resolution (priority): $BIN > repo .fkst/env `BIN=` > PATH >
@@ -86,8 +72,6 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 
 # shellcheck source=scripts/bin_bootstrap.sh
 . "$ROOT/scripts/bin_bootstrap.sh"
-# shellcheck source=scripts/host_run.sh
-. "$ROOT/scripts/host_run.sh"
 # shellcheck source=scripts/host_entry.sh
 . "$ROOT/scripts/host_entry.sh"
 # shellcheck source=scripts/composed_manifest.sh
@@ -662,70 +646,6 @@ cmd_ratchet_migration_dry_run() {
   python3 -B "$ROOT/packages/github-ratchet-migration-slicer/tools/ratchet_migration_slicer.py" --repo-root "$ROOT" "$@"
 }
 
-cmd_supervise_old() {
-  local pkg="${1:-}"
-  if [ -z "$pkg" ]; then
-    echo "usage: scripts/run.sh supervise <package>" >&2; exit 1
-  fi
-  if [ -z "${FKST_RATE_POOL_ROOT:-}" ]; then
-    echo "error: FKST_RATE_POOL_ROOT is required for supervise so gh rate pools share one host-stable budget" >&2
-    echo "  set FKST_RATE_POOL_ROOT to the same host-stable directory for every supervise instance that spends the GitHub quota" >&2
-    exit 1
-  fi
-  case "$FKST_RATE_POOL_ROOT" in
-    /*) ;;
-    *)
-      echo "error: FKST_RATE_POOL_ROOT must be an absolute host-stable directory path" >&2
-      exit 1
-      ;;
-  esac
-  ensure_package_view
-  local pkgdir rootdir args
-  pkgdir="$(package_root_for_name "$pkg")" || { echo "error: no package named $pkg" >&2; exit 1; }
-  [ -d "$pkgdir" ] || { echo "error: no package at $pkgdir" >&2; exit 1; }
-
-  local project_root rt durable
-  project_root="$(host_run_abs_path "${FKST_PROJECT_ROOT:-$pkgdir}")"
-  host_run_validate_local_iteration_test_command_for "$ROOT" "$pkg"
-  rt="${FKST_RUNTIME_ROOT:-$DEFAULT_RUNTIME_ROOT}"
-  durable="${FKST_DURABLE_ROOT:-$DEFAULT_DURABLE_ROOT}"
-  mkdir -p "$rt" "$durable"
-  if [ "$rt" = "$durable" ]; then
-    echo "error: FKST_RUNTIME_ROOT and FKST_DURABLE_ROOT resolved to the same directory" >&2
-    exit 1
-  fi
-  export FKST_RUNTIME_ROOT="$rt"
-  export FKST_DURABLE_ROOT="$durable"
-  export FKST_PROJECT_ROOT="$project_root"
-  local repository_roots=("$ROOT")
-  if [ -n "${BIN_REPOSITORY_ROOT:-}" ]; then
-    repository_roots+=("$BIN_REPOSITORY_ROOT")
-  fi
-  host_run_export_codex_repository_roots "${repository_roots[@]}" || exit $?
-  export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
-
-  echo "BIN=$BIN"
-  echo "FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT"
-  echo "FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT"
-  echo "FKST_RATE_POOL_ROOT=$FKST_RATE_POOL_ROOT"
-  echo "This starts the real supervise event loop in the foreground. Press Ctrl-C to stop."
-  args=("$BIN" supervise --project-root "$project_root")
-  for rootdir in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
-    [ -d "$rootdir" ] || continue
-    args+=(--package-root "${rootdir%/}")
-  done
-  args+=(--framework-bin "$BIN")
-  echo "exec: ${args[*]}"
-  exec "${args[@]}"
-}
-
-cmd_supervise() {
-  case "${1:-}" in
-    --*) host_run_supervise_contract "$@" ;;
-    *) cmd_supervise_old "$@" ;;
-  esac
-}
-
 cmd_build() {
   local substrate="${FKST_SUBSTRATE:-}"
   if [ -z "$substrate" ]; then
@@ -787,7 +707,6 @@ main() {
     test-engine-compatibility) shift; cmd_test_engine_compatibility "$@" ;;
     test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
     run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
-    supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
     build) shift; cmd_build "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "unknown subcommand: $1" >&2; usage; exit 1 ;;

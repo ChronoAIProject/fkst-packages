@@ -298,15 +298,9 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 
 **部署即重启、随时可重启：`supervise` 必须能在任何时刻被 SIGKILL + 重启而不丢工作、不造成永久停滞。** 这是 crash-only software（Candea & Fox，见上一节）的硬契约，不是「尽量」。系统不做 drain / 优雅关停 / 在途排空；恢复靠两条既有机制：① **durable 投递**（redb at-least-once + lease/fencing + retry）让在途事件重启后续投；② **从 marker / git / 外部源回源 re-derive**（真相不在内存态）让任何中间态被重新推导、重驱。**重启只换掉 supervise 这一个进程；framework 部门进程与在途 codex 都不重启、不被杀（进程树实测，2026-08-02）。** 终止只发生在**一处**，且是 **`kill -9 <单个 pid>`**，不是 `kill -- -<pgid>`、不是进程树杀。当前完整调用链（2026-08-15 逐文件核实）：
 
-```
-scripts/run.sh supervise --restart
-   → cmd_supervise → host_run_supervise_contract            (scripts/run.sh:713; host_run.sh:683)
-      → host_run_restart_prior                               (host_run.sh:698,622)
-         → host_run_kill_supervise_pid                       (host_run.sh:634,598)
-            → kill -9 "$pid"                                 (host_run.sh:606)
-```
+本仓不再持有这条启动路径：运维入口归 fkst-ops，本仓只是被 `--platform-root` 指向的载荷。链路与行号以 fkst-ops 为准（`ops/deployment_operator.sh` → `host/supervise.sh` → `host/host_run.sh`），本文件不复述会漂移的行号。
 
-**等待与占位是刻意的**：先轮询确认旧进程真死再删 pidfile（`host_run.sh:610-617`），再由 `host_run_claim_supervise_slot` 在 exec 前占据 pidfile（`:726`）——所以不会出现两个 supervise 抢同一 durable root。
+**等待与占位是刻意的**：先轮询确认旧进程真死再删 pidfile，再在 exec 前占据 pidfile——所以不会出现两个 supervise 抢同一 durable root。
 
 而 supervise 之下有**四层**，实测形态：
 
@@ -606,9 +600,9 @@ the one genuine increment available now, then wait correctly. ⟦AI:FKST⟧
 - **引擎二进制**：本仓不含引擎。`cp .fkst/env.example .fkst/env` 填 `BIN=<fkst-substrate>/target/debug/fkst-framework`。`scripts/run.sh` 按 `BIN` 覆盖 > `.fkst/env` > PATH > 同级 `../fkst-substrate` 解析；CI 中 `BIN` 不可执行会直接报错，且 CI 不自动 build。
 - **标准测试**：`scripts/run.sh test [pkg ...]` 是本地和 CI 的单一入口：先重建 `.fkst/local-packages -> ../packages`（own package runtime view），再跑一次 `"$BIN" --self-test`（脚本未设时用 `.fkst/run/runtime` / `.fkst/run/durable`）。要测试哪些包从 committed dev source `packages/*` 枚举；引擎实际加载 root 统一来自 `.fkst/`：own 包传 `--package-root .fkst/local-packages/<pkg>`，组合 conformance / run / supervise 还会同时包含 `.fkst/packages/*` 中存在的 external package roots。flat 包跑单包 conformance + test；composed 包跳过单根 conformance，但仍跑 test。无参全包测试收尾会按所有 composed 包的 `[event_deps]` 递归收集 composed 包及其依赖，以仓库根为 `--project-root` 跑一次组合 conformance；`scripts/run.sh test-composed` 可单独跑这一步。test 模式含 `*_test.lua` 单测 + `fkst.test.run_department` 集成测，**不经 router**，故 test 模式不强制 source_ref；使用 ports 的 `gh`/`git` 业务测试通过 `make_department(ports)` 注入 `forge.github_fake`/`forge.git_fake`，用 `testkit_internal.testing.run_fake` 验证行为；adapter-contract tests 可注入 fake exec 并断言 command spelling；其他外部 CLI（如 `codex`）仍用 `fkst.test.mock_command` / `fkst.test.command_calls`；未 mock fail-closed。
 - **dogfood / 真跑一次部门**：`scripts/run.sh run <pkg> <dept> [event-json]` 一次性调用 `fkst-framework run`，解码 stdout 上的 `RAISED: <base64(JSON 数组)>` 并 dump `<RT>`。脚本用 `.fkst/run/runtime`（或复用已设的 `FKST_RUNTIME_ROOT`），**绝不设置 `FKST_GITHUB_WRITE`**。
-- **真实 supervise**：`scripts/run.sh supervise <pkg>` 是薄封装真实事件循环，未设置时使用 `.fkst/run/runtime` 和独立 `.fkst/run/durable`，默认 `--project-root .fkst/local-packages/<pkg>`（可用 `FKST_PROJECT_ROOT` 覆盖），并显式传 `.fkst/local-packages/*` 与 `.fkst/packages/*` 中存在的 runtime dirs 为 `--package-root`，再传 `--framework-bin "$BIN"`。前台运行，`Ctrl-C` 退出；不搭 host harness、不模拟事件、不注入 fake `gh`；host 提供的 topology env 会原样透传，脚本**不推导**集成分支，`github-devloop` dogfood 由 host 明确设置 `FKST_DEVLOOP_INTEGRATION_BRANCH=integration-<device>`。
+- **真实 supervise**：本仓不再提供该入口。运维启动归 fkst-ops（`host/supervise.sh`），本仓的 `scripts/run.sh` 只保留仓库自身的 `test` / `test-affected` / `test-composed` / `run` / `check` / `build` / `board` / `doctor` / `health`。
 - **Operational health check**: `scripts/run.sh health` prints a first-line verdict from `fkst-framework observe --json`: `HEALTHY` or `N ANOMALIES NEEDING ATTENTION`. This follows SRE health-check practice: the command aggregates producer-owned structured facts (`terminal`, `error_class`, `fingerprint`, `outcome=retry-pending`, `tag=DEAD_LETTER`, queue DLQ counts, and explicit `disposition` when present) and keeps expected transients informational instead of attention-worthy. The renderer must stay a thin consumer of generic observe data; it must not become the semantic authority for new department or engine disposition contracts.
-- **本地 build / freshness**：`test/run/supervise` 在解析 `$BIN` 后，若 `$BIN` 可溯源到 `<fkst-substrate>/target/debug/fkst-framework`，会先 `cargo build -p fkst-framework` 确保与该 checkout 当前工作树一致；不 `git pull`、CI 不自动 build、无法溯源仅 warn 跳过，`FKST_NO_AUTOBUILD=1` 可跳过。`scripts/run.sh build` 仍是显式 `git pull && cargo build` 的更新命令。
+- **本地 build / freshness**：`test/run` 在解析 `$BIN` 后，若 `$BIN` 可溯源到 `<fkst-substrate>/target/debug/fkst-framework`，会先 `cargo build -p fkst-framework` 确保与该 checkout 当前工作树一致；不 `git pull`、CI 不自动 build、无法溯源仅 warn 跳过，`FKST_NO_AUTOBUILD=1` 可跳过。`scripts/run.sh build` 仍是显式 `git pull && cargo build` 的更新命令。
 - **CI**：`.github/workflows/ci.yml` 按此优先级解析引擎修订——`workflow_dispatch` 的 `substrate_ref` 输入 > `.fkst/substrate-ref` 文件 > 兜底 `dev`（`ci.yml:57-67`）——checkout 该修订的 fkst-substrate 并 `cargo build`，再调用 `scripts/run.sh test`。**该文件在本仓存在且非空，所以 `dev` 兜底从不触发：CI 测的是 pin 住的那个引擎修订，不是 substrate 的当前 dev。** 这正是「bump substrate pin」要单独开 PR 的原因，也是那类 PR 正文所说「consumer CI 是兼容性门」的含义——pin 不兼容时它就红，且必须红。改包后 push `dev`/`main` 触发。
 
 ## Git 提交/分支规范
