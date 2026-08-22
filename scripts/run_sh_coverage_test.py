@@ -158,6 +158,7 @@ class RunShComposedConformanceHarness:
             "test_parallel.sh",
             "test_coverage.sh",
             "test_deadline.sh",
+            "test_engine_compatibility.sh",
             "run_department.sh",
         ):
             shutil.copy2(REPO_ROOT / "scripts" / name, self.scripts / name)

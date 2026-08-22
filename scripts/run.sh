@@ -6,6 +6,10 @@
 #       graph conformance. Tests use fresh runtime/durable roots and keep only
 #       failure-relevant lines unless -v/--verbose or FKST_TEST_VERBOSE=1 is set.
 #
+#   scripts/run.sh test-engine-compatibility
+#       Run github-devloop's historical engine compatibility witness using the
+#       two pre-provisioned binaries named by FKST_LIVENESS_*_ENGINE_BIN.
+#
 #   scripts/run.sh check
 #       Run hermetic repository checks and engine workspace dependency validation.
 #
@@ -100,6 +104,8 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/test_coverage.sh"
 # shellcheck source=scripts/test_deadline.sh
 . "$ROOT/scripts/test_deadline.sh"
+# shellcheck source=scripts/test_engine_compatibility.sh
+. "$ROOT/scripts/test_engine_compatibility.sh"
 # shellcheck source=scripts/run_department.sh
 . "$ROOT/scripts/run_department.sh"
 
@@ -750,7 +756,7 @@ main() {
   # Bound the whole test-family run BEFORE dispatch (covers cmd_check too); see scripts/test_deadline.sh.
   case "${1:-}" in
     check|test-composed) arm_test_deadline; trap 'disarm_test_deadline' EXIT ;;
-    test|test-affected) local_iteration_result_arm; arm_test_deadline ;;
+    test|test-affected|test-engine-compatibility) local_iteration_result_arm; arm_test_deadline ;;
   esac
   case "${1:-}" in
     check) shift; cmd_check "$@" ;;
@@ -760,6 +766,7 @@ main() {
     health) shift; resolve_bin; ensure_fresh_bin; cmd_health "$@" ;;
     ratchet-migration-dry-run) shift; cmd_ratchet_migration_dry_run "$@" ;;
     test) shift
+      unset FKST_LIVENESS_ENGINE_COMPATIBILITY
       # Quiet cmd_check's advisory warnings during a test run unless verbose;
       # surface its full output only when it hard-fails (non-zero). `run.sh check`
       # and `test -v`/FKST_TEST_VERBOSE=1 still show every warning.
@@ -776,7 +783,8 @@ main() {
         printf '%s\n' "$_chk_out"; return 1
       fi
       resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
-    test-affected) shift; cmd_test_affected "$@" ;;
+    test-affected) shift; unset FKST_LIVENESS_ENGINE_COMPATIBILITY; cmd_test_affected "$@" ;;
+    test-engine-compatibility) shift; cmd_test_engine_compatibility "$@" ;;
     test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
     run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
     supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
