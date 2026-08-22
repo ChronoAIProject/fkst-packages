@@ -27,7 +27,7 @@ Specialize these surfaces:
   `[event_deps] packages = [...]` for composed packages.
 - Host composition facts: `fkst.workspace.toml` `[[external_sources]]`, `fkst.lock`,
   `.fkst-*-ref` source pins when the host uses them, `.fkst/compose/package-roots`, and host-local
-  profile values such as `FKST_HOST_ROOT`, `FKST_PLATFORM_ROOT`, and `FKST_DURABLE_ROOT`.
+  profile values such as `FKST_HOST_ROOT` and `FKST_PLATFORM_ROOT` for repository checks and tests.
 
 Do not specialize these surfaces:
 

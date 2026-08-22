@@ -188,49 +188,21 @@ class HostEntryTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_supervise_delegates_to_existing_host_run_contract(self) -> None:
+    def test_supervise_is_not_a_host_subcommand(self) -> None:
         h = HostEntryHarness()
-        durable = h.root / "durable"
-        runtime = h.root / "runtime"
         try:
-            (h.host / ".fkst" / "compose" / "package-roots").write_text(
-                ".fkst/local-packages/site-board\nfkst-packages:packages/github-proxy\n",
-                encoding="utf-8",
-            )
-            h.write_platform_workspace(["github-proxy"])
             result = h.run_helper(
                 textwrap.dedent(
                     f"""\
                     set -euo pipefail
                     source scripts/run.sh
-                    resolve_bin() {{ BIN=/tmp/fake-bin; export BIN; }}
-                    ensure_fresh_bin() {{ :; }}
-                    host_run_supervise_contract() {{ printf '%s\\n' "$@"; }}
-                    cmd_host --host-root {shell_quote(h.host)} --platform-root {shell_quote(h.platform)} -- supervise --durable-root {shell_quote(durable)} --runtime-root {shell_quote(runtime)} --restart
+                    cmd_host --host-root {shell_quote(h.host)} --platform-root {shell_quote(h.platform)} -- supervise
                     """
                 )
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                result.stdout.splitlines(),
-                [
-                    "--project-root",
-                    str(h.host),
-                    "--platform-root",
-                    str(h.platform),
-                    "--local-packages",
-                    str(h.local_packages),
-                    "--platform-packages",
-                    "github-proxy",
-                    "--host-packages",
-                    "site-board",
-                    "--durable-root",
-                    str(durable),
-                    "--runtime-root",
-                    str(runtime),
-                    "--restart",
-                ],
-            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unknown host subcommand: supervise", result.stderr)
+            self.assertIn("<check|test [args]>", result.stderr)
         finally:
             h.close()
 
@@ -454,7 +426,7 @@ class HostEntryTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_host_test_runs_host_run_graph_tests_with_configured_platform_roots(self) -> None:
+    def test_host_test_runs_graph_tests_with_configured_platform_roots(self) -> None:
         h = HostEntryHarness()
         fake_bin = h.root / "fake-framework"
         engine_log = h.root / "engine-log"
