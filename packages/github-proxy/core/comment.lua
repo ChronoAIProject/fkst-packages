@@ -213,6 +213,10 @@ local function valid_replace_snapshot(snapshot)
     and type(snapshot.run_id) == "string"
     and snapshot.run_id:find("^[%w._-]+$") ~= nil
     and replace_snapshot_statuses[snapshot.status] == true
+    and (snapshot.generation == nil
+      or (type(snapshot.generation) == "number"
+        and snapshot.generation >= 0
+        and snapshot.generation % 1 == 0))
 end
 
 local function normalize_replace_snapshot(snapshot)
@@ -220,11 +224,12 @@ local function normalize_replace_snapshot(snapshot)
     return nil
   end
   if not valid_replace_snapshot(snapshot) then
-    error("github-proxy: replace-snapshot-invalid: run_id and status are required")
+    error("github-proxy: replace-snapshot-invalid: run_id, status, and optional generation are invalid")
   end
   return {
     run_id = snapshot.run_id,
     status = snapshot.status,
+    generation = snapshot.generation,
   }
 end
 
@@ -237,6 +242,7 @@ local function marker_replace_snapshot(body, replace_marker)
       local snapshot = {
         run_id = marker_attr(marker, "run_id"),
         status = marker_attr(marker, "status"),
+        generation = tonumber(marker_attr(marker, "generation")),
       }
       if valid_replace_snapshot(snapshot) then
         return snapshot
@@ -246,21 +252,33 @@ local function marker_replace_snapshot(body, replace_marker)
   return nil
 end
 
-local function stale_terminal_snapshot_replace(existing, next_body, replace_marker, next_snapshot)
+local function stale_snapshot_replace(existing, next_body, replace_marker, next_snapshot)
   if next_snapshot == nil then
     return false
   end
   local body_snapshot = marker_replace_snapshot(next_body, replace_marker)
   if body_snapshot == nil
     or body_snapshot.run_id ~= next_snapshot.run_id
-    or body_snapshot.status ~= next_snapshot.status then
+    or body_snapshot.status ~= next_snapshot.status
+    or body_snapshot.generation ~= next_snapshot.generation then
     error("github-proxy: replace-snapshot-marker-mismatch: body must carry the typed replacement snapshot")
   end
-  if existing == nil or next_snapshot.status ~= "running" then
+  if existing == nil then
     return false
   end
   local current = marker_replace_snapshot(M._comment_body(existing), replace_marker)
-  return current ~= nil
+  if current == nil then
+    return false
+  end
+  if current.generation ~= nil then
+    if next_snapshot.generation == nil
+      or next_snapshot.generation < current.generation
+      or (next_snapshot.generation == current.generation
+        and next_snapshot.run_id < current.run_id) then
+      return true
+    end
+  end
+  return next_snapshot.status == "running"
     and current.run_id == next_snapshot.run_id
     and current.status ~= "running"
 end
@@ -375,8 +393,8 @@ local function edit_existing_comment(M, repo, target, path, existing, replace_ma
     log.warn("github-proxy: GitHub comment edit target is stale: error_class=" .. stale_comment_target_error_class)
     return false, stale_comment_target_error_class
   end
-  if stale_terminal_snapshot_replace(refreshed, next_body, replace_marker, replace_snapshot) then
-    log.info("github-proxy: same-run terminal replacement is absorbing; dropping running replay")
+  if stale_snapshot_replace(refreshed, next_body, replace_marker, replace_snapshot) then
+    log.info("github-proxy: typed replacement snapshot is stale; keeping newer visible snapshot")
     return true, nil, refreshed, false
   end
 
@@ -485,8 +503,8 @@ function M.write_comment_request(payload, target)
     end
 
     local body = tostring(guarded_body or payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
-    if stale_terminal_snapshot_replace(existing, body, replace_marker, replace_snapshot) then
-      log.info("github-proxy: same-run terminal replacement is absorbing; dropping running replay")
+    if stale_snapshot_replace(existing, body, replace_marker, replace_snapshot) then
+      log.info("github-proxy: typed replacement snapshot is stale; keeping newer visible snapshot")
       return
     end
     if stale_round_marker_replace(existing, body, replace_marker) then

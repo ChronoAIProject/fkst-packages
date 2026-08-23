@@ -2,13 +2,27 @@ local graph = require("testkit.graph")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
 local testing = require("testkit_internal.testing")
+local progress_identity = require("devloop.codex_progress_identity")
 local t = fkst.test
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
+local pr_proposal_id = "github-devloop/pr/owner/repo/7"
+local review_proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
 local edge = "github-proxy.github_issue_comment_request -> github-proxy.github_comment"
+local pr_edge = "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment"
 local comment_create = "gh api --method POST repos/owner/repo/issues/42/comments"
+local pr_comment_create = "gh api --method POST repos/owner/repo/issues/7/comments"
 local comment_edit = "gh api --method PATCH repos/owner/repo/issues/comments/"
 local comment_path = "/tmp/fkst-github-proxy-comment-owner_repo-issue-42.md"
+local pr_comment_path = "/tmp/fkst-github-proxy-comment-owner_repo-pr-7.md"
+local review_cohort_id = string.rep("a", 64)
+local fix_cohort_id = string.rep("b", 64)
+local retry_cohort_id = string.rep("c", 64)
+local synthesis_cohort_id = string.rep("d", 64)
+
+local function progress_label(cohort_id)
+  return progress_identity.label(pr_proposal_id, cohort_id)
+end
 
 local function top_level_log_root()
   local root = os.getenv("FKST_RUNTIME_LOG_DIR")
@@ -74,6 +88,34 @@ local function mock_real_comment_replace(existing_body)
   })
 end
 
+local function mock_real_pr_comment_create()
+  author_policy.mock_env(t, nil, { times = 2 })
+  t.mock_command("gh api --paginate --slurp", {
+    stdout = "[[]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(pr_comment_create, {
+    stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_real_pr_comment_replace(existing_body)
+  author_policy.mock_env(t, nil, { times = 2 })
+  t.mock_command("gh api --paginate --slurp", {
+    stdout = comment_list(existing_body),
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(comment_edit, {
+    stdout = '{"id":123456,"body":"edited","user":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function deliver_progress_request(payload, existing_body)
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
     stdout = "1",
@@ -101,6 +143,33 @@ local function deliver_progress_request(payload, existing_body)
   t.eq(proxy_step.exit_code, 0)
 end
 
+local function deliver_pr_progress_request(payload, existing_body)
+  t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+    stdout = "1",
+    stderr = "",
+    exit_code = 0,
+  })
+  if existing_body == nil then
+    mock_real_pr_comment_create()
+  else
+    mock_real_pr_comment_replace(existing_body)
+  end
+  local trace = graph.require_quiescent(graph.run({
+    queue = "github-proxy.github_pr_comment_request",
+    payload = payload,
+    source_ref = {
+      kind = "external",
+      reference = "owner/repo#pr/7",
+    },
+  }, { max_steps = 4 }))
+  graph.assert_covers(trace, { pr_edge })
+  local proxy_step = graph.require_delivery(trace, {
+    queue = "github-proxy.github_pr_comment_request",
+    consumer = "github-proxy.github_pr_comment",
+  })
+  t.eq(proxy_step.exit_code, 0)
+end
+
 local function append_terminal_codex_status(log_root, run_id, tail_path, started_at_ms)
   local elapsed_ms = 125750
   local record = table.concat({
@@ -117,6 +186,27 @@ local function append_terminal_codex_status(log_root, run_id, tail_path, started
   })
   append_file(
     log_root .. "/codex/fixture-" .. run_id .. ".log",
+    "CODEX_OUTPUT_BEGIN:0\nCODEX_OUTPUT_END\nCODEX_STATUS:" .. record .. "\n"
+  )
+end
+
+local function append_review_terminal_codex_status(log_root, run, tail_path)
+  local elapsed_ms = 125750
+  local record = table.concat({
+    '{"run_id":"', run.run_id,
+    '","role":"consensus","dept":"review_result","proposal_id":"', review_proposal_id,
+    '","label":"', testing.escape_json_string(run.label, "\\u%04x"),
+    '","dedup_key":"', testing.escape_json_string(run.dedup_key, "\\u%04x"), '"',
+    ',"started_at":"2026-08-13T12:00:00Z","started_at_ms":', tostring(run.started_at_ms),
+    ',"timeout_seconds":3600,"ended_at":"2026-08-13T12:02:05.750Z","ended_at_ms":',
+    tostring(run.started_at_ms + elapsed_ms),
+    ',"elapsed_ms":', tostring(elapsed_ms),
+    ',"status":"completed","exit_code":0,"permit_slot":null,"output_tail_path":"',
+    testing.escape_json_string(tail_path, "\\u%04x"),
+    '"}',
+  })
+  append_file(
+    log_root .. "/codex/fixture-" .. run.run_id .. ".log",
     "CODEX_OUTPUT_BEGIN:0\nCODEX_OUTPUT_END\nCODEX_STATUS:" .. record .. "\n"
   )
 end
@@ -152,7 +242,234 @@ local function progress_raise(trace)
   return found
 end
 
+local function pr_progress_raise(trace)
+  local found = nil
+  local count = 0
+  for _, raised in ipairs(trace.raised or {}) do
+    if raised.queue == "github-proxy.github_pr_comment_request" then
+      count = count + 1
+      found = raised
+    end
+  end
+  t.eq(count, 1)
+  return found
+end
+
 return {
+  test_concurrent_review_progress_reaches_real_pr_comment_consumer = function()
+    local log_root = top_level_log_root()
+    local releases = {}
+    for index, lane in ipairs({ "teleology", "fidelity" }) do
+      local tail_path = log_root .. "/codex/pr-progress-" .. lane .. ".tail"
+      releases[index] = testing.seed_running_codex_status({
+        env = { FKST_RUNTIME_LOG_DIR = log_root },
+      }, {
+        role = "consensus",
+        dept = "review_result",
+        proposal_id = review_proposal_id,
+        label = progress_label(review_cohort_id),
+        dedup_key = "convergence:consensus:review-v1:" .. lane,
+        status = "running",
+        started_at = "2026-08-13T12:00:00Z",
+        started_at_ms = now() * 1000 - 90000 + index,
+        timeout_seconds = 3600,
+        output_tail_path = tail_path,
+      })
+      write_file(tail_path, lane .. " reviewing\n")
+    end
+
+    local producer_trace = t.fire_raiser("codex_progress_poll")
+    for _, release in ipairs(releases) do
+      release()
+    end
+
+    local raised = pr_progress_raise(producer_trace)
+    t.eq(raised.payload.repo, "owner/repo")
+    t.eq(raised.payload.pr_number, 7)
+    t.eq(raised.payload.replace_marker,
+      '<!-- fkst:github-devloop-ops:codex-progress:v1 proposal="' .. pr_proposal_id .. '"')
+    t.is_true(raised.payload.body:find("- Runs: `2`", 1, true) ~= nil)
+
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    local trace = graph.require_quiescent(graph.run({
+      queue = raised.queue,
+      payload = raised.payload,
+      source_ref = {
+        kind = "external",
+        reference = "owner/repo#pr/7",
+      },
+    }, { max_steps = 2 }))
+    graph.assert_covers(trace, { pr_edge })
+    local proxy_step = graph.require_delivery(trace, {
+      queue = "github-proxy.github_pr_comment_request",
+      consumer = "github-proxy.github_pr_comment",
+    })
+    t.eq(proxy_step.exit_code, 0)
+    t.eq(#proxy_step.raises, 0)
+  end,
+
+  test_fix_progress_reaches_real_pr_comment_consumer = function()
+    local log_root = top_level_log_root()
+    local tail_path = log_root .. "/codex/pr-progress-fix.tail"
+    local release = testing.seed_running_codex_status({
+      env = { FKST_RUNTIME_LOG_DIR = log_root },
+    }, {
+      role = "fix",
+      dept = "fix",
+      proposal_id = proposal_id,
+      label = progress_label(fix_cohort_id),
+      dedup_key = "fix-work-unit-v1",
+      status = "running",
+      started_at = "2026-08-13T12:00:00Z",
+      started_at_ms = now() * 1000 - 90000,
+      timeout_seconds = 3600,
+      output_tail_path = tail_path,
+    })
+    write_file(tail_path, "Repairing pull request\n")
+
+    local producer_trace = t.fire_raiser("codex_progress_poll")
+    release()
+    local raised = pr_progress_raise(producer_trace)
+
+    t.eq(raised.payload.repo, "owner/repo")
+    t.eq(raised.payload.pr_number, 7)
+    t.eq(raised.payload.replace_snapshot.status, "running")
+    t.is_true(raised.payload.body:find("Role: `fix`", 1, true) ~= nil)
+    t.is_true(raised.payload.body:find("Repairing pull request", 1, true) ~= nil)
+
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    local trace = graph.require_quiescent(graph.run({
+      queue = raised.queue,
+      payload = raised.payload,
+      source_ref = {
+        kind = "external",
+        reference = "owner/repo#pr/7",
+      },
+    }, { max_steps = 2 }))
+    graph.assert_covers(trace, { pr_edge })
+    t.eq(graph.require_delivery(trace, {
+      queue = "github-proxy.github_pr_comment_request",
+      consumer = "github-proxy.github_pr_comment",
+    }).exit_code, 0)
+  end,
+
+  test_failed_review_attempt_is_replaced_by_running_retry_then_success = function()
+    local log_root = top_level_log_root()
+    local failed_tail = log_root .. "/codex/pr-progress-failed-attempt.tail"
+    local release_failed = testing.seed_running_codex_status({
+      env = { FKST_RUNTIME_LOG_DIR = log_root },
+    }, {
+      role = "consensus",
+      dept = "review_result",
+      proposal_id = review_proposal_id,
+      label = progress_label(review_cohort_id),
+      dedup_key = "convergence:consensus:review-v1:attempt-1:teleology",
+      status = "running",
+      started_at = "2026-08-13T12:00:00Z",
+      started_at_ms = now() * 1000 - 180000,
+      timeout_seconds = 3600,
+      output_tail_path = failed_tail,
+    })
+    write_file(failed_tail, "first attempt failed\n")
+    release_failed()
+
+    local failed = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(failed.payload.replace_snapshot.status, "failed")
+    deliver_pr_progress_request(failed.payload, nil)
+    local visible_failed = read_file(pr_comment_path)
+    t.is_true(visible_failed:find("first attempt failed", 1, true) ~= nil)
+
+    local retry_tail = log_root .. "/codex/pr-progress-retry.tail"
+    local release_retry = testing.seed_running_codex_status({
+      env = { FKST_RUNTIME_LOG_DIR = log_root },
+    }, {
+      role = "consensus",
+      dept = "review_result",
+      proposal_id = review_proposal_id,
+      label = progress_label(retry_cohort_id),
+      dedup_key = "convergence:consensus:review-v1:attempt-2:teleology",
+      status = "running",
+      started_at = "2026-08-13T12:03:00Z",
+      started_at_ms = now() * 1000 - 90000,
+      timeout_seconds = 3600,
+      output_tail_path = retry_tail,
+    })
+    write_file(retry_tail, "retry running\n")
+
+    local observed_retry = fkst.codex_runs()
+    t.eq(#observed_retry.running, 1)
+    local retry_run = observed_retry.running[1]
+    local running = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(running.payload.replace_snapshot.status, "running")
+    t.eq(running.payload.replace_snapshot.run_id == failed.payload.replace_snapshot.run_id, false)
+    t.is_nil(running.payload.body:find("first attempt failed", 1, true))
+    deliver_pr_progress_request(running.payload, visible_failed)
+    local visible_running = read_file(pr_comment_path)
+    t.is_true(visible_running:find("retry running", 1, true) ~= nil)
+    t.is_nil(visible_running:find("first attempt failed", 1, true))
+
+    release_retry()
+    write_file(retry_tail, "retry blind phase done\n")
+    append_review_terminal_codex_status(log_root, retry_run, retry_tail)
+    local blind_done = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(blind_done.payload.replace_snapshot.run_id, running.payload.replace_snapshot.run_id)
+    t.eq(blind_done.payload.replace_snapshot.status, "done")
+    deliver_pr_progress_request(blind_done.payload, visible_running)
+    local visible_blind_done = read_file(pr_comment_path)
+    t.is_true(visible_blind_done:find("retry blind phase done", 1, true) ~= nil)
+
+    local synthesis_tail = log_root .. "/codex/pr-progress-synthesis.tail"
+    local release_synthesis = testing.seed_running_codex_status({
+      env = { FKST_RUNTIME_LOG_DIR = log_root },
+    }, {
+      role = "consensus",
+      dept = "review_result",
+      proposal_id = review_proposal_id,
+      label = progress_label(synthesis_cohort_id),
+      dedup_key = "convergence:consensus:review-v1:attempt-2:synthesis",
+      status = "running",
+      started_at = "2026-08-13T12:06:00Z",
+      started_at_ms = now() * 1000 - 30000,
+      timeout_seconds = 3600,
+      output_tail_path = synthesis_tail,
+    })
+    write_file(synthesis_tail, "retry synthesis running\n")
+
+    local synthesis_run = fkst.codex_runs().running[1]
+    local synthesis_running = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(synthesis_running.payload.replace_snapshot.status, "running")
+    t.eq(synthesis_running.payload.replace_snapshot.run_id == blind_done.payload.replace_snapshot.run_id, false)
+    deliver_pr_progress_request(synthesis_running.payload, visible_blind_done)
+    local visible_synthesis = read_file(pr_comment_path)
+    t.is_true(visible_synthesis:find("retry synthesis running", 1, true) ~= nil)
+    t.is_nil(visible_synthesis:find("retry blind phase done", 1, true))
+
+    release_synthesis()
+    write_file(synthesis_tail, "retry synthesis succeeded\n")
+    append_review_terminal_codex_status(log_root, synthesis_run, synthesis_tail)
+    local succeeded = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(succeeded.payload.replace_snapshot.run_id, synthesis_running.payload.replace_snapshot.run_id)
+    t.eq(succeeded.payload.replace_snapshot.status, "done")
+    t.is_nil(succeeded.payload.body:find("first attempt failed", 1, true))
+    deliver_pr_progress_request(succeeded.payload, visible_synthesis)
+    local visible_done = read_file(pr_comment_path)
+    t.is_true(visible_done:find("retry synthesis succeeded", 1, true) ~= nil)
+    t.is_true(visible_done:find('status="done"', 1, true) ~= nil)
+
+    deliver_pr_progress_request(running.payload, visible_done)
+    local visible_after_stale_blind = read_file(pr_comment_path)
+    t.is_true(visible_after_stale_blind:find("retry synthesis succeeded", 1, true) ~= nil)
+    t.is_nil(visible_after_stale_blind:find("retry running", 1, true))
+  end,
+
   test_running_codex_progress_raiser_reaches_real_proxy_consumer_in_dry_run = function()
     local log_root = top_level_log_root()
     local tail_path = log_root .. "/codex/progress-card.tail"

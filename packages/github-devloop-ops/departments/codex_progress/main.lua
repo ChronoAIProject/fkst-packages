@@ -3,7 +3,10 @@ local saga = require("workflow.saga")
 
 local spec = {
   consumes = { "devloop_codex_progress_tick" },
-  produces = { "github-proxy.github_issue_comment_request" },
+  produces = {
+    "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
+  },
   retry = {},
   stall_window = "2m",
 }
@@ -37,6 +40,13 @@ local function act(_event)
     return progress.project_running_row(row, card_refreshed_at)
   end)
   emit(observed.recent, progress.project_terminal_row)
+  for _, projected in ipairs(progress.project_pr_cards(
+    observed.running,
+    observed.recent,
+    card_refreshed_at
+  )) do
+    raise(projected.queue, projected.request)
+  end
 end
 
 return saga.department(spec, {
