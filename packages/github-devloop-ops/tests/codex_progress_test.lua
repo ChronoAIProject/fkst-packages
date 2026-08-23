@@ -322,7 +322,11 @@ return {
     t.is_nil(first.request.body:find("Card last updated", 1, true))
     t.is_true(first.request.body:find("Outcome: `failed`", 1, true) ~= nil)
     t.is_true(first.request.body:find(progress.marker(
-      pr_proposal_id, first.request.replace_snapshot.run_id, "failed"), 1, true) ~= nil)
+      pr_proposal_id,
+      first.request.replace_snapshot.run_id,
+      "failed",
+      first.request.replace_snapshot.generation
+    ), 1, true) ~= nil)
   end,
 
   test_failed_review_attempt_is_replaced_by_running_retry_then_success = function()
@@ -349,6 +353,8 @@ return {
     t.eq(failed_card.request.replace_snapshot.status, "failed")
     t.eq(running_card.request.replace_snapshot.status, "running")
     t.eq(running_card.request.replace_snapshot.run_id == failed_card.request.replace_snapshot.run_id, false)
+    t.is_true(running_card.request.replace_snapshot.generation
+      > failed_card.request.replace_snapshot.generation)
     t.is_true(running_card.request.body:find("retry running", 1, true) ~= nil)
     t.is_nil(running_card.request.body:find("first attempt failed", 1, true))
     t.is_true(running_card.request.body:find("- Runs: `1`", 1, true) ~= nil)
@@ -365,6 +371,8 @@ return {
 
     t.eq(success_card.request.replace_snapshot.run_id, running_card.request.replace_snapshot.run_id)
     t.eq(success_card.request.replace_snapshot.status, "done")
+    t.eq(success_card.request.replace_snapshot.generation,
+      running_card.request.replace_snapshot.generation)
     t.is_true(success_card.request.body:find("retry succeeded", 1, true) ~= nil)
     t.is_nil(success_card.request.body:find("first attempt failed", 1, true))
   end,

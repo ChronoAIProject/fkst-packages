@@ -50,11 +50,14 @@ function M.replace_marker(proposal_id)
     .. tostring(proposal_id) .. '"'
 end
 
-function M.marker(proposal_id, run_id, status)
-  return M.replace_marker(proposal_id)
+function M.marker(proposal_id, run_id, status, generation)
+  local marker = M.replace_marker(proposal_id)
     .. ' run_id="' .. tostring(run_id)
-    .. '" status="' .. tostring(status)
-    .. '" -->'
+    .. '" status="' .. tostring(status) .. '"'
+  if generation ~= nil then
+    marker = marker .. ' generation="' .. tostring(generation) .. '"'
+  end
+  return marker .. ' -->'
 end
 
 local function projected_request(row, target, body)
@@ -195,10 +198,12 @@ end
 
 local function validate_pr_display_row(row, card_refreshed_at)
   local elapsed_ms = tonumber(row.elapsed_ms)
+  local started_at_ms = tonumber(row.started_at_ms)
   local exit_code = row.exit_code == nil and nil or tonumber(row.exit_code)
   if type(row.dept) ~= "string" or row.dept == ""
     or type(row.proposal_id) ~= "string" or row.proposal_id == ""
     or elapsed_ms == nil or elapsed_ms < 0
+    or started_at_ms == nil or started_at_ms < 0 or started_at_ms % 1 ~= 0
     or type(row.started_at) ~= "string" or row.started_at == ""
     or (row.exit_code ~= nil and exit_code == nil) then
     error("github-devloop-ops: codex-progress-row-invalid: matching PR row lacks display fields")
@@ -210,6 +215,17 @@ local function validate_pr_display_row(row, card_refreshed_at)
       error("github-devloop-ops: codex-progress-row-invalid: matching running PR row lacks display fields")
     end
   end
+end
+
+local function pr_generation(cohort)
+  local latest_started_at_ms = nil
+  for _, row in ipairs(cohort) do
+    local started_at_ms = tonumber(row.started_at_ms)
+    if latest_started_at_ms == nil or started_at_ms > latest_started_at_ms then
+      latest_started_at_ms = started_at_ms
+    end
+  end
+  return latest_started_at_ms
 end
 
 local function row_order(left, right)
@@ -323,7 +339,7 @@ local function append_pr_run(lines, row)
   table.insert(lines, output_block(row.output_tail))
 end
 
-local function pr_body(target_proposal_id, cohort, snapshot_id, status, card_refreshed_at)
+local function pr_body(target_proposal_id, cohort, snapshot_id, status, generation, card_refreshed_at)
   local lines = {
     status == "running" and "### Pull request Codex progress" or "### Pull request Codex result",
     "",
@@ -337,11 +353,11 @@ local function pr_body(target_proposal_id, cohort, snapshot_id, status, card_ref
     append_pr_run(lines, row)
   end
   table.insert(lines, "")
-  table.insert(lines, M.marker(target_proposal_id, snapshot_id, status))
+  table.insert(lines, M.marker(target_proposal_id, snapshot_id, status, generation))
   return table.concat(lines, "\n")
 end
 
-local function projected_pr_request(target_proposal_id, target, snapshot_id, status, body)
+local function projected_pr_request(target_proposal_id, target, snapshot_id, status, generation, body)
   return {
     queue = "github-proxy.github_pr_comment_request",
     proposal_id = target_proposal_id,
@@ -362,6 +378,7 @@ local function projected_pr_request(target_proposal_id, target, snapshot_id, sta
       replace_snapshot = {
         run_id = snapshot_id,
         status = status,
+        generation = generation,
       },
       source_ref = entity.pr_source_ref(target.repo, target.pr_number),
     },
@@ -417,8 +434,16 @@ function M.project_pr_cards(running, recent, card_refreshed_at)
         validate_pr_display_row(row, card_refreshed_at)
       end
       local status = aggregate_status(cohort)
-      local body = pr_body(key, cohort, snapshot_id, status, card_refreshed_at)
-      table.insert(projected, projected_pr_request(key, group.target, snapshot_id, status, body))
+      local generation = pr_generation(cohort)
+      local body = pr_body(key, cohort, snapshot_id, status, generation, card_refreshed_at)
+      table.insert(projected, projected_pr_request(
+        key,
+        group.target,
+        snapshot_id,
+        status,
+        generation,
+        body
+      ))
     end
   end
   return projected

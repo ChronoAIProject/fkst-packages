@@ -463,6 +463,11 @@ return {
     local visible_done = read_file(pr_comment_path)
     t.is_true(visible_done:find("retry synthesis succeeded", 1, true) ~= nil)
     t.is_true(visible_done:find('status="done"', 1, true) ~= nil)
+
+    deliver_pr_progress_request(running.payload, visible_done)
+    local visible_after_stale_blind = read_file(pr_comment_path)
+    t.is_true(visible_after_stale_blind:find("retry synthesis succeeded", 1, true) ~= nil)
+    t.is_nil(visible_after_stale_blind:find("retry running", 1, true))
   end,
 
   test_running_codex_progress_raiser_reaches_real_proxy_consumer_in_dry_run = function()
