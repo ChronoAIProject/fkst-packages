@@ -1,5 +1,6 @@
 local consensus = require("consensus")
 local consensus_call = require("devloop.consensus_call")
+local progress_identity = require("devloop.codex_progress_identity")
 local t = fkst.test
 
 local function proposal()
@@ -74,6 +75,47 @@ return {
     t.eq(captured.effect_version, logical_version)
     t.eq(result.dedup_key, "consensus:" .. logical_version)
     t.eq(result.effect_version, logical_version)
+    t.eq(result.proposal_id, request.proposal_id)
+  end,
+
+  test_pr_request_supplies_canonical_progress_target_to_consensus_runs = function()
+    local original_reach = consensus.reach
+    local captured_options = {}
+    consensus.reach = function(value, options)
+      table.insert(captured_options, options)
+      return {
+        status = "reached",
+        schema = "consensus.consensus_reached.v1",
+        decision = "approve",
+        body = "Ready.",
+        dedup_key = "consensus:" .. value.dedup_key,
+        source_ref = value.source_ref,
+      }
+    end
+
+    local request = proposal()
+    request.proposal_id = "github-devloop/pr-review/owner/repo/7/review-v1/abcdef1"
+    request.source_ref = { kind = "external", ref = "owner/repo#pr/7" }
+    local ok, result = pcall(function()
+      local first = consensus_call.reach(request)
+      consensus_call.reach(request)
+      return first
+    end)
+    consensus.reach = original_reach
+    if not ok then
+      error(result)
+    end
+
+    t.eq(#captured_options, 2)
+    t.eq(captured_options[1].invocation_id, request.proposal_id)
+    local first_blind = progress_identity.parse_label(captured_options[1].new_run_label("blind"))
+    local first_synthesis = progress_identity.parse_label(captured_options[1].new_run_label("synthesis"))
+    local second_blind = progress_identity.parse_label(captured_options[2].new_run_label("blind"))
+    t.eq(first_blind.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(first_synthesis.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(second_blind.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(first_blind.cohort_id == first_synthesis.cohort_id, false)
+    t.eq(first_blind.cohort_id == second_blind.cohort_id, false)
     t.eq(result.proposal_id, request.proposal_id)
   end,
 }

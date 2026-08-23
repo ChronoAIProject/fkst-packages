@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local parsers_misc = require("devloop.parsers.misc")
 local entity_lib = require("devloop.entity")
+local progress_identity = require("devloop.codex_progress_identity")
 local strings = require("contract.strings")
 local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
@@ -73,6 +74,9 @@ local function review_meta_codex_decision(plan)
     devloop_base.judgment_worktree_with_exec(exec_sync, "review-meta", plan.review_meta.dedup_key)
   )
   codex_opts.sync = true
+  codex_opts.label = progress_identity.new_label(
+    entity_lib.pr_proposal_id(plan.repo, plan.review_meta.pr_number)
+  )
   restart_sink_grants.consume(review_meta_caps, plan.receiver_authorization,
     "codex.dispatch:review-meta", "github-devloop: review-meta codex dispatch grant")
   local result = workflow_codex.dispatch(convergence_identity.from_parts("review-meta", plan.review_meta.proposal_id, plan.review_meta.version, {

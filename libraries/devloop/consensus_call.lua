@@ -1,4 +1,7 @@
 local consensus = require("consensus")
+local devloop_base = require("devloop.base")
+local progress_identity = require("devloop.codex_progress_identity")
+local entity = require("devloop.entity")
 local strings = require("contract.strings")
 
 local M = {}
@@ -27,6 +30,14 @@ local function attach_caller_lineage(result, proposal_id)
   return value
 end
 
+local function progress_target_proposal_id(source_ref)
+  local repo, pr_number = devloop_base.parse_pr_source_ref(source_ref)
+  if repo == nil then
+    return nil
+  end
+  return entity.pr_proposal_id(repo, pr_number)
+end
+
 function M.reach(proposal)
   if type(proposal) ~= "table" then
     return consensus.reach(proposal)
@@ -35,8 +46,13 @@ function M.reach(proposal)
     and not strings.is_path_safe_key(proposal.proposal_id, 200) then
     return nil
   end
-  local result = consensus.reach(copy_for_consensus(proposal), {
+  local consensus_proposal = copy_for_consensus(proposal)
+  local progress_target = progress_target_proposal_id(proposal.source_ref)
+  local result = consensus.reach(consensus_proposal, {
     invocation_id = proposal.proposal_id,
+    new_run_label = progress_target and function()
+      return progress_identity.new_label(progress_target)
+    end or nil,
   })
   if result == nil then
     return nil

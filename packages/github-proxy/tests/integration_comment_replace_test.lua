@@ -70,23 +70,27 @@ local progress_replace_marker = '<!-- fkst:github-devloop-ops:codex-progress:v1 
   .. progress_proposal_id .. '"'
 local progress_comment_path = "/tmp/fkst-github-proxy-comment-owner_x-pr-7.md"
 
-local function progress_body(run_id, status, output)
+local function progress_body(run_id, status, output, generation)
+  local generation_attr = generation and ' generation="' .. tostring(generation) .. '"' or ""
   return tostring(output)
     .. "\n\n"
     .. progress_replace_marker
     .. ' run_id="' .. tostring(run_id)
     .. '" status="' .. tostring(status)
-    .. '" -->'
+    .. '"'
+    .. generation_attr
+    .. ' -->'
 end
 
-local function progress_event(run_id, status, output)
+local function progress_event(run_id, status, output, generation)
   return event({
-    body = progress_body(run_id, status, output),
+    body = progress_body(run_id, status, output, generation),
     dedup_key = table.concat({ "codex-progress", run_id, status, output }, "/"),
     replace_marker = progress_replace_marker,
     replace_snapshot = {
       run_id = run_id,
       status = status,
+      generation = generation,
     },
   })
 end
@@ -392,5 +396,18 @@ return {
     t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 1)
     local visible_card = file.read(progress_comment_path)
     t.is_true(visible_card:find("New run", 1, true) ~= nil)
+  end,
+
+  test_older_progress_generation_cannot_replace_newer_terminal_card = function()
+    local older_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000005"
+    local newer_run_id = "codex-01ARZ3NDEKTSV4RRFFQ6000006"
+    local result = run_progress_replace(
+      "comment-progress-stale-generation",
+      progress_event(older_run_id, "running", "Delayed blind phase", 100),
+      progress_body(newer_run_id, "done", "Synthesis complete", 200)
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method PATCH repos/owner/x/issues/comments/123456 --field body=@"), 0)
   end,
 }
