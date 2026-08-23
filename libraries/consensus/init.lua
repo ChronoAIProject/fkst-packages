@@ -132,7 +132,21 @@ local function with_runtime_context_root(proposal, runtime_root)
   return value
 end
 
-local function decide(proposal, invocation_id, run_label)
+local function next_run_label(new_run_label, phase)
+  if new_run_label == nil then
+    return nil
+  end
+  if type(new_run_label) ~= "function" then
+    error("consensus: run-label-factory-invalid: new_run_label must be a function")
+  end
+  local label = new_run_label(phase)
+  if label ~= nil and (type(label) ~= "string" or label == "") then
+    error("consensus: run-label-invalid: phase label must be a non-empty string")
+  end
+  return label
+end
+
+local function decide(proposal, invocation_id, new_run_label)
   local angle_results = {}
   local handles = {}
   local angles = core.angles(proposal)
@@ -146,8 +160,9 @@ local function decide(proposal, invocation_id, run_label)
 
   local runtime_root = read_runtime_root()
   proposal = with_runtime_context_root(proposal, runtime_root)
+  local blind_run_label = next_run_label(new_run_label, "blind")
   for _, angle in ipairs(angles) do
-    local handle = spawn_angle(proposal, angle, runtime_root, invocation_id, run_label)
+    local handle = spawn_angle(proposal, angle, runtime_root, invocation_id, blind_run_label)
     if result_deferred(handle) then
       return handle
     end
@@ -184,6 +199,7 @@ local function decide(proposal, invocation_id, run_label)
 
   local rebuttal_results = angle_results
   if rebuttal.can_run(angle_results) then
+    local rebuttal_run_label = next_run_label(new_run_label, "rebuttal")
     local rebuttal_handles = rebuttal.spawn_all({
       proposal = proposal,
       angle_results = angle_results,
@@ -207,7 +223,7 @@ local function decide(proposal, invocation_id, run_label)
           angle_lane,
           nil,
           invocation_id,
-          run_label
+          rebuttal_run_label
         )
       end,
     })
@@ -257,7 +273,7 @@ local function decide(proposal, invocation_id, run_label)
       )
       return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
         sync = true,
-      }, invocation_id, run_label)
+      }, invocation_id, next_run_label(new_run_label, _kind))
     end,
   })
   if result_deferred(parsed) then
@@ -291,7 +307,7 @@ function M.reach(proposal, options)
     return nil
   end
   local invocation_id = type(options) == "table" and options.invocation_id or proposal.dedup_key
-  local run_label = type(options) == "table" and options.run_label or nil
+  local new_run_label = type(options) == "table" and options.new_run_label or nil
 
   local cache_key = result_memo_key(proposal.dedup_key)
   local memoized = result_memo.load(cache_key, proposal.dedup_key)
@@ -299,7 +315,7 @@ function M.reach(proposal, options)
     return memoized
   end
 
-  local result = decide(proposal, invocation_id, run_label)
+  local result = decide(proposal, invocation_id, new_run_label)
   if result_deferred(result) then
     return nil
   end

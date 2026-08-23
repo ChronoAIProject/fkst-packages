@@ -108,11 +108,14 @@ return {
 
     t.eq(#captured_options, 2)
     t.eq(captured_options[1].invocation_id, request.proposal_id)
-    local first_identity = progress_identity.parse_label(captured_options[1].run_label)
-    local second_identity = progress_identity.parse_label(captured_options[2].run_label)
-    t.eq(first_identity.target_proposal_id, "github-devloop/pr/owner/repo/7")
-    t.eq(second_identity.target_proposal_id, "github-devloop/pr/owner/repo/7")
-    t.eq(first_identity.cohort_id == second_identity.cohort_id, false)
+    local first_blind = progress_identity.parse_label(captured_options[1].new_run_label("blind"))
+    local first_synthesis = progress_identity.parse_label(captured_options[1].new_run_label("synthesis"))
+    local second_blind = progress_identity.parse_label(captured_options[2].new_run_label("blind"))
+    t.eq(first_blind.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(first_synthesis.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(second_blind.target_proposal_id, "github-devloop/pr/owner/repo/7")
+    t.eq(first_blind.cohort_id == first_synthesis.cohort_id, false)
+    t.eq(first_blind.cohort_id == second_blind.cohort_id, false)
     t.eq(result.proposal_id, request.proposal_id)
   end,
 }

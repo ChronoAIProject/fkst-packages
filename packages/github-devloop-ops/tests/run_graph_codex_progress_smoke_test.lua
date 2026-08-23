@@ -18,6 +18,7 @@ local pr_comment_path = "/tmp/fkst-github-proxy-comment-owner_repo-pr-7.md"
 local review_cohort_id = string.rep("a", 64)
 local fix_cohort_id = string.rep("b", 64)
 local retry_cohort_id = string.rep("c", 64)
+local synthesis_cohort_id = string.rep("d", 64)
 
 local function progress_label(cohort_id)
   return progress_identity.label(pr_proposal_id, cohort_id)
@@ -416,15 +417,51 @@ return {
     t.is_nil(visible_running:find("first attempt failed", 1, true))
 
     release_retry()
-    write_file(retry_tail, "retry succeeded\n")
+    write_file(retry_tail, "retry blind phase done\n")
     append_review_terminal_codex_status(log_root, retry_run, retry_tail)
+    local blind_done = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(blind_done.payload.replace_snapshot.run_id, running.payload.replace_snapshot.run_id)
+    t.eq(blind_done.payload.replace_snapshot.status, "done")
+    deliver_pr_progress_request(blind_done.payload, visible_running)
+    local visible_blind_done = read_file(pr_comment_path)
+    t.is_true(visible_blind_done:find("retry blind phase done", 1, true) ~= nil)
+
+    local synthesis_tail = log_root .. "/codex/pr-progress-synthesis.tail"
+    local release_synthesis = testing.seed_running_codex_status({
+      env = { FKST_RUNTIME_LOG_DIR = log_root },
+    }, {
+      role = "consensus",
+      dept = "review_result",
+      proposal_id = review_proposal_id,
+      label = progress_label(synthesis_cohort_id),
+      dedup_key = "convergence:consensus:review-v1:attempt-2:synthesis",
+      status = "running",
+      started_at = "2026-08-13T12:06:00Z",
+      started_at_ms = now() * 1000 - 30000,
+      timeout_seconds = 3600,
+      output_tail_path = synthesis_tail,
+    })
+    write_file(synthesis_tail, "retry synthesis running\n")
+
+    local synthesis_run = fkst.codex_runs().running[1]
+    local synthesis_running = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
+    t.eq(synthesis_running.payload.replace_snapshot.status, "running")
+    t.eq(synthesis_running.payload.replace_snapshot.run_id == blind_done.payload.replace_snapshot.run_id, false)
+    deliver_pr_progress_request(synthesis_running.payload, visible_blind_done)
+    local visible_synthesis = read_file(pr_comment_path)
+    t.is_true(visible_synthesis:find("retry synthesis running", 1, true) ~= nil)
+    t.is_nil(visible_synthesis:find("retry blind phase done", 1, true))
+
+    release_synthesis()
+    write_file(synthesis_tail, "retry synthesis succeeded\n")
+    append_review_terminal_codex_status(log_root, synthesis_run, synthesis_tail)
     local succeeded = pr_progress_raise(t.fire_raiser("codex_progress_poll"))
-    t.eq(succeeded.payload.replace_snapshot.run_id, running.payload.replace_snapshot.run_id)
+    t.eq(succeeded.payload.replace_snapshot.run_id, synthesis_running.payload.replace_snapshot.run_id)
     t.eq(succeeded.payload.replace_snapshot.status, "done")
     t.is_nil(succeeded.payload.body:find("first attempt failed", 1, true))
-    deliver_pr_progress_request(succeeded.payload, visible_running)
+    deliver_pr_progress_request(succeeded.payload, visible_synthesis)
     local visible_done = read_file(pr_comment_path)
-    t.is_true(visible_done:find("retry succeeded", 1, true) ~= nil)
+    t.is_true(visible_done:find("retry synthesis succeeded", 1, true) ~= nil)
     t.is_true(visible_done:find('status="done"', 1, true) ~= nil)
   end,
 

@@ -50,7 +50,9 @@ function M.reach(proposal)
   local progress_target = progress_target_proposal_id(proposal.source_ref)
   local result = consensus.reach(consensus_proposal, {
     invocation_id = proposal.proposal_id,
-    run_label = progress_target and progress_identity.new_label(progress_target) or nil,
+    new_run_label = progress_target and function()
+      return progress_identity.new_label(progress_target)
+    end or nil,
   })
   if result == nil then
     return nil
