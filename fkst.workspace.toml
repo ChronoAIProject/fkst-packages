@@ -7,18 +7,3 @@ libraries = ["libraries/*"]
 
 [registries]
 workspace = "workspace"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
