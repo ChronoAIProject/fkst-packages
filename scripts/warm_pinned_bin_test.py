@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import stat
 import subprocess
@@ -50,6 +51,11 @@ class WarmPinnedBinHarness:
     def close(self) -> None:
         self.tmp.cleanup()
 
+    def create_worktree(self, name: str, pin: str) -> Path:
+        worktree = self.worktree.parent / name
+        self._create_repo(worktree, pin)
+        return worktree
+
     @staticmethod
     def _create_repo(root: Path, pin: str) -> None:
         (root / ".fkst").mkdir(parents=True)
@@ -82,6 +88,9 @@ class WarmPinnedBinHarness:
                 """\
                 #!/usr/bin/env sh
                 echo "cargo $*" >> "$FKST_TEST_COMMAND_LOG"
+                if [ -n "${FKST_TEST_CARGO_DELAY_SECONDS:-}" ]; then
+                  sleep "$FKST_TEST_CARGO_DELAY_SECONDS"
+                fi
                 while [ "$#" -gt 0 ]; do
                   if [ "$1" = "--manifest-path" ]; then
                     checkout="${2%/Cargo.toml}"
@@ -136,6 +145,67 @@ class WarmPinnedBinHarness:
 
 
 class WarmPinnedBinTest(unittest.TestCase):
+    def test_identical_action_reuses_artifact_across_worktrees(self) -> None:
+        pin = "SharedOwner/shared-substrate@shared-ref"
+        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)
+        try:
+            detached_base = h.create_worktree("detached-base", pin)
+
+            candidate_result = h.run(str(h.worktree))
+            base_result = h.run(str(detached_base))
+
+            self.assertEqual(candidate_result.returncode, 0, candidate_result.stderr)
+            self.assertEqual(base_result.returncode, 0, base_result.stderr)
+            self.assertIn("result=build", candidate_result.stdout)
+            self.assertIn("result=hit", base_result.stdout)
+            self.assertEqual(h.calls().count("cargo build --manifest-path"), 1)
+        finally:
+            h.close()
+
+    def test_changed_source_pin_invalidates_cached_artifact(self) -> None:
+        first_pin = "SharedOwner/shared-substrate@first-ref"
+        second_pin = "SharedOwner/shared-substrate@second-ref"
+        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", first_pin)
+        try:
+            first_result = h.run(str(h.worktree))
+            (h.worktree / ".fkst" / "substrate-ref").write_text(
+                second_pin + "\n", encoding="utf-8"
+            )
+            second_result = h.run(str(h.worktree))
+
+            self.assertEqual(first_result.returncode, 0, first_result.stderr)
+            self.assertEqual(second_result.returncode, 0, second_result.stderr)
+            self.assertIn("result=build", first_result.stdout)
+            self.assertIn("result=build", second_result.stdout)
+            calls = h.calls()
+            self.assertEqual(calls.count("cargo build --manifest-path"), 2)
+            self.assertIn(" checkout --detach first-ref", calls)
+            self.assertIn(" checkout --detach second-ref", calls)
+        finally:
+            h.close()
+
+    def test_concurrent_identical_actions_share_one_build(self) -> None:
+        pin = "SharedOwner/shared-substrate@concurrent-ref"
+        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)
+        try:
+            peer_worktree = h.create_worktree("concurrent-peer", pin)
+            h.env["FKST_TEST_CARGO_DELAY_SECONDS"] = "0.2"
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(h.run, str(h.worktree)),
+                    executor.submit(h.run, str(peer_worktree)),
+                ]
+                results = [future.result() for future in futures]
+
+            for result in results:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            outcomes = {result.stdout.strip().rsplit("=", 1)[-1] for result in results}
+            self.assertEqual(outcomes, {"build", "hit"})
+            self.assertEqual(h.calls().count("cargo build --manifest-path"), 1)
+        finally:
+            h.close()
+
     def test_warm_exact_pin_cache_exits_without_git_or_cargo(self) -> None:
         pin = "WarmOwner/warm-substrate@warm-ref"
         h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)

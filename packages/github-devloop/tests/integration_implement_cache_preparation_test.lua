@@ -16,7 +16,7 @@ local mock_branch_diff_paths = h.mock_branch_diff_paths
 local mock_force_clean = h.mock_force_clean
 local count_calls = h.count_calls
 
-local cache_command = "make prepare-cache"
+local cache_command = "scripts/warm_pinned_bin.sh"
 local cache_command_env = 'printf %s "$FKST_DEVLOOP_CACHE_PREPARATION_COMMAND"'
 local project_root_env = 'printf %s "$FKST_PROJECT_ROOT"'
 local trusted_repository_root = "/trusted/repository"

@@ -198,6 +198,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_restart_preflight_test.py"'
     'python3 -B "$ROOT/scripts/bin_cache_test.py"'
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
+    'python3 -B "$ROOT/scripts/warm_pinned_bin_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/run_bin_test.py"'
     'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
