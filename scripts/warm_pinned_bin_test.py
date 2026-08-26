@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -145,11 +146,13 @@ class WarmPinnedBinHarness:
 
 
 class WarmPinnedBinTest(unittest.TestCase):
-    def test_identical_action_reuses_artifact_across_worktrees(self) -> None:
-        pin = "SharedOwner/shared-substrate@shared-ref"
-        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)
+    def test_identical_trusted_pin_reuses_binary_across_worktrees(self) -> None:
+        pin = "ProjectOwner/project-substrate@project-ref"
+        h = WarmPinnedBinHarness(pin, "CandidateOwner/candidate-substrate@candidate-ref")
         try:
-            detached_base = h.create_worktree("detached-base", pin)
+            detached_base = h.create_worktree(
+                "detached-base", "BaseOwner/base-substrate@base-ref"
+            )
 
             candidate_result = h.run(str(h.worktree))
             base_result = h.run(str(detached_base))
@@ -162,13 +165,13 @@ class WarmPinnedBinTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_changed_source_pin_invalidates_cached_artifact(self) -> None:
+    def test_changed_trusted_pin_uses_a_distinct_binary(self) -> None:
         first_pin = "SharedOwner/shared-substrate@first-ref"
         second_pin = "SharedOwner/shared-substrate@second-ref"
-        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", first_pin)
+        h = WarmPinnedBinHarness(first_pin, "CandidateOwner/candidate-substrate@candidate-ref")
         try:
             first_result = h.run(str(h.worktree))
-            (h.worktree / ".fkst" / "substrate-ref").write_text(
+            (h.project_root / ".fkst" / "substrate-ref").write_text(
                 second_pin + "\n", encoding="utf-8"
             )
             second_result = h.run(str(h.worktree))
@@ -184,11 +187,13 @@ class WarmPinnedBinTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_concurrent_identical_actions_share_one_build(self) -> None:
+    def test_concurrent_identical_trusted_pins_share_one_build(self) -> None:
         pin = "SharedOwner/shared-substrate@concurrent-ref"
-        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)
+        h = WarmPinnedBinHarness(pin, "CandidateOwner/candidate-substrate@candidate-ref")
         try:
-            peer_worktree = h.create_worktree("concurrent-peer", pin)
+            peer_worktree = h.create_worktree(
+                "concurrent-peer", "PeerOwner/peer-substrate@peer-ref"
+            )
             h.env["FKST_TEST_CARGO_DELAY_SECONDS"] = "0.2"
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -208,7 +213,7 @@ class WarmPinnedBinTest(unittest.TestCase):
 
     def test_warm_exact_pin_cache_exits_without_git_or_cargo(self) -> None:
         pin = "WarmOwner/warm-substrate@warm-ref"
-        h = WarmPinnedBinHarness("ProjectOwner/project-substrate@project-ref", pin)
+        h = WarmPinnedBinHarness(pin, "CandidateOwner/candidate-substrate@candidate-ref")
         try:
             cached_bin = h.cache_bin("WarmOwner", "warm-substrate", "warm-ref")
             cached_bin.parent.mkdir(parents=True)
@@ -222,7 +227,7 @@ class WarmPinnedBinTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_cold_cache_builds_pin_read_from_worktree(self) -> None:
+    def test_cold_cache_builds_pin_read_from_trusted_project(self) -> None:
         project_pin = "ProjectOwner/project-substrate@project-ref"
         worktree_pin = "WorktreeOwner/worktree-substrate@worktree-ref"
         h = WarmPinnedBinHarness(project_pin, worktree_pin)
@@ -230,31 +235,26 @@ class WarmPinnedBinTest(unittest.TestCase):
             result = h.run(str(h.worktree))
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), f"warm-pinned-bin pin={worktree_pin} result=build")
+            self.assertEqual(result.stdout.strip(), f"warm-pinned-bin pin={project_pin} result=build")
             calls = h.calls()
             self.assertIn(
-                "git clone --no-checkout https://github.com/WorktreeOwner/worktree-substrate.git",
+                "git clone --no-checkout https://github.com/ProjectOwner/project-substrate.git",
                 calls,
             )
-            self.assertIn(" checkout --detach worktree-ref", calls)
+            self.assertIn(" checkout --detach project-ref", calls)
             self.assertIn("cargo build --manifest-path", calls)
-            self.assertNotIn("project-ref", calls)
-            self.assertNotIn("ProjectOwner/project-substrate", calls)
+            self.assertNotIn("worktree-ref", calls)
+            self.assertNotIn("WorktreeOwner/worktree-substrate", calls)
         finally:
             h.close()
 
-    def test_worktree_without_a_substrate_pin_is_not_applicable(self) -> None:
-        """fkst-substrate is the engine and carries no `.fkst/substrate-ref`.
-
-        Absence of a pin means there is nothing to warm, not that preparation failed. Erroring here
-        fails the cache-preparation hook, which fails the whole implement attempt: that regression
-        produced 18 dead-letters on the substrate target before it was caught.
-        """
+    def test_non_cargo_worktree_without_a_substrate_pin_is_not_applicable(self) -> None:
         h = WarmPinnedBinHarness(
             "ProjectOwner/project-substrate@project-ref",
             "WorktreeOwner/worktree-substrate@worktree-ref",
         )
         try:
+            (h.project_root / ".fkst" / "substrate-ref").unlink()
             (h.worktree / ".fkst" / "substrate-ref").unlink()
             result = h.run(str(h.worktree))
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -278,6 +278,211 @@ class WarmPinnedBinTest(unittest.TestCase):
         finally:
             h.close()
 
+
+class SharedCargoTargetHarness:
+    def __init__(self) -> None:
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            raise RuntimeError("cargo is required for shared Cargo target behavior tests")
+
+        self.tmp = tempfile.TemporaryDirectory()
+        tmp_root = Path(self.tmp.name)
+        self.project_root = tmp_root / "trusted-project"
+        self.checkout = tmp_root / "source-checkout"
+        self.common_git_dir = self.checkout / ".git"
+        self.shared_dependency = tmp_root / "shared-dependency"
+        self.candidate = tmp_root / "candidate-worktree"
+        self.detached_base = tmp_root / "detached-base-worktree"
+        self.rustc_log = tmp_root / "rustc.log"
+        self.project_root.mkdir()
+        self._write_shared_dependency(1)
+        self._create_repository()
+        self.rustc_wrapper = tmp_root / "rustc-wrapper.sh"
+        write_executable(
+            self.rustc_wrapper,
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env sh
+                printf '%s\\n' "$*" >> "$FKST_TEST_RUSTC_LOG"
+                exec "$@"
+                """
+            ),
+        )
+
+        self.env = os.environ.copy()
+        self.env.pop("CARGO_TARGET_DIR", None)
+        self.env.update(
+            {
+                "FKST_TEST_RUSTC_LOG": str(self.rustc_log),
+                "RUSTC_WRAPPER": str(self.rustc_wrapper),
+            }
+        )
+
+    def close(self) -> None:
+        self.tmp.cleanup()
+
+    def _write_shared_dependency(self, value: int) -> None:
+        (self.shared_dependency / "src").mkdir(parents=True, exist_ok=True)
+        (self.shared_dependency / "Cargo.toml").write_text(
+            textwrap.dedent(
+                """\
+                [package]
+                name = "shared_dependency"
+                version = "0.1.0"
+                edition = "2021"
+                """
+            ),
+            encoding="utf-8",
+        )
+        (self.shared_dependency / "src" / "lib.rs").write_text(
+            f"pub fn value() -> u8 {{ {value} }}\n", encoding="utf-8"
+        )
+
+    def _create_repository(self) -> None:
+        self.checkout.mkdir()
+        self._run_git("init", str(self.checkout))
+        self._write_project(self.checkout)
+        self._run_git("-C", str(self.checkout), "add", ".")
+        self._run_git(
+            "-C",
+            str(self.checkout),
+            "-c",
+            "user.name=Cache Test",
+            "-c",
+            "user.email=cache-test@example.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        )
+        for worktree in (self.candidate, self.detached_base):
+            self._run_git(
+                "-C", str(self.checkout), "worktree", "add", "--detach", str(worktree), "HEAD"
+            )
+
+    def _write_project(self, root: Path) -> None:
+        (root / "src").mkdir(parents=True)
+        dependency_path = str(self.shared_dependency).replace("\\", "\\\\")
+        (root / ".gitignore").write_text("/target\n", encoding="utf-8")
+        (root / "Cargo.toml").write_text(
+            textwrap.dedent(
+                f"""\
+                [package]
+                name = "cache_probe"
+                version = "0.1.0"
+                edition = "2021"
+
+                [dependencies]
+                shared_dependency = {{ path = "{dependency_path}" }}
+                """
+            ),
+            encoding="utf-8",
+        )
+        (root / "src" / "main.rs").write_text(
+            'fn main() { println!("{}", shared_dependency::value()); }\n',
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _run_git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+    def prepare(self, worktree: Path) -> subprocess.CompletedProcess[str]:
+        env = self.env.copy()
+        env["FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE"] = str(worktree)
+        return subprocess.run(
+            ["/bin/bash", str(WARM_SCRIPT)],
+            cwd=self.project_root,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    def build(self, worktree: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["cargo", "build", "--manifest-path", str(worktree / "Cargo.toml")],
+            cwd=worktree,
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    def shared_dependency_compiles(self) -> int:
+        if not self.rustc_log.exists():
+            return 0
+        return self.rustc_log.read_text(encoding="utf-8").count(
+            "--crate-name shared_dependency"
+        )
+
+
+class SharedCargoTargetTest(unittest.TestCase):
+    def test_identical_native_action_reuses_artifact_across_worktrees(self) -> None:
+        h = SharedCargoTargetHarness()
+        try:
+            candidate_prepare = h.prepare(h.candidate)
+            base_prepare = h.prepare(h.detached_base)
+
+            self.assertEqual(candidate_prepare.returncode, 0, candidate_prepare.stderr)
+            self.assertEqual(base_prepare.returncode, 0, base_prepare.stderr)
+            shared_target = h.checkout.joinpath("target").resolve()
+            self.assertEqual(h.candidate.joinpath("target").resolve(), shared_target)
+            self.assertEqual(h.detached_base.joinpath("target").resolve(), shared_target)
+            self.assertEqual(h.shared_dependency_compiles(), 0)
+
+            candidate_build = h.build(h.candidate)
+            base_build = h.build(h.detached_base)
+
+            self.assertEqual(candidate_build.returncode, 0, candidate_build.stderr)
+            self.assertEqual(base_build.returncode, 0, base_build.stderr)
+            self.assertEqual(h.shared_dependency_compiles(), 1)
+        finally:
+            h.close()
+
+    def test_changed_native_source_input_invalidates_artifact(self) -> None:
+        h = SharedCargoTargetHarness()
+        try:
+            for worktree in (h.candidate, h.detached_base):
+                prepared = h.prepare(worktree)
+                self.assertEqual(prepared.returncode, 0, prepared.stderr)
+
+            first_build = h.build(h.candidate)
+            h._write_shared_dependency(2)
+            second_build = h.build(h.detached_base)
+
+            self.assertEqual(first_build.returncode, 0, first_build.stderr)
+            self.assertEqual(second_build.returncode, 0, second_build.stderr)
+            self.assertEqual(h.shared_dependency_compiles(), 2)
+        finally:
+            h.close()
+
+    def test_concurrent_native_actions_share_one_artifact_build(self) -> None:
+        h = SharedCargoTargetHarness()
+        try:
+            for worktree in (h.candidate, h.detached_base):
+                prepared = h.prepare(worktree)
+                self.assertEqual(prepared.returncode, 0, prepared.stderr)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(h.build, h.candidate),
+                    executor.submit(h.build, h.detached_base),
+                ]
+                results = [future.result() for future in futures]
+
+            for result in results:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(h.shared_dependency_compiles(), 1)
+        finally:
+            h.close()
 
 if __name__ == "__main__":
     unittest.main()

@@ -143,6 +143,14 @@ mechanism without teaching `github-devloop` about `.lake`, `node_modules`, `targ
 toolchain-specific directories. Cache preparation never substitutes a verification verdict: every
 candidate and detached-base local gate still executes and produces its own typed result.
 
+This repository's canonical provider is `scripts/warm_pinned_bin.sh`. For a Cargo worktree, it uses
+Git's absolute common-directory identity to connect the ignored worktree `target` path to the source
+checkout's `target`. Cargo remains the artifact authority: its native fingerprints invalidate source,
+dependency, toolchain, configuration, and relevant environment changes, and its target lock provides
+concurrent single-flight compilation. The provider does not invoke Cargo against candidate content.
+For a non-Cargo worktree that needs the pinned framework binary, it reads `.fkst/substrate-ref` from
+the trusted project root, never from the candidate worktree, before using the pinned binary cache.
+
 ## Repository checks and tests
 
 For a host repository that delegates check/test orchestration to this repository:
