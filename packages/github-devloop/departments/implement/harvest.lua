@@ -470,6 +470,7 @@ function M.clean_branch_head(base_head, branch)
 end
 
 function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+  cache_preparation.run(worktree)
   local add_result = devloop_commands.git_add_all(worktree, 30)
   if add_result.exit_code ~= 0 then
     error("github-devloop: git-add-failed: git add failed: " .. tostring(add_result.stderr))

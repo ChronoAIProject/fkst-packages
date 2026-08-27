@@ -18,9 +18,11 @@ prepare_shared_cargo_target() {
   [ -f "$worktree/Cargo.toml" ] || return 0
 
   # A target symlink must remain an ignored build artifact, never candidate source.
+  if git -C "$worktree" ls-files --error-unmatch -- target >/dev/null 2>&1; then
+    bootstrap_die "warm-pinned-bin-target-tracked: target must remain an untracked cache link"
+  fi
   if ! git -C "$worktree" check-ignore -q -- target; then
-    CARGO_TARGET_RESULT="target-not-ignored"
-    return 0
+    bootstrap_die "warm-pinned-bin-target-not-ignored: target must remain ignored"
   fi
 
   common_git_dir="$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir)" \

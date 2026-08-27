@@ -425,6 +425,35 @@ class SharedCargoTargetHarness:
 
 
 class SharedCargoTargetTest(unittest.TestCase):
+    def test_non_ignored_target_fails_closed(self) -> None:
+        h = SharedCargoTargetHarness()
+        try:
+            prepared = h.prepare(h.candidate)
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            self.assertTrue(h.candidate.joinpath("target").is_symlink())
+
+            h.candidate.joinpath(".gitignore").write_text("", encoding="utf-8")
+            rejected = h.prepare(h.candidate)
+
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("warm-pinned-bin-target-not-ignored", rejected.stderr)
+        finally:
+            h.close()
+
+    def test_tracked_target_fails_closed(self) -> None:
+        h = SharedCargoTargetHarness()
+        try:
+            prepared = h.prepare(h.candidate)
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            h._run_git("-C", str(h.candidate), "add", "-f", "target")
+
+            rejected = h.prepare(h.candidate)
+
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("warm-pinned-bin-target-tracked", rejected.stderr)
+        finally:
+            h.close()
+
     def test_identical_native_action_reuses_artifact_across_worktrees(self) -> None:
         h = SharedCargoTargetHarness()
         try:

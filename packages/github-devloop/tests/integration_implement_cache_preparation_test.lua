@@ -193,6 +193,29 @@ return {
     t.is_true(tostring(result.error):find("cache-preparation-failed", 1, true) ~= nil)
   end,
 
+  test_cache_preparation_failure_after_codex_stops_before_staging = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    mock_cache_command(nil, 1)
+    mock_cache_command({
+      stdout = "",
+      stderr = "target is not ignored",
+      exit_code = 1,
+    })
+    mock_implement_codex(0, "implementation changed cache tracking")
+    mock_git_status(" M .gitignore\n")
+
+    local result = run_implement(event, opts("implement-cache-preparation-before-staging"))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls(cache_command), 2)
+    t.eq(count_calls("add -A"), 1)
+    t.eq(count_calls("commit -m 'Implement github-devloop ready state'"), 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.is_true(tostring(result.error):find("cache-preparation-failed", 1, true) ~= nil)
+  end,
+
   test_cache_preparation_runs_for_reused_worktree_cache = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
@@ -237,7 +260,7 @@ return {
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
-    mock_cache_command(nil, 3)
+    mock_cache_command(nil, 4)
     mock_codex_success_without_local_iteration("implemented with a semantic regression")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
@@ -247,15 +270,16 @@ return {
     local result = run_implement(event, opts("implement-cache-preparation-base-probe"))
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls(cache_command), 3)
+    t.eq(count_calls(cache_command), 4)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
     local preparations = command_indices(cache_command)
     local verifications = command_indices("scripts/run.sh test-affected")
     t.is_true(preparations[1] < command_index("codex exec"))
     t.is_true(command_index("codex exec") < preparations[2])
-    t.is_true(preparations[2] < verifications[1])
-    t.is_true(verifications[1] < preparations[3])
-    t.is_true(preparations[3] < verifications[2])
+    t.is_true(preparations[2] < preparations[3])
+    t.is_true(preparations[3] < verifications[1])
+    t.is_true(verifications[1] < preparations[4])
+    t.is_true(preparations[4] < verifications[2])
 
     local preparation_worktrees = {}
     for _, call in ipairs(t.command_calls()) do
@@ -266,6 +290,7 @@ return {
     end
     t.eq(preparation_worktrees[1], worktree)
     t.eq(preparation_worktrees[2], worktree)
-    t.is_true(tostring(preparation_worktrees[3]):find(worktree .. "-base-probe-", 1, true) ~= nil)
+    t.eq(preparation_worktrees[3], worktree)
+    t.is_true(tostring(preparation_worktrees[4]):find(worktree .. "-base-probe-", 1, true) ~= nil)
   end,
 }
