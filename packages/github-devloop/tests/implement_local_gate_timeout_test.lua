@@ -84,4 +84,23 @@ return {
 
     t.is_true(calls[1].cmd:find("export BASE='abc123' && make preflight", 1, true) ~= nil)
   end,
+
+  test_local_gate_prepares_the_exact_worktree_before_verification = function()
+    local sequence = {}
+    mock_local_test_command()
+
+    harvest.local_iteration_check("/tmp/fkst worktree", "abc123", {
+      prepare_cache = function(worktree)
+        table.insert(sequence, "prepare:" .. worktree)
+      end,
+      exec = function()
+        table.insert(sequence, "verify")
+        return { stdout = "", stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n", exit_code = 0 }
+      end,
+    })
+
+    t.eq(#sequence, 2)
+    t.eq(sequence[1], "prepare:/tmp/fkst worktree")
+    t.eq(sequence[2], "verify")
+  end,
 }

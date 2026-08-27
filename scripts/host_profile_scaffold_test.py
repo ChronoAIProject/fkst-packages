@@ -95,8 +95,9 @@ class HostProfileScaffoldTest(unittest.TestCase):
         self.assertIn("must be idempotent", doc)
         self.assertIn("trusted supervisor project root", doc)
         self.assertIn("`FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE`", doc)
+        self.assertIn("Cargo remains the artifact authority", doc)
         self.assertIn("FKST_DEVLOOP_CACHE_PREPARATION_COMMAND", scaffold)
-        self.assertIn("make prepare-cache", scaffold)
+        self.assertIn("scripts/warm_pinned_bin.sh", scaffold)
 
 
 if __name__ == "__main__":

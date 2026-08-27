@@ -68,7 +68,7 @@ The profile schema is the existing repository check/test environment surface:
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
-| `FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` | optional | Trusted-base cache preparation run for each implementation worktree before Codex starts. |
+| `FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` | optional | Trusted-base cache preparation run before Codex and before each candidate or detached-base local verification. |
 
 Those five keys together are the whole trusted-author allowlist: `FKST_GITHUB_BOT_LOGIN`
 (a required anchor) ∪ `FKST_DEVLOOP_MANAGED_BOT_LOGINS` ∪ `FKST_GITHUB_AUTHORIZED_LOGINS`,
@@ -124,17 +124,32 @@ command shape is not safely preflightable; it does not execute the test suite du
 ## Implementation cache preparation
 
 `FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` optionally names a repository-owned executable or task target
-that hydrates build caches in an implementation worktree. `github-devloop` runs it after refreshing
-`.fkst/substrate-ref` and before starting the Codex wall-clock deadline. The command runs from the
-trusted supervisor project root with the candidate path in
-`FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE`, never from candidate-controlled content. The command has
-a 10-minute timeout; a nonzero exit fails the implementation attempt loudly.
+that hydrates build caches for a worktree. `github-devloop` runs it after refreshing
+`.fkst/substrate-ref` and before starting the Codex wall-clock deadline, then runs it again immediately
+before each candidate local verification. A detached raw-base attribution probe receives the same
+preparation after its tree has been fully materialized and before its local gate runs. The command
+runs from the trusted supervisor project root with the worktree path in
+`FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE`, never from candidate-controlled content. The command has a
+10-minute timeout; a nonzero exit fails the implementation attempt loudly.
 
-The command must be idempotent because redelivery or a later implementation attempt can run it again
-for an existing worktree. It must treat the candidate path as untrusted data and must not execute
-candidate-controlled build scripts. Persistent cache ownership and reuse remain repository concerns,
-so trusted base logic can use the repository's native cache mechanism without teaching
-`github-devloop` about `.lake`, `node_modules`, `target`, or other toolchain-specific directories.
+The command must be idempotent and concurrency-safe because redelivery, repeated verification, or
+another worktree can run it concurrently. It must derive artifact reuse and invalidation from the
+repository's complete native build action inputs, including the materialized tree, toolchain,
+dependencies, configuration, and relevant environment. A repeated identical action may reuse
+artifacts; a changed input must invalidate the affected artifacts. It must treat the worktree path as
+untrusted data and must not execute candidate-controlled build scripts. Persistent cache ownership
+and reuse remain repository concerns, so trusted base logic can use the repository's native cache
+mechanism without teaching `github-devloop` about `.lake`, `node_modules`, `target`, or other
+toolchain-specific directories. Cache preparation never substitutes a verification verdict: every
+candidate and detached-base local gate still executes and produces its own typed result.
+
+This repository's canonical provider is `scripts/warm_pinned_bin.sh`. For a Cargo worktree, it uses
+Git's absolute common-directory identity to connect the ignored worktree `target` path to the source
+checkout's `target`. Cargo remains the artifact authority: its native fingerprints invalidate source,
+dependency, toolchain, configuration, and relevant environment changes, and its target lock provides
+concurrent single-flight compilation. The provider does not invoke Cargo against candidate content.
+For a non-Cargo worktree that needs the pinned framework binary, it reads `.fkst/substrate-ref` from
+the trusted project root, never from the candidate worktree, before using the pinned binary cache.
 
 ## Repository checks and tests
 

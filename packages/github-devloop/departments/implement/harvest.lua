@@ -3,6 +3,7 @@ local devloop_commands = require("devloop.commands")
 local config = require("devloop.config")
 local payloads_builders = require("devloop.payloads.builders")
 local branch_progress = require("departments.implement.branch_progress")
+local cache_preparation = require("departments.implement.cache_preparation")
 local substrate_pin = require("departments.implement.substrate_pin")
 local local_iteration_result = require("departments.implement.local_iteration_result")
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
@@ -180,7 +181,8 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
   }
 end
 
-local function execute_local_iteration_check(worktree, base_head, observe_worktree, exec)
+local function execute_local_iteration_check(worktree, base_head, observe_worktree, exec, prepare_cache)
+  (prepare_cache or cache_preparation.run)(worktree)
   local quoted_worktree = devloop_base._shell_single_quote(worktree)
   local command = "cd " .. quoted_worktree
   if observe_worktree then
@@ -208,7 +210,8 @@ function M.local_iteration_check(worktree, base_head, deps)
   if base_head == nil or tostring(base_head) == "" then
     error("github-devloop: local-iteration-base-missing: candidate base head is required")
   end
-  return execute_local_iteration_check(worktree, base_head, true, deps and deps.exec or nil)
+  return execute_local_iteration_check(
+    worktree, base_head, true, deps and deps.exec or nil, deps and deps.prepare_cache or nil)
 end
 
 local function worktree_unavailability_from_command(result)
@@ -467,6 +470,7 @@ function M.clean_branch_head(base_head, branch)
 end
 
 function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+  cache_preparation.run(worktree)
   local add_result = devloop_commands.git_add_all(worktree, 30)
   if add_result.exit_code ~= 0 then
     error("github-devloop: git-add-failed: git add failed: " .. tostring(add_result.stderr))
